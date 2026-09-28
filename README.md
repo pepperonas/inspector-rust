@@ -79,16 +79,16 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **4695 unit tests (1760 Rust + 2935 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **4714 unit tests (1779 Rust + 2935 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code (Rust + TypeScript source)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~189k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~190k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 1760 Rust + 2935 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-4695%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 1779 Rust + 2935 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-4714%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -110,7 +110,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-4695%20(1760%20Rust%20%2B%202935%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-4714%20(1779%20Rust%20%2B%202935%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-67-4f46e5?style=flat-square)](#commands)
@@ -190,7 +190,7 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-1760%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-1779%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![vitest](https://img.shields.io/badge/vitest-2935%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
@@ -299,7 +299,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-4695%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-4714%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-421-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-55-blueviolet?style=flat-square)](#)
@@ -314,7 +314,7 @@
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
   [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~96k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~97k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~93k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
   [![Features](https://img.shields.io/badge/features-189-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
@@ -579,7 +579,7 @@ alone for the whole index.
 | `pwgen` | v0.40.0 | Password generator — CSPRNG, 4 modes. |
 | `alarm` | v0.42.0 | Alarm at a clock time (next occurrence). |
 | `timer` <sub>(alias: `countdown`)</sub> | v0.42.0 | Countdown timer — fires an alarm on expiry. |
-| `md2pdf` | v0.46.0 | Markdown → PDF (GitHub CSS), sibling file. |
+| `md2pdf` | v0.46.0 | Markdown → paginated A4 PDF in mrxdown's look, beside the source — never overwrites. |
 | `wakelock` <sub>(alias: `caffeine`)</sub> | v0.52.0 | Keep the Mac awake — full (screen on) or dark (screen may sleep). |
 | `mkdir` | v0.53.0 | Create a folder in the front Finder/Explorer folder. |
 | `terminal` | v0.53.0 | Open a terminal at the front Finder/Explorer folder. |
@@ -975,7 +975,7 @@ Inspector Rust keeps its **pure logic** — parsers, math, state machines, arg-b
 
 ```bash
 pnpm test               # frontend unit tests (vitest + happy-dom) — 2935 tests
-cargo test --workspace  # Rust unit tests — 1760 tests
+cargo test --workspace  # Rust unit tests — 1779 tests
 ```
 
 Iterate on one module:

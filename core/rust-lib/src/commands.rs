@@ -5055,27 +5055,30 @@ pub async fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), S
 fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), String> {
     // Resolve the target paths up front so a bad/empty selection errors
     // synchronously (the frontend can show it) before we spawn.
-    let arg_path = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
-    let paths: Vec<std::path::PathBuf> = if let Some(p) = arg_path {
-        vec![crate::path_arg::expand_user(
-            &p,
-            dirs::home_dir().as_deref(),
-        )]
+    let arg_path = path
+        .map(|p| p.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+        .filter(|p| !p.is_empty())
+        .map(|p| crate::path_arg::expand_user(&p, dirs::home_dir().as_deref()));
+    // Only read the Finder selection when no path was typed (osascript costs
+    // up to its 2 s watchdog, and a typed path wins anyway).
+    let selection = if arg_path.is_some() {
+        Ok(Vec::new())
     } else {
         #[cfg(target_os = "macos")]
         {
-            crate::finder_selection::read()?
+            crate::finder_selection::read()
         }
         #[cfg(not(target_os = "macos"))]
         {
-            return Err(
-                "md2pdf: pass a file path (selection reading is macOS-only for now)".into(),
-            );
+            Err("md2pdf: pass a file path (selection reading is macOS-only for now)".to_string())
         }
     };
-    if paths.is_empty() {
-        return Err("md2pdf: nothing selected (and no path given)".into());
+    if let Err(e) = &selection {
+        if e == crate::finder_selection::ERR_AUTOMATION_DENIED {
+            return Err(e.clone());
+        }
     }
+    let paths = crate::md_to_pdf::choose_inputs(arg_path, selection, |p| p.is_file())?;
 
     let app2 = app.clone();
     std::thread::spawn(move || {
@@ -5098,6 +5101,9 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
             summary.skipped.len(),
             summary.failed.len()
         );
+        for (path, why) in &summary.failed {
+            tracing::warn!("md2pdf: {} failed: {why}", path.display());
+        }
         crate::md_to_pdf::notify(&summary);
     });
     Ok(())

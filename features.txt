@@ -51,7 +51,7 @@ Screenshot-Editor — Pfeile, Text, Formen, Blur, Redact, Schritt-Badges; Pin-to
 Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor
 Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard
 Finder-Auswahl — Ctrl+Shift+F: markierte Dateien im Popup; Bilder resizen/optimieren/freistellen
-Markdown→PDF — Ctrl+Shift+M oder `md2pdf [pfad]` (GitHub-Styling)
+Markdown→PDF — Ctrl+Shift+M oder `md2pdf [pfad]`: Finder-Auswahl oder Pfad, PDF gleichnamig im selben Ordner, überschreibt nie (belegt → `name 2.pdf` wie der Finder); mrxdown-Look mit echten A4-Seiten, Seitenzahlen, Syntax-Highlighting, KaTeX-Mathe, Mermaid, Callouts, eingebetteten Bildern und Titelseite aus dem Frontmatter
 Audio-Swap — Ctrl+Shift+Alt+M: Tonspur eines Videos ersetzen/mischen (Datei oder YouTube-Quelle)
 Timesheet — Ctrl+Shift+T öffnet den Tab; Ctrl+Shift+Alt+T startet/stoppt Tracking von überall
 Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Kollisionsprüfung

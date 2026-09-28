@@ -56,7 +56,7 @@ tungstenite = { workspace = true }
 # ~150 KB binary impact, zero unsafe. We pair it with platform-native
 # HTML→PDF (WKWebView on macOS) to keep the whole pipeline standalone
 # (no mrxdown CLI required) without bundling Chromium.
-pulldown-cmark = { version = "0.10", default-features = false, features = ["html"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 # TOTP (RFC 6238) generator + otpauth URI parser. Used by the
 # `2fa` overlay / `otp <issuer>` autocomplete (v0.47.0+).
 # ~30 KB binary impact, MIT, well-maintained.

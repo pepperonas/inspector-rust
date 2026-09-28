@@ -716,9 +716,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "md2pdf",
     keyword: "md2pdf",
-    syntax: "md2pdf [path]",
+    syntax: "md2pdf [pfad]",
     description:
-      "Convert Markdown → PDF (same as Ctrl+Shift+M). Bare = file-manager selection; or `md2pdf <path>`",
+      "Markdown → A4-PDF im mrxdown-Stil (wie Ctrl+Shift+M). Ohne Pfad: Finder-Auswahl; belegt → „Name 2.pdf“",
     requiresArg: false,
     // macOS: WKWebView (selection or path). Windows: Edge headless (path).
     // Linux has no PDF backend yet.

@@ -1,0 +1,157 @@
+/* MrxDown default PDF template — the original styling.
+   Sans-serif body, justified paragraphs, clean table style, light code blocks. */
+
+@page {
+    margin: 20mm 15mm;
+    size: A4 portrait;
+    @bottom-center {
+        content: counter(page);
+        font-size: 9pt;
+        color: #999;
+    }
+}
+* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+                 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+                 'Noto Color Emoji', sans-serif;
+    color: #1a1a1a !important;
+    background: #fff !important;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    line-height: 1.7;
+    font-size: 11pt;
+    orphans: 3;
+    widows: 3;
+    text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, h5, h6 {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+                 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+                 'Noto Color Emoji', sans-serif;
+    color: #1a1a1a !important;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: subpixel-antialiased;
+    font-feature-settings: "kern" 1;
+    white-space: pre-wrap;
+}
+h1 { font-size: 2.25rem; border-bottom: 2px solid #333; padding-bottom: 0.5rem; margin-top: 0; page-break-before: auto; }
+h2 { font-size: 1.875rem; }
+h3 { font-size: 1.5rem; }
+h4 { font-size: 1.25rem; }
+h5 { font-size: 1.125rem; }
+h6 { font-size: 1rem; color: #666 !important; }
+p { color: #1a1a1a !important; margin: 0; text-align: justify; hyphens: auto; }
+p + p { margin-top: 1rem; }
+h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p { margin-top: 0; }
+.line-break { display: block; height: 0; }
+.line-break + .line-break { height: 1em; }
+br { display: block; height: 0; }
+br + br { height: 1em; }
+p:empty { margin: 1em 0; }
+strong, b { color: #1a1a1a !important; font-weight: 700; }
+em, i { color: #1a1a1a !important; font-style: italic; }
+code {
+    background: #f5f5f5 !important;
+    color: #d14 !important;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Courier New', monospace;
+    font-size: 0.9em;
+    border: 1px solid #e0e0e0;
+}
+pre {
+    background: #f8f8f8 !important;
+    color: #1a1a1a !important;
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    border: 1px solid #ddd;
+    margin: 1em 0;
+    page-break-inside: avoid;
+    line-height: 1.5;
+}
+pre code { background: none !important; color: #1a1a1a !important; padding: 0; border: none; font-size: 0.85em; }
+blockquote {
+    border-left: 4px solid #666;
+    padding-left: 16px; padding-top: 8px; padding-bottom: 8px;
+    color: #555 !important;
+    margin: 1.2em 0;
+    font-style: italic;
+    background: #f9f9f9;
+    page-break-inside: avoid;
+}
+ul, ol { color: #1a1a1a !important; margin-bottom: 1rem; padding-left: 1.5rem; }
+li { color: #1a1a1a !important; margin-bottom: 0.5rem; page-break-inside: avoid; }
+li > ul, li > ol { margin-top: 0.3em; margin-bottom: 0.3em; }
+li input[type="checkbox"] { margin-right: 0.5em; }
+a { color: #0066cc !important; text-decoration: underline; word-wrap: break-word; }
+a[href^="#"] { color: #0066cc !important; text-decoration: underline; cursor: pointer; }
+h1[id], h2[id], h3[id], h4[id], h5[id], h6[id] { scroll-margin-top: 2em; }
+table { border-collapse: collapse; width: 100%; margin: 1.2em 0; page-break-inside: auto; font-size: 0.9em; }
+tr { page-break-inside: avoid; page-break-after: auto; }
+thead { display: table-header-group; }
+th, td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; color: #1a1a1a !important; }
+th { background: #f5f5f5 !important; color: #1a1a1a !important; font-weight: 600; }
+tr:nth-child(even) { background: #fafafa !important; }
+img { max-width: 100%; height: auto; margin: 1.5em 0; page-break-inside: avoid; }
+hr { border: none; border-top: 2px solid #ddd; margin: 2em 0; page-break-after: avoid; }
+
+/* Title page support — only rendered when frontmatter provides title */
+.mrx-titlepage {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 20vh;
+}
+.mrx-titlepage h1 {
+    border: none;
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+    page-break-before: avoid;
+}
+.mrx-titlepage .mrx-subtitle { font-size: 1.5rem; color: #555; font-weight: 400; margin-bottom: 3rem; }
+.mrx-titlepage .mrx-author { font-size: 1.1rem; margin-top: 4rem; }
+.mrx-titlepage .mrx-date { font-size: 1rem; color: #888; margin-top: 0.5rem; }
+.mrx-titlepage .mrx-meta { margin-top: 6rem; font-size: 0.9rem; color: #aaa; }
+
+@media print { body { margin: 0; padding: 0; } a { text-decoration: underline; } }
+
+/* --- Print-Hygiene (PDF-Audit 2026-07-04, ab Chrome 108 wirksam) --- */
+h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+pre, table, figure, blockquote, img { break-inside: avoid; }
+p { widows: 3; orphans: 3; hyphens: auto; text-wrap: pretty; }
+thead { display: table-header-group; }
+
+/* E4: Callouts (> [!NOTE] …) — GitHub-nahe Druckfarben */
+.callout {
+    border-left: 3px solid #0969da;
+    border-radius: 4px;
+    background: #f6f8fa !important;
+    padding: 10px 14px;
+    margin: 1em 0;
+    page-break-inside: avoid;
+}
+.callout-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 5px 0;
+    font-weight: 600;
+    color: #0969da;
+}
+.callout-title .callout-icon { flex-shrink: 0; }
+.callout > :last-child { margin-bottom: 0; }
+.callout-tip       { border-left-color: #1a7f37; }
+.callout-tip .callout-title       { color: #1a7f37; }
+.callout-important { border-left-color: #8250df; }
+.callout-important .callout-title { color: #8250df; }
+.callout-warning   { border-left-color: #9a6700; }
+.callout-warning .callout-title   { color: #9a6700; }
+.callout-caution   { border-left-color: #d1242f; }
+.callout-caution .callout-title   { color: #d1242f; }

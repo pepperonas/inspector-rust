@@ -5,6 +5,7 @@ import {
   Clock,
   Coffee,
   Dices,
+  FileText,
   Moon,
   Music,
   Sparkles,
@@ -147,6 +148,8 @@ export function StatusToast() {
         ? AlarmClock
         : payload.kind === "clean"
           ? Sparkles
+          : payload.kind === "md2pdf"
+            ? FileText
           : payload.kind === "random"
             ? Dices
             : payload.kind === "shazam"

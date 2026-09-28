@@ -1922,8 +1922,8 @@ function App() {
       case "md2pdf":
         label = arg
           ? `Markdown → PDF: "${arg}"`
-          : "Markdown → PDF (file-manager selection)";
-        hint = "Same as Ctrl+Shift+M · PDF lands next to the source";
+          : "Markdown → PDF (Finder-Auswahl)";
+        hint = "A4 im mrxdown-Stil · gleicher Name im selben Ordner · belegt → „Name 2.pdf“";
         break;
       case "shot-region": {
         const delay = parseShotDelay(arg);
@@ -4176,8 +4176,10 @@ function App() {
         try {
           await mdToPdfRun(arg || undefined);
         } catch (e) {
-          setPasteError("other");
+          // Name the reason ("no Markdown selected", "file not found") — a
+          // generic error left the user guessing what to do next.
           console.error("md2pdf failed", e);
+          await showStatusToast("md2pdf", false, "Markdown → PDF", String(e));
           return true;
         }
         await hidePopup();

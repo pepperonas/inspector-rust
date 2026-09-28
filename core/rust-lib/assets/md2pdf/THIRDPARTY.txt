@@ -1,0 +1,5 @@
+md2pdf render assets, vendored from mrxdown (9540b10).
+mrxdown-default.css — MIT, (c) Martin Pfeffer (mrxdown).
+highlight.min.js — highlight.js, BSD-3-Clause.
+katex.min.js, katex.inline.css — KaTeX 0.16.47, MIT; fonts SIL OFL 1.1.
+mermaid.min.js — Mermaid 11.17.2, MIT.

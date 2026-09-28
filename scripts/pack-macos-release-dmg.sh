@@ -166,9 +166,18 @@ mkdir -p "${DMG_DIR}"
 rm -f "${DMG_DIR}"/*.dmg
 
 echo "▸ Building ${DMG_OUT}…"
+# ⚠️ Size the volume explicitly. hdiutil's own estimate from -srcfolder is too
+# tight for a larger bundle: v0.187.0 (+4.5 MB of vendored md2pdf scripts)
+# failed in CI with "create failed - No space left on device" — the IMAGE was
+# full, not the runner. Content + 25 % + 20 MB leaves room for filesystem
+# overhead and the volume icon; UDZO compresses the slack away again.
+SRC_MB="$(du -sm "${STAGE}" | awk '{print $1}')"
+IMG_MB=$(( SRC_MB + SRC_MB / 4 + 20 ))
+echo "  content ${SRC_MB} MB → image ${IMG_MB} MB"
 # UDZO = zlib-compressed read-only — same format tauri's bundle_dmg uses.
 hdiutil create \
   -volname "InspectorRust" \
+  -size "${IMG_MB}m" \
   -srcfolder "${STAGE}" \
   -ov \
   -format UDZO \

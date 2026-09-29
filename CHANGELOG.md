@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Changed
+- **Window palette: only ours appears at the green button.** On by default while the palette is summoned by hovering the green button, Inspector Rust now hides macOS's own tiling menu there (the global AppKit default `NSZoomButtonShowMenu`), so the two popovers no longer stack and the palette sits right under the button again. It takes effect immediately, in already-running apps too. Switch it off in **Settings → Window palette**; that restores the macOS menu — but only if Inspector Rust was the one who hid it.
+
 ### Fixed
 - **Cursor wrap-around with several screens.** Leaving the outermost left or right side now always lands on the far side of the first or last screen; the pointer jumps within one screen only when it is the only one. With vertically offset screens it used to wrap back onto its own screen on the inner side (where the neighbour exists, just not at that height) — that side no longer wraps at all. Vertical wraps stay in the pointer's column.
 - **No more "sticky" edge.** The push's overshoot is carried across, the post-warp lockout dropped from 120 ms to 25 ms, and macOS's 0.25 s event suppression after a warp is switched off, so the pointer passes straight through.

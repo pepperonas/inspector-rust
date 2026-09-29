@@ -1453,6 +1453,9 @@ export interface WindowPaletteConfig {
   cols: number;
   rows: number;
   trigger: PaletteTrigger;
+  /** Hide macOS's own tiling menu at the green button (global
+   *  `NSZoomButtonShowMenu = NO`) while the palette owns that hover. */
+  hide_system_menu: boolean;
 }
 
 export interface PaletteContext {

@@ -1694,8 +1694,26 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         ? "Hold Control+Option and point at a window's title bar."
                         : paletteCfg.trigger === "hotkey"
                           ? "Opens for the focused window — bind it under Global shortcuts."
-                          : "On macOS 15+ the system opens its own tiling menu at the button; the palette places itself beside it, so the two never stack."}
+                          : paletteCfg.hide_system_menu
+                            ? "Only the Inspector Rust palette appears at the button."
+                            : "macOS opens its own tiling menu at the button too; the palette places itself beside it, so the two never stack."}
                     </span>
+                    {paletteCfg.trigger === "zoom_hover" && (
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={paletteCfg.hide_system_menu}
+                          disabled={paletteBusy}
+                          onChange={(e) =>
+                            void updatePalette({ hide_system_menu: e.target.checked })
+                          }
+                          className="accent-[var(--color-accent)]"
+                        />
+                        <span className="text-[var(--color-fg)]">
+                          Hide macOS&apos;s tiling menu at the green button
+                        </span>
+                      </label>
+                    )}
                     <span className="text-[var(--color-muted)]">
                       The global shortcut works in every mode.
                     </span>

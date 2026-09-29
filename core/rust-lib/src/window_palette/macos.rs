@@ -10,7 +10,7 @@
 //! triggers (mouse-moved alone never fires while the cursor is stationary). AX
 //! calls use a short messaging timeout so an unresponsive app can't hang us.
 
-use super::{
+use super::{SysMenuAction, 
     fraction_to_rect, in_titlebar_band, titlebar_chord_held, PaletteContext, PaletteTrigger,
     WindowPaletteConfig, TITLEBAR_BAND,
 };
@@ -355,6 +355,10 @@ static LAST_PTR_EMIT: Mutex<Option<Instant>> = Mutex::new(None);
 static LAST_HITTEST: Mutex<Option<Instant>> = Mutex::new(None);
 static CONFIG: Mutex<(u32, u32)> = Mutex::new((super::DEFAULT_COLS, super::DEFAULT_ROWS));
 static TRIGGER: Mutex<PaletteTrigger> = Mutex::new(PaletteTrigger::TitlebarModifier);
+/// Is macOS's own zoom-button menu currently suppressed (global
+/// `NSZoomButtonShowMenu = NO`)? Then nothing else opens at the button and the
+/// palette sits right on it instead of dodging 250 pt aside.
+static SYSMENU_HIDDEN: AtomicBool = AtomicBool::new(false);
 /// Modifier flags from the most recent mouse-move. The dwell timer fires on its
 /// own thread and has no event, so the chord is read from here at show time.
 static LAST_FLAGS: AtomicU64 = AtomicU64::new(0);
@@ -391,7 +395,8 @@ unsafe fn try_show_if(gen: u64) {
         tracing::debug!("window-palette: re-hit at show time found no target");
         return;
     };
-    let dodge = matches!(*TRIGGER.lock(), PaletteTrigger::ZoomHover);
+    let dodge = matches!(*TRIGGER.lock(), PaletteTrigger::ZoomHover)
+        && !SYSMENU_HIDDEN.load(Ordering::SeqCst);
     show_palette_for(anchor, region, win, dodge);
 }
 
@@ -687,7 +692,79 @@ fn install_tap_thread() {
 
 // ── Public (called from `super::apply` + the IPC commands) ────────────────────
 
-pub(crate) fn set_active(app: &AppHandle, _db: &crate::db::DbHandle, cfg: WindowPaletteConfig) {
+// ── macOS zoom-button menu (global AppKit default) ───────────────────────────
+
+const SYSMENU_KEY: &str = "NSZoomButtonShowMenu";
+
+/// Read the global default: `Some(false)` = menu suppressed, `None` = unset.
+fn read_sysmenu_default() -> Option<bool> {
+    let out = std::process::Command::new("/usr/bin/defaults")
+        .args(["read", "-g", SYSMENU_KEY])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None; // key not set
+    }
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "0" | "false" | "NO" => Some(false),
+        "1" | "true" | "YES" => Some(true),
+        _ => None,
+    }
+}
+
+fn run_defaults(args: &[&str]) -> bool {
+    std::process::Command::new("/usr/bin/defaults")
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Bring the global default in line with the config. Runs on a worker thread
+/// (it spawns `defaults`); the dodge flag is set optimistically first and
+/// corrected once the real state is known. Applies live to running apps.
+fn sync_system_menu(db: &crate::db::DbHandle, cfg: &WindowPaletteConfig) {
+    let want = super::wants_system_menu_hidden(cfg);
+    SYSMENU_HIDDEN.store(want, Ordering::SeqCst);
+    let db = db.clone();
+    std::thread::spawn(move || {
+        let current = read_sysmenu_default();
+        let owned =
+            crate::settings::get_bool(&db, super::KEY_SYSMENU_OWNED, false).unwrap_or(false);
+        let hidden = match super::system_menu_action(want, current, owned) {
+            SysMenuAction::Hide => {
+                let ok = run_defaults(&["write", "-g", SYSMENU_KEY, "-bool", "NO"]);
+                if ok {
+                    let _ = crate::settings::set(&db, super::KEY_SYSMENU_OWNED, "true");
+                    tracing::info!("window-palette: macOS zoom-button menu hidden");
+                } else {
+                    tracing::warn!("window-palette: could not hide the macOS zoom-button menu");
+                }
+                ok
+            }
+            SysMenuAction::Restore => {
+                if run_defaults(&["delete", "-g", SYSMENU_KEY]) {
+                    let _ = crate::settings::set(&db, super::KEY_SYSMENU_OWNED, "false");
+                    tracing::info!("window-palette: macOS zoom-button menu restored");
+                    false
+                } else {
+                    true
+                }
+            }
+            SysMenuAction::Keep => {
+                if !want && current != Some(false) && owned {
+                    // Someone removed it behind our back — drop the stale claim.
+                    let _ = crate::settings::set(&db, super::KEY_SYSMENU_OWNED, "false");
+                }
+                current == Some(false)
+            }
+        };
+        SYSMENU_HIDDEN.store(hidden, Ordering::SeqCst);
+    });
+}
+
+pub(crate) fn set_active(app: &AppHandle, db: &crate::db::DbHandle, cfg: WindowPaletteConfig) {
+    sync_system_menu(db, &cfg);
     *APP.lock() = Some(app.clone());
     *CONFIG.lock() = (cfg.cols, cfg.rows);
     *TRIGGER.lock() = cfg.trigger;

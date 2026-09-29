@@ -19,6 +19,10 @@ use crate::window_snap::Rect;
 
 const KEY_ENABLED: &str = "windowpalette.enabled";
 const KEY_TRIGGER: &str = "windowpalette.trigger";
+const KEY_HIDE_SYSMENU: &str = "windowpalette.hide_system_menu";
+/// Set when WE wrote the global `NSZoomButtonShowMenu = NO`, so turning the
+/// option off only removes a value we own — never one the user set by hand.
+pub(crate) const KEY_SYSMENU_OWNED: &str = "windowpalette.sysmenu_owned";
 
 /// First macOS release whose system tiling owns plain hover over the green
 /// zoom button (macOS 15 Sequoia).
@@ -42,6 +46,12 @@ const MAX_CELLS: u32 = 24;
 /// `enableTilingOptionAccelerator`), none of which touches the hover menu, and
 /// System Settings offers no toggle for it either. Two popovers then fight over
 /// the same few pixels, so the default moved to a trigger macOS does not claim.
+///
+/// ⚠️ **Superseded on macOS 27 (2026-09-29):** AppKit (not WindowManager — the
+/// menu is drawn by each app) reads the global default `NSZoomButtonShowMenu`;
+/// `NO` suppresses the menu and applies LIVE to already-running apps (verified
+/// by screenshots: menu → gone → back as the key was written and deleted). See
+/// [`WindowPaletteConfig::hide_system_menu`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PaletteTrigger {
@@ -129,6 +139,47 @@ pub struct WindowPaletteConfig {
     pub rows: u32,
     /// How the palette is summoned.
     pub trigger: PaletteTrigger,
+    /// Hide macOS's own tiling menu at the green button (global AppKit default
+    /// `NSZoomButtonShowMenu = NO`) while the palette owns that hover, so only
+    /// ours appears. Serde-defaulted: an older frontend payload must not flip it.
+    #[serde(default = "default_true")]
+    pub hide_system_menu: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Should macOS's zoom-button menu be hidden for this config? Only while the
+/// palette is on AND summoned by that very hover — in every other mode the
+/// system menu is the only thing at the button and must stay.
+pub fn wants_system_menu_hidden(cfg: &WindowPaletteConfig) -> bool {
+    cfg.enabled && cfg.trigger == PaletteTrigger::ZoomHover && cfg.hide_system_menu
+}
+
+/// What to do with the global `NSZoomButtonShowMenu` default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SysMenuAction {
+    /// Write `NO` and take ownership.
+    Hide,
+    /// Remove the key (restores the macOS default) and drop ownership.
+    Restore,
+    /// Leave it as is.
+    Keep,
+}
+
+/// Pure decision. `current` = the key's value (`None` = unset), `owned` =
+/// whether a previous run of ours wrote it.
+///
+/// ⚠️ Never removes a value we don't own: a user who disabled the menu by hand
+/// keeps it disabled when they switch the palette off.
+pub fn system_menu_action(want_hidden: bool, current: Option<bool>, owned: bool) -> SysMenuAction {
+    match (want_hidden, current) {
+        (true, Some(false)) => SysMenuAction::Keep,
+        (true, _) => SysMenuAction::Hide,
+        (false, Some(false)) if owned => SysMenuAction::Restore,
+        (false, _) => SysMenuAction::Keep,
+    }
 }
 
 impl Default for WindowPaletteConfig {
@@ -138,6 +189,7 @@ impl Default for WindowPaletteConfig {
             cols: DEFAULT_COLS,
             rows: DEFAULT_ROWS,
             trigger: default_trigger(host_os_major()),
+            hide_system_menu: true,
         }
     }
 }
@@ -160,6 +212,7 @@ impl WindowPaletteConfig {
                 .as_deref()
                 .and_then(PaletteTrigger::parse)
                 .unwrap_or_else(|| default_trigger(host_os_major())),
+            hide_system_menu: crate::settings::get_bool(db, KEY_HIDE_SYSMENU, true).unwrap_or(true),
             rows: clamp_cells(
                 crate::settings::get(db, KEY_ROWS)
                     .ok()
@@ -174,6 +227,11 @@ impl WindowPaletteConfig {
         crate::settings::set(db, KEY_COLS, &clamp_cells(self.cols).to_string())?;
         crate::settings::set(db, KEY_ROWS, &clamp_cells(self.rows).to_string())?;
         crate::settings::set(db, KEY_TRIGGER, self.trigger.as_key())?;
+        crate::settings::set(
+            db,
+            KEY_HIDE_SYSMENU,
+            if self.hide_system_menu { "true" } else { "false" },
+        )?;
         Ok(())
     }
 }
@@ -274,6 +332,45 @@ mod tests {
             assert_eq!(default_trigger(Some(m)), PaletteTrigger::ZoomHover, "macOS {m}");
         }
         assert_eq!(default_trigger(None), PaletteTrigger::ZoomHover);
+    }
+
+    #[test]
+    fn the_system_menu_is_hidden_only_while_the_palette_owns_the_hover() {
+        let on = WindowPaletteConfig {
+            enabled: true,
+            trigger: PaletteTrigger::ZoomHover,
+            hide_system_menu: true,
+            ..WindowPaletteConfig::default()
+        };
+        assert!(wants_system_menu_hidden(&on));
+        assert!(!wants_system_menu_hidden(&WindowPaletteConfig { enabled: false, ..on }));
+        assert!(!wants_system_menu_hidden(&WindowPaletteConfig { hide_system_menu: false, ..on }));
+        for tr in [PaletteTrigger::TitlebarModifier, PaletteTrigger::Hotkey] {
+            assert!(!wants_system_menu_hidden(&WindowPaletteConfig { trigger: tr, ..on }));
+        }
+    }
+
+    #[test]
+    fn a_hand_set_value_is_never_removed() {
+        use SysMenuAction::*;
+        assert_eq!(system_menu_action(true, None, false), Hide);
+        assert_eq!(system_menu_action(true, Some(true), false), Hide);
+        assert_eq!(system_menu_action(true, Some(false), false), Keep);
+        // turning it off: remove only what we wrote
+        assert_eq!(system_menu_action(false, Some(false), true), Restore);
+        assert_eq!(system_menu_action(false, Some(false), false), Keep);
+        assert_eq!(system_menu_action(false, None, true), Keep);
+        assert_eq!(system_menu_action(false, Some(true), true), Keep);
+    }
+
+    #[test]
+    fn hide_system_menu_defaults_on_and_survives_an_old_payload() {
+        assert!(WindowPaletteConfig::default().hide_system_menu);
+        let old: WindowPaletteConfig = serde_json::from_str(
+            r#"{"enabled":true,"cols":16,"rows":10,"trigger":"zoom_hover"}"#,
+        )
+        .unwrap();
+        assert!(old.hide_system_menu);
     }
 
     #[test]

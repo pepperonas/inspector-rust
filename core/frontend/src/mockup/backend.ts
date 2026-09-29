@@ -192,6 +192,117 @@ const SONGS = [
   shazam_url: "https://example.com", spotify_url: "https://example.com", youtube_url: "https://example.com",
 }));
 
+// ── second gallery batch ──
+const MONITORS = [
+  { id: 1, name: "Built-in Retina Display", brightness: 72, supports_ddc: true, edr_max: 160 },
+  { id: 2, name: "Studio Display", brightness: 55, supports_ddc: true, edr_max: 100 },
+];
+const AUDIO = [
+  { id: "71", name: "MacBook Pro Speakers", is_default: false },
+  { id: "84", name: "AirPods Pro", is_default: true },
+  { id: "92", name: "Studio Display Speakers", is_default: false },
+  { id: "105", name: "USB Audio Interface", is_default: false },
+];
+const ALIASES = [
+  ["gs", "git status -sb"], ["gl", "git log --oneline --graph -20"], ["ll", "ls -lah"],
+  ["serve", "python3 -m http.server 8000"], ["dps", "docker ps --format 'table {{.Names}}\\t{{.Status}}'"],
+  ["k", "kubectl"], ["weather", "curl wttr.in/Lisbon"],
+].map(([name, command], i) => ({ name, command, file: i < 5 ? "~/.zshrc" : "~/.zsh/aliases.zsh", primary: i < 5 }));
+const IP = { ip: "203.0.113.42", city: "Lisbon", region: "Lisbon", country: "Portugal", country_code: "PT",
+  postal: "1100-148", latitude: 38.7223, longitude: -9.1393, timezone: "Europe/Lisbon",
+  organization: "Northwind Fibre", asn: "AS64500" };
+const SNITCH_APPS = [
+  ["Safari", 14, ["198.51.100.10", "203.0.113.5"]], ["Slack", 6, ["198.51.100.44"]], ["Spotify", 4, ["203.0.113.77"]],
+  ["Figma", 3, ["198.51.100.91"]], ["Mail", 2, ["203.0.113.18"]], ["Dropbox", 2, ["198.51.100.120"]],
+  ["Tracker Helper", 1, ["203.0.113.200"]],
+].map(([command, n, remotes], i) => ({ key: String(command), command, pids: [4100 + i], connection_count: n, remotes, blocked: i === 6 }));
+const SNITCH_GEO = [
+  ["198.51.100.10", 37.39, -122.08, "United States", "Mountain View", "Example Cloud"],
+  ["203.0.113.5", 53.35, -6.26, "Ireland", "Dublin", "Example CDN"],
+  ["198.51.100.44", 39.04, -77.49, "United States", "Ashburn", "Example Cloud"],
+  ["203.0.113.77", 59.33, 18.07, "Sweden", "Stockholm", "Example Music"],
+  ["198.51.100.91", 50.11, 8.68, "Germany", "Frankfurt", "Example Cloud"],
+  ["203.0.113.18", 35.68, 139.69, "Japan", "Tokyo", "Example Mail"],
+  ["198.51.100.120", -33.87, 151.21, "Australia", "Sydney", "Example Storage"],
+  ["203.0.113.200", 1.35, 103.82, "Singapore", "Singapore", "Example Ads"],
+].map(([ip, lat, lon, country, city, isp]) => ({ ip, lat, lon, country, city, isp }));
+const SNITCH_CONN = SNITCH_APPS.flatMap((a) => (a.remotes as string[]).map((ip) =>
+  ({ pid: a.pids[0], command: a.command, proto: "TCP", remote_ip: ip, remote_port: 443, v6: false })));
+const TOKENS = {
+  overview: { total_tokens: 48_210_000, input_tokens: 1_240_000, output_tokens: 610_000, cache_read_tokens: 42_900_000,
+    cache_create_tokens: 3_460_000, estimated_cost: 38.72, input_cost: 3.72, output_cost: 9.15, cache_read_cost: 12.87,
+    cache_create_cost: 12.98, sessions: 14, total_active_min: 312, avg_active_min_per_day: 312, active_days: 1,
+    messages: 1_284, rate_limit_hits: 0, lines_added: 4_812, lines_removed: 1_977, lines_written: 6_789,
+    period_from: "2026-09-24", period_to: "2026-09-24" },
+  models: [["claude-opus-5-5", "Opus 5.5", 31_400_000, 29.1], ["claude-sonnet-5-5", "Sonnet 5.5", 14_100_000, 8.4],
+    ["claude-haiku-4-5", "Haiku 4.5", 2_710_000, 1.22]].map(([model, label, t, cost]) => ({ model, label,
+    total_tokens: t, input_tokens: (t as number) * 0.03, output_tokens: (t as number) * 0.012, cache_read_tokens: (t as number) * 0.88,
+    cache_create_tokens: (t as number) * 0.07, cost, messages: Math.round((t as number) / 38_000) })),
+  projects: [["northwind-app", 21_300_000, 17.4, 6], ["design-system", 12_800_000, 10.1, 3], ["website", 8_100_000, 6.3, 3],
+    ["data-pipeline", 6_010_000, 4.92, 2]].map(([name, t, cost, sess]) => ({ name, total_tokens: t, input_tokens: 0,
+    output_tokens: 0, cache_read_tokens: 0, cache_create_tokens: 0, cost, messages: Math.round((t as number) / 38_000),
+    sessions: sess, lines_added: 1200, lines_removed: 480, lines_written: 1680, first_ts: null, last_ts: null })),
+  sessions: [], from: "2026-09-24", to: "2026-09-24", prior_day: null, sessions_loaded: false,
+};
+const CLEAN = {
+  dirs: [
+    ["~/Library/Caches/com.google.Chrome", 2.84 * GB, 18_214, "browser"],
+    ["~/Library/Caches/com.apple.Safari", 0.61 * GB, 4_110, "browser"],
+    ["~/Library/Caches/Homebrew", 3.72 * GB, 312, "other_caches"],
+    ["~/Library/Caches/pip", 1.18 * GB, 9_840, "other_caches"],
+    ["~/Library/Logs/DiagnosticReports", 0.21 * GB, 188, "logs"],
+    ["~/Library/Developer/Xcode/DerivedData", 7.9 * GB, 61_022, "xcode_caches"],
+    ["~/Projects/old-prototype/node_modules", 0.94 * GB, 40_311, "stale_node_modules"],
+    ["~/Downloads (old installers)", 2.3 * GB, 6, "installers"],
+  ].map(([path, size, count, category]) => ({ path, size, count, category })),
+  total_bytes: 0,
+  categories: [["browser", "Browser caches", 0], ["other_caches", "Other app caches", 0], ["logs", "Logs", 0],
+    ["xcode_caches", "Xcode caches", 0], ["stale_node_modules", "Stale node_modules", 0], ["installers", "Old installers", 0]],
+};
+CLEAN.total_bytes = CLEAN.dirs.reduce((a, d) => a + (d.size as number), 0);
+for (const c of CLEAN.categories) c[2] = CLEAN.dirs.filter((d) => d.category === c[0]).reduce((a, d) => a + (d.size as number), 0);
+const BT = [
+  ["AirPods Pro", "a4-c3-f0-11-22-33", true, "Headphones"], ["Magic Keyboard", "3c-a6-f6-44-55-66", true, "Keyboard"],
+  ["MX Master 3S", "d4-9c-dd-77-88-99", true, "Device"], ["Bose SoundLink", "04-52-c7-aa-bb-cc", false, "Speaker"],
+  ["Pixel 9", "f8-0f-f9-dd-ee-ff", false, "Phone"],
+].map(([name, address, connected, kind]) => ({ name, address, connected, kind }));
+const PROCS = [
+  ["Google Chrome", 2_840], ["Figma", 1_620], ["Slack", 910], ["Docker", 1_380], ["Code", 1_150], ["Spotify", 420],
+  ["Mail", 310], ["Finder", 140], ["Notion", 680], ["Terminal", 95],
+].map(([name, mb], i) => ({ pid: 3100 + i * 37, name, memory_mb: mb, exe: `/Applications/${name}.app` }));
+const SOCIAL = { url: "", title: "Building a clipboard manager in Rust — full walkthrough",
+  uploader: "Northwind Dev", duration_s: 1_847, thumbnail: cover("#6366f1", "#0ea5e9"),
+  description: "From the global hotkey to encrypted history: a tour through a Tauri app, with the parts that took longest to get right." };
+const MACHINE = { os_name: "macOS", os_version: "26.1", kernel: "25.1.0", arch: "arm64", device_model: "MacBook Pro",
+  host_name: "northwind-mbp", cpu_brand: "Apple M3 Pro", physical_cores: 12, logical_cores: 12, mem_total_bytes: 36 * GB };
+const WL = [["sort", "Integer-Sortierung", "Melem/s"], ["sha256", "SHA-256", "MB/s"], ["matmul", "Matrixmultiplikation", "MFLOP/s"],
+  ["nbody", "N-Körper-Simulation", "Mpaare/s"], ["sieve", "Primzahlsieb", "Mkand/s"], ["deflate", "Deflate-Kompression", "MB/s"],
+  ["text", "Textauswertung", "MB/s"]];
+function benchRunData(id: string, k: number, ago: number) {
+  const sec = (mult: number, base: number[]) => {
+    const workloads = WL.map(([wid, name, unit], i) => ({ id: wid, name, unit, rate: base[i] * mult * k,
+      score: Math.round(1000 * mult * k * (0.9 + i * 0.04)), iterations: 100, seconds: 0.6 }));
+    const geo = Math.exp(workloads.reduce((a, w) => a + Math.log(w.score), 0) / workloads.length);
+    return { score: Math.round(geo), workloads };
+  };
+  const base = [82, 241, 5200, 38, 1250, 96, 410];
+  return { schema: 1, id, finished_at_ms: NOW - ago, duration_s: 9.4, app_version: "0.188.0", baseline_machine: "Apple M3 Pro",
+    machine: MACHINE, threads: 12, single: sec(1, base), multi: sec(8.6, base) };
+}
+const BENCH_HISTORY = [benchRunData("r2", 1, 86_400_000 * 3), benchRunData("r1", 0.93, 86_400_000 * 20)];
+const psRun = (strategy: string, perf: number) => ({ strategy, final_url: "https://northwind.example/",
+  fetch_time: "2026-09-24T09:41:00Z", lighthouse_version: "12.8.0",
+  categories: [["performance", "Performance", perf], ["accessibility", "Accessibility", 0.97],
+    ["best-practices", "Best Practices", 1], ["seo", "SEO", 0.92]]
+    .map(([id, label, score]) => ({ id, label, score: Math.round((score as number) * 100) })),
+  metrics: [["first-contentful-paint", "First Contentful Paint", strategy === "mobile" ? "1.8 s" : "0.5 s", 0.9],
+    ["largest-contentful-paint", "Largest Contentful Paint", strategy === "mobile" ? "2.9 s" : "0.8 s", perf],
+    ["total-blocking-time", "Total Blocking Time", strategy === "mobile" ? "120 ms" : "20 ms", 0.95],
+    ["cumulative-layout-shift", "Cumulative Layout Shift", "0.02", 1],
+    ["speed-index", "Speed Index", strategy === "mobile" ? "2.4 s" : "0.9 s", 0.88]]
+    .map(([id, label, display, score]) => ({ id, label, display, score: Math.round((score as number) * 100) })) });
+const PAGESPEED = { url: "https://northwind.example", desktop: psRun("desktop", 0.99), mobile: psRun("mobile", 0.84), errors: [] };
+
 function sameFuzzy(q: string, s: string) {
   return s.toLowerCase().includes(q.toLowerCase());
 }
@@ -204,6 +315,7 @@ const RATE = 48_000;
 const CHUNK = 1024;
 let micTimer: number | null = null;
 let micPos = 0;
+let lastDbfs = -60;
 function synthChunk(): string {
   const out = new Int16Array(CHUNK);
   const beat = (60 / 124) * RATE;
@@ -223,6 +335,9 @@ function synthChunk(): string {
     out[i] = Math.max(-1, Math.min(1, kick * 0.9 + hat + pad + noise)) * 32000;
   }
   micPos += CHUNK;
+  let sq = 0;
+  for (let i = 0; i < CHUNK; i++) sq += (out[i] / 32768) ** 2;
+  lastDbfs = 20 * Math.log10(Math.max(1e-9, Math.sqrt(sq / CHUNK)));
   let bin = "";
   const bytes = new Uint8Array(out.buffer);
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -230,7 +345,11 @@ function synthChunk(): string {
 }
 function startMic() {
   if (micTimer !== null) return;
-  micTimer = window.setInterval(() => { void emit("mic-audio", { rate: RATE, b64: synthChunk() }); }, (CHUNK / RATE) * 1000);
+  micTimer = window.setInterval(() => {
+    void emit("mic-audio", { rate: RATE, b64: synthChunk() });
+    // The dezibel meter listens to the Rust-computed level instead of the PCM.
+    void emit("mic-level", { dbfs: lastDbfs });
+  }, (CHUNK / RATE) * 1000);
 }
 function stopMic() {
   if (micTimer !== null) window.clearInterval(micTimer);
@@ -300,6 +419,32 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_clock_zones": return JSON.stringify(["Europe/Lisbon", "America/New_York", "Asia/Tokyo", "Australia/Sydney"]);
     case "hue_status": return { connected: true, bridge_ip: "192.168.1.20", paired: true };
     case "hue_list_lights": return LIGHTS;
+    case "get_uptime_secs": return 3 * 86400 + 5 * 3600 + 17 * 60 + 42;
+    case "list_brightness_monitors": return MONITORS;
+    case "get_monitor_brightness": return MONITORS.find((m) => m.id === args.id)?.brightness ?? 70;
+    case "list_audio_outputs": return AUDIO;
+    case "get_system_volume": return 62;
+    case "alias_list": return ALIASES;
+    case "ip_fetch": return IP;
+    case "snitch_list_apps": return SNITCH_APPS;
+    case "snitch_is_armed": return true;
+    case "snitch_connections": return SNITCH_CONN;
+    case "snitch_geolocate": return SNITCH_GEO;
+    case "snitch_home": return { ip: "203.0.113.42", lat: 38.72, lon: -9.14, country: "Portugal", city: "Lisbon", isp: "Northwind Fibre" };
+    case "snitch_activity": return [{ pid: 4100, bytes_per_sec: 480_000 }, { pid: 4102, bytes_per_sec: 190_000 }];
+    case "token_usage_fetch": return TOKENS;
+    case "cleaner_status": return { phase: "idle", view: null };
+    case "cleaner_scan": return CLEAN;
+    case "bluetooth_list": return BT;
+    case "list_processes": return PROCS;
+    case "social_metadata": return { ...SOCIAL, url: String(args.url ?? "") };
+    case "social_ytdlp_available": return true;
+    case "set_suppress_hide": return null;
+    case "bench_plan": return { workloads: WL.map((w) => w[1]), estimated_seconds: 9, threads: 12, baseline_machine: "Apple M3 Pro", machine: MACHINE };
+    case "bench_history": return BENCH_HISTORY;
+    case "bench_run": return benchRunData("r3", 1.02, 0);
+    case "pagespeed_analyze": return PAGESPEED;
+    case "plugin:clipboard-manager|read_text": return "hello world";
     case "fx_rates": return FX;
     case "loc_count": return LOC;
     case "shazam_history_list": return SONGS;

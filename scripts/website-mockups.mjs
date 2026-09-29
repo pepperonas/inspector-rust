@@ -60,6 +60,24 @@ const GALLERY = [
   { id: "bpm", query: "bpm", keys: ["Enter"], wait: 7000 },
   { id: "shazam", query: "shazam history", keys: ["Enter"], wait: 1800 },
   { id: "loc", query: "loc ~/Projects/northwind-app", keys: ["Enter"], wait: 2200 },
+  { id: "pwgen", query: "pwgen 24", wait: 1200 },
+  { id: "clown", query: "clown hello world", keys: ["ArrowDown", "ArrowDown"], wait: 1200 },
+  { id: "random", query: "rnd 1 100", wait: 1600 },
+  { id: "uptime", query: "uptime", wait: 1800 },
+  { id: "brightness", query: "brightness", wait: 1600 },
+  { id: "sound", query: "sound", wait: 1600 },
+  { id: "alias", query: "alias", wait: 1600 },
+  { id: "ip", query: "ip", keys: ["Enter"], wait: 2000 },
+  { id: "snitch", query: "snitch map", keys: ["Enter"], wait: 3500 },
+  { id: "tokens", query: "tokens", wait: 2200 },
+  { id: "clean", query: "clean", keys: ["Enter"], wait: 2600 },
+  { id: "bluetooth", query: "bt", wait: 1600 },
+  { id: "kill", query: "kill", wait: 1600 },
+  { id: "social", query: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", wait: 2200 },
+  { id: "help", query: "cv?", wait: 1400 },
+  { id: "dezibel", query: "db", keys: ["Enter"], wait: 3500 },
+  { id: "benchmark", query: "benchmark", keys: ["Enter"], click: "text=Benchmark starten", wait: 2200 },
+  { id: "pagespeed", query: "pagespeed northwind.example", keys: ["Enter"], wait: 2200 },
 ];
 
 // Games resume a suspended run from localStorage — seeding one gives an attractive, repeatable state.
@@ -151,6 +169,7 @@ async function capture(browser, scene, dir) {
     await page.waitForTimeout(scene.after);
   } else {
     for (const k of scene.keys ?? []) { await page.keyboard.press(k); await page.waitForTimeout(250); }
+    if (scene.click) { await page.locator(scene.click).first().click(); await page.waitForTimeout(250); }
     await page.waitForTimeout(scene.wait ?? 1600);
   }
   const misses = await page.evaluate(() => [...(window.__mockMisses ?? [])]);

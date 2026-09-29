@@ -10,7 +10,7 @@
  "tagline": "One hotkey. Everything you copy, and a lot more.",
  "license": "MIT",
  "year": 2026,
- "asset_version": 7,
+ "asset_version": 8,
  "theme_source": "core/frontend/src/styles.css — @theme (dark)",
  "theme": {
   "bg": "#0c0d11",
@@ -768,6 +768,312 @@
      "es": "Cuenta el código, los comentarios y las líneas en blanco por lenguaje, y expórtalo en HTML, PDF o PNG.",
      "it": "Conta codice, commenti e righe vuote per linguaggio, ed esporta in HTML, PDF o PNG.",
      "fr": "Comptez le code, les commentaires et les lignes vides par langage, et exportez en HTML, PDF ou PNG."
+    }
+   },
+   {
+    "id": "pwgen",
+    "t": {
+     "en": "Password generator",
+     "de": "Passwort-Generator",
+     "es": "Generador de contraseñas",
+     "it": "Generatore di password",
+     "fr": "Générateur de mots de passe"
+    },
+    "p": {
+     "en": "Strong passwords in four styles — random, alphanumeric, words or leetspeak — straight from the search field.",
+     "de": "Starke Passwörter in vier Stilen — zufällig, alphanumerisch, aus Wörtern oder Leetspeak — direkt aus dem Suchfeld.",
+     "es": "Contraseñas seguras en cuatro estilos — aleatorias, alfanuméricas, con palabras o leetspeak — desde el buscador.",
+     "it": "Password robuste in quattro stili — casuali, alfanumeriche, a parole o leetspeak — dal campo di ricerca.",
+     "fr": "Des mots de passe solides en quatre styles — aléatoires, alphanumériques, en mots ou en leetspeak — depuis la recherche."
+    }
+   },
+   {
+    "id": "clown",
+    "t": {
+     "en": "Fun text styles",
+     "de": "Spaß-Textstile",
+     "es": "Estilos de texto divertidos",
+     "it": "Stili di testo divertenti",
+     "fr": "Styles de texte amusants"
+    },
+    "p": {
+     "en": "Mock case, leetspeak, vaporwave, upside down and more — pick a style by looking at it.",
+     "de": "Spottschrift, Leetspeak, Vaporwave, kopfüber und mehr — den Stil direkt am Ergebnis auswählen.",
+     "es": "Burla, leetspeak, vaporwave, del revés y más: elige el estilo viendo el resultado.",
+     "it": "Maiuscole beffarde, leetspeak, vaporwave, capovolto e altro: scegli lo stile guardando il risultato.",
+     "fr": "Casse moqueuse, leetspeak, vaporwave, à l'envers et plus — choisissez le style en le voyant."
+    }
+   },
+   {
+    "id": "random",
+    "t": {
+     "en": "Random numbers",
+     "de": "Zufallszahlen",
+     "es": "Números aleatorios",
+     "it": "Numeri casuali",
+     "fr": "Nombres aléatoires"
+    },
+    "p": {
+     "en": "A fair roll in any range, from a dice to a raffle — Enter pastes the number.",
+     "de": "Ein fairer Wurf in jedem Bereich, vom Würfel bis zur Verlosung — Enter fügt die Zahl ein.",
+     "es": "Una tirada justa en cualquier rango, del dado al sorteo; Intro pega el número.",
+     "it": "Un tiro equo in qualsiasi intervallo, dal dado alla lotteria; Invio incolla il numero.",
+     "fr": "Un tirage équitable dans n'importe quelle plage, du dé à la tombola — Entrée colle le nombre."
+    }
+   },
+   {
+    "id": "uptime",
+    "t": {
+     "en": "Uptime",
+     "de": "Laufzeit",
+     "es": "Tiempo activo",
+     "it": "Uptime",
+     "fr": "Temps de fonctionnement"
+    },
+    "p": {
+     "en": "How long the machine has been running, counting live down to the millisecond.",
+     "de": "Wie lange der Rechner schon läuft, live mitgezählt bis auf die Millisekunde.",
+     "es": "Cuánto lleva encendido el equipo, contado en vivo hasta el milisegundo.",
+     "it": "Da quanto è acceso il computer, contato in tempo reale fino al millisecondo.",
+     "fr": "Depuis quand la machine tourne, compté en direct à la milliseconde."
+    }
+   },
+   {
+    "id": "brightness",
+    "t": {
+     "en": "Monitor brightness",
+     "de": "Bildschirmhelligkeit",
+     "es": "Brillo de pantalla",
+     "it": "Luminosità del monitor",
+     "fr": "Luminosité de l'écran"
+    },
+    "p": {
+     "en": "One slider per display, built-in and external — adjusted with the arrow keys.",
+     "de": "Ein Regler pro Bildschirm, eingebaut und extern — mit den Pfeiltasten eingestellt.",
+     "es": "Un control por pantalla, integrada o externa, ajustado con las flechas.",
+     "it": "Un cursore per schermo, integrato ed esterno, regolato con le frecce.",
+     "fr": "Un curseur par écran, intégré ou externe — réglé avec les flèches."
+    }
+   },
+   {
+    "id": "sound",
+    "t": {
+     "en": "Audio output",
+     "de": "Audioausgabe",
+     "es": "Salida de audio",
+     "it": "Uscita audio",
+     "fr": "Sortie audio"
+    },
+    "p": {
+     "en": "Volume and the output device in one place — switch between speakers and headphones without the menu bar.",
+     "de": "Lautstärke und Ausgabegerät an einem Ort — zwischen Lautsprechern und Kopfhörern wechseln, ohne Menüleiste.",
+     "es": "Volumen y dispositivo de salida en un solo lugar: cambia entre altavoces y auriculares sin la barra de menús.",
+     "it": "Volume e dispositivo di uscita in un unico posto: passa da altoparlanti a cuffie senza la barra dei menu.",
+     "fr": "Volume et périphérique de sortie au même endroit — passez des haut-parleurs au casque sans la barre des menus."
+    }
+   },
+   {
+    "id": "alias",
+    "t": {
+     "en": "Shell aliases",
+     "de": "Shell-Aliasse",
+     "es": "Alias de shell",
+     "it": "Alias della shell",
+     "fr": "Alias du shell"
+    },
+    "p": {
+     "en": "Create, edit and search terminal aliases — the exact command for macOS, Linux and Windows included.",
+     "de": "Terminal-Aliasse anlegen, bearbeiten und durchsuchen — samt passendem Befehl für macOS, Linux und Windows.",
+     "es": "Crea, edita y busca alias del terminal, con el comando exacto para macOS, Linux y Windows.",
+     "it": "Crea, modifica e cerca alias del terminale, con il comando esatto per macOS, Linux e Windows.",
+     "fr": "Créez, modifiez et cherchez des alias de terminal, avec la commande exacte pour macOS, Linux et Windows."
+    }
+   },
+   {
+    "id": "ip",
+    "t": {
+     "en": "My IP",
+     "de": "Meine IP",
+     "es": "Mi IP",
+     "it": "Il mio IP",
+     "fr": "Mon IP"
+    },
+    "p": {
+     "en": "Your public IP with approximate location, provider and time zone on a map.",
+     "de": "Die öffentliche IP mit ungefährem Standort, Anbieter und Zeitzone auf einer Karte.",
+     "es": "Tu IP pública con ubicación aproximada, proveedor y zona horaria en un mapa.",
+     "it": "Il tuo IP pubblico con posizione approssimativa, provider e fuso orario su una mappa.",
+     "fr": "Votre IP publique avec position approximative, fournisseur et fuseau horaire sur une carte."
+    }
+   },
+   {
+    "id": "snitch",
+    "t": {
+     "en": "Network map",
+     "de": "Netzwerk-Karte",
+     "es": "Mapa de red",
+     "it": "Mappa di rete",
+     "fr": "Carte réseau"
+    },
+    "p": {
+     "en": "Which apps talk to which servers, on a world map — active connections glow with live traffic.",
+     "de": "Welche Apps mit welchen Servern sprechen, auf einer Weltkarte — aktive Verbindungen leuchten mit Live-Traffic.",
+     "es": "Qué apps hablan con qué servidores, en un mapa mundial; las conexiones activas brillan con tráfico en vivo.",
+     "it": "Quali app parlano con quali server, su una mappa del mondo; le connessioni attive si illuminano col traffico in tempo reale.",
+     "fr": "Quelles apps parlent à quels serveurs, sur une carte du monde — les connexions actives brillent avec le trafic en direct."
+    }
+   },
+   {
+    "id": "tokens",
+    "t": {
+     "en": "Claude Code usage",
+     "de": "Claude-Code-Verbrauch",
+     "es": "Uso de Claude Code",
+     "it": "Utilizzo di Claude Code",
+     "fr": "Utilisation de Claude Code"
+    },
+    "p": {
+     "en": "Tokens, cost, sessions and projects for today, a week or a month — from your local Token Tracker.",
+     "de": "Tokens, Kosten, Sitzungen und Projekte für heute, eine Woche oder einen Monat — aus dem lokalen Token Tracker.",
+     "es": "Tokens, coste, sesiones y proyectos de hoy, la semana o el mes, desde tu Token Tracker local.",
+     "it": "Token, costi, sessioni e progetti di oggi, della settimana o del mese, dal Token Tracker locale.",
+     "fr": "Jetons, coût, sessions et projets du jour, de la semaine ou du mois — depuis votre Token Tracker local."
+    }
+   },
+   {
+    "id": "clean",
+    "t": {
+     "en": "Clean-up",
+     "de": "Aufräumen",
+     "es": "Limpieza",
+     "it": "Pulizia",
+     "fr": "Nettoyage"
+    },
+    "p": {
+     "en": "Caches, logs and build leftovers by folder — tick what goes; nothing is deleted before you confirm.",
+     "de": "Caches, Logs und Build-Reste nach Ordnern — ankreuzen, was weg soll; gelöscht wird erst nach Bestätigung.",
+     "es": "Cachés, registros y restos de compilación por carpeta: marca lo que se va; nada se borra sin confirmar.",
+     "it": "Cache, log e residui di build per cartella: spunta cosa eliminare; nulla viene cancellato senza conferma.",
+     "fr": "Caches, journaux et restes de build par dossier — cochez ce qui part ; rien n'est supprimé avant confirmation."
+    }
+   },
+   {
+    "id": "bluetooth",
+    "t": {
+     "en": "Bluetooth",
+     "de": "Bluetooth",
+     "es": "Bluetooth",
+     "it": "Bluetooth",
+     "fr": "Bluetooth"
+    },
+    "p": {
+     "en": "Paired devices with live status — connect, disconnect or forget one without opening System Settings.",
+     "de": "Gekoppelte Geräte mit Live-Status — verbinden, trennen oder entkoppeln, ohne die Systemeinstellungen.",
+     "es": "Dispositivos emparejados con estado en vivo: conecta, desconecta u olvida sin abrir Ajustes.",
+     "it": "Dispositivi abbinati con stato in tempo reale: connetti, disconnetti o dimentica senza aprire Impostazioni.",
+     "fr": "Appareils jumelés avec état en direct — connecter, déconnecter ou oublier sans ouvrir les Réglages."
+    }
+   },
+   {
+    "id": "kill",
+    "t": {
+     "en": "Process killer",
+     "de": "Prozesse beenden",
+     "es": "Cerrar procesos",
+     "it": "Terminare processi",
+     "fr": "Arrêter des processus"
+    },
+    "p": {
+     "en": "Every running process sorted by memory — filter by name and end the one that hangs.",
+     "de": "Alle laufenden Prozesse nach Speicher sortiert — nach Namen filtern und den hängenden beenden.",
+     "es": "Todos los procesos ordenados por memoria: filtra por nombre y cierra el que se cuelga.",
+     "it": "Tutti i processi ordinati per memoria: filtra per nome e chiudi quello bloccato.",
+     "fr": "Tous les processus triés par mémoire — filtrez par nom et arrêtez celui qui bloque."
+    }
+   },
+   {
+    "id": "social",
+    "t": {
+     "en": "Video download",
+     "de": "Video-Download",
+     "es": "Descarga de vídeos",
+     "it": "Download di video",
+     "fr": "Téléchargement de vidéos"
+    },
+    "p": {
+     "en": "Paste a YouTube, Instagram, TikTok or Dailymotion link: preview, then save video or audio.",
+     "de": "YouTube-, Instagram-, TikTok- oder Dailymotion-Link einfügen: Vorschau, dann Video oder Audio speichern.",
+     "es": "Pega un enlace de YouTube, Instagram, TikTok o Dailymotion: vista previa y luego guarda vídeo o audio.",
+     "it": "Incolla un link di YouTube, Instagram, TikTok o Dailymotion: anteprima, poi salva video o audio.",
+     "fr": "Collez un lien YouTube, Instagram, TikTok ou Dailymotion : aperçu, puis enregistrez la vidéo ou l'audio."
+    }
+   },
+   {
+    "id": "help",
+    "t": {
+     "en": "Command help",
+     "de": "Befehlshilfe",
+     "es": "Ayuda de comandos",
+     "it": "Guida ai comandi",
+     "fr": "Aide des commandes"
+    },
+    "p": {
+     "en": "Add ? to any command for its syntax, arguments, examples and tips.",
+     "de": "Ein ? hinter jedem Befehl zeigt Syntax, Argumente, Beispiele und Tipps.",
+     "es": "Añade ? a cualquier comando para ver su sintaxis, argumentos, ejemplos y consejos.",
+     "it": "Aggiungi ? a qualsiasi comando per sintassi, argomenti, esempi e suggerimenti.",
+     "fr": "Ajoutez ? à une commande pour sa syntaxe, ses arguments, des exemples et des astuces."
+    }
+   },
+   {
+    "id": "dezibel",
+    "t": {
+     "en": "Sound level",
+     "de": "Lautstärke-Messer",
+     "es": "Nivel de sonido",
+     "it": "Livello sonoro",
+     "fr": "Niveau sonore"
+    },
+    "p": {
+     "en": "How loud it is right now, in decibels, from the microphone — an estimate, not a calibrated meter.",
+     "de": "Wie laut es gerade ist, in Dezibel über das Mikrofon — eine Schätzung, kein geeichtes Messgerät.",
+     "es": "Cuánto ruido hay ahora, en decibelios, desde el micrófono: una estimación, no un medidor calibrado.",
+     "it": "Quanto è forte adesso, in decibel dal microfono: una stima, non uno strumento calibrato.",
+     "fr": "Le niveau sonore actuel en décibels, via le micro — une estimation, pas un appareil étalonné."
+    }
+   },
+   {
+    "id": "benchmark",
+    "t": {
+     "en": "CPU benchmark",
+     "de": "CPU-Benchmark",
+     "es": "Benchmark de CPU",
+     "it": "Benchmark della CPU",
+     "fr": "Benchmark du processeur"
+    },
+    "p": {
+     "en": "Seven workloads, single- and multi-core, compared with your earlier runs.",
+     "de": "Sieben Disziplinen auf einem und allen Kernen, im Vergleich mit früheren Läufen.",
+     "es": "Siete pruebas, en un núcleo y en todos, comparadas con tus ejecuciones anteriores.",
+     "it": "Sette carichi, su un core e su tutti, confrontati con le esecuzioni precedenti.",
+     "fr": "Sept charges, mono- et multicœur, comparées à vos passages précédents."
+    }
+   },
+   {
+    "id": "pagespeed",
+    "t": {
+     "en": "PageSpeed",
+     "de": "PageSpeed",
+     "es": "PageSpeed",
+     "it": "PageSpeed",
+     "fr": "PageSpeed"
+    },
+    "p": {
+     "en": "Google PageSpeed for desktop and mobile side by side, with an HTML or PDF report.",
+     "de": "Google PageSpeed für Desktop und Mobil nebeneinander, mit HTML- oder PDF-Bericht.",
+     "es": "Google PageSpeed para escritorio y móvil lado a lado, con informe HTML o PDF.",
+     "it": "Google PageSpeed per desktop e mobile affiancati, con report HTML o PDF.",
+     "fr": "Google PageSpeed pour ordinateur et mobile côte à côte, avec rapport HTML ou PDF."
     }
    }
   ],

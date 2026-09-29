@@ -10,7 +10,7 @@
  "tagline": "One hotkey. Everything you copy, and a lot more.",
  "license": "MIT",
  "year": 2026,
- "asset_version": 6,
+ "asset_version": 7,
  "theme_source": "core/frontend/src/styles.css — @theme (dark)",
  "theme": {
   "bg": "#0c0d11",
@@ -108,7 +108,7 @@
    "og_title": "Inspector Rust — one hotkey for everything you copy",
    "og_description": "Free, open-source clipboard manager with a text expander and 67 commands — screenshots, OCR, translation, weather, system tools. Local, encrypted, no account.",
    "twitter_description": "Clipboard history, text expander and 67 commands behind Ctrl+Space. Free and open source for macOS, Windows and Linux.",
-   "image_alt": "Three Inspector Rust windows on a dark background: the clipboard history with an image preview, the weather for Lisbon and the 2FA codes"
+   "image_alt": "Illustrated overview of Inspector Rust: a detective holding a gear with the Rust logo, surrounded by its feature groups"
   },
   "summary": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 67 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
   "meta_fallback": "Newest release · macOS (Apple silicon), Windows, Linux · free, MIT licence",
@@ -122,6 +122,7 @@
    "Markdown to paginated A4 PDF next to the source file (code, math, diagrams), never overwriting",
    "System tools: brightness, audio output, disk usage, cache clean-up, system stats",
    "Weather, world clock, calendar, song recognition, Philips Hue control",
+   "macOS window tools: a snap palette at the green button (replaces the system tiling menu), drag-to-edge snapping, cursor wrap-around across screens",
    "Local SQLite database, sensitive fields encrypted with AES-256-GCM",
    "No account, no telemetry; network only for commands that need it"
   ],
@@ -666,6 +667,108 @@
      "it": "Crea un codice da qualsiasi testo, copialo o salvalo come PNG o STL stampabile.",
      "fr": "Créez un code à partir de n’importe quel texte, copiez-le ou enregistrez-le en PNG ou en STL imprimable."
     }
+   },
+   {
+    "id": "convert",
+    "t": {
+     "en": "Units and currencies",
+     "de": "Einheiten und Währungen",
+     "es": "Unidades y divisas",
+     "it": "Unità e valute",
+     "fr": "Unités et devises"
+    },
+    "p": {
+     "en": "cv 100 usd lists every currency at once — ECB rates plus Bitcoin and Ether, and fourteen unit categories.",
+     "de": "cv 100 usd zeigt alle Währungen auf einmal — EZB-Kurse plus Bitcoin und Ether, dazu vierzehn Einheiten-Kategorien.",
+     "es": "cv 100 usd muestra todas las divisas a la vez: tipos del BCE más Bitcoin y Ether, y catorce categorías de unidades.",
+     "it": "cv 100 usd mostra tutte le valute insieme: cambi BCE più Bitcoin ed Ether, e quattordici categorie di unità.",
+     "fr": "cv 100 usd affiche toutes les devises d'un coup : taux BCE plus Bitcoin et Ether, et quatorze catégories d'unités."
+    }
+   },
+   {
+    "id": "calendar",
+    "t": {
+     "en": "Calendar",
+     "de": "Kalender",
+     "es": "Calendario",
+     "it": "Calendario",
+     "fr": "Calendrier"
+    },
+    "p": {
+     "en": "A month view with week numbers, right in the popup — jump to any month by typing it.",
+     "de": "Monatsansicht mit Kalenderwochen direkt im Popup — jeden Monat durch Eintippen ansteuern.",
+     "es": "Vista mensual con números de semana en el propio popup: salta a cualquier mes escribiéndolo.",
+     "it": "Vista mensile con numeri di settimana direttamente nel popup: vai a qualsiasi mese digitandolo.",
+     "fr": "Vue mensuelle avec numéros de semaine, directement dans la fenêtre — tapez un mois pour y aller."
+    }
+   },
+   {
+    "id": "bruno",
+    "t": {
+     "en": "Gross to net",
+     "de": "Brutto-Netto",
+     "es": "Bruto a neto",
+     "it": "Lordo-netto",
+     "fr": "Brut-net"
+    },
+    "p": {
+     "en": "German net pay from gross, with every contribution itemised — employees and self-employed.",
+     "de": "Netto aus Brutto nach deutschem Steuerrecht, jede Abgabe einzeln — für Angestellte und Selbständige.",
+     "es": "Sueldo neto alemán a partir del bruto, con cada cotización desglosada — asalariados y autónomos.",
+     "it": "Netto tedesco dal lordo, con ogni contributo dettagliato — dipendenti e autonomi.",
+     "fr": "Salaire net allemand à partir du brut, chaque cotisation détaillée — salariés et indépendants."
+    }
+   },
+   {
+    "id": "bpm",
+    "t": {
+     "en": "BPM detector",
+     "de": "BPM-Erkennung",
+     "es": "Detector de BPM",
+     "it": "Rilevatore di BPM",
+     "fr": "Détecteur de BPM"
+    },
+    "p": {
+     "en": "Listens through the microphone and shows the tempo, the level and the beat as it happens.",
+     "de": "Hört übers Mikrofon mit und zeigt Tempo, Pegel und den Beat in Echtzeit.",
+     "es": "Escucha por el micrófono y muestra el tempo, el nivel y el pulso en tiempo real.",
+     "it": "Ascolta dal microfono e mostra tempo, livello e battito in tempo reale.",
+     "fr": "Écoute via le micro et affiche le tempo, le niveau et le battement en direct."
+    }
+   },
+   {
+    "id": "shazam",
+    "t": {
+     "en": "Song recognition",
+     "de": "Songerkennung",
+     "es": "Reconocimiento de canciones",
+     "it": "Riconoscimento brani",
+     "fr": "Reconnaissance de titres"
+    },
+    "p": {
+     "en": "Identify the song that's playing; every match is kept, with links to Spotify and YouTube.",
+     "de": "Den laufenden Song erkennen; jeder Treffer bleibt gespeichert, mit Links zu Spotify und YouTube.",
+     "es": "Identifica la canción que suena; cada resultado se guarda, con enlaces a Spotify y YouTube.",
+     "it": "Riconosci il brano in riproduzione; ogni risultato resta salvato, con link a Spotify e YouTube.",
+     "fr": "Identifiez le titre en cours ; chaque résultat est conservé, avec liens vers Spotify et YouTube."
+    }
+   },
+   {
+    "id": "loc",
+    "t": {
+     "en": "Lines of code",
+     "de": "Codezeilen",
+     "es": "Líneas de código",
+     "it": "Righe di codice",
+     "fr": "Lignes de code"
+    },
+    "p": {
+     "en": "Count a project's code, comments and blank lines per language — and export it as HTML, PDF or PNG.",
+     "de": "Code, Kommentare und Leerzeilen eines Projekts pro Sprache zählen — und als HTML, PDF oder PNG exportieren.",
+     "es": "Cuenta el código, los comentarios y las líneas en blanco por lenguaje, y expórtalo en HTML, PDF o PNG.",
+     "it": "Conta codice, commenti e righe vuote per linguaggio, ed esporta in HTML, PDF o PNG.",
+     "fr": "Comptez le code, les commentaires et les lignes vides par langage, et exportez en HTML, PDF ou PNG."
+    }
    }
   ],
   "eggs": [
@@ -791,6 +894,32 @@
    "es": "Escondidos en la barra de búsqueda: escribe la palabra y pulsa Intro. Esc te devuelve.",
    "it": "Nascosti nella barra di ricerca: digita la parola e premi Invio. Esc ti riporta indietro.",
    "fr": "Cachés dans la barre de recherche : tapez le mot et appuyez sur Entrée. Échap vous ramène."
+  },
+  "showcase": {
+   "id": "juggernaut",
+   "width": 2048,
+   "height": 2048,
+   "t": {
+    "en": "Many arms, one hotkey",
+    "de": "Viele Arme, ein Kürzel",
+    "es": "Muchos brazos, un atajo",
+    "it": "Tante braccia, una scorciatoia",
+    "fr": "Beaucoup de bras, un raccourci"
+   },
+   "p": {
+    "en": "Clipboard, capture, recording, 2FA, system tools, a text expander and dozens of commands — Inspector Rust keeps them all behind Ctrl+Space, locally and encrypted.",
+    "de": "Zwischenablage, Aufnahme, Bildschirmaufzeichnung, 2FA, Systemwerkzeuge, ein Text-Expander und Dutzende Befehle — Inspector Rust hält alles hinter Strg+Leertaste bereit, lokal und verschlüsselt.",
+    "es": "Portapapeles, capturas, grabación, 2FA, herramientas del sistema, un expansor de texto y decenas de comandos: Inspector Rust lo guarda todo tras Ctrl+Espacio, en local y cifrado.",
+    "it": "Appunti, catture, registrazione, 2FA, strumenti di sistema, un espansore di testo e decine di comandi: Inspector Rust tiene tutto dietro Ctrl+Spazio, in locale e cifrato.",
+    "fr": "Presse-papiers, captures, enregistrement, 2FA, outils système, un expanseur de texte et des dizaines de commandes : Inspector Rust garde tout derrière Ctrl+Espace, en local et chiffré."
+   },
+   "alt": {
+    "en": "Illustration: a copper robot in a fedora with many arms, holding a clipboard, a camera, a pencil and a padlocked shield",
+    "de": "Illustration: ein Kupfer-Roboter mit Hut und vielen Armen hält Klemmbrett, Kamera, Stift und einen Schild mit Vorhängeschloss",
+    "es": "Ilustración: un robot de cobre con sombrero y muchos brazos sostiene un portapapeles, una cámara, un lápiz y un escudo con candado",
+    "it": "Illustrazione: un robot di rame con cappello e molte braccia regge un blocco appunti, una fotocamera, una matita e uno scudo con lucchetto",
+    "fr": "Illustration : un robot de cuivre coiffé d'un chapeau, aux nombreux bras, tenant un presse-papiers, un appareil photo, un crayon et un bouclier cadenassé"
+   }
   }
  },
  "feature_catalog": "features.txt",

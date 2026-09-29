@@ -46,6 +46,12 @@ Counted from the source code, updated with every change:
 - **World clock** — Your time zones at a glance, day or night. ([image](https://inspector-rust.celox.io/assets/gallery/clock.jpg))
 - **Philips Hue** — Switch and dim your lamps and pick colours, from the keyboard. ([image](https://inspector-rust.celox.io/assets/gallery/hue.jpg))
 - **QR codes** — Make a code from any text, copy it, or save it as PNG or a printable STL. ([image](https://inspector-rust.celox.io/assets/gallery/qr.jpg))
+- **Units and currencies** — cv 100 usd lists every currency at once — ECB rates plus Bitcoin and Ether, and fourteen unit categories. ([image](https://inspector-rust.celox.io/assets/gallery/convert.jpg))
+- **Calendar** — A month view with week numbers, right in the popup — jump to any month by typing it. ([image](https://inspector-rust.celox.io/assets/gallery/calendar.jpg))
+- **Gross to net** — German net pay from gross, with every contribution itemised — employees and self-employed. ([image](https://inspector-rust.celox.io/assets/gallery/bruno.jpg))
+- **BPM detector** — Listens through the microphone and shows the tempo, the level and the beat as it happens. ([image](https://inspector-rust.celox.io/assets/gallery/bpm.jpg))
+- **Song recognition** — Identify the song that's playing; every match is kept, with links to Spotify and YouTube. ([image](https://inspector-rust.celox.io/assets/gallery/shazam.jpg))
+- **Lines of code** — Count a project's code, comments and blank lines per language — and export it as HTML, PDF or PNG. ([image](https://inspector-rust.celox.io/assets/gallery/loc.jpg))
 
 ### Every feature
 

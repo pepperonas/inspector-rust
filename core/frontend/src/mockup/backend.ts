@@ -150,6 +150,48 @@ const LIGHTS = [
 ].map(([name, on, b, color], i) => ({ id: String(i + 1), name, on, brightness: b, reachable: true, supports_color: color, dimmable: true }));
 
 
+// ── currency rates (EUR value of one unit), loc report, shazam history ──
+const FX = {
+  eur_per: { EUR: 1, USD: 1 / 1.1712, GBP: 1 / 0.8431, CHF: 1 / 0.9368, JPY: 1 / 173.2, SEK: 1 / 11.02,
+    PLN: 1 / 4.263, CZK: 1 / 24.31, BTC: 73_319, ETH: 3_842 },
+  ecb_date: "2026-09-23", ecb_fetched_ms: NOW, crypto_fetched_ms: NOW, stale: false, error: null,
+};
+
+const LOC_LANGS: [string, number, number, number, number][] = [
+  ["TypeScript", 212, 48_310, 6_120, 7_004], ["Rust", 64, 21_870, 4_310, 3_210],
+  ["CSS", 18, 3_940, 220, 610], ["JSON", 22, 1_880, 0, 12], ["Markdown", 15, 0, 2_910, 830],
+  ["Shell", 9, 640, 180, 150],
+];
+const LOC = (() => {
+  const code = LOC_LANGS.reduce((a, l) => a + l[2], 0);
+  const languages = LOC_LANGS.map(([name, files, c, comments, blanks]) =>
+    ({ name, files, code: c, comments, blanks, code_pct: (c / code) * 100 }));
+  const sum = (k: "files" | "comments" | "blanks") => languages.reduce((a, l) => a + l[k], 0);
+  return {
+    root_label: "northwind-app", paths: ["/Users/ana/Projects/northwind-app"], respected_ignores: true,
+    languages, total_files: sum("files"), total_code: code, total_comments: sum("comments"),
+    total_blanks: sum("blanks"), total_lines: code + sum("comments") + sum("blanks"), inaccurate: false,
+    subdirs: ["src", "server", "docs", "scripts"],
+  };
+})();
+
+// Made-up tracks; covers are generated gradients so nothing loads from the network.
+function cover(a: string, b: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/><circle cx="32" cy="32" r="13" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="3"/></svg>`;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+const SONGS = [
+  ["Harbour Lights", "The Paper Kites Club", "Night Ferry", "Indie", "2025", "#f59e0b", "#ef4444", 12],
+  ["Glass Parade", "Mira Solen", "Afterglow", "Electronic", "2026", "#6366f1", "#ec4899", 95],
+  ["Slow Tide", "Northern Lanes", "Coastlines", "Alternative", "2024", "#0ea5e9", "#22c55e", 260],
+  ["Neon Botanica", "Kasimir & The Vines", "Greenhouse", "Pop", "2026", "#a855f7", "#14b8a6", 1440],
+  ["Carousel", "Lua Almeida", "Fado Nova", "Fado", "2025", "#f43f5e", "#f97316", 3100],
+].map(([title, artist, album, genre, released, a, b, mins], i) => ({
+  id: i + 1, recognized_at: NOW - (mins as number) * 60_000,
+  title, artist, album, genre, released, cover_url: cover(a as string, b as string),
+  shazam_url: "https://example.com", spotify_url: "https://example.com", youtube_url: "https://example.com",
+}));
+
 function sameFuzzy(q: string, s: string) {
   return s.toLowerCase().includes(q.toLowerCase());
 }
@@ -258,6 +300,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_clock_zones": return JSON.stringify(["Europe/Lisbon", "America/New_York", "Asia/Tokyo", "Australia/Sydney"]);
     case "hue_status": return { connected: true, bridge_ip: "192.168.1.20", paired: true };
     case "hue_list_lights": return LIGHTS;
+    case "fx_rates": return FX;
+    case "loc_count": return LOC;
+    case "shazam_history_list": return SONGS;
+    case "shazam_is_listening": return false;
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

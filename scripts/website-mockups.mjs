@@ -54,6 +54,12 @@ const GALLERY = [
   { id: "clock", query: "clock" },
   { id: "hue", query: "hue", wait: 1800 },
   { id: "qr", query: "qr https://inspector-rust.celox.io" },
+  { id: "convert", query: "cv 100 usd", wait: 1800 },
+  { id: "calendar", query: "cal", wait: 1400 },
+  { id: "bruno", query: "bruno 5000m", wait: 1600 },
+  { id: "bpm", query: "bpm", keys: ["Enter"], wait: 7000 },
+  { id: "shazam", query: "shazam history", keys: ["Enter"], wait: 1800 },
+  { id: "loc", query: "loc ~/Projects/northwind-app", keys: ["Enter"], wait: 2200 },
 ];
 
 // Games resume a suspended run from localStorage — seeding one gives an attractive, repeatable state.

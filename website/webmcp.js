@@ -35,6 +35,7 @@
       "Markdown to paginated A4 PDF next to the source file (code, math, diagrams), never overwriting",
       "System tools: brightness, audio output, disk usage, cache clean-up, system stats",
       "Weather, world clock, calendar, song recognition, Philips Hue control",
+      "macOS window tools: a snap palette at the green button (replaces the system tiling menu), drag-to-edge snapping, cursor wrap-around across screens",
       "Local SQLite database, sensitive fields encrypted with AES-256-GCM",
       "No account, no telemetry; network only for commands that need it"
     ],

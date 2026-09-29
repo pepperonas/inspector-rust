@@ -6,8 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.188.0] - 2026-09-29
+
+### Added
+- **Product page: new hero and illustration, six more gallery views.** The hero now shows the illustrated feature overview; a new section further down carries the "many arms, one hotkey" illustration. The gallery gained units & currencies, calendar, gross-to-net, BPM detector, song recognition and lines of code — rendered from the real app UI with invented data.
+
 ### Changed
-- **Window palette: only ours appears at the green button.** On by default while the palette is summoned by hovering the green button, Inspector Rust now hides macOS's own tiling menu there (the global AppKit default `NSZoomButtonShowMenu`), so the two popovers no longer stack and the palette sits right under the button again. It takes effect immediately, in already-running apps too. Switch it off in **Settings → Window palette**; that restores the macOS menu — but only if Inspector Rust was the one who hid it.
+- **Window palette: only ours appears at the green button.** On by default while the palette is summoned by hovering the green button, Inspector Rust now hides macOS's own tiling menu there (the global AppKit default `NSZoomButtonShowMenu`), so the two popovers no longer stack and the palette sits right under the button again. It takes effect immediately in most running apps; the odd app that still shows the macOS menu picks it up after a restart. Switch it off in **Settings → Window palette**; that restores the macOS menu — but only if Inspector Rust was the one who hid it.
 
 ### Fixed
 - **Cursor wrap-around with several screens.** Leaving the outermost left or right side now always lands on the far side of the first or last screen; the pointer jumps within one screen only when it is the only one. With vertically offset screens it used to wrap back onto its own screen on the inner side (where the neighbour exists, just not at that height) — that side no longer wraps at all. Vertical wraps stay in the pointer's column.

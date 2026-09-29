@@ -450,7 +450,7 @@
 | **Windows 11 / 10** | [`InspectorRust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
 | **macOS 11+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
-| **macOS Intel** | — | Not buildable: the ONNX Runtime dependency ships no Intel-macOS binary — [details](./macos/README.md#apple-silicon-only-x86_64-does-not-build) |
+| **macOS 11+ (Intel)** | [`InspectorRust_<ver>_x64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for Intel Macs — every feature except the ML background cut-out ([why](./macos/README.md#intel-macs-x86_64-no-ml-cut-out)) |
 | **Linux x86-64** | [`InspectorRust_<ver>_amd64.deb`](https://github.com/pepperonas/inspector-rust/releases/latest) | Debian package — built on Ubuntu 24.04, so Ubuntu 24.04+ / Debian 13 |
 | **Linux x86-64** | [`InspectorRust_<ver>_amd64.AppImage`](https://github.com/pepperonas/inspector-rust/releases/latest) | Portable; building yourself: [`linux/README.md`](./linux/README.md) |
 

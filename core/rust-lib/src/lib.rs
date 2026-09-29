@@ -26,6 +26,11 @@ mod commands;
 mod crypto;
 mod cursor_wrap;
 mod cutout;
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+mod cutout_ml;
+// Intel Macs: ONNX Runtime has no x86_64-macOS binary → stub (see the file).
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+#[path = "cutout_ml_unavailable.rs"]
 mod cutout_ml;
 mod db;
 #[cfg(target_os = "linux")]

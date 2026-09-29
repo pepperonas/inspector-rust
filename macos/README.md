@@ -11,21 +11,21 @@ This directory contains the macOS-specific Tauri shell for Inspector Rust. The s
 
 No DMG-specific tooling is required — Tauri's `bundle_dmg.sh` runs out of the box on macOS.
 
-### Apple Silicon only (x86_64 does not build)
+### Intel Macs (x86_64): no ML cut-out
 
-`x86_64-apple-darwin` **cannot be built at all** right now, natively or
-cross-compiled: the ML background cut-out depends on `ort` (ONNX Runtime), and
-`ort-sys` 2.0.0-rc.12 ships prebuilt binaries for exactly one Apple target —
-its `build/download/dist.txt` lists `aarch64-apple-darwin` and nothing else for
-macOS. The build script hard-errors with *"ort does not provide prebuilt
-binaries for the target x86_64-apple-darwin"*. This is why the release workflow
-builds arm64 only; it is a dependency limitation, not a missing matrix entry.
+Releases ship two DMGs: `InspectorRust_<ver>_aarch64.dmg` (Apple Silicon) and
+`InspectorRust_<ver>_x64.dmg` (Intel, cross-compiled on the Apple-Silicon CI
+runner). The Intel build has every feature **except the ML background
+cut-out**: that feature depends on `ort` (ONNX Runtime), and `ort-sys`
+2.0.0-rc.12 ships prebuilt binaries for exactly one Apple target
+(`aarch64-apple-darwin`). `core/rust-lib/Cargo.toml` therefore target-gates
+`ort`/`ndarray` off for `x86_64-apple-darwin`, and `lib.rs` swaps `cutout_ml`
+for `cutout_ml_unavailable.rs`, which answers the cut-out with an honest
+error instead of a result.
 
-Bringing Intel back needs one of: `ort`'s `load-dynamic` plus an x86_64
-`libonnxruntime.dylib` bundled into the `.app`; feature-gating `cutout_ml.rs`
-off for x86_64 (Intel then has every feature except the ML cut-out); or
-building ONNX Runtime from source. See the note in
-[`.github/workflows/release.yml`](../.github/workflows/release.yml).
+Restoring the cut-out on Intel would need `ort`'s `load-dynamic` plus an
+x86_64 `libonnxruntime.dylib` bundled and signed into the `.app`, or building
+ONNX Runtime from source.
 
 ## Build
 

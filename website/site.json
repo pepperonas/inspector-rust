@@ -42,7 +42,7 @@
   "type": "SoftwareApplication",
   "category": "UtilitiesApplication",
   "subcategory": "Clipboard manager and command palette",
-  "os": "macOS 11 or later (Apple silicon), Windows 10/11 (x64), Linux x86-64"
+  "os": "macOS 11 or later (Apple silicon and Intel), Windows 10/11 (x64), Linux x86-64"
  },
  "targets": [
   {
@@ -111,7 +111,7 @@
    "image_alt": "Illustrated overview of Inspector Rust: a detective holding a gear with the Rust logo, surrounded by its feature groups"
   },
   "summary": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 67 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
-  "meta_fallback": "Newest release · macOS (Apple silicon), Windows, Linux · free, MIT licence",
+  "meta_fallback": "Newest release · macOS (Apple silicon & Intel), Windows, Linux · free, MIT licence",
   "feature_list": [
    "Searchable clipboard history for text, images, files and rich text, with pins and notes",
    "Text expander with abbreviations, hotkeys and placeholders such as date, clipboard and cursor",
@@ -127,7 +127,7 @@
    "No account, no telemetry; network only for commands that need it"
   ],
   "limits": [
-   "macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.",
+   "macOS builds are not notarized and the Intel DMG has no background removal; the first launch needs one Terminal command.",
    "Some features are macOS-only (for example the network monitor and touchpad gestures).",
    "Linux: global shortcuts may need to be bound in the desktop settings under Wayland."
   ],
@@ -281,11 +281,11 @@
      "fr": "Téléchargez pour votre système"
     },
     "p": {
-     "en": "DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.",
-     "de": "DMG für Macs mit Apple-Chip, MSI-Installer oder portable EXE für Windows, .deb oder AppImage für Linux.",
-     "es": "DMG para Mac con Apple silicon, instalador MSI o exe portátil para Windows, .deb o AppImage para Linux.",
-     "it": "DMG per Mac con Apple silicon, installer MSI o exe portatile per Windows, .deb o AppImage per Linux.",
-     "fr": "DMG pour les Mac à puce Apple, installeur MSI ou exe portable pour Windows, .deb ou AppImage pour Linux."
+     "en": "DMG for Macs (Apple silicon or Intel), MSI installer or portable exe for Windows, .deb or AppImage for Linux.",
+     "de": "DMG für Macs (Apple-Chip oder Intel), MSI-Installer oder portable EXE für Windows, .deb oder AppImage für Linux.",
+     "es": "DMG para Mac (Apple silicon o Intel), instalador MSI o exe portátil para Windows, .deb o AppImage para Linux.",
+     "it": "DMG per Mac (Apple silicon o Intel), installer MSI o exe portatile per Windows, .deb o AppImage per Linux.",
+     "fr": "DMG pour les Mac (puce Apple ou Intel), installeur MSI ou exe portable pour Windows, .deb ou AppImage pour Linux."
     }
    },
    {
@@ -377,11 +377,11 @@
      "fr": "Sur quels systèmes fonctionne-t-il ?"
     },
     "a": {
-     "en": "macOS 11 or later on Apple silicon, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). There is no build for Intel Macs, because the on-device background-removal model's runtime has no Intel macOS binary.",
-     "de": "macOS 11 oder neuer auf Apple-Chips, Windows 10 und 11 (x64) sowie Linux x86-64 (.deb für Ubuntu 24.04+ und Debian 13 oder das AppImage). Für Intel-Macs gibt es keinen Build, weil die Laufzeit des lokalen Freistell-Modells keine Intel-macOS-Binärdatei hat.",
-     "es": "macOS 11 o posterior en Apple silicon, Windows 10 y 11 (x64) y Linux x86-64 (.deb para Ubuntu 24.04+ y Debian 13, o el AppImage). No hay versión para Mac con Intel, porque el motor del modelo local que recorta fondos no tiene binario para macOS en Intel.",
-     "it": "macOS 11 o successivo su Apple silicon, Windows 10 e 11 (x64) e Linux x86-64 (.deb per Ubuntu 24.04+ e Debian 13, oppure l’AppImage). Non esiste una versione per Mac Intel, perché il runtime del modello locale di scontorno non ha un binario per macOS su Intel.",
-     "fr": "macOS 11 ou plus récent sur puce Apple, Windows 10 et 11 (x64) et Linux x86-64 (.deb pour Ubuntu 24.04+ et Debian 13, ou l’AppImage). Il n’existe pas de version pour les Mac Intel, car le moteur du modèle local de détourage n’a pas de binaire macOS Intel."
+     "en": "macOS 11 or later on Apple silicon or Intel, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). On Intel Macs everything works except the on-device background removal, because its model runtime has no Intel macOS binary.",
+     "de": "macOS 11 oder neuer auf Apple-Chips oder Intel, Windows 10 und 11 (x64) sowie Linux x86-64 (.deb für Ubuntu 24.04+ und Debian 13 oder das AppImage). Auf Intel-Macs funktioniert alles außer dem lokalen Freistellen, weil die Laufzeit des Modells keine Intel-macOS-Binärdatei hat.",
+     "es": "macOS 11 o posterior en Apple silicon o Intel, Windows 10 y 11 (x64) y Linux x86-64 (.deb para Ubuntu 24.04+ y Debian 13, o el AppImage). En Mac con Intel funciona todo salvo el recorte local de fondos, porque el motor del modelo no tiene binario para macOS en Intel.",
+     "it": "macOS 11 o successivo su Apple silicon o Intel, Windows 10 e 11 (x64) e Linux x86-64 (.deb per Ubuntu 24.04+ e Debian 13, oppure l’AppImage). Sui Mac Intel funziona tutto tranne lo scontorno locale, perché il runtime del modello non ha un binario per macOS su Intel.",
+     "fr": "macOS 11 ou plus récent sur puce Apple ou Intel, Windows 10 et 11 (x64) et Linux x86-64 (.deb pour Ubuntu 24.04+ et Debian 13, ou l’AppImage). Sur les Mac Intel, tout fonctionne sauf le détourage local, car le moteur du modèle n’a pas de binaire macOS Intel."
     }
    },
    {
@@ -462,7 +462,7 @@
    "windows",
    "linux"
   ],
-  "skill_description": "Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows.",
+  "skill_description": "Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon and Intel), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows.",
   "gallery": [
    {
     "id": "history",

@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+- **Intel Macs get a release again.** Every GitHub release now carries `InspectorRust_<ver>_x64.dmg` next to the Apple-Silicon DMG. It has every feature except the ML background cut-out: its ONNX Runtime has no Intel-macOS binary, so on Intel the cut-out answers with a clear "not available on Intel Macs" instead of a result.
+
 ## [0.188.0] - 2026-09-29
 
 ### Added

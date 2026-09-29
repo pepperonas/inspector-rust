@@ -13,10 +13,17 @@
 //!
 //! **Coordinate convention:** global top-left-origin **points** — exactly the
 //! space of `CGEventGetLocation`, `CGWarpMouseCursorPosition` and
-//! `CGDisplayBounds`, so nothing is flipped. Multi-monitor correctness rests on
-//! one rule: **wrap only where one pixel past the edge lands on NO display.**
-//! An internal seam between adjacent monitors is never wrapped — macOS already
-//! flows the cursor across it, and wrapping there would trap the pointer.
+//! `CGDisplayBounds`, so nothing is flipped.
+//!
+//! **Multi-monitor rules (fixed 2026-09-29, field report):**
+//! * Lateral wrap happens ONLY at the outermost left/right side of the whole
+//!   arrangement (no display anywhere beyond it) and lands on the FIRST / LAST
+//!   display; the same screen only when it is the only one. The old rule
+//!   ("one point past the edge is on no display") also fired on the INNER side
+//!   of vertically offset screens, where the neighbour exists but not at the
+//!   cursor's height — and wrapped the pointer back onto its own screen.
+//! * Vertical wrap stays in the pointer's column.
+//! * The overshoot of the push is carried across, so the jump has no pause.
 //!
 //! Wrapping is **on by default** (the user's request); `apply` starts/stops the
 //! macOS monitor to match — mirrors `window_snap`/`gestures`. macOS only.
@@ -114,55 +121,97 @@ fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     }
 }
 
-/// The opposite-edge warp target for a confirmed outer edge, clamped into a
-/// real display so an offset / L-shaped arrangement never lands the cursor in a
-/// gap. Returns `None` only if `displays` is empty.
-fn opposite_target(edge: Edge, cursor: (f64, f64), displays: &[Rect]) -> Option<(f64, f64)> {
+/// Does display `o` lie ENTIRELY beyond `edge` of display `d`? (Right: `o`
+/// starts at or after `d`'s right side, etc. — 1 pt tolerance for rounding.)
+fn beyond(edge: Edge, o: &Rect, d: &Rect) -> bool {
+    match edge {
+        Edge::Right => o.x >= d.max_x() - 1.0,
+        Edge::Left => o.max_x() <= d.x + 1.0,
+        Edge::Bottom => o.y >= d.max_y() - 1.0,
+        Edge::Top => o.max_y() <= d.y + 1.0,
+    }
+}
+
+fn opposite(edge: Edge) -> Edge {
+    match edge {
+        Edge::Left => Edge::Right,
+        Edge::Right => Edge::Left,
+        Edge::Top => Edge::Bottom,
+        Edge::Bottom => Edge::Top,
+    }
+}
+
+/// How far the pointer WOULD have travelled past the pressed edge on this
+/// event (the OS clamps the reported location at the edge, the raw delta still
+/// carries the push). Carried over to the other side so the wrap has no seam.
+fn overshoot(edge: Edge, cursor: (f64, f64), d: &Rect, dir: (f64, f64)) -> f64 {
+    let o = match edge {
+        Edge::Right => cursor.0 + dir.0 - d.max_x(),
+        Edge::Left => d.x - (cursor.0 + dir.0),
+        Edge::Bottom => cursor.1 + dir.1 - d.max_y(),
+        Edge::Top => d.y - (cursor.1 + dir.1),
+    };
+    o.max(0.0)
+}
+
+/// The opposite-edge warp target for a confirmed outer edge.
+///
+/// * **Lateral** (left/right): the pointer reappears on the FIRST / LAST
+///   display of the arrangement — the ones with nothing further out on the
+///   opposite side — picking the one closest in height, y clamped into it.
+///   With a single display that is the same display (Pac-Man in place).
+/// * **Vertical** (top/bottom): stays in the pointer's column — the topmost /
+///   bottommost display that covers the cursor's x; falls back to the current
+///   display (side-by-side screens of different height never swap screens on
+///   a vertical wrap).
+///
+/// `carry` (the overshoot) offsets the landing point inward so a fast swipe
+/// keeps its momentum across the wrap.
+fn opposite_target(
+    edge: Edge,
+    cursor: (f64, f64),
+    d: &Rect,
+    displays: &[Rect],
+    carry: f64,
+) -> Option<(f64, f64)> {
     if displays.is_empty() {
         return None;
     }
     match edge {
-        // Pushed off the RIGHT → reappear on the far LEFT.
-        Edge::Right => {
-            let gx = displays.iter().map(|d| d.x).fold(f64::INFINITY, f64::min);
-            let d = displays
+        Edge::Left | Edge::Right => {
+            // Candidates: displays with nothing beyond them on the side we
+            // reappear on (Right push → the leftmost column).
+            let back = opposite(edge);
+            let t = displays
                 .iter()
-                .filter(|d| (d.x - gx).abs() < 1.0)
+                .filter(|c| !displays.iter().any(|o| o != *c && beyond(back, o, c)))
                 .min_by(|a, b| vgap(cursor.1, a).total_cmp(&vgap(cursor.1, b)))?;
-            Some((d.x + TARGET_INSET, clamp(cursor.1, d.y + TARGET_INSET, d.max_y() - TARGET_INSET)))
+            let y = clamp(cursor.1, t.y + TARGET_INSET, t.max_y() - TARGET_INSET);
+            let x = if edge == Edge::Right {
+                clamp(t.x + carry, t.x + TARGET_INSET, t.max_x() - TARGET_INSET)
+            } else {
+                clamp(t.max_x() - carry, t.x + TARGET_INSET, t.max_x() - TARGET_INSET)
+            };
+            Some((x, y))
         }
-        // Pushed off the LEFT → reappear on the far RIGHT.
-        Edge::Left => {
-            let gx = displays.iter().map(|d| d.max_x()).fold(f64::NEG_INFINITY, f64::max);
-            let d = displays
+        Edge::Top | Edge::Bottom => {
+            let column = displays
                 .iter()
-                .filter(|d| (d.max_x() - gx).abs() < 1.0)
-                .min_by(|a, b| vgap(cursor.1, a).total_cmp(&vgap(cursor.1, b)))?;
-            Some((
-                d.max_x() - TARGET_INSET,
-                clamp(cursor.1, d.y + TARGET_INSET, d.max_y() - TARGET_INSET),
-            ))
-        }
-        // Pushed off the BOTTOM → reappear on the far TOP.
-        Edge::Bottom => {
-            let gy = displays.iter().map(|d| d.y).fold(f64::INFINITY, f64::min);
-            let d = displays
-                .iter()
-                .filter(|d| (d.y - gy).abs() < 1.0)
-                .min_by(|a, b| hgap(cursor.0, a).total_cmp(&hgap(cursor.0, b)))?;
-            Some((clamp(cursor.0, d.x + TARGET_INSET, d.max_x() - TARGET_INSET), d.y + TARGET_INSET))
-        }
-        // Pushed off the TOP → reappear on the far BOTTOM.
-        Edge::Top => {
-            let gy = displays.iter().map(|d| d.max_y()).fold(f64::NEG_INFINITY, f64::max);
-            let d = displays
-                .iter()
-                .filter(|d| (d.max_y() - gy).abs() < 1.0)
-                .min_by(|a, b| hgap(cursor.0, a).total_cmp(&hgap(cursor.0, b)))?;
-            Some((
-                clamp(cursor.0, d.x + TARGET_INSET, d.max_x() - TARGET_INSET),
-                d.max_y() - TARGET_INSET,
-            ))
+                .filter(|c| cursor.0 >= c.x && cursor.0 < c.max_x());
+            let t = if edge == Edge::Bottom {
+                column.min_by(|a, b| a.y.total_cmp(&b.y))
+            } else {
+                column.max_by(|a, b| a.max_y().total_cmp(&b.max_y()))
+            }
+            .copied()
+            .unwrap_or(*d);
+            let x = clamp(cursor.0, t.x + TARGET_INSET, t.max_x() - TARGET_INSET);
+            let y = if edge == Edge::Bottom {
+                clamp(t.y + carry, t.y + TARGET_INSET, t.max_y() - TARGET_INSET)
+            } else {
+                clamp(t.max_y() - carry, t.y + TARGET_INSET, t.max_y() - TARGET_INSET)
+            };
+            Some((x, y))
         }
     }
 }
@@ -201,16 +250,26 @@ fn pressed_against(edge: Edge, cursor: (f64, f64), d: &Rect, dir: (f64, f64)) ->
     }
 }
 
-/// Is the edge just past `edge` of `d` a TRUE OUTER edge — i.e. the point one
-/// point beyond lands on NO display? (An internal seam returns `false`.)
+/// Is `edge` of `d` a TRUE OUTER edge?
+///
+/// * **Lateral:** only the outermost side of the whole arrangement — no
+///   display lies anywhere beyond it. Where a neighbour exists but not at the
+///   cursor's height (vertically offset screens), the edge is NOT outer: the
+///   pointer must never wrap back onto its own screen there.
+/// * **Vertical:** the point one past the edge lands on no display (column
+///   rule — an internal stacked seam is never wrapped).
 fn is_outer_edge(edge: Edge, cursor: (f64, f64), d: &Rect, displays: &[Rect]) -> bool {
-    let probe = match edge {
-        Edge::Right => (d.max_x() + 1.0, cursor.1),
-        Edge::Left => (d.x - 1.0, cursor.1),
-        Edge::Bottom => (cursor.0, d.max_y() + 1.0),
-        Edge::Top => (cursor.0, d.y - 1.0),
-    };
-    !displays.iter().any(|o| o.contains(probe.0, probe.1))
+    match edge {
+        Edge::Left | Edge::Right => !displays.iter().any(|o| o != d && beyond(edge, o, d)),
+        Edge::Top | Edge::Bottom => {
+            let probe = if edge == Edge::Bottom {
+                (cursor.0, d.max_y() + 1.0)
+            } else {
+                (cursor.0, d.y - 1.0)
+            };
+            !displays.iter().any(|o| o.contains(probe.0, probe.1))
+        }
+    }
 }
 
 /// **Pure core.** Given the cursor position (global top-left points), every
@@ -263,7 +322,8 @@ pub fn wrap_target(
         if !is_outer_edge(edge, cursor, &d, displays) {
             continue; // internal seam — macOS flows the cursor across it
         }
-        if let Some(t) = opposite_target(edge, cursor, displays) {
+        let carry = overshoot(edge, cursor, &d, dir);
+        if let Some(t) = opposite_target(edge, cursor, &d, displays, carry) {
             return Some(t);
         }
     }
@@ -496,6 +556,73 @@ mod tests {
         // Cursor at B's right edge, at a y ABOVE where A exists (y=1000, A ends
         // at 900). Wrapping left must clamp y into A, not land in empty space.
         approx(wrap_target((3359.0, 1000.0), &[AL, BL], (1.0, 0.0), &CFG), (2.0, 898.0));
+    }
+
+    #[test]
+    fn offset_inner_side_never_wraps_back_onto_the_same_screen() {
+        // BL's LEFT edge at a height where AL does not exist: a neighbour lies
+        // to the left, so this is not the outer side — no wrap (the old probe
+        // rule wrapped BL onto its own right edge here).
+        assert_eq!(wrap_target((1440.0, 1000.0), &[AL, BL], (-1.0, 0.0), &CFG), None);
+        // …and AL's right edge above BL's top likewise.
+        assert_eq!(wrap_target((1439.0, 50.0), &[AL, BL], (1.0, 0.0), &CFG), None);
+    }
+    #[test]
+    fn the_field_arrangement_never_jumps_within_one_screen() {
+        // Measured on the reporting machine (CGDisplayBounds): laptop right of
+        // a taller, offset external display.
+        let lap = Rect::new(0.0, 0.0, 1496.0, 967.0);
+        let ext = Rect::new(-1920.0, -316.0, 1920.0, 1080.0);
+        let d = [lap, ext];
+        // laptop's left edge BELOW the external (y 800): inner side → no wrap
+        assert_eq!(wrap_target((0.0, 800.0), &d, (-5.0, 0.0), &CFG), None);
+        // external's right edge ABOVE the laptop (y −100): inner side → no wrap
+        assert_eq!(wrap_target((-1.0, -100.0), &d, (5.0, 0.0), &CFG), None);
+        // outer sides cross over to the other screen
+        approx(wrap_target((1495.0, 800.0), &d, (1.0, 0.0), &CFG), (-1918.0, 762.0));
+        approx(wrap_target((-1920.0, 100.0), &d, (-1.0, 0.0), &CFG), (1494.0, 100.0));
+    }
+    #[test]
+    fn offset_outer_left_lands_on_the_last_screen() {
+        approx(wrap_target((0.0, 450.0), &[AL, BL], (-1.0, 0.0), &CFG), (3358.0, 450.0));
+    }
+    #[test]
+    fn three_screens_wrap_first_to_last_and_back() {
+        let c = Rect::new(2880.0, 0.0, 1440.0, 900.0);
+        approx(wrap_target((4319.0, 450.0), &[A, B, c], (1.0, 0.0), &CFG), (2.0, 450.0));
+        approx(wrap_target((0.0, 450.0), &[A, B, c], (-1.0, 0.0), &CFG), (4318.0, 450.0));
+        // the middle screen's sides are seams
+        assert_eq!(wrap_target((2879.0, 450.0), &[A, B, c], (1.0, 0.0), &CFG), None);
+    }
+    #[test]
+    fn external_left_of_the_laptop_with_negative_coordinates() {
+        let ext = Rect::new(-2560.0, -300.0, 2560.0, 1440.0);
+        let lap = Rect::new(0.0, 0.0, 1512.0, 982.0);
+        approx(wrap_target((1511.0, 500.0), &[ext, lap], (1.0, 0.0), &CFG), (-2558.0, 500.0));
+        approx(wrap_target((-2560.0, 500.0), &[ext, lap], (-1.0, 0.0), &CFG), (1510.0, 500.0));
+    }
+    #[test]
+    fn a_single_screen_wraps_laterally_onto_itself() {
+        approx(wrap_target((1439.0, 450.0), &[S], (1.0, 0.0), &CFG), (2.0, 450.0));
+    }
+    #[test]
+    fn a_fast_push_carries_its_overshoot_across_no_sticky_seam() {
+        // 2879 + 25 − 2880 = 24 pt beyond → lands 24 pt into the far side.
+        approx(wrap_target((2879.0, 450.0), &[A, B], (25.0, 0.0), &CFG), (24.0, 450.0));
+        approx(wrap_target((0.0, 450.0), &[A, B], (-25.0, 0.0), &CFG), (2855.0, 450.0));
+        approx(wrap_target((720.0, 899.0), &[S], (0.0, 30.0), &CFG), (720.0, 29.0));
+    }
+    #[test]
+    fn vertical_wrap_stays_in_its_column_on_side_by_side_screens() {
+        // Pushing down on BL (x=2000) must reappear at BL's top, not AL's.
+        approx(wrap_target((2000.0, 1179.0), &[AL, BL], (0.0, 1.0), &CFG), (2000.0, 102.0));
+        approx(wrap_target((500.0, 899.0), &[AL, BL], (0.0, 1.0), &CFG), (500.0, 2.0));
+    }
+    #[test]
+    fn stacked_screens_of_different_width_wrap_laterally_in_their_row() {
+        let top = Rect::new(240.0, 0.0, 1440.0, 900.0);
+        let bot = Rect::new(0.0, 900.0, 1920.0, 1080.0);
+        approx(wrap_target((1679.0, 450.0), &[top, bot], (1.0, 0.0), &CFG), (242.0, 450.0));
     }
 
     // ── stacked vertically: internal seam vs. outer top/bottom ──

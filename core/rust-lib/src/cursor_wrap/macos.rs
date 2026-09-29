@@ -44,9 +44,15 @@ const CG_SESSION_TAP: u32 = 1;
 const CG_HEAD_INSERT: u32 = 0;
 const CG_TAP_LISTEN_ONLY: u32 = 1; // never consume — the cursor must move normally
 
-/// Ignore edge triggers for this long after a warp, so the wrap can't loop or
-/// jitter at the boundary.
-const COOLDOWN_MS: u64 = 120;
+/// Ignore edge triggers for this long after a warp — only a loop guard. It is
+/// kept SHORT on purpose: the landing point sits inside the target display and
+/// the direction test already prevents an immediate bounce, and a long lockout
+/// is exactly what made the edge feel "sticky" (the pointer paused at the rim
+/// before jumping). Was 120 ms.
+const COOLDOWN_MS: u64 = 25;
+
+/// `kCGEventSourceStateCombinedSessionState`.
+const CG_SOURCE_COMBINED_SESSION: i32 = 0;
 
 type CGEventTapCallBack = extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef;
 
@@ -106,6 +112,8 @@ extern "C" {
         display_count: *mut u32,
     ) -> i32;
     fn CGDisplayBounds(display: CGDirectDisplayID) -> CGRect;
+    fn CGEventSourceCreate(state_id: i32) -> *mut c_void;
+    fn CGEventSourceSetLocalEventsSuppressionInterval(source: *mut c_void, seconds: f64);
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
@@ -251,6 +259,13 @@ fn install_tap_thread() {
             CFRunLoopAddSource(CFRunLoopGetCurrent(), src, kCFRunLoopCommonModes);
             CGEventTapEnable(tap, true);
             RUN_LOOP.store(CFRunLoopGetCurrent() as isize, Ordering::SeqCst);
+            // A warp suppresses local mouse events for 0.25 s by default — the
+            // pointer froze right after every wrap. Zero it for the session
+            // state (the source is intentionally kept alive for the process).
+            let src = CGEventSourceCreate(CG_SOURCE_COMBINED_SESSION);
+            if !src.is_null() {
+                CGEventSourceSetLocalEventsSuppressionInterval(src, 0.0);
+            }
             *SCREENS.lock() = display_rects();
             tracing::info!("cursor-wrap: monitor armed ({} display(s))", SCREENS.lock().len());
             while RUNNING.load(Ordering::SeqCst) {

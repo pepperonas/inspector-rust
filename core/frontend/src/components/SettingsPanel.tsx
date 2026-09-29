@@ -1695,7 +1695,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         : paletteCfg.trigger === "hotkey"
                           ? "Opens for the focused window — bind it under Global shortcuts."
                           : paletteCfg.hide_system_menu
-                            ? "Only the Inspector Rust palette appears at the button."
+                            ? "Only the Inspector Rust palette appears at the button. Running apps usually follow at once; an app that still shows the macOS menu picks it up after a restart."
                             : "macOS opens its own tiling menu at the button too; the palette places itself beside it, so the two never stack."}
                     </span>
                     {paletteCfg.trigger === "zoom_hover" && (

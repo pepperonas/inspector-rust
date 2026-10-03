@@ -2792,6 +2792,55 @@ export function tokenUsageFetch(
   });
 }
 
+// ── Claude subscription limits (`limits` / `quota`) ────────────────────────
+
+export interface ClaudeLimit {
+  id: string;
+  name: string;
+  kind: string;
+  group: string | null;
+  percent: number;
+  resets_at: string | null;
+  severity: string | null;
+  active: boolean;
+  /** false = a limit type this build doesn't know (shown under its raw name). */
+  known: boolean;
+  money: { used: number; limit: number; currency: string } | null;
+}
+
+export interface ClaudeLimitsReport {
+  limits: ClaudeLimit[];
+  extra: {
+    enabled: boolean;
+    used: number;
+    limit: number;
+    currency: string;
+    percent: number;
+    disabled_reason: string | null;
+  } | null;
+  breakdown: { name: string; percent: number }[];
+  legacy: boolean;
+}
+
+export interface ClaudeLimitsStatus {
+  report: ClaudeLimitsReport | null;
+  fetched_at_ms: number | null;
+  error: string | null;
+  error_detail: string | null;
+  retry_at_ms: number | null;
+  poll_minutes: number;
+}
+
+/** Cached-or-fresh Claude limits (Rust decides whether the network is due). */
+export function claudeLimitsStatus(force = false): Promise<ClaudeLimitsStatus> {
+  return invoke("claude_limits_status", { force });
+}
+
+/** Set the poll interval (minutes, clamped 2..60); returns the applied value. */
+export function setClaudeLimitsPoll(minutes: number): Promise<number> {
+  return invoke("set_claude_limits_poll", { minutes });
+}
+
 // ── Clipboard-history cap ───────────────────────────────────────────────────
 
 export interface HistoryLimit {

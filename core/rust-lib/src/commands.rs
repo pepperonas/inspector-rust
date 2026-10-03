@@ -6326,6 +6326,30 @@ pub async fn token_usage_fetch(
     .map_err(|e| format!("token-usage task: {e}"))?
 }
 
+// ── Claude subscription limits (`limits` / `quota`) ─────────────────────────
+
+/// Current Claude usage limits. Hits the network only when the cache is due
+/// (poll interval) and no 429 backoff runs; otherwise returns the cache.
+/// async + spawn_blocking: reads the keychain via a subprocess and does HTTPS.
+#[tauri::command]
+pub async fn claude_limits_status(
+    db: State<'_, DbHandle>,
+    force: Option<bool>,
+) -> Result<crate::claude_limits::LimitsStatus, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::claude_limits::status(&db, force.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("limits task: {e}"))
+}
+
+/// Set the poll interval in minutes (clamped to 2..=60); returns the applied value.
+#[tauri::command]
+pub fn set_claude_limits_poll(db: State<'_, DbHandle>, minutes: u32) -> Result<u32, String> {
+    crate::claude_limits::set_poll_minutes(&db, minutes).map_err(|e| e.to_string())
+}
+
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────
 
 /// The current clipboard-history cap + its valid bounds (for the settings UI).

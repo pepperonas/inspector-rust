@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+- **`limits` (alias `quota`) — your Claude subscription limits in the preview.** Session, week across all models, per-model week, extra usage and the weekly split by surface, as claude.ai shows them; each with a bar, the percentage and when it resets (relative and in Berlin time). It reads Claude Code's login read-only — no refresh, nothing written back; an expired token says "start Claude Code once". Asks every 5 minutes while the panel is open (2–60 selectable), backs off on 429 and keeps the last values with their timestamp. Limit types it doesn't know yet are still shown under their raw name. Uses an undocumented endpoint, so it may change.
+
 ## [0.189.0] - 2026-09-30
 
 ### Added

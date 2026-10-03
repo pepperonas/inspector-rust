@@ -56,6 +56,9 @@ import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
 import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
+const ClaudeLimitsPanel = lazy(() =>
+  import("./components/ClaudeLimitsPanel").then((m) => ({ default: m.ClaudeLimitsPanel })),
+);
 const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({ default: m.TokensPanel })));
 const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
 const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
@@ -476,6 +479,8 @@ function App() {
   const [aliasMode, setAliasMode] = useState(false);
   const [aliasFocus, setAliasFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
+  const [limitsMode, setLimitsMode] = useState(false);
+  const [limitsFocus, setLimitsFocus] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
   // right preview column directly (like `sound`); Enter hands the arrow keys
@@ -1495,6 +1500,16 @@ function App() {
       setTokensFocus(false);
     }
   }, [isTokensCmd, tokensMode]);
+  const isLimitsCmd = parsedCommand?.spec.kind === "limits";
+  useEffect(() => {
+    // Show-while-typed: the panel only reads a cache unless the poll is due.
+    if (isLimitsCmd && !limitsMode) {
+      setLimitsMode(true);
+    } else if (!isLimitsCmd && limitsMode) {
+      setLimitsMode(false);
+      setLimitsFocus(false);
+    }
+  }, [isLimitsCmd, limitsMode]);
 
   // Random mode shows the rolled number directly in the preview while `rnd`/
   // `random` is typed (like `calendar`); a Roll-again button re-rolls, Enter
@@ -2078,6 +2093,10 @@ function App() {
       case "ip":
         label = "What is my IP?";
         hint = "Enter → public IP, approximate location, network and map";
+        break;
+      case "limits":
+        label = "Claude-Limits";
+        hint = "Sitzung, Woche, je Modell — Enter: R aktualisiert, Esc zurück";
         break;
       case "tokens":
         label = "Claude Code token usage";
@@ -3776,7 +3795,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4350,6 +4369,10 @@ function App() {
         setIpMode(true);
         setIpFocus(true);
         return true;
+      } else if (commandKind === "limits") {
+        setLimitsMode(true);
+        setLimitsFocus(true);
+        return true;
       } else if (commandKind === "tokens") {
         // Inline Claude Code usage from the local Token Tracker.
         setTokensMode(true);
@@ -4796,6 +4819,7 @@ function App() {
       !aliasFocus &&
       !benchFocus &&
       !tokensFocus &&
+      !limitsFocus &&
       !calendarFocus &&
       !convertFocus &&
       !cleanFocus &&
@@ -5476,6 +5500,17 @@ function App() {
                       onExit={() => {
                         setWeatherMode(false);
                         setWeatherFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : limitsMode ? (
+                  <div className="md3-pop-in h-full">
+                    <ClaudeLimitsPanel
+                      focused={limitsFocus}
+                      onExit={() => {
+                        setLimitsMode(false);
+                        setLimitsFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

@@ -99,6 +99,7 @@ export type CommandKind =
   | "weather"
   | "ip"
   | "tokens"
+  | "limits"
   | "track"
   | "trim"
   | "calendar"
@@ -962,6 +963,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "usage",
     syntax: "usage",
     description: "Alias for tokens",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "limits",
+    keyword: "limits",
+    syntax: "limits",
+    description:
+      "Claude subscription limits — session, week, per-model week and extra usage, with reset times",
+    requiresArg: false,
+  },
+  {
+    kind: "limits",
+    keyword: "quota",
+    syntax: "quota",
+    description: "Alias for limits",
     requiresArg: false,
     hidden: true,
   },

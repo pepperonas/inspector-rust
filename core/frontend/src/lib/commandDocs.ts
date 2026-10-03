@@ -1649,6 +1649,33 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["stats", "track", "shazam"],
   },
   {
+    command: "limits",
+    aliases: ["quota"],
+    category: CAT_INFO,
+    version_added: "0.190.0",
+    tagline: "Claude subscription limits — session, week, per-model, with reset times.",
+    tagline_de: "Claude-Abo-Limits — Sitzung, Woche, je Modell, mit Rücksetzzeit.",
+    synopsis: "limits",
+    description:
+      "Shows the usage limits of your Claude subscription the way claude.ai → Settings → Usage does: the current session, the week across all models, per-model weekly limits, extra usage and the weekly split by surface (Claude Code, chats, …). Each limit has a bar, its percentage and when it resets (relative and absolute, Europe/Berlin). Reads Claude Code's own login read-only and asks api.anthropic.com every 5 minutes while the panel is open (configurable, minimum 2). R refreshes, Esc exits.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "limits", result: "Session 6 % · week 2 % · resets in 2 h 31 min." },
+      { input: "quota", result: "Same panel via the alias." },
+      { input: "limits", result: "Press R to fetch now instead of waiting for the interval." },
+    ],
+    tips: [
+      "Limit types this version doesn't know are still shown, under the API's raw name and marked 'unknown'.",
+      "On a 429 the last values stay visible with their timestamp while the app backs off.",
+    ],
+    caveats: [
+      "Uses an undocumented endpoint (the one Claude Code's /usage uses) — it can change without notice.",
+      "Needs a Claude Code login; the token is only read, never refreshed or written. If it has expired, start Claude Code once.",
+    ],
+    related: ["tokens", "stats"],
+  },
+  {
     command: "uptime",
     aliases: [],
     category: CAT_INFO,

@@ -107,6 +107,7 @@ mod system_stats;
 mod text_field;
 mod timer;
 mod token_usage;
+mod claude_limits;
 mod totp_import;
 mod totp_store;
 mod tracking;
@@ -1030,6 +1031,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::btsniff_live_packet,
             commands::btsniff_live_export_json,
             commands::token_usage_fetch,
+            commands::claude_limits_status,
+            commands::set_claude_limits_poll,
             commands::iris_start,
             commands::iris_stop,
             commands::iris_status,

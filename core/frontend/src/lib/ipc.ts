@@ -3088,6 +3088,8 @@ export interface RetroModeSettings {
   dither: RetroDither;
   dither_strength: number;
   focus: boolean;
+  /** Active window shown as the REAL window (a hole), not fine pixels. */
+  focus_native: boolean;
   focus_pixel_pt: number;
   focus_border: boolean;
   lens: boolean;
@@ -3108,6 +3110,8 @@ export interface RetroConfig {
   sixteen: RetroModeSettings;
   target: "current" | "all";
   fps: number;
+  /** Fade the overlay out while typing/scrolling/dragging. */
+  retreat: boolean;
 }
 
 export interface RetroPreset {

@@ -96,7 +96,7 @@ export function palettesFor(mode: RetroMode): RetroPaletteInfo[] {
 
 export type RetroRowId =
   | "mode" | "palette" | "pixel" | "dither" | "ditherStrength"
-  | "focus" | "focusPixel" | "focusBorder"
+  | "focus" | "focusNative" | "focusPixel" | "focusBorder" | "retreat"
   | "lens" | "lensRadius" | "lensView"
   | "scanlines" | "scanlineIntensity" | "crt" | "crtStrength"
   | "opacity" | "frames" | "sprite" | "target" | "fps";
@@ -115,12 +115,14 @@ export const RETRO_ROWS: RetroRow[] = [
   { id: "pixel", label: "Pixelgröße", group: "Bild" },
   { id: "dither", label: "Dithering", group: "Bild" },
   { id: "ditherStrength", label: "Dither-Stärke", group: "Bild", dependsOn: "dither" },
-  { id: "focus", label: "Fokus-Modus", group: "Lesbarkeit" },
+  { id: "focus", label: "Aktives Fenster ausnehmen", group: "Lesbarkeit" },
+  { id: "focusNative", label: "Aktives Fenster zeigt", group: "Lesbarkeit", dependsOn: "focus" },
   { id: "focusPixel", label: "Pixel im Fokus", group: "Lesbarkeit", dependsOn: "focus" },
   { id: "focusBorder", label: "Rahmen ums Fokusfenster", group: "Lesbarkeit", dependsOn: "focus" },
   { id: "lens", label: "Cursor-Lupe", group: "Lesbarkeit" },
   { id: "lensRadius", label: "Lupen-Radius", group: "Lesbarkeit", dependsOn: "lens" },
   { id: "lensView", label: "In der Lupe", group: "Lesbarkeit", dependsOn: "lens" },
+  { id: "retreat", label: "Beim Tippen/Scrollen ausblenden", group: "Lesbarkeit" },
   { id: "scanlines", label: "Scanlines", group: "Röhre" },
   { id: "scanlineIntensity", label: "Scanline-Intensität", group: "Röhre", dependsOn: "scanlines" },
   { id: "crt", label: "CRT-Krümmung & Vignette", group: "Röhre" },
@@ -156,6 +158,8 @@ const onOff = (b: boolean) => (b ? "an" : "aus");
 export function rowInactive(row: RetroRow, cfg: RetroConfig): boolean {
   if (!row.dependsOn) return false;
   const s = activeSlot(cfg);
+  // Fine focus pixels only matter when the window is pixelated, not real.
+  if (row.id === "focusPixel" && s.focus && s.focus_native) return true;
   switch (row.dependsOn) {
     case "dither": return s.dither === "off";
     case "focus": return !s.focus;
@@ -175,6 +179,8 @@ export function rowValue(id: RetroRowId, cfg: RetroConfig): string {
     case "dither": return DITHER_LABEL[s.dither];
     case "ditherStrength": return `${s.dither_strength} %`;
     case "focus": return onOff(s.focus);
+    case "focusNative": return s.focus_native ? "Original" : "feine Pixel";
+    case "retreat": return onOff(cfg.retreat);
     case "focusPixel": return s.focus_pixel_pt <= 1 ? "1 pt (nur Farben)" : `${fmtNum(s.focus_pixel_pt)} pt`;
     case "focusBorder": return onOff(s.focus_border);
     case "lens": return onOff(s.lens);
@@ -216,6 +222,8 @@ export function adjustRow(id: RetroRowId, cfg: RetroConfig, dir: number): RetroC
     case "dither": return set({ dither: cycle(DITHER_ORDER, s.dither, dir) });
     case "ditherStrength": return set({ dither_strength: clamp(s.dither_strength + dir * 5, 0, 100) });
     case "focus": return set({ focus: !s.focus });
+    case "focusNative": return set({ focus_native: !s.focus_native });
+    case "retreat": return { ...cfg, retreat: !cfg.retreat };
     case "focusPixel": return set({ focus_pixel_pt: clampHalf(s.focus_pixel_pt + dir * PIXEL_STEP, FOCUS_PX_RANGE) });
     case "focusBorder": return set({ focus_border: !s.focus_border });
     case "lens": return set({ lens: !s.lens });

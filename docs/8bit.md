@@ -2,8 +2,44 @@
 
 `8bit` legt ein bildschirmfüllendes, click-through Overlay über den Bildschirm,
 das den Bildschirm live abgreift und in Retro-Optik zeigt: Pixelung,
-Farbreduktion, Dithering, auf Wunsch Scanlines und CRT-Krümmung. Darunter
-arbeitest du ganz normal weiter; du siehst nur die Retro-Version.
+Farbreduktion, Dithering, auf Wunsch Scanlines und CRT-Krümmung. Gedacht als
+Show und Spaß — der Rechner muss dabei aber jederzeit normal bedienbar bleiben.
+
+## Bedienbar bleiben (seit 0.192.0)
+
+Die erste Fassung (0.190.0) hat den ganzen Bildschirm samt Menüleiste, Dock und
+aktivem Fenster durch eine verzögerte, verpixelte Kopie ersetzt. Text war
+unlesbar, Klicks gingen daneben, und Menüs und Dialoge erschienen als Pixelbrei
+einen Frame zu spät. Drei Regeln beheben das:
+
+1. **System-UI bleibt echt.** Das Overlay liegt auf Fensterebene 1, also
+   *unter* Menüleiste (24), Dock (20), aufgeklappten Menüs (101), schwebenden
+   Panels (3), Dialogen und Mitteilungen. Diese Fenster (alles mit
+   `windowLayer > 0`) werden zusätzlich aus dem Capture genommen, damit ihre
+   Kopie nicht verzögert darunter durchscheint. Ein Hintergrund-Thread prüft
+   alle 300 ms die Fensterliste und aktualisiert den Capture-Filter nur, wenn
+   sich die Menge geändert hat (`updateContentFilter`, kein Neustart).
+2. **Das aktive Fenster bleibt echt.** Standard ist „Aktives Fenster zeigt:
+   Original" — dort ist das Overlay **durchsichtig**, man sieht das echte
+   Fenster ohne jede Verzögerung. Ein dünner Rahmen in Palettenfarbe liegt
+   *außen* um das Loch, damit der Fensterinhalt unberührt bleibt. Die frühere
+   Darstellung „feine Pixel" gibt es weiter als Option. Ein App-Wechsel wird
+   innerhalb von 0,1 s erkannt (vorher 0,5 s).
+3. **Zurückweichen beim Arbeiten.** Beim Tippen, Scrollen oder Ziehen
+   verschwindet das Overlay **sofort** und kommt erst nach 0,9 s Ruhe
+   weich zurück. Gemessen wird nur echte Eingabe
+   (`CGEventSourceSecondsSinceLastEventType` im HID-Zustand für keyDown,
+   scrollWheel und die drei Drag-Ereignisse) — Mausbewegung allein zählt
+   nicht, sonst wäre das Overlay nie zu sehen. Abschaltbar.
+
+Dazu kommt Last: das aktive Fenster als Loch und die Lupe im Modus „Original"
+brauchen keine feinen Bildpunkte mehr. Der Capture läuft deshalb fast immer
+in **Zellauflösung** statt in voller Retina-Auflösung (vorher 2992×1934 bei
+60 fps, sobald der Fokus-Modus an war).
+
+**Grenze:** Ein Vollbild-Fenster als aktives Fenster ist ein Loch über den
+ganzen Monitor — dort ist das Overlay dann praktisch aus. Für eine
+Vollbild-Show schaltet ⌃⇧⌥9 die Ausnahme ab.
 
 | Plattform | Stand |
 |---|---|
@@ -40,10 +76,10 @@ gemischt.
 | `8bit on` / `8bit off` (auch `an`/`aus`) | starten / beenden |
 | `8bit <palette>` (`gb`, `pico8`, `snes`, …) | mit dieser Palette starten, der Modus folgt aus der Palette |
 | `8bit <preset>` (`alltag`, `show`, `retro-arbeit`, eigene) | Preset starten |
-| `8bit focus` / `8bit lens` (auch `fokus`/`lupe`) | Fokus-Modus bzw. Lupe umschalten, auch im laufenden Betrieb |
+| `8bit focus` / `8bit lens` (auch `fokus`/`lupe`) | Ausnahme fürs aktive Fenster bzw. Lupe umschalten, auch im laufenden Betrieb |
 | `8bit ?` | Inline-Hilfe |
 | **⌃⇧⌥8** | Overlay an/aus — von überall, der Notausstieg (umbelegbar) |
-| **⌃⇧⌥9** | Fokus-Modus an/aus (umbelegbar) |
+| **⌃⇧⌥9** | Ausnahme fürs aktive Fenster an/aus (umbelegbar) |
 | Tray → „Retro-Overlay beenden“ | zweiter Notausstieg, nur aktiv solange das Overlay läuft |
 | `--retro` / `--retro-preset <name>` | dasselbe von der Kommandozeile (an die laufende Instanz) |
 
@@ -60,12 +96,14 @@ wird gespeichert.
 | | Pixelgröße | 8-Bit 3–12 pt, 16-Bit 1–4 pt, 0,5er-Schritte |
 | | Dithering | aus, Bayer 2×2 / 4×4 / 8×8 |
 | | Dither-Stärke | 0–100 % |
-| Lesbarkeit | Fokus-Modus | an/aus |
-| | Pixel im Fokus | 1–4 pt; **1 pt = nur Farbreduktion, keine Pixelung** |
-| | Rahmen ums Fokusfenster | an/aus, Farbe aus der Palette |
+| Lesbarkeit | Aktives Fenster ausnehmen | an/aus (Standard an) |
+| | Aktives Fenster zeigt | **Original** (Loch, Standard) / feine Pixel |
+| | Pixel im Fokus | 1–4 pt, nur bei „feine Pixel"; **1 pt = nur Farbreduktion** |
+| | Rahmen ums Fokusfenster | an/aus, Farbe aus der Palette (bei „Original" außen ums Loch) |
 | | Cursor-Lupe | an/aus |
 | | Lupen-Radius | 40–200 pt |
-| | In der Lupe | Original / Fokus-Pixelgröße |
+| | In der Lupe | Original (Loch) / Fokus-Pixelgröße |
+| | Beim Tippen/Scrollen ausblenden | an/aus (Standard an), gilt für beide Modi |
 | Röhre | Scanlines + Intensität | an/aus, 0–100 % |
 | | CRT-Krümmung & Vignette + Stärke | an/aus, 0–100 % |
 | | Deckkraft | 50–100 % |
@@ -75,19 +113,26 @@ wird gespeichert.
 | | FPS-Limit | 30 / 60 |
 
 **Presets:** „Show“ (8-Bit, NES, 4 pt, Bayer 4×4 60 %, Scanlines), „Alltag“
-(16-Bit, SNES, 2 pt, Bayer 4×4 25 %, Fokus mit 1 pt) und „Retro-Arbeit“ (8-Bit,
-PICO-8, 4 pt, Fokus mit 1,5 pt, Lupe 80 pt). Eigene Presets speichern die
+(16-Bit, SNES, 2 pt, Bayer 4×4 25 %) und „Retro-Arbeit“ (8-Bit, PICO-8, 4 pt,
+Lupe 80 pt) — alle mit echtem aktivem Fenster. Eigene Presets speichern die
 aktuellen Werte des aktiven Modus. Ein Preset darf nicht wie eine Palette oder
 ein Befehlswort heißen, damit `8bit <name>` eindeutig bleibt. Mitgelieferte
 Presets lassen sich nicht löschen. **Zurücksetzen** setzt nur den aktiven Modus
 auf seine Standardwerte.
 
+**Umstellung gespeicherter Einstellungen:** Ein gespeicherter Modus aus 0.190/0.191
+kennt das Feld `focus_native` noch nicht. Beim ersten Laden wird für ihn einmalig
+das echte aktive Fenster eingeschaltet (`focus` + `focus_native`); danach gilt,
+was man wählt.
+
 Gespeichert wird im Settings-System: `retro.config` (beide Modi) und
 `retro.presets` (nur eigene).
 
-## Fokus-Modus und Lupe
+## Aktives Fenster und Lupe
 
-- **Fokus-Modus:** Das fokussierte Fenster wird mit eigener, feinerer
+- **Original (Standard):** Über dem aktiven Fenster gibt der Shader
+  `float4(0)` zurück, das Overlay ist dort durchsichtig. Der Rahmen liegt außen.
+- **Feine Pixel:** Das fokussierte Fenster wird mit eigener, feinerer
   Zellgröße gezeichnet. Sein Rechteck wird nach außen auf das
   Hintergrundraster ausgerichtet, damit beim Verschieben nichts flimmert.
   Bei Vollbild-Apps gilt der ganze Monitor als Fokus.
@@ -97,8 +142,8 @@ Gespeichert wird im Settings-System: `retro.config` (beide Modi) und
 - **Ohne Berechtigung:** Fehlt die Bedienungshilfen-Berechtigung (macOS),
   bleibt der Fokus unbekannt. Alles wird dann gleich grob gezeichnet, und das
   Panel weist darauf hin.
-- **Cursor-Lupe:** Ein Kreis um die Maus zeigt das Original oder die
-  Fokus-Pixelgröße. Seine Kante ist auf das Hintergrundraster gestuft
+- **Cursor-Lupe:** Ein Kreis um die Maus zeigt das echte Bild (ein Loch,
+  ohne Verzögerung) oder die Fokus-Pixelgröße. Seine Kante ist auf das Hintergrundraster gestuft
   (Pixel-Look). Er folgt der Maus ohne Verzögerung, bewegt sich die Maus
   nicht, wird nichts neu gezeichnet.
 
@@ -123,16 +168,17 @@ Bildschirm ──Capture (ohne Overlay-Fenster)──► Textur ──Shader─�
 ```
 
 1. **Capture:**
-   - macOS nutzt ScreenCaptureKit (`SCStream`) mit einem Filter, der *nur* die
-     Overlay-Fenster ausschließt.
+   - macOS nutzt ScreenCaptureKit (`SCStream`) mit einem Filter, der die
+     Overlay-Fenster und alles über Fensterebene 0 (Menüleiste, Dock, Menüs,
+     Dialoge) ausschließt; der Filter folgt der Fensterliste.
    - Windows nutzt `Windows.Graphics.Capture`, die Overlay-Fenster tragen
      `WDA_EXCLUDEFROMCAPTURE`.
    - Das Popup von Inspector Rust bleibt im Bild und wird retro mitgezeichnet.
    - Der Cursor wird nie mit erfasst, weil eine erfasste Kopie dem echten
      Cursor nachlaufen würde.
-2. **Auflösung:** Ohne Fokus und Lupe erfasst macOS direkt in Zellauflösung
-   (Bildschirm / Pixelgröße). Mit Fokus oder Lupe erfasst es in voller
-   Auflösung; die Zellen bildet dann der Shader. Eine Einstellungsänderung
+2. **Auflösung:** macOS erfasst in Zellauflösung (Bildschirm / Pixelgröße).
+   Nur „feine Pixel" fürs aktive Fenster oder die Lupe mit Fokus-Pixeln
+   brauchen volle Auflösung; die Zellen bildet dann der Shader. Eine Einstellungsänderung
    stellt den laufenden Stream um, ohne Neustart. Windows erfasst immer in
    voller Auflösung, weil die Windows-Capture-API nicht skalieren kann.
 3. **Weitergabe ohne Kopie:**
@@ -147,8 +193,10 @@ Bildschirm ──Capture (ohne Overlay-Fenster)──► Textur ──Shader─�
    - 8-Bit sucht die nächste Palettenfarbe mit luminanzgewichteter Distanz
      (Rec. 601), 16-Bit quantisiert jeden Kanal.
 5. **Fenster:**
-   - macOS: randlos, click-through, Ebene über Menüleiste und Dock, auf
-     allen Spaces, `sharingType = none`, `setCanHide:NO`.
+   - macOS: randlos, click-through, **Ebene 1 — unter Menüleiste, Dock,
+     Menüs und Dialogen**, auf allen Spaces, `sharingType = none`,
+     `setCanHide:NO`. Beim Zurückweichen Deckkraft 0 sofort, zurück per
+     Animator-Einblendung.
    - Windows: `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST |
      WS_EX_NOACTIVATE` mit einer DirectComposition-Swapchain.
 
@@ -179,7 +227,8 @@ Bildschirm ──Capture (ohne Overlay-Fenster)──► Textur ──Shader─�
 - Bei Monitor-Hot-Plug, Auflösungs- oder Skalierungswechsel wird es neu
   aufgebaut.
 - Ändert sich der Bildschirm nicht, liefert ScreenCaptureKit keine Frames, und
-  es wird nichts neu gezeichnet. Nur Lupe und Sprite-Cursor zeichnen bei
+  es wird nichts neu gezeichnet. Während des Zurückweichens wird ebenfalls
+  nichts gezeichnet. Nur Lupe und Sprite-Cursor zeichnen bei
   Mausbewegung neu.
 
 ## Berechtigungen
@@ -187,11 +236,15 @@ Bildschirm ──Capture (ohne Overlay-Fenster)──► Textur ──Shader─�
 - **macOS:**
   - Bildschirmaufnahme ist für Overlay und Vorschau Pflicht. Das Panel zeigt
     bei fehlender Erlaubnis einen Link zu den Systemeinstellungen.
-  - Bedienungshilfen braucht nur der Fokus-Modus.
+  - Bedienungshilfen braucht nur die Ausnahme fürs aktive Fenster.
   - Solange das Overlay läuft, zeigt macOS sein Aufnahme-Symbol. Neuere
     macOS-Versionen fragen bei Bildschirmaufnahme-Apps regelmäßig erneut nach
     der Erlaubnis.
 - **Windows:** keine Berechtigungen nötig.
+
+**Windows-Stand der Bedienbarkeits-Regeln:** Löcher fürs aktive Fenster und
+die Lupe (Shader) sind umgesetzt. Zurückweichen beim Tippen und das Freilassen
+der Taskleiste fehlen dort noch — das Overlay ist weiter `WS_EX_TOPMOST`.
 
 **Grenzen:** DRM-geschützte Videos (Streaming-Dienste) kommen im Capture
 schwarz an und bleiben unter dem Overlay schwarz.

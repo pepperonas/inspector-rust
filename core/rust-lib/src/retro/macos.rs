@@ -2,9 +2,13 @@
 //! window per monitor, plus the panel's live preview.
 //!
 //! Pipeline per monitor:
-//! 1. `SCStream` on that display. The content filter excludes ONLY our overlay
-//!    windows (not the whole app — the popup must stay visible, it simply shows
-//!    up retro-rendered underneath the overlay). The capture never contains
+//! 1. `SCStream` on that display. The overlay sits at window level 1 — above
+//!    ordinary app windows, BELOW the menu bar, menus, Dock, notifications,
+//!    dialogs and our own popup, so system UI stays real and instant. Those
+//!    windows (layer > 0) are also excluded from the capture (re-checked when
+//!    they change), otherwise a retro copy would sit behind every translucent
+//!    menu. The active window is a transparent hole (see `frame::HOLE`). The
+//!    capture never contains
 //!    the cursor: the real one is drawn by the system above every window, a
 //!    captured copy would trail behind it as a second cursor.
 //! 2. Each frame arrives as an IOSurface-backed `CVPixelBuffer` on one serial
@@ -52,6 +56,20 @@ use objc2_screen_capture_kit::{
     SCStreamOutput, SCStreamOutputType, SCWindow,
 };
 use tauri::{AppHandle, Emitter, Manager};
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGEventSourceSecondsSinceLastEventType(state: u32, ty: u32) -> f64;
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const c_void;
+}
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFRelease(v: *const c_void);
+}
+
+/// One above normal app windows (0), below floating panels (3), the Dock
+/// (20), the menu bar (24), menus (101) and alerts — those stay real.
+const OVERLAY_LEVEL: i64 = 1;
 
 use super::config::{ModeSettings, RetroConfig, Target as MonTarget};
 use super::frame::{capture_size, frame_params, pack, render_params, scaled, Display, Live, WinInfo};
@@ -206,6 +224,7 @@ struct Target {
     window: Sendable<*mut AnyObject>,
     last: Mutex<Option<Sendable<CFRetained<CVMetalTexture>>>>,
     shown: AtomicBool,
+    window_id: u32,
 }
 
 struct Shared {
@@ -219,6 +238,10 @@ struct Shared {
     frames: AtomicU64,
     renders: AtomicU64,
     app: Mutex<Option<AppHandle>>,
+    /// Retreat while typing / scrolling / dragging is enabled.
+    retreat_on: AtomicBool,
+    /// Currently retreated (hidden, not rendering).
+    retreated: AtomicBool,
 }
 
 fn shared() -> &'static Shared {
@@ -234,11 +257,15 @@ fn shared() -> &'static Shared {
         frames: AtomicU64::new(0),
         renders: AtomicU64::new(0),
         app: Mutex::new(None),
+        retreat_on: AtomicBool::new(true),
+        retreated: AtomicBool::new(false),
     })
 }
 
 struct Streams {
     streams: Vec<Sendable<Retained<SCStream>>>,
+    /// Display id of each stream (same order).
+    displays: Vec<u32>,
     _outputs: Vec<Sendable<Retained<RetroOutput>>>,
 }
 static STREAMS: Mutex<Option<Streams>> = Mutex::new(None);
@@ -314,7 +341,8 @@ impl RetroOutput {
         live.mouse = Some(mouse_global(*s.primary_h.lock().unwrap_or_else(|e| e.into_inner())));
         let full = frame_params(&d, &settings, &live);
         let p = scaled(&full, w as f32 / full.size.0.max(1) as f32);
-        let out = render(&rgba, w, h, &render_params(&p));
+        let mut out = render(&rgba, w, h, &render_params(&p));
+        super::fill_holes(&mut out, &rgba);
         use base64::Engine as _;
         let payload = serde_json::json!({
             "w": w, "h": h,
@@ -384,6 +412,9 @@ fn draw(t: &Arc<Target>) {
     let s = shared();
     if !s.running.load(Ordering::SeqCst) || s.failed.load(Ordering::SeqCst) {
         return;
+    }
+    if s.retreated.load(Ordering::SeqCst) {
+        return; // hidden while the user types / scrolls / drags: no GPU work
     }
     let Ok(g) = gpu() else { return };
     let last = t.last.lock().unwrap_or_else(|e| e.into_inner());
@@ -491,8 +522,8 @@ unsafe fn build_window(d: &Display, primary_h: f64) -> Option<(*mut AnyObject, R
     let _: () = msg_send![win, setOpaque: false];
     let _: () = msg_send![win, setHasShadow: false];
     let _: () = msg_send![win, setIgnoresMouseEvents: true];
-    // Above the menu bar (24) and the Dock (20).
-    let _: () = msg_send![win, setLevel: 1000i64];
+    // Above app windows, below everything the system draws (see OVERLAY_LEVEL).
+    let _: () = msg_send![win, setLevel: OVERLAY_LEVEL];
     // canJoinAllSpaces(1) | stationary(16) | ignoresCycle(64) | fullScreenAuxiliary(256)
     let _: () = msg_send![win, setCollectionBehavior: 337u64];
     // NSWindowSharingNone: also stays out of our own screenshots/recordings.
@@ -556,6 +587,92 @@ fn shareable_content() -> Result<Sendable<Retained<SCShareableContent>>, String>
     });
     unsafe { SCShareableContent::getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler(false, true, &block) };
     rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "ScreenCaptureKit antwortet nicht".to_string())?
+}
+
+/// Windows that must not be captured: everything above normal app windows
+/// (menu bar, Dock, menus, notifications, dialogs, our popup — they are drawn
+/// natively ABOVE the overlay) plus our own overlay windows.
+fn excluded_windows(content: &SCShareableContent, ours: &[u32]) -> Retained<NSArray<SCWindow>> {
+    let windows = unsafe { content.windows() };
+    let picked: Vec<Retained<SCWindow>> = windows
+        .iter()
+        .filter(|w| unsafe { w.windowLayer() > 0 || ours.contains(&w.windowID()) })
+        .collect();
+    NSArray::from_retained_slice(&picked)
+}
+
+/// Cheap signature of the on-screen windows above layer 0 (ids), to notice
+/// a menu or notification appearing without asking ScreenCaptureKit.
+fn upper_window_ids() -> Vec<u32> {
+    unsafe {
+        // kCGWindowListOptionOnScreenOnly
+        let arr = CGWindowListCopyWindowInfo(1, 0) as *mut AnyObject;
+        if arr.is_null() {
+            return Vec::new();
+        }
+        let n: usize = msg_send![arr, count];
+        let k_layer = NSString::from_str("kCGWindowLayer");
+        let k_id = NSString::from_str("kCGWindowNumber");
+        let mut ids = Vec::new();
+        for i in 0..n {
+            let d: *mut AnyObject = msg_send![arr, objectAtIndex: i];
+            let l: *mut AnyObject = msg_send![d, objectForKey: &*k_layer];
+            let id: *mut AnyObject = msg_send![d, objectForKey: &*k_id];
+            if l.is_null() || id.is_null() {
+                continue;
+            }
+            let layer: i64 = msg_send![l, longLongValue];
+            if layer > 0 {
+                let v: u32 = msg_send![id, unsignedIntValue];
+                ids.push(v);
+            }
+        }
+        CFRelease(arr as *const c_void);
+        ids.sort_unstable();
+        ids
+    }
+}
+
+/// Keep the capture filters free of system UI: when the set of windows above
+/// layer 0 changes, rebuild each stream's filter (in place, no restart).
+fn spawn_exclusion_refresher() {
+    std::thread::Builder::new()
+        .name("ir-retro-exclude".into())
+        .spawn(|| {
+            let s = shared();
+            let mut last = upper_window_ids();
+            while s.running.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(300));
+                if s.retreated.load(Ordering::SeqCst) {
+                    continue;
+                }
+                let now = upper_window_ids();
+                if now == last {
+                    continue;
+                }
+                last = now;
+                let Ok(content) = shareable_content() else { continue };
+                let ours: Vec<u32> = s
+                    .targets
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .map(|t| t.window_id)
+                    .collect();
+                let exclude = excluded_windows(&content.0, &ours);
+                let displays = unsafe { content.0.displays() };
+                if let Some(st) = STREAMS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                    for (stream, id) in st.streams.iter().zip(st.displays.iter()) {
+                        let Some(scd) = displays.iter().find(|d| unsafe { d.displayID() } == *id) else { continue };
+                        let filter = unsafe {
+                            SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &scd, &exclude)
+                        };
+                        unsafe { stream.0.updateContentFilter_completionHandler(&filter, None) };
+                    }
+                }
+            }
+        })
+        .ok();
 }
 
 fn stream_config(w: u32, h: u32, fps: u32) -> Retained<SCStreamConfiguration> {
@@ -643,6 +760,8 @@ pub fn start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
     *s.settings.lock().unwrap_or_else(|e| e.into_inner()) = cfg.active().clone();
     *s.fps.lock().unwrap_or_else(|e| e.into_inner()) = cfg.fps;
     s.failed.store(false, Ordering::SeqCst);
+    s.retreat_on.store(cfg.retreat, Ordering::SeqCst);
+    s.retreated.store(false, Ordering::SeqCst);
 
     // 1. windows on main
     let target = cfg.target;
@@ -673,13 +792,14 @@ pub fn start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
     let targets: Vec<Arc<Target>> = built
         .1
         .iter()
-        .map(|(d, w, l, _)| {
+        .map(|(d, w, l, _id)| {
             Arc::new(Target {
                 display: *d,
                 layer: Sendable(l.0.clone()),
                 window: Sendable(w.0),
                 last: Mutex::new(None),
                 shown: AtomicBool::new(false),
+                window_id: *_id,
             })
         })
         .collect();
@@ -688,12 +808,11 @@ pub fn start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
     // 2. capture (excluding our windows)
     let result = (|| -> Result<Streams, String> {
         let content = shareable_content()?;
-        let (displays, windows) = unsafe { (content.0.displays(), content.0.windows()) };
-        let excluded: Vec<Retained<SCWindow>> =
-            windows.iter().filter(|w| our_ids.contains(&unsafe { w.windowID() })).collect();
-        let exclude = NSArray::from_retained_slice(&excluded);
-        tracing::info!("retro: excluding {} of {} overlay windows from capture", excluded.len(), our_ids.len());
+        let displays = unsafe { content.0.displays() };
+        let exclude = excluded_windows(&content.0, &our_ids);
+        tracing::info!("retro: excluding {} windows (system UI + overlay) from capture", exclude.len());
         let mut streams = Vec::new();
+        let mut stream_displays = Vec::new();
         let mut outputs = Vec::new();
         let settings = cfg.active().clone();
         for t in &targets {
@@ -706,12 +825,13 @@ pub fn start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
             let conf = stream_config(cw, ch, cfg.fps);
             let (st, out) = start_stream(&scd, &exclude, &conf, OutKind::Overlay(t.clone()))?;
             streams.push(Sendable(st));
+            stream_displays.push(t.display.id);
             outputs.push(Sendable(out));
         }
         if streams.is_empty() {
             return Err("Kein Bildschirm für die Aufnahme".into());
         }
-        Ok(Streams { streams, _outputs: outputs })
+        Ok(Streams { streams, displays: stream_displays, _outputs: outputs })
     })();
     match result {
         Ok(st) => {
@@ -719,6 +839,7 @@ pub fn start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
             *s.targets.lock().unwrap_or_else(|e| e.into_inner()) = targets;
             s.running.store(true, Ordering::SeqCst);
             spawn_ticker();
+            spawn_exclusion_refresher();
             super::macos_focus::start();
             emit_state(app);
             Ok(())
@@ -800,6 +921,10 @@ pub fn apply(cfg: &RetroConfig) {
     let old = s.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let new = cfg.active().clone();
     *s.settings.lock().unwrap_or_else(|e| e.into_inner()) = new.clone();
+    s.retreat_on.store(cfg.retreat, Ordering::SeqCst);
+    if !cfg.retreat && s.retreated.load(Ordering::SeqCst) {
+        set_retreated(false);
+    }
     let fps_changed = {
         let mut f = s.fps.lock().unwrap_or_else(|e| e.into_inner());
         let changed = *f != cfg.fps;
@@ -814,7 +939,8 @@ pub fn apply(cfg: &RetroConfig) {
         || targets.iter().any(|t| capture_size(&t.display, &old) != capture_size(&t.display, &new));
     if needs_reconf {
         if let Some(st) = STREAMS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            for (stream, t) in st.streams.iter().zip(targets.iter()) {
+            for (stream, id) in st.streams.iter().zip(st.displays.iter()) {
+                let Some(t) = targets.iter().find(|t| t.display.id == *id) else { continue };
                 let (w, h) = capture_size(&t.display, &new);
                 let conf = stream_config(w, h, cfg.fps);
                 unsafe { stream.0.updateConfiguration_completionHandler(&conf, None) };
@@ -847,6 +973,50 @@ pub fn wants_focus_data() -> (bool, bool) {
     (s.focus, s.retro_frames)
 }
 
+/// Seconds since the user last typed, scrolled or dragged (hardware input).
+fn seconds_since_work_input() -> f64 {
+    // kCGEventSourceStateHIDSystemState = 1: real input only, not our own
+    // synthetic paste keystrokes.
+    // keyDown 10, scrollWheel 22, left/right/other mouse dragged 6/7/27.
+    [10u32, 22, 6, 7, 27]
+        .iter()
+        .map(|&ty| unsafe { CGEventSourceSecondsSinceLastEventType(1, ty) })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// Hide (instantly) or show (fade in) every overlay window.
+fn set_retreated(hidden: bool) {
+    let s = shared();
+    if s.retreated.swap(hidden, Ordering::SeqCst) == hidden {
+        return;
+    }
+    let wins: Vec<Sendable<*mut AnyObject>> = s
+        .targets
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|t| t.shown.load(Ordering::SeqCst))
+        .map(|t| Sendable(t.window.0))
+        .collect();
+    let Some(app) = s.app.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+    let _ = app.run_on_main_thread(move || unsafe {
+        for w in &wins {
+            if w.0.is_null() {
+                continue;
+            }
+            if hidden {
+                let _: () = msg_send![w.0, setAlphaValue: 0.0f64];
+            } else {
+                let anim: *mut AnyObject = msg_send![w.0, animator];
+                let _: () = msg_send![anim, setAlphaValue: 1.0f64];
+            }
+        }
+    });
+    if !hidden {
+        redraw_all(); // the frame that arrived while hidden
+    }
+}
+
 fn spawn_ticker() {
     std::thread::Builder::new()
         .name("ir-retro-tick".into())
@@ -856,6 +1026,16 @@ fn spawn_ticker() {
             while s.running.load(Ordering::SeqCst) {
                 let fps = (*s.fps.lock().unwrap_or_else(|e| e.into_inner())).max(1);
                 std::thread::sleep(Duration::from_millis(1000 / fps as u64));
+                if s.retreat_on.load(Ordering::SeqCst) {
+                    let hidden = s.retreated.load(Ordering::SeqCst);
+                    let next = super::retreat_next(hidden, seconds_since_work_input());
+                    if next != hidden {
+                        set_retreated(next);
+                    }
+                    if next {
+                        continue;
+                    }
+                }
                 let st = s.settings.lock().unwrap_or_else(|e| e.into_inner()).clone();
                 if !(st.lens || st.sprite_cursor) {
                     continue; // nothing follows the mouse → no re-render
@@ -926,7 +1106,7 @@ pub fn preview_start(app: &AppHandle, cfg: &RetroConfig) -> Result<(), String> {
     let conf = stream_config(pw, ph, 10);
     let (st, out) = start_stream(&scd, &exclude, &conf, OutKind::Preview(d))?;
     *PREVIEW.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some(Streams { streams: vec![Sendable(st)], _outputs: vec![Sendable(out)] });
+        Some(Streams { streams: vec![Sendable(st)], displays: vec![d.id], _outputs: vec![Sendable(out)] });
     Ok(())
 }
 
@@ -1084,7 +1264,8 @@ mod tests {
         compare("16-bit default", ModeSettings { focus: false, ..ModeSettings::defaults(Mode::Sixteen) }, Live::default());
         compare("gb no dither", ModeSettings { palette: "gb".into(), dither: Dither::Off, scanlines: false, ..eight.clone() }, Live::default());
         let focus = Live { focus: Some(Rect { x: 20.0, y: 10.0, w: 60.0, h: 40.0 }), mouse: Some((120.0, 70.0)), ..Live::default() };
-        compare("focus + border + lens(original)", ModeSettings { focus: true, focus_pixel_pt: 1.5, lens: true, lens_radius_pt: 40, ..eight.clone() }, focus.clone());
+        compare("fine focus + border + lens(original)", ModeSettings { focus: true, focus_native: false, focus_pixel_pt: 1.5, lens: true, lens_radius_pt: 40, ..eight.clone() }, focus.clone());
+        compare("native focus (hole) + outer border", ModeSettings { focus: true, focus_native: true, ..eight.clone() }, focus.clone());
         compare("lens(focus cells) + bayer8", ModeSettings { lens: true, lens_view: LensView::Focus, lens_radius_pt: 40, dither: Dither::Bayer8, ..eight }, focus);
     }
 }

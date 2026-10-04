@@ -5,7 +5,7 @@ import type { RetroConfig, RetroModeSettings, RetroPreset } from "../lib/ipc";
 // Mirrors ModeSettings::defaults in retro/config.rs.
 const EIGHT: RetroModeSettings = {
   palette: "nes", pixel_pt: 4, dither: "bayer4", dither_strength: 60,
-  focus: false, focus_pixel_pt: 1.5, focus_border: true,
+  focus: true, focus_native: true, focus_pixel_pt: 1.5, focus_border: true,
   lens: false, lens_radius_pt: 80, lens_view: "original",
   scanlines: true, scanline_intensity: 40, crt: false, crt_strength: 40,
   opacity: 100, retro_frames: false, sprite_cursor: false,
@@ -14,7 +14,7 @@ const SIXTEEN: RetroModeSettings = {
   ...EIGHT, palette: "snes", pixel_pt: 2, dither_strength: 25, focus: true,
   focus_pixel_pt: 1, focus_border: false, scanlines: false, scanline_intensity: 30, crt_strength: 30,
 };
-const base = (): RetroConfig => ({ mode: "8bit", eight: { ...EIGHT }, sixteen: { ...SIXTEEN }, target: "current", fps: 60 });
+const base = (): RetroConfig => ({ mode: "8bit", eight: { ...EIGHT }, sixteen: { ...SIXTEEN }, target: "current", fps: 60, retreat: true });
 const BUILTIN: RetroPreset[] = [
   { name: "Show", mode: "8bit", settings: EIGHT, builtin: true },
   { name: "Alltag", mode: "16bit", settings: SIXTEEN, builtin: true },
@@ -85,7 +85,7 @@ describe("RetroPanel", () => {
     expect(valueOf(container, "Modus")).toBe("16-Bit");
     expect(valueOf(container, "Palette")).toBe("SNES");
     expect(valueOf(container, "Pixelgröße")).toBe("2 pt");
-    expect(valueOf(container, "Fokus-Modus")).toBe("an");
+    expect(valueOf(container, "Aktives Fenster zeigt")).toBe("Original");
   });
 
   it("the 16bit keyword opens in 16-bit mode", async () => {

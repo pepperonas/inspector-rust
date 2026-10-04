@@ -313,7 +313,7 @@ pub struct Regions {
 pub enum Region {
     Background,
     Focus(f32),
-    /// Inside the lens, untouched.
+    /// Inside the lens, untouched (a hole: the real screen shows through).
     LensOriginal,
     Lens(f32),
 }
@@ -371,6 +371,9 @@ pub fn render(src: &[u8], w: usize, h: usize, p: &RenderParams) -> Vec<u8> {
     let spread = dither_spread(&p.reduce);
     let (_, light) = extremes(&p.reduce);
     let focus_frame = if p.focus_border { p.regions.focus.map(|(r, _)| snap_rect_out(r, p.bg_cell)) } else { None };
+    // A real-window focus gets its frame OUTSIDE the hole — the window's own
+    // content stays untouched; a pixelated focus keeps the inner frame.
+    let native = p.regions.focus.is_some_and(|(_, c)| c <= frame::HOLE);
     let sample = |x: f32, y: f32| -> [u8; 3] {
         let xi = (x as usize).min(w - 1);
         let yi = (y as usize).min(h - 1);
@@ -380,16 +383,25 @@ pub fn render(src: &[u8], w: usize, h: usize, p: &RenderParams) -> Vec<u8> {
     for y in 0..h {
         for x in 0..w {
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let i = (y * w + x) * 4;
             let mut c = match region_at(fx, fy, p.bg_cell, &p.regions) {
-                Region::LensOriginal => sample(fx, fy),
+                // Holes: transparent, the real screen shows through (the
+                // shader returns float4(0) there). No border, no scanlines.
+                Region::LensOriginal => continue,
+                Region::Focus(cell) if cell <= frame::HOLE => continue,
                 Region::Background => cell_color(fx, fy, p.bg_cell, p, spread, &sample),
                 Region::Focus(cell) | Region::Lens(cell) => cell_color(fx, fy, cell, p, spread, &sample),
             };
             if let Some(r) = focus_frame {
                 let b = p.bg_cell.max(1.0);
-                let inside = r.contains(fx, fy);
-                let inner = Rect { x: r.x + b, y: r.y + b, w: r.w - 2.0 * b, h: r.h - 2.0 * b };
-                if inside && !inner.contains(fx, fy) {
+                let on_frame = if native {
+                    let outer = Rect { x: r.x - b, y: r.y - b, w: r.w + 2.0 * b, h: r.h + 2.0 * b };
+                    outer.contains(fx, fy) && !r.contains(fx, fy)
+                } else {
+                    let inner = Rect { x: r.x + b, y: r.y + b, w: r.w - 2.0 * b, h: r.h - 2.0 * b };
+                    r.contains(fx, fy) && !inner.contains(fx, fy)
+                };
+                if on_frame {
                     c = light;
                 }
             }
@@ -404,7 +416,6 @@ pub fn render(src: &[u8], w: usize, h: usize, p: &RenderParams) -> Vec<u8> {
                 let dy = fy / h as f32 - 0.5;
                 f *= 1.0 - v.clamp(0.0, 1.0) * 0.6 * (dx * dx + dy * dy) * 2.0;
             }
-            let i = (y * w + x) * 4;
             for k in 0..3 {
                 out[i + k] = (c[k] as f32 * f).round().clamp(0.0, 255.0) as u8;
             }
@@ -412,6 +423,41 @@ pub fn render(src: &[u8], w: usize, h: usize, p: &RenderParams) -> Vec<u8> {
         }
     }
     out
+}
+
+/// Input this recent hides the overlay at once (typing, scrolling, dragging).
+pub const RETREAT_TRIGGER_S: f64 = 0.15;
+/// Quiet this long brings it back.
+pub const RETREAT_RETURN_S: f64 = 0.9;
+
+/// Pure: should the overlay be retreated (hidden) after this tick?
+/// `since_input_s` = seconds since the last key press / scroll / drag.
+/// Between the two thresholds the current state holds (no flicker while
+/// someone types slowly).
+pub fn retreat_next(hidden: bool, since_input_s: f64) -> bool {
+    if !since_input_s.is_finite() || since_input_s < 0.0 {
+        return hidden;
+    }
+    if since_input_s < RETREAT_TRIGGER_S {
+        true
+    } else if since_input_s >= RETREAT_RETURN_S {
+        false
+    } else {
+        hidden
+    }
+}
+
+/// Pure: for the panel preview, fill the holes (alpha 0 — on screen the real
+/// window shows through there) with the source picture, so the preview shows
+/// what the eye sees.
+pub fn fill_holes(out: &mut [u8], src: &[u8]) {
+    let (out4, _) = out.as_chunks_mut::<4>();
+    let (src4, _) = src.as_chunks::<4>();
+    for (o, s) in out4.iter_mut().zip(src4) {
+        if o[3] == 0 {
+            *o = [s[0], s[1], s[2], 255];
+        }
+    }
 }
 
 fn cell_color(
@@ -572,6 +618,52 @@ mod tests {
         assert_eq!(region_at(36.0, 36.0, bg, &with_cell), Region::Lens(3.0));
     }
 
+    #[test]
+    fn retreat_hides_at_once_and_comes_back_only_after_a_pause() {
+        assert!(retreat_next(false, 0.02), "a key press hides immediately");
+        assert!(retreat_next(true, 0.5), "slow typing keeps it hidden");
+        assert!(!retreat_next(false, 0.5), "but does not hide a visible overlay");
+        assert!(!retreat_next(true, RETREAT_RETURN_S), "a pause brings it back");
+        assert!(retreat_next(true, f64::NAN), "an unreadable clock changes nothing");
+        assert!(!retreat_next(false, -1.0));
+    }
+
+    #[test]
+    fn the_real_active_window_and_the_original_lens_are_holes() {
+        let (w, h) = (40usize, 30usize);
+        let src = gradient(w, h);
+        let focus = Rect { x: 8.0, y: 8.0, w: 16.0, h: 8.0 };
+        let mut p = RenderParams {
+            bg_cell: 4.0,
+            reduce: Reduce::Depth { bits: 3 },
+            dither: None,
+            dither_strength: 0.0,
+            regions: Regions { focus: Some((focus, frame::HOLE)), lens: None },
+            focus_border: true,
+            scanlines: None,
+            scanline_px: 2.0,
+            vignette: None,
+        };
+        let out = render(&src, w, h, &p);
+        let px = |x: usize, y: usize| &out[(y * w + x) * 4..(y * w + x) * 4 + 4];
+        assert_eq!(px(12, 10), &[0, 0, 0, 0], "inside the window: transparent");
+        assert_eq!(px(1, 1)[3], 255, "background is drawn");
+        // The frame sits OUTSIDE the hole, one background cell wide.
+        let (_, light) = extremes(&p.reduce);
+        assert_eq!(&px(6, 10)[..3], &light);
+        assert_eq!(px(8, 10), &[0, 0, 0, 0], "the window's own edge stays untouched");
+        // The lens in "original" is a hole too.
+        p.regions = Regions { focus: None, lens: Some(Lens { cx: 20.0, cy: 15.0, radius: 6.0, cell: None }) };
+        let out = render(&src, w, h, &p);
+        assert_eq!(&out[(15 * w + 20) * 4..(15 * w + 20) * 4 + 4], &[0, 0, 0, 0]);
+        // The preview fills holes with the source, so it shows what the eye sees.
+        let mut prev = out.clone();
+        fill_holes(&mut prev, &src);
+        let i = (15 * w + 20) * 4;
+        assert_eq!(&prev[i..i + 3], &src[i..i + 3]);
+        assert_eq!(prev[i + 3], 255);
+    }
+
     fn gradient(w: usize, h: usize) -> Vec<u8> {
         let mut v = Vec::with_capacity(w * h * 4);
         for y in 0..h {
@@ -649,14 +741,15 @@ mod tests {
     }
 
     #[test]
-    fn lens_original_keeps_source_pixels_and_focus_border_uses_light_colour() {
+    fn lens_original_is_a_hole_and_focus_border_uses_light_colour() {
         let (w, h) = (32, 32);
         let src = gradient(w, h);
         let mut p = params(find_palette("gb").unwrap().reduce.clone());
         p.regions.lens = Some(Lens { cx: 16.0, cy: 16.0, radius: 5.0, cell: None });
         let out = render(&src, w, h, &p);
         let i = (16 * w + 16) * 4;
-        assert_eq!(&out[i..i + 3], &src[i..i + 3]);
+        // Transparent: the overlay shows the REAL screen there, not a copy.
+        assert_eq!(&out[i..i + 4], &[0, 0, 0, 0]);
 
         let mut q = params(find_palette("gb").unwrap().reduce.clone());
         q.regions.focus = Some((Rect { x: 8.0, y: 8.0, w: 16.0, h: 16.0 }, 1.0));

@@ -64,12 +64,16 @@ pub struct Live {
     pub windows: Vec<WinInfo>,
 }
 
-/// Pure: the capture size for a monitor. Without focus and lens nothing
-/// needs more than one texel per background cell, so we capture at that
-/// size directly (minimal load); otherwise at full pixel resolution.
+/// Pure: the capture size for a monitor. Only finer cells inside the focus or
+/// the lens need more than one texel per background cell; the real active
+/// window and the "original" lens are holes in the overlay and need no
+/// capture at all. Everything else is captured at background-cell size
+/// directly (minimal load).
 pub fn capture_size(d: &Display, s: &ModeSettings) -> (u32, u32) {
     let (w, h) = d.px_size();
-    if s.focus || s.lens {
+    let fine_focus = s.focus && !s.focus_native;
+    let fine_lens = s.lens && s.lens_view == LensView::Focus;
+    if fine_focus || fine_lens {
         return (w.max(1), h.max(1));
     }
     let cell = cell_px(s.pixel_pt, d.scale as f32).max(1.0);
@@ -94,6 +98,7 @@ pub fn local_focus(d: &Display, s: &ModeSettings, live: &Live) -> Option<Rect> {
 pub struct FrameParams {
     pub size: (u32, u32),
     pub bg_cell: f32,
+    /// Cell size inside the focus; [`HOLE`] = the real window shows through.
     pub focus_cell: f32,
     pub focus: Option<Rect>,
     pub lens: Option<Lens>,
@@ -109,6 +114,10 @@ pub struct FrameParams {
     pub windows: Vec<(Rect, String, bool)>,
     pub title_px: f32,
 }
+
+/// Focus cell value meaning "no overlay here": the real window shows through.
+/// Shared with both shaders (`focus_cell <= 0`).
+pub const HOLE: f32 = 0.0;
 
 pub fn frame_params(d: &Display, s: &ModeSettings, live: &Live) -> FrameParams {
     let scale = d.scale as f32;
@@ -140,7 +149,7 @@ pub fn frame_params(d: &Display, s: &ModeSettings, live: &Live) -> FrameParams {
     FrameParams {
         size: d.px_size(),
         bg_cell: bg,
-        focus_cell,
+        focus_cell: if s.focus_native { HOLE } else { focus_cell },
         focus: local_focus(d, s, live),
         lens,
         reduce: s.reduce(),
@@ -179,7 +188,7 @@ pub fn scaled(p: &FrameParams, f: f32) -> FrameParams {
     FrameParams {
         size: (((p.size.0 as f32) * f).round().max(1.0) as u32, ((p.size.1 as f32) * f).round().max(1.0) as u32),
         bg_cell: (p.bg_cell * f).max(1.0),
-        focus_cell: (p.focus_cell * f).max(1.0),
+        focus_cell: if p.focus_cell <= HOLE { HOLE } else { (p.focus_cell * f).max(1.0) },
         focus: p.focus.map(r),
         lens: p.lens.map(|l| Lens { cx: l.cx * f, cy: l.cy * f, radius: l.radius * f, cell: l.cell.map(|c| (c * f).max(1.0)) }),
         scanline_px: (p.scanline_px * f).max(1.0),
@@ -370,9 +379,15 @@ mod tests {
     fn capture_is_low_res_without_focus_and_lens() {
         let s = ModeSettings::defaults(Mode::Eight); // 4 pt → 8 px cells on Retina
         assert_eq!(capture_size(&retina(), &s), (378, 246));
-        let f = ModeSettings { focus: true, ..s.clone() };
+        // The real active window is a hole — nothing to sample finely, stay low-res.
+        let native = ModeSettings { focus: true, focus_native: true, ..s.clone() };
+        assert_eq!(capture_size(&retina(), &native), (378, 246));
+        let f = ModeSettings { focus: true, focus_native: false, ..s.clone() };
         assert_eq!(capture_size(&retina(), &f), (3024, 1964));
-        let l = ModeSettings { lens: true, ..s };
+        // A lens showing the original is a hole too; only the fine-cells view needs full res.
+        let orig = ModeSettings { lens: true, lens_view: LensView::Original, ..s.clone() };
+        assert_eq!(capture_size(&external(), &orig), capture_size(&external(), &s));
+        let l = ModeSettings { lens: true, lens_view: LensView::Focus, ..s };
         assert_eq!(capture_size(&external(), &l), (2560, 1440));
     }
 
@@ -386,6 +401,21 @@ mod tests {
         assert_eq!(local_focus(&retina(), &s, &full).unwrap(), Rect { x: 0.0, y: 0.0, w: 3024.0, h: 1964.0 });
         let off = ModeSettings { focus: false, ..s };
         assert!(local_focus(&retina(), &off, &live).is_none());
+    }
+
+    #[test]
+    fn the_real_active_window_reaches_the_shader_as_a_hole() {
+        let live = Live { focus: Some(Rect { x: 10.0, y: 3.0, w: 100.0, h: 50.0 }), ..Live::default() };
+        let native = ModeSettings { focus: true, focus_native: true, ..ModeSettings::defaults(Mode::Eight) };
+        let p = frame_params(&retina(), &native, &live);
+        assert!(p.focus.is_some());
+        assert_eq!(p.focus_cell, HOLE);
+        // The preview scales the params down — a hole must stay a hole, not become a 1-px cell.
+        assert_eq!(scaled(&p, 0.25).focus_cell, HOLE);
+        let fine = ModeSettings { focus_native: false, focus_pixel_pt: 1.5, ..native };
+        let q = frame_params(&retina(), &fine, &live);
+        assert_eq!(q.focus_cell, 3.0);
+        assert_eq!(scaled(&q, 0.5).focus_cell, 1.5);
     }
 
     #[test]

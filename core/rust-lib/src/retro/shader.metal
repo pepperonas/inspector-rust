@@ -112,6 +112,20 @@ fragment float4 retro_fs(VOut in [[stage_in]],
                          constant uchar* font [[buffer(5)]]) {
     constexpr sampler s(filter::nearest, address::clamp_to_edge);
     float2 px = in.pos.xy;
+    float2 raw = px;
+
+    // Holes (before any CRT warp — the real window sits where it is): the
+    // active window as the real window (focus_cell <= 0) and the lens in
+    // "original". Transparent, so the screen underneath shows through.
+    bool native = u.focus_on != 0 && u.focus_cell <= 0.0;
+    if (native && raw.x >= u.focus.x && raw.y >= u.focus.y &&
+        raw.x < u.focus.x + u.focus.z && raw.y < u.focus.y + u.focus.w) {
+        return float4(0.0);
+    }
+    if (u.lens_mode == 1) {
+        float2 lc = float2(snapc(raw.x, u.bg_cell), snapc(raw.y, u.bg_cell)) + u.bg_cell * 0.5;
+        if (distance(lc, u.lens_c) <= u.lens_r) return float4(0.0);
+    }
 
     // CRT barrel curvature: remap where we read from.
     if (u.crt != 0) {
@@ -124,18 +138,25 @@ fragment float4 retro_fs(VOut in [[stage_in]],
 
     float3 c;
     bool done = false;
-    if (u.lens_mode != 0) {
+    if (u.lens_mode == 2) {
         float2 cc = float2(snapc(px.x, u.bg_cell), snapc(px.y, u.bg_cell)) + u.bg_cell * 0.5;
         if (distance(cc, u.lens_c) <= u.lens_r) {
-            c = (u.lens_mode == 1) ? sample_src(src, s, px, u)
-                                   : cell_color(px, u.lens_cell, src, s, u, pal, bayer);
+            c = cell_color(px, u.lens_cell, src, s, u, pal, bayer);
             done = true;
         }
     }
     if (!done) {
-        bool in_focus = u.focus_on != 0 && px.x >= u.focus.x && px.y >= u.focus.y &&
+        bool in_focus = !native && u.focus_on != 0 && px.x >= u.focus.x && px.y >= u.focus.y &&
                         px.x < u.focus.x + u.focus.z && px.y < u.focus.y + u.focus.w;
         c = cell_color(px, in_focus ? u.focus_cell : u.bg_cell, src, s, u, pal, bayer);
+        if (native && u.border != 0) {
+            // Frame OUTSIDE the real window — its content stays untouched.
+            float fb = max(u.bg_cell, 1.0);
+            if (raw.x >= u.focus.x - fb && raw.y >= u.focus.y - fb &&
+                raw.x < u.focus.x + u.focus.z + fb && raw.y < u.focus.y + u.focus.w + fb) {
+                c = u.light.rgb;
+            }
+        }
         if (in_focus && u.border != 0) {
             float b = max(u.bg_cell, 1.0);
             if (px.x < u.focus.x + b || px.y < u.focus.y + b ||

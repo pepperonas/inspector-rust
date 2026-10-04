@@ -238,7 +238,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
       )}
       {needsAx && (
         <div className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-600">
-          Der Fokus-Modus braucht Bedienungshilfen — ohne die Erlaubnis wird alles gleich grob gezeichnet.{" "}
+          Das aktive Fenster freizulassen braucht Bedienungshilfen — ohne die Erlaubnis wird es mit verpixelt.{" "}
           <button type="button" className="underline" onClick={() => void retroOpenPermission("accessibility")}>
             Öffnen
           </button>
@@ -382,7 +382,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
         {focused
           ? "↑↓ Zeile · ←→ Wert · Enter Overlay an/aus · Esc zurück"
           : "Enter übernimmt die Tastatur."}{" "}
-        · ⌃⇧⌥8 an/aus · ⌃⇧⌥9 Fokus
+        · ⌃⇧⌥8 an/aus · ⌃⇧⌥9 aktives Fenster
       </p>
     </div>
   );

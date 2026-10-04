@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.192.0] - 2026-10-04
+
+### Fixed
+- **`8bit` / `16bit` keep the computer usable.** The overlay replaced the whole screen — menu bar, Dock, menus, dialogs and the window you were working in — with a delayed, pixelated copy: text was unreadable, clicks missed, and menus appeared a frame late. Now the overlay sits below the menu bar, Dock, menus, dialogs and notifications (and keeps them out of the capture, so no stale copy shows through); the active window stays real by default — the overlay is transparent there, with a thin frame around it, and follows an app switch within a tenth of a second; and the whole overlay fades out the moment you type, scroll or drag, coming back softly after a short pause (Settings row „Beim Tippen/Scrollen ausblenden"). The cursor lens in „Original" also shows the real screen instead of a copy. Because neither needs fine pixels any more, the capture runs at cell resolution instead of full Retina resolution in the default setups. Pixelating the active window finely is still an option. Saved settings from 0.190/0.191 switch to the real active window once on first load. On Windows the active window and the lens are real too; fading out while typing and freeing the taskbar are not there yet.
+
 ## [0.191.0] - 2026-10-04
 
 ### Added

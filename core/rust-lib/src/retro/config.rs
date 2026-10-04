@@ -72,6 +72,10 @@ pub struct ModeSettings {
     /// 0..=100
     pub dither_strength: u8,
     pub focus: bool,
+    /// The active window stays the REAL window (a transparent hole in the
+    /// overlay — instant, sharp, clickable as seen). `false` = the older
+    /// "finer pixels" rendering with `focus_pixel_pt`.
+    pub focus_native: bool,
     pub focus_pixel_pt: f32,
     pub focus_border: bool,
     pub lens: bool,
@@ -131,7 +135,8 @@ impl ModeSettings {
                 pixel_pt: 4.0,
                 dither: Dither::Bayer4,
                 dither_strength: 60,
-                focus: false,
+                focus: true,
+                focus_native: true,
                 focus_pixel_pt: 1.5,
                 focus_border: true,
                 lens: false,
@@ -151,6 +156,7 @@ impl ModeSettings {
                 dither: Dither::Bayer4,
                 dither_strength: 25,
                 focus: true,
+                focus_native: true,
                 focus_pixel_pt: 1.0,
                 focus_border: false,
                 lens: false,
@@ -203,6 +209,8 @@ pub struct RetroConfig {
     pub target: Target,
     /// 30 or 60
     pub fps: u32,
+    /// Fade out while typing, scrolling or dragging; back after a pause.
+    pub retreat: bool,
 }
 
 impl Default for RetroConfig {
@@ -213,6 +221,7 @@ impl Default for RetroConfig {
             sixteen: ModeSettings::defaults(Mode::Sixteen),
             target: Target::Current,
             fps: 60,
+            retreat: true,
         }
     }
 }
@@ -270,8 +279,8 @@ pub struct Preset {
 }
 
 pub fn builtin_presets() -> Vec<Preset> {
-    let show = ModeSettings::defaults(Mode::Eight); // NES, 4 pt, Bayer 4×4 60 %, scanlines, no focus/lens
-    let alltag = ModeSettings::defaults(Mode::Sixteen); // SNES, 2 pt, Bayer 4×4 25 %, focus 1 pt
+    let show = ModeSettings::defaults(Mode::Eight); // NES, 4 pt, Bayer 4×4 60 %, scanlines, real active window
+    let alltag = ModeSettings::defaults(Mode::Sixteen); // SNES, 2 pt, Bayer 4×4 25 %, real active window
     let arbeit = ModeSettings {
         palette: "pico8".into(),
         focus: true,
@@ -343,9 +352,25 @@ pub fn load(db: &DbHandle) -> RetroConfig {
     crate::settings::get(db, KEY_CONFIG)
         .ok()
         .flatten()
-        .and_then(|s| serde_json::from_str::<RetroConfig>(&s).ok())
+        .and_then(|s| parse_stored(&s))
         .unwrap_or_default()
         .clamped()
+}
+
+/// Pure: read a stored config. A slot saved before `focus_native` existed
+/// gets the active window as the real window switched ON — the overlay used
+/// to cover it, which made the computer hard to use (the reason the option
+/// exists). The user can switch it off again; that choice is then stored.
+pub fn parse_stored(json: &str) -> Option<RetroConfig> {
+    let raw: serde_json::Value = serde_json::from_str(json).ok()?;
+    let mut cfg: RetroConfig = serde_json::from_value(raw.clone()).ok()?;
+    for (key, slot) in [("eight", &mut cfg.eight), ("sixteen", &mut cfg.sixteen)] {
+        if raw.get(key).and_then(|v| v.get("focus_native")).is_none() {
+            slot.focus = true;
+            slot.focus_native = true;
+        }
+    }
+    Some(cfg)
 }
 
 pub fn save(db: &DbHandle, cfg: &RetroConfig) -> anyhow::Result<RetroConfig> {
@@ -392,6 +417,36 @@ mod tests {
     }
 
     #[test]
+    fn an_old_config_gets_the_real_active_window_once_and_a_new_choice_sticks() {
+        // Stored before focus_native existed: focus was off in the 8-bit slot.
+        let old = r#"{"mode":"8bit","eight":{"palette":"pico8","pixel_pt":4.0,"focus":false},"sixteen":{"palette":"amiga","focus":false},"target":"current","fps":60}"#;
+        let c = parse_stored(old).unwrap();
+        assert!(c.eight.focus && c.eight.focus_native);
+        assert!(c.sixteen.focus && c.sixteen.focus_native);
+        assert_eq!(c.eight.palette, "pico8", "everything else is kept");
+        assert!(c.retreat, "retreat defaults on");
+        // Saved with the new field: the user's choice wins.
+        let mut chosen = c.clone();
+        chosen.eight.focus = false;
+        chosen.eight.focus_native = false;
+        chosen.retreat = false;
+        let back = parse_stored(&serde_json::to_string(&chosen).unwrap()).unwrap();
+        assert!(!back.eight.focus && !back.eight.focus_native && !back.retreat);
+        assert!(parse_stored("kaputt").is_none());
+    }
+
+    #[test]
+    fn both_modes_default_to_the_real_active_window() {
+        for m in [Mode::Eight, Mode::Sixteen] {
+            let d = ModeSettings::defaults(m);
+            assert!(d.focus && d.focus_native, "{m:?}");
+        }
+        for p in builtin_presets() {
+            assert!(p.settings.focus && p.settings.focus_native, "{}", p.name);
+        }
+    }
+
+    #[test]
     fn mode_switch_keeps_each_modes_own_values() {
         let mut c = RetroConfig::default();
         c.eight.pixel_pt = 6.0;
@@ -435,14 +490,15 @@ mod tests {
         let show = find_preset(&b, "show").unwrap();
         assert_eq!((show.mode, show.settings.palette.as_str(), show.settings.pixel_pt), (Mode::Eight, "nes", 4.0));
         assert_eq!((show.settings.dither, show.settings.dither_strength, show.settings.scanlines), (Dither::Bayer4, 60, true));
-        assert!(!show.settings.focus && !show.settings.lens);
+        // The active window stays real in every built-in (the computer must stay usable).
+        assert!(show.settings.focus && show.settings.focus_native && !show.settings.lens);
         let a = find_preset(&b, "ALLTAG").unwrap();
         assert_eq!((a.mode, a.settings.palette.as_str(), a.settings.pixel_pt, a.settings.dither_strength), (Mode::Sixteen, "snes", 2.0, 25));
-        assert!(a.settings.focus && !a.settings.scanlines && !a.settings.lens);
+        assert!(a.settings.focus && a.settings.focus_native && !a.settings.scanlines && !a.settings.lens);
         assert_eq!(a.settings.focus_pixel_pt, 1.0);
         let r = find_preset(&b, "retro-arbeit").unwrap();
         assert_eq!((r.settings.palette.as_str(), r.settings.pixel_pt, r.settings.focus_pixel_pt, r.settings.lens_radius_pt), ("pico8", 4.0, 1.5, 80));
-        assert!(r.settings.focus && r.settings.lens);
+        assert!(r.settings.focus && r.settings.focus_native && r.settings.lens);
         // every built-in is already inside its mode's range
         for p in &b {
             assert_eq!(p.settings.clone().clamped(p.mode), p.settings);

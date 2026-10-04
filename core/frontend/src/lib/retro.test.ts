@@ -76,7 +76,7 @@ import type { RetroConfig, RetroModeSettings } from "./ipc";
 // Mirrors ModeSettings::defaults in retro/config.rs.
 const EIGHT: RetroModeSettings = {
   palette: "nes", pixel_pt: 4, dither: "bayer4", dither_strength: 60,
-  focus: false, focus_pixel_pt: 1.5, focus_border: true,
+  focus: true, focus_native: true, focus_pixel_pt: 1.5, focus_border: true,
   lens: false, lens_radius_pt: 80, lens_view: "original",
   scanlines: true, scanline_intensity: 40, crt: false, crt_strength: 40,
   opacity: 100, retro_frames: false, sprite_cursor: false,
@@ -85,7 +85,7 @@ const SIXTEEN: RetroModeSettings = {
   ...EIGHT, palette: "snes", pixel_pt: 2, dither_strength: 25, focus: true,
   focus_pixel_pt: 1, focus_border: false, scanlines: false, scanline_intensity: 30, crt_strength: 30,
 };
-const CFG: RetroConfig = { mode: "8bit", eight: EIGHT, sixteen: SIXTEEN, target: "current", fps: 60 };
+const CFG: RetroConfig = { mode: "8bit", eight: EIGHT, sixteen: SIXTEEN, target: "current", fps: 60, retreat: true };
 
 describe("panel rows", () => {
   it("↑/↓ wraps over every row", () => {
@@ -130,10 +130,23 @@ describe("panel rows", () => {
 
   it("dependent rows are inactive while their switch is off", () => {
     const row = RETRO_ROWS.find((r) => r.id === "focusPixel")!;
+    const fine = adjustRow("focusNative", CFG, 1); // real window → fine pixels
+    expect(activeSlot(fine).focus_native).toBe(false);
+    expect(rowInactive(row, fine)).toBe(false);
+    expect(rowInactive(row, adjustRow("focus", fine, 1))).toBe(true); // focus off
+    // A real (unpixelated) window has no focus pixels to size.
     expect(rowInactive(row, CFG)).toBe(true);
-    expect(rowInactive(row, adjustRow("focus", CFG, 1))).toBe(false);
     expect(rowValue("focusPixel", { ...CFG, mode: "16bit" })).toBe("1 pt (nur Farben)");
     expect(rowValue("pixel", adjustRow("pixel", CFG, 1))).toBe("4,5 pt");
+  });
+
+  it("the active window is real by default and retreat toggles", () => {
+    expect(rowValue("focusNative", CFG)).toBe("Original");
+    expect(rowValue("focusNative", adjustRow("focusNative", CFG, 1))).toBe("feine Pixel");
+    expect(rowValue("retreat", CFG)).toBe("an");
+    const off = adjustRow("retreat", CFG, 1);
+    expect(off.retreat).toBe(false);
+    expect(off.eight).toBe(CFG.eight); // config-level, the slot stays untouched
   });
 
   it("fps and target toggle", () => {

@@ -89,6 +89,18 @@ static const uint ARROW[19 * 12] = {
 
 float4 retro_ps(float4 pos : SV_Position) : SV_Target {
     float2 px = pos.xy;
+    float2 raw = px;
+    // Holes (before the CRT warp): the active window as the real window
+    // (focus_cell <= 0) and the lens in "original" — transparent.
+    bool native = focus_on != 0 && focus_cell <= 0.0;
+    if (native && raw.x >= focus.x && raw.y >= focus.y &&
+        raw.x < focus.x + focus.z && raw.y < focus.y + focus.w) {
+        return float4(0, 0, 0, 0);
+    }
+    if (lens_mode == 1) {
+        float2 lc = float2(snapc(raw.x, bg_cell), snapc(raw.y, bg_cell)) + bg_cell * 0.5;
+        if (distance(lc, lens_c) <= lens_r) return float4(0, 0, 0, 0);
+    }
     if (crt != 0) {
         float2 uv = px / size - 0.5;
         float k = 0.12 * crt_s;
@@ -99,17 +111,25 @@ float4 retro_ps(float4 pos : SV_Position) : SV_Target {
 
     float3 c = float3(0, 0, 0);
     bool done = false;
-    if (lens_mode != 0) {
+    if (lens_mode == 2) {
         float2 cc = float2(snapc(px.x, bg_cell), snapc(px.y, bg_cell)) + bg_cell * 0.5;
         if (distance(cc, lens_c) <= lens_r) {
-            c = (lens_mode == 1) ? sample_src(px) : cell_color(px, lens_cell);
+            c = cell_color(px, lens_cell);
             done = true;
         }
     }
     if (!done) {
-        bool in_focus = focus_on != 0 && px.x >= focus.x && px.y >= focus.y &&
+        bool in_focus = !native && focus_on != 0 && px.x >= focus.x && px.y >= focus.y &&
                         px.x < focus.x + focus.z && px.y < focus.y + focus.w;
         c = cell_color(px, in_focus ? focus_cell : bg_cell);
+        if (native && border != 0) {
+            // Frame OUTSIDE the real window — its content stays untouched.
+            float fb = max(bg_cell, 1.0);
+            if (raw.x >= focus.x - fb && raw.y >= focus.y - fb &&
+                raw.x < focus.x + focus.z + fb && raw.y < focus.y + focus.w + fb) {
+                c = light.rgb;
+            }
+        }
         if (in_focus && border != 0) {
             float b = max(bg_cell, 1.0);
             if (px.x < focus.x + b || px.y < focus.y + b ||

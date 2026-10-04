@@ -264,8 +264,12 @@ unsafe fn run() {
         // ⚠️ Without an AX observer the run loop has no source and
         // RunInMode returns kCFRunLoopRunFinished (1) IMMEDIATELY — that was
         // a busy loop at 100 % CPU (found by sampling the live app).
-        if CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, true) == RUN_FINISHED {
-            std::thread::sleep(Duration::from_millis(500));
+        // 0.1 s slices: an app switch is a frontmost-PID change, which no AX
+        // observer of the OLD app reports — the hole has to follow within a
+        // tenth of a second, not half a second (frontmost_pid is one cheap
+        // NSWorkspace read).
+        if CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.1, true) == RUN_FINISHED {
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
     if !source.is_null() {

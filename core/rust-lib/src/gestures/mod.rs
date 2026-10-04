@@ -325,12 +325,31 @@ pub(crate) fn record_frame(now_ms: u64, device: impl FnOnce() -> u32, touches: &
     let mut guard = RECORDER.lock();
     let Some(rec) = guard.as_mut() else { return };
     rec.push_frame(now_ms, device(), touches.to_vec());
-    // The platform only knows "seconds since the last key-down", so derive
-    // that key's absolute time; the recorder keeps each instant once.
-    let s = seconds_since_last_keydown();
-    if s.is_finite() {
-        rec.note_key(now_ms.saturating_sub((s * 1000.0) as u64));
+    // Without the keyboard tap the platform only knows "seconds since the
+    // last key-down", so derive that key's time; with the tap every key-down
+    // arrives through `note_key_down` and deriving would double them.
+    if !crate::auto_expand::tap_live() {
+        let s = seconds_since_last_keydown();
+        if s.is_finite() {
+            rec.note_key(now_ms.saturating_sub((s * 1000.0) as u64));
+        }
     }
+}
+
+/// A key-down from the app's keyboard tap (`auto_expand`): only its time and
+/// whether it was a shortcut (Cmd/Ctrl held) — never which key. Feeds the
+/// typing level with the complete history and the recorder.
+pub(crate) fn note_key_down(shortcut: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(now) = macos::now_ms() else { return };
+        macos::note_key(trace::KeyDown { t_ms: now, modifier: shortcut });
+        if let Some(rec) = RECORDER.lock().as_mut() {
+            rec.push_key(now, shortcut);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = shortcut;
 }
 
 /// State of the recorder for the UI.

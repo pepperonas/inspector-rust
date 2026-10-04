@@ -4,7 +4,7 @@ Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes th
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
-> Status: **Phase 2 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`) on macOS; Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel, calibration and the keyboard tap follow in Phases 3–5.
+> Status: **Phase 3 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel and calibration follow in Phases 4–5.
 
 ## The pipeline
 
@@ -37,9 +37,11 @@ A key press shortly before or during a touch blocks volume and mute.
 |---|---|
 | A single key press | 250 ms |
 | A key press within 500 ms of the previous one (a burst) | 600 ms |
-| History unknown (live macOS until the keyboard tap in Phase 3) | 600 ms |
+| History unknown (keyboard tap not running, e.g. no Accessibility grant) | 600 ms |
 
-Never blocked: **unmute**, tab switching, and a key pressed **after** the fingers lifted. Modifier keys never count.
+Never blocked: **unmute**, tab switching, and a key pressed **after** the fingers lifted. Modifier keys never count, and neither do shortcuts (a key pressed with ⌘ or ⌃ is a command, not text). Option counts, because on many layouts it types characters.
+
+**Where the key times come from (macOS).** The app's one keyboard tap — the text expander's monitor — reports every key press to the typing level: only **when** and **whether ⌘/⌃ was held**, never which key. When the typing guard is on, the tap runs even if the text expander is off; it needs the Accessibility grant. Without the tap, the typing level falls back to macOS's "seconds since the last key press", which can't tell a single press from a burst, so every press gets the 600 ms window. Synthetic keystrokes the app sends itself (expansions, tab switching) are ignored.
 
 Optional **release by a centre touch**: after typing, gestures stay blocked until a touch starts in the centre area (by default the middle half of the pad).
 
@@ -151,7 +153,6 @@ The synthetic scenarios record **today's** behaviour. Their `note` says where th
 
 ## Next phases
 
-3. macOS keyboard tap, so the key history is complete (single press vs. burst, live).
 4. `gestures` panel: live view, sliders per device profile, decision log.
 5. Calibration, recording from the panel, a hotkey for "that was unintended".
 6. Windows confidence bit, Linux palm data.

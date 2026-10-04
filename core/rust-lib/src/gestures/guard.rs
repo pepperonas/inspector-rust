@@ -468,8 +468,17 @@ impl Pipeline {
         self
     }
 
+    /// Whether every key-down is being reported (a keyboard tap is live).
+    /// Switching it on doesn't rewrite keys already known; it only changes
+    /// how new ones are judged (single vs. burst instead of "always burst").
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn set_complete_keys(&mut self, complete: bool) {
+        self.typing.complete = complete;
+    }
+
     /// Device facts (built-in or not) the edge profiles key on, in the order
     /// of [`Frame::device`].
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn set_devices(&mut self, devices: Vec<DeviceInfo>) {
         self.devices = devices;
     }
@@ -496,6 +505,7 @@ impl Pipeline {
 
     /// Active (gesture-relevant) contacts on a device — the platform arms
     /// its scroll swallowing on this.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn active_fingers(&self, device: u32) -> usize {
         self.dev.get(&device).map(|d| d.palm.active_fingers()).unwrap_or(0)
     }
@@ -836,6 +846,16 @@ mod tests {
         let mut ty = Typing::default(); // complete = false
         ty.push(1_000);
         assert!(ty.blocks(1_500, 1_550, &g()), "can't tell single from burst → 600 ms");
+    }
+
+    #[test]
+    fn a_live_keyboard_tap_switches_from_the_burst_window_to_single() {
+        let mut p = Pipeline::new(cfg(), vec![], false);
+        p.key(KeyDown { t_ms: 1_000, modifier: false });
+        assert!(p.typing.blocks(1_400, 1_450, &g()), "incomplete: 600 ms");
+        p.set_complete_keys(true);
+        assert!(p.typing.complete);
+        assert!(!p.typing.blocks(1_400, 1_450, &g()), "complete + single key: 250 ms");
     }
 
     #[test]

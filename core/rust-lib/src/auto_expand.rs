@@ -618,6 +618,29 @@ pub fn tracked_state() -> (usize, u64) {
     (len, age)
 }
 
+/// Whether a key-down counts as TYPING for the gesture guard. A key pressed
+/// with Cmd or Ctrl is a shortcut, not text (libinput's disable-while-typing
+/// makes the same exception); pure modifier presses never reach here (macOS
+/// reports them as flags-changed, not key-down). Option counts: on many
+/// layouts it types characters (`@`, `[`, `{`).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn key_counts_as_typing(command_or_control_held: bool) -> bool {
+    !command_or_control_held
+}
+
+/// The keyboard tap is armed and delivering — the gesture guard then has the
+/// complete key history (single key vs. burst) instead of "the last key-down".
+pub fn tap_live() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        RUNNING.load(Ordering::Relaxed) && platform::installed()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 fn on_event(ev: KeyEvent) -> bool {
     LAST_TAP_EVENT_MS.store(wall_ms(), Ordering::Relaxed);
     if INJECTING.load(Ordering::SeqCst) || !RUNNING.load(Ordering::SeqCst) {
@@ -869,7 +892,13 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &AutoExpandState) {
     let auto_enabled = state.engine.lock().config().enabled;
     let hotkey_enabled =
         crate::settings::get_bool(db, crate::expander::KEY_ENABLED, false).unwrap_or(false);
-    let want_monitor = auto_enabled || hotkey_enabled;
+    // The gesture guard's typing level reads key-down TIMES from this same
+    // tap (one keyboard tap for the whole app — never a second one).
+    let gestures_want = {
+        let g = crate::gestures::GestureConfig::load(db);
+        g.enabled && g.typing_guard
+    };
+    let want_monitor = auto_enabled || hotkey_enabled || gestures_want;
     if want_monitor {
         // On macOS we need Accessibility to read/write keystrokes; without it
         // installing the tap is pointless. Mirror the expander's behaviour:
@@ -1033,6 +1062,12 @@ mod platform {
             EVT_KEY_DOWN => {
                 let kc = unsafe { CGEventGetIntegerValueField(event, KEYCODE_FIELD) };
                 let flags = unsafe { CGEventGetFlags(event) };
+                // Gesture guard: only the TIME and whether it was a shortcut —
+                // never the key. Our own synthetic keystrokes don't count.
+                if !INJECTING.load(Ordering::SeqCst) {
+                    let shortcut = (flags & (FLAG_MASK_COMMAND | FLAG_MASK_CONTROL)) != 0;
+                    crate::gestures::note_key_down(!key_counts_as_typing(shortcut));
+                }
                 if (flags & FLAG_MASK_ALTERNATE) != 0 {
                     // Option/Alt-modified key — this is (or could be) the
                     // abbreviation hotkey (default Alt+1). Leave the buffer
@@ -1106,6 +1141,10 @@ mod platform {
         if let Some(&p) = TAP_PORT.get() {
             unsafe { CGEventTapEnable(p as CFMachPortRef, enable) };
         }
+    }
+
+    pub fn installed() -> bool {
+        TAP_INSTALLED.load(Ordering::SeqCst)
     }
 }
 
@@ -1256,6 +1295,12 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortcuts_are_not_typing_for_the_gesture_guard() {
+        assert!(key_counts_as_typing(false), "a plain or Option key is typing");
+        assert!(!key_counts_as_typing(true), "Cmd/Ctrl + key is a shortcut");
+    }
 
     fn table() -> AbbrevTable {
         AbbrevTable::from_pairs(vec![("mfg", 1), ("addr", 2), ("ad", 3), ("ä", 4), ("brb", 5)])

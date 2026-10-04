@@ -31,6 +31,7 @@ pub const TRACE_VERSION: u32 = 1;
 pub const REPLAY_TICK_MS: u64 = 24;
 
 /// Upper bound on a recording, so a forgotten recorder can't grow without end.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub const MAX_RECORD_SECS: u64 = 120;
 
 /// Lifecycle of one contact, normalised over the platforms. macOS reports
@@ -61,6 +62,7 @@ impl TouchPhase {
     }
 
     /// macOS MultitouchSupport state number → phase.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn from_mt_state(state: i32) -> TouchPhase {
         match state {
             1 | 2 => TouchPhase::Hover,
@@ -297,6 +299,7 @@ pub struct Recorder {
     keys: Vec<KeyDown>,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl Recorder {
     /// Start recording at `now_ms` for `secs` seconds (clamped to
     /// 1..=[`MAX_RECORD_SECS`]).
@@ -345,6 +348,15 @@ impl Recorder {
             return;
         }
         self.keys.push(KeyDown { t_ms: t, modifier: false });
+    }
+
+    /// Record a key-down reported directly by a keyboard tap (exact time,
+    /// shortcut flag) — the complete-history counterpart of [`Recorder::note_key`].
+    pub fn push_key(&mut self, key_ms: u64, modifier: bool) {
+        if key_ms < self.started_ms || key_ms >= self.until_ms {
+            return;
+        }
+        self.keys.push(KeyDown { t_ms: key_ms - self.started_ms, modifier });
     }
 
     pub fn finish(self) -> Trace {

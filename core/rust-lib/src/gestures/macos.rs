@@ -285,6 +285,26 @@ fn observe_key(p: &mut Pipeline, now: u64) {
     }
 }
 
+/// A key-down from the keyboard tap (main thread). The pipeline lock is only
+/// ever held for microseconds, never across a wait on the main thread.
+pub(crate) fn note_key(k: KeyDown) {
+    if let Some(p) = PIPELINE.lock().as_mut() {
+        p.set_complete_keys(true);
+        p.key(k);
+    }
+}
+
+/// Before each frame/tick: is the keyboard tap delivering? If so the history
+/// is complete; if not, fall back to "the last key-down" (deriving it while
+/// the tap runs would add near-duplicates that read as a burst).
+fn sync_keys(p: &mut Pipeline, now: u64) {
+    let live = crate::auto_expand::tap_live();
+    p.set_complete_keys(live);
+    if !live {
+        observe_key(p, now);
+    }
+}
+
 /// Hand decisions to the sink (outside the pipeline lock).
 fn deliver(decisions: Vec<super::guard::Decision>) {
     if decisions.is_empty() {
@@ -413,7 +433,7 @@ fn tick_thread() {
             let mut guard = PIPELINE.lock();
             match guard.as_mut() {
                 Some(p) => {
-                    observe_key(p, now);
+                    sync_keys(p, now);
                     p.tick(now)
                 }
                 None => Vec::new(),
@@ -477,7 +497,7 @@ extern "C" fn frame_callback(
     let (decisions, prev_active, active, pending) = {
         let mut guard = PIPELINE.lock();
         let Some(p) = guard.as_mut() else { return 0 };
-        observe_key(p, t_ms);
+        sync_keys(p, t_ms);
         let prev_active = p.active_fingers(device);
         let d = p.feed(&frame);
         (d, prev_active, p.active_fingers(device), p.needs_tick())

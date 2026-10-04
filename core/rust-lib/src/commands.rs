@@ -3219,6 +3219,10 @@ pub async fn set_gesture_config(
         let g = app.state::<gestures::GestureState>();
         config.save(&db).map_err(map_err)?;
         gestures::apply(&app, &db, &g);
+        // The typing level reads key-downs from the app's one keyboard tap;
+        // switching gestures / the typing guard arms or releases it.
+        let ae = app.state::<auto_expand::AutoExpandState>();
+        auto_expand::apply(&app, &db, &ae);
         Ok(gestures::GestureConfig::load(&db))
     })
     .await

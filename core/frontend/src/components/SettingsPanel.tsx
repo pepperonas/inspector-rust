@@ -1469,9 +1469,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       className="accent-[var(--color-accent)]"
                     />
                     <span className="text-[var(--color-muted)]">
-                      Ignore volume / mute gestures for half a second after a
-                      keystroke — palms brushing the trackpad while typing are the
-                      most common accidental trigger. Tab switching is unaffected.
+                      Ignore volume / mute gestures for 250 ms after a single
+                      keystroke and 600 ms while you type — palms brushing the
+                      trackpad while typing are the most common accidental
+                      trigger. Shortcuts (⌘/⌃ + key) don't count; unmuting and
+                      tab switching are never blocked. Uses the app's keyboard
+                      monitor (Accessibility) for the key timing — only when,
+                      never which key.
                     </span>
                   </label>
                 </Row>

@@ -45,6 +45,13 @@ pub fn set(db: &DbHandle, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Remove a key (a no-op when it isn't there).
+pub fn delete(db: &DbHandle, key: &str) -> Result<()> {
+    let conn = db.lock();
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
+}
+
 /// Convenience: read a key, defaulting to `default` when missing.
 pub fn get_or(db: &DbHandle, key: &str, default: &str) -> Result<String> {
     Ok(get(db, key)?.unwrap_or_else(|| default.to_string()))

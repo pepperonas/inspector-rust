@@ -3229,6 +3229,83 @@ pub async fn set_gesture_config(
     .map_err(|e| format!("gesture task: {e}"))?
 }
 
+/// The gesture → action bindings, and whether the user ever saved a list
+/// (otherwise they are the built-in set derived from the historic switches).
+#[derive(serde::Serialize)]
+pub struct GestureBindingsView {
+    pub bindings: Vec<gestures::bindings::GestureBinding>,
+    pub customised: bool,
+    pub min_fingers: u8,
+    pub max_fingers: u8,
+}
+
+fn bindings_view(db: &DbHandle) -> GestureBindingsView {
+    GestureBindingsView {
+        bindings: gestures::bindings::load(db),
+        customised: gestures::bindings::is_customised(db),
+        min_fingers: gestures::bindings::MIN_FINGERS,
+        max_fingers: gestures::bindings::MAX_FINGERS,
+    }
+}
+
+#[tauri::command]
+pub fn gesture_bindings_get(db: State<'_, DbHandle>) -> GestureBindingsView {
+    bindings_view(&db)
+}
+
+/// Save the bindings. The running capture reads them in place — the next
+/// gesture uses the new list, no restart.
+#[tauri::command]
+pub fn gesture_bindings_set(
+    db: State<'_, DbHandle>,
+    bindings: Vec<gestures::bindings::GestureBinding>,
+) -> Result<GestureBindingsView, String> {
+    gestures::bindings::save(&db, bindings)?;
+    Ok(bindings_view(&db))
+}
+
+/// Back to the built-in set.
+#[tauri::command]
+pub fn gesture_bindings_reset(db: State<'_, DbHandle>) -> Result<GestureBindingsView, String> {
+    gestures::bindings::reset(&db)?;
+    Ok(bindings_view(&db))
+}
+
+/// "Show the gesture" in the bindings editor: while on, recognised gestures
+/// are logged but not performed (ends by itself after 15 s).
+#[tauri::command]
+pub fn gesture_capture(on: bool) {
+    gestures::set_capture(on);
+}
+
+/// The identifier an app-specific binding matches (macOS: the bundle id from
+/// the app's Info.plist). `None` when it can't be read.
+#[tauri::command]
+pub async fn app_bundle_id(path: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || app_bundle_id_blocking(&path)).await.ok().flatten()
+}
+
+#[cfg(target_os = "macos")]
+fn app_bundle_id_blocking(path: &str) -> Option<String> {
+    let plist = std::path::Path::new(path).join("Contents/Info.plist");
+    if !plist.exists() {
+        return None;
+    }
+    let out = std::process::Command::new("/usr/bin/plutil")
+        .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+        .arg(&plist)
+        .output()
+        .ok()?;
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !id.is_empty()).then_some(id)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn app_bundle_id_blocking(path: &str) -> Option<String> {
+    // Elsewhere the frontmost probe reports the app's name — the file stem.
+    std::path::Path::new(path).file_stem().map(|s| s.to_string_lossy().into_owned())
+}
+
 /// Live view of the `gestures` panel: latest frame with each contact's
 /// classification, typing state and the last 20 decisions. Polled ~30 Hz
 /// while the panel is visible; cheap (two uncontended locks).

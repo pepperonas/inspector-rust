@@ -219,6 +219,7 @@ import { formatBytes } from "../lib/format";
 import { confirmDialog } from "../lib/confirm";
 import { HotkeyCapture } from "./HotkeyCapture";
 import { GlobalShortcutsSection } from "./GlobalShortcutsSection";
+import { GestureBindingsSection } from "./GestureBindingsSection";
 
 // Must match `expander::DEFAULT_HOTKEY` in the Rust core. `Digit1` is the
 // `1`-row key (not the numpad) — layout-stable everywhere, no dead-key /
@@ -1426,7 +1427,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
             id="gestures"
       title="Touchpad gestures"
-            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, 1-finger rest + 2nd-finger tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+            subtitle="Bind trackpad gestures (3–5-finger swipes and taps, tip-taps) to actions: volume, mute, tabs, any key shortcut, an Inspector Rust action, a URL or file, or an AI task — everywhere or per app. Starts with 3-finger swipe up / down → volume and 3-finger tap → mute. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
           >
             <Row label="Enable gestures">
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -1441,41 +1442,18 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   {gestureCfg === null
                     ? "Loading…"
                     : gestureCfg.enabled
-                      ? "On — 3-finger swipe controls volume, tap toggles mute"
+                      ? "On — gestures run the bindings below"
                       : "Off"}
                 </span>
               </label>
             </Row>
             {gestureCfg?.enabled && (
               <>
-                <Row label="Volume swipe">
-                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-                    <input
-                      type="checkbox"
-                      checked={gestureCfg?.volume ?? true}
-                      disabled={gestureBusy}
-                      onChange={(e) => void patchGestures({ volume: e.target.checked })}
-                      className="accent-[var(--color-accent)]"
-                    />
-                    <span className="text-[var(--color-muted)]">
-                      3-finger swipe up / down changes the volume.
-                    </span>
-                  </label>
-                </Row>
-                <Row label="Mute tap">
-                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-                    <input
-                      type="checkbox"
-                      checked={gestureCfg?.mute ?? true}
-                      disabled={gestureBusy}
-                      onChange={(e) => void patchGestures({ mute: e.target.checked })}
-                      className="accent-[var(--color-accent)]"
-                    />
-                    <span className="text-[var(--color-muted)]">
-                      3-finger tap toggles mute. Turn this off if palm touches keep
-                      muting your audio.
-                    </span>
-                  </label>
+                <Row label="Zuordnungen">
+                  <p className="mb-2 text-[11px] text-[var(--color-muted)]">
+                    Welche Geste was tut — frei belegbar, wirkt ab der nächsten Geste.
+                  </p>
+                  <GestureBindingsSection />
                 </Row>
                 <Row label="Typing guard">
                   <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -1487,30 +1465,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       className="accent-[var(--color-accent)]"
                     />
                     <span className="text-[var(--color-muted)]">
-                      Ignore volume / mute gestures for 250 ms after a single
-                      keystroke and 600 ms while you type — palms brushing the
-                      trackpad while typing are the most common accidental
-                      trigger. Shortcuts (⌘/⌃ + key) don't count; unmuting and
-                      tab switching are never blocked. Uses the app's keyboard
-                      monitor (Accessibility) for the key timing — only when,
-                      never which key.
-                    </span>
-                  </label>
-                </Row>
-                <Row label="Tip-tap tab switch">
-                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-                    <input
-                      type="checkbox"
-                      checked={gestureCfg?.tiptap ?? true}
-                      disabled={gestureBusy}
-                      onChange={(e) => void patchGestures({ tiptap: e.target.checked })}
-                      className="accent-[var(--color-accent)]"
-                    />
-                    <span className="text-[var(--color-muted)]">
-                      Off by default. Rest <b>one</b> finger on the trackpad and tap a{" "}
-                      <b>second</b> to its right → next tab; to its left → previous
-                      tab. The resting finger must be still for a moment first, so
-                      taps right after moving the cursor don't misfire.
+                      Ignore gestures for 250 ms after a single keystroke and
+                      600 ms while you type — palms brushing the trackpad while
+                      typing are the most common accidental trigger. Applies to
+                      every binding with "Tipp-Schutz" on (switch it per binding
+                      in the table above). Shortcuts (⌘/⌃ + key) don't count;
+                      unmuting is never blocked. Uses the app's keyboard monitor
+                      (Accessibility) for the key timing — only when, never
+                      which key.
                     </span>
                   </label>
                 </Row>

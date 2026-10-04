@@ -1320,6 +1320,27 @@ export function gestureDefaultGuard(): Promise<GestureGuardConfig> {
   return invoke("gesture_default_guard");
 }
 
+/** Gesture → action bindings (Settings → Touchpad gestures). */
+export function gestureBindingsGet(): Promise<GestureBindingsView> {
+  return invoke("gesture_bindings_get");
+}
+/** Save the whole list; the running capture uses it from the next gesture. */
+export function gestureBindingsSet(bindings: GestureBinding[]): Promise<GestureBindingsView> {
+  return invoke("gesture_bindings_set", { bindings });
+}
+/** Back to the built-in set. */
+export function gestureBindingsReset(): Promise<GestureBindingsView> {
+  return invoke("gesture_bindings_reset");
+}
+/** "Show the gesture": while on, gestures are logged but not performed (max 15 s). */
+export function gestureCapture(on: boolean): Promise<void> {
+  return invoke("gesture_capture", { on });
+}
+/** The id an app-specific binding matches (macOS bundle id). */
+export function appBundleId(path: string): Promise<string | null> {
+  return invoke("app_bundle_id", { path });
+}
+
 export function gestureLiveClear(): Promise<void> {
   return invoke("gesture_live_clear");
 }
@@ -3025,7 +3046,7 @@ export function tokenUsageFetch(
   });
 }
 
-// ── Claude subscription limits (`limits` / `quota`) ────────────────────────
+// ── Claude subscription limits (`limits` / `usage`) ────────────────────────
 
 export interface ClaudeLimit {
   id: string;
@@ -4279,6 +4300,7 @@ export function appVersion(): Promise<string> {
 }
 
 // ── AI tasks (task / ki) ──────────────────────────────────────────────────────
+import type { GestureBinding, GestureBindingsView } from "./gesture-bindings";
 import type { AiConfig, AiProviderId, AiProviderStatus, AiTask, AiTaskDraft, AiTaskRun, AiTasksState, Generated, ScriptLanguage } from "./tasks";
 
 export function aiProviderStatus(): Promise<AiProviderStatus[]> {

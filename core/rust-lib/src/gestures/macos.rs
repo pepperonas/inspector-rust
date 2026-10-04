@@ -745,7 +745,11 @@ impl GestureSource for MacGestureSource {
         let _ = START.set(Instant::now());
         FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
         *PIPELINE.lock() =
-            Some(Pipeline::new(cfg, Vec::new(), false).with_mute(false, Some(super::output_muted_now)));
+            Some(
+                Pipeline::new(cfg, Vec::new(), false)
+                    .with_mute(false, Some(super::output_muted_now))
+                    .with_live_bindings(Some(super::frontmost_app_id)),
+            );
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).
         let handle = std::thread::Builder::new()

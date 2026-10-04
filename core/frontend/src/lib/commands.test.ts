@@ -47,7 +47,7 @@ describe("COMMANDS catalogue", () => {
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
     // +4 for `btsniff` and its `btcap`/`btcapture`/`blecap` aliases.
     // +4 for `mailcheck` and its `emailcheck`/`mailverify`/`mxcheck` aliases.
-    expect(COMMANDS.length).toBe(125);
+    expect(COMMANDS.length).toBe(124);
   });
 
   it("every keyword is unique", () => {
@@ -1323,5 +1323,20 @@ describe("countdown is timer", () => {
     const bare = parseCommand("countdown");
     expect(bare).toBeNull();
     expect(parseCommand("timer")).toBeNull();
+  });
+});
+
+describe("usage → limits", () => {
+  it("runs the limits panel and no longer the token tracker", () => {
+    expect(parseCommand("usage")?.spec.kind).toBe("limits");
+    expect(parseCommand("quota")).toBeNull();
+    expect(parseCommand("tokens")?.spec.kind).toBe("tokens");
+  });
+
+  it("is offered by autocomplete while typing", () => {
+    for (const q of ["us", "usa", "usag"]) {
+      const hit = commandSuggestions(q).find((s) => s.keyword === "usage");
+      expect(hit?.kind, q).toBe("limits");
+    }
   });
 });

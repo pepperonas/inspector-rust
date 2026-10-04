@@ -1,4 +1,4 @@
-// Pure display helpers for the `limits` / `quota` panel (Claude subscription
+// Pure display helpers for the `limits` / `usage` panel (Claude subscription
 // usage limits). The data comes from `claude_limits.rs`.
 
 export const LIMITS_TZ = "Europe/Berlin";

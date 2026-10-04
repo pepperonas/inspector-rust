@@ -1,10 +1,31 @@
 # Touchpad gestures — guard against accidental gestures
 
-Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes the volume, a 3-finger tap toggles mute, and a tip-tap switches tabs. This page covers how the app keeps these gestures from firing when you didn't mean them to: a palm while typing, a resting thumb, a brush along the edge.
+Inspector Rust recognises its own trackpad gestures. Out of the box a 3-finger swipe changes the volume and a 3-finger tap toggles mute; since v0.193.0 every gesture can be bound to an action of your choice (see *Bindings* below). This page covers how the app keeps these gestures from firing when you didn't mean them to: a palm while typing, a resting thumb, a brush along the edge.
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
 > Status: **complete (v0.190.0).** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`). macOS and Windows feed it per-contact data; the typing level gets every key press from the app's keyboard monitor. Linux passes libinput's gestures through levels 3 and 4 with libinput's own palm and typing detection switched on (see *Platforms*). The `gestures` panel shows the trackpad live, holds the sliders, lists the last 20 decisions, runs the guided calibration and manages the recordings; the hotkey ⌃⇧⌥G saves the last 3 seconds when a gesture fired by itself.
+
+## Bindings (v0.193.0)
+
+Settings → Touchpad gestures holds a table: gesture → action, each row can be switched off, edited or deleted, and new rows are added with **Neue Zuordnung**. The principle is BetterTouchTool's — pick a gesture, pick what it does — nothing more of it is copied.
+
+| | Options |
+|---|---|
+| Gestures | swipe up / down / left / right and tap, each with 3, 4 or 5 fingers; tip-tap left / right (one finger rests, a second taps next to it) |
+| Actions | volume up / down, mute toggle, next / previous tab, send a key shortcut, run an Inspector Rust action (the ones under Global shortcuts), open a URL (http, https, mailto) or an absolute path, run an approved AI task |
+| Scope | everywhere, or only while one app is in front — an app binding beats the global one for the same gesture |
+| Typing guard | per binding (level 3 below; tab switching is exempt by default) |
+
+**Matching** (`gestures/bindings.rs`, pure): a swipe needs exactly its finger count (a 2-finger scroll fires nothing); a tap fires the binding with the largest count not above the recognised one — a sloppy 3-finger tap read as 4 still fires the 3-finger binding when no 4-finger binding exists, the historic rule; tip-taps ignore the count. App-specific beats global, then the larger count, then list order. Two **active** bindings on one gesture in one scope are refused when saving; a switched-off twin is allowed.
+
+**Showing the gesture.** „Geste vormachen" in the editor takes kind and finger count from the next gesture in the live log; while it waits (at most 15 s, `CAPTURE_MAX_MS`) recognised gestures are logged but not performed, so demonstrating the mute tap doesn't mute.
+
+**Migration.** Until a list is saved, the bindings are derived from the old switches `gestures.volume`, `gestures.mute`, `gestures.tiptap` — an existing install behaves exactly as before (`bindings::legacy`; all golden fixtures run through it). The first save writes `gestures.bindings` (JSON); from then on the switches are ignored. **Standard wiederherstellen** deletes the saved list. An unreadable saved list falls back to the derived set and is logged — gestures never go silent because of a bad value.
+
+**Running.** The capture reads the live list in place (`bindings::live`), so a save takes effect with the next gesture, no restart. The frontmost app is only asked when some binding is app-specific (macOS: bundle id via NSWorkspace; elsewhere the app name). A rejected gesture names a switched-off binding as `config:binding is off`; an unbound one is `unmapped`. Key shortcuts are sent by physical key position (macOS virtual keycodes from the recorded W3C code; Windows/Linux through enigo, untested on hardware). Open targets with any other scheme, relative paths and a leading `-` are refused. A task binding only starts approved tasks — the scheduler refuses the rest, and a failure shows a toast.
+
+**Not done:** per-app scope on Windows/Linux matches the app's name and is untested; macOS system gestures (System Settings → Trackpad → More Gestures) can claim the same gesture, then both fire — the editor says so for swipes and multi-finger taps.
 
 ## The pipeline
 

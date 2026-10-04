@@ -245,10 +245,24 @@ impl Outcome {
 /// frames are fed in order, and a deferred tap is finalised by a ticker that
 /// wakes [`REPLAY_TICK_MS`] after a frame left work and keeps ticking at that
 /// cadence while work remains. Deterministic.
+#[cfg(test)]
 pub fn replay_decisions(trace: &Trace, cfg: &GestureConfig) -> Vec<Decision> {
     // A trace carries the complete key history (synthetic, or a future
     // keyboard-tap recording) — unlike today's live macOS source.
-    let mut p = Pipeline::new(*cfg, trace.devices.clone(), true).with_mute(trace.muted_at_start, None);
+    let p = Pipeline::new(*cfg, trace.devices.clone(), true).with_mute(trace.muted_at_start, None);
+    run_replay(trace, p)
+}
+
+/// [`replay`] against a binding list (the user's own setup) instead of the
+/// historic switches.
+pub fn replay_with_bindings(trace: &Trace, cfg: &GestureConfig, list: Vec<super::bindings::GestureBinding>) -> Vec<Outcome> {
+    let p = Pipeline::new(*cfg, trace.devices.clone(), true)
+        .with_mute(trace.muted_at_start, None)
+        .with_bindings(list);
+    run_replay(trace, p).iter().filter_map(Outcome::from_decision).collect()
+}
+
+fn run_replay(trace: &Trace, mut p: Pipeline) -> Vec<Decision> {
     let mut keys = trace.keys.clone();
     keys.sort_by_key(|k| k.t_ms);
     let mut ki = 0;
@@ -285,6 +299,7 @@ pub fn replay_decisions(trace: &Trace, cfg: &GestureConfig) -> Vec<Decision> {
 }
 
 /// The gesture decisions of a replay (contact decisions dropped).
+#[cfg(test)]
 pub fn replay(trace: &Trace, cfg: &GestureConfig) -> Vec<Outcome> {
     replay_decisions(trace, cfg).iter().filter_map(Outcome::from_decision).collect()
 }

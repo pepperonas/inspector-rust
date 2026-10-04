@@ -993,14 +993,6 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
   },
   {
-    kind: "tokens",
-    keyword: "usage",
-    syntax: "usage",
-    description: "Alias for tokens",
-    requiresArg: false,
-    hidden: true,
-  },
-  {
     kind: "limits",
     keyword: "limits",
     syntax: "limits",
@@ -1010,11 +1002,10 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   },
   {
     kind: "limits",
-    keyword: "quota",
-    syntax: "quota",
-    description: "Alias for limits",
+    keyword: "usage",
+    syntax: "usage",
+    description: "Usage limits of Claude, Codex and Antigravity (same panel as limits)",
     requiresArg: false,
-    hidden: true,
   },
   {
     kind: "task",

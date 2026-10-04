@@ -201,6 +201,7 @@ mod tests {
             event: Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 }),
             via: Some(Via::Tick),
             action: Some(GestureAction::MuteToggle),
+            binding: None,
             touch_id: None,
         }
     }
@@ -237,6 +238,7 @@ mod tests {
             event: None,
             via: None,
             action: None,
+            binding: None,
             touch_id: Some(7),
             reason: Reason::Palm,
             level: Level::Classify,

@@ -26,14 +26,16 @@
 //! its own.
 
 use super::trace::{DeviceInfo, Frame, KeyDown, Touch};
+use super::bindings::{self, GestureBinding};
 use super::{
-    config_drop_reason, map_action, Contact, GestureAction, GestureConfig, GestureEvent,
+    Contact, GestureAction, GestureConfig, GestureEvent,
     GestureKind, PalmAwareRecognizer, RawContact, RecParams, SwipeStats, TipTapRecognizer,
     EARLY_SWIPE_MIN_MOVE_NORM, PALM_SIZE, SWIPE_COHERENCE_MIN, SWIPE_FINGER_MIN_MOVE_NORM,
     TAP_CLUSTER_MAX_MS, TAP_FINGER_MAX_MOVE_NORM, TAP_HOLD_MAX_MS,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -300,6 +302,9 @@ pub struct Decision {
     pub via: Option<Via>,
     /// The bound action, when there is one (also on a rejected gesture).
     pub action: Option<GestureAction>,
+    /// The binding that carries it (with its target); set exactly when
+    /// `action` is.
+    pub binding: Option<Arc<GestureBinding>>,
     /// The contact, for a contact decision.
     pub touch_id: Option<i32>,
 }
@@ -441,6 +446,18 @@ impl Typing {
 /// in a replay, its own tracked state.
 pub type MuteProbe = fn() -> Option<bool>;
 
+/// The frontmost app's identifier (macOS bundle id), for app-specific
+/// bindings. Only asked when a binding is app-specific.
+pub type FrontmostProbe = fn() -> Option<String>;
+
+/// Where the pipeline reads its bindings from.
+enum BindingSource {
+    /// A fixed list — tests, replays, and the legacy derivation.
+    Fixed(Arc<Vec<GestureBinding>>),
+    /// The live list ([`bindings::live`]), swapped in place on save.
+    Live,
+}
+
 pub struct Pipeline {
     cfg: GestureConfig,
     g: GuardConfig,
@@ -450,6 +467,8 @@ pub struct Pipeline {
     last_accept_ms: Option<u64>,
     muted: bool,
     mute_probe: Option<MuteProbe>,
+    bindings: BindingSource,
+    frontmost: Option<FrontmostProbe>,
 }
 
 impl Pipeline {
@@ -464,6 +483,40 @@ impl Pipeline {
             last_accept_ms: None,
             muted: false,
             mute_probe: None,
+            // Until told otherwise: the historic switches as bindings, so a
+            // pipeline built from a config alone behaves as it always did.
+            bindings: BindingSource::Fixed(Arc::new(bindings::legacy(&cfg))),
+            frontmost: None,
+        }
+    }
+
+    /// Use this binding list instead of the legacy derivation (replays of
+    /// the user's own setup).
+    pub fn with_bindings(mut self, list: Vec<GestureBinding>) -> Pipeline {
+        self.bindings = BindingSource::Fixed(Arc::new(list));
+        self
+    }
+
+    /// Follow the live binding list (the running capture): an edit takes
+    /// effect with the next gesture.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "windows", target_os = "linux")), allow(dead_code))]
+    pub fn with_live_bindings(mut self, frontmost: Option<FrontmostProbe>) -> Pipeline {
+        self.bindings = BindingSource::Live;
+        self.frontmost = frontmost;
+        self
+    }
+
+    /// Where app-specific bindings learn the frontmost app.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_frontmost(mut self, probe: FrontmostProbe) -> Pipeline {
+        self.frontmost = Some(probe);
+        self
+    }
+
+    fn binding_list(&self) -> Arc<Vec<GestureBinding>> {
+        match &self.bindings {
+            BindingSource::Fixed(l) => l.clone(),
+            BindingSource::Live => bindings::live(),
         }
     }
 
@@ -618,6 +671,7 @@ impl Pipeline {
                     event: None,
                     via: None,
                     action: None,
+                    binding: None,
                     touch_id: Some(touch.id),
                 });
             }
@@ -690,7 +744,14 @@ impl Pipeline {
         lift: u64,
         palm_present: bool,
     ) -> Decision {
-        let action = map_action(&ev, &self.cfg);
+        let list = self.binding_list();
+        let front = if bindings::has_app_scoped(&list) { self.frontmost.and_then(|p| p()) } else { None };
+        let binding = if self.cfg.enabled {
+            bindings::resolve(&list, &ev, front.as_deref()).map(|b| Arc::new(b.clone()))
+        } else {
+            None
+        };
+        let action = binding.as_ref().map(|b| b.action.kind());
         let reject = |level: Level, reason: Reason| Decision {
             t_ms: t,
             device,
@@ -700,6 +761,7 @@ impl Pipeline {
             event: Some(ev),
             via: Some(via),
             action,
+            binding: binding.clone(),
             touch_id: None,
         };
         let is_swipe = matches!(
@@ -724,16 +786,16 @@ impl Pipeline {
                 return reject(Level::Plausibility, Reason::UnevenFingers);
             }
         }
-        let Some(act) = action else {
-            let reason = match config_drop_reason(&ev, &self.cfg) {
-                Some(r) => Reason::Config(r),
-                None => Reason::Unmapped,
+        let (Some(act), Some(bound)) = (action, binding.clone()) else {
+            let reason = if self.cfg.enabled && bindings::disabled_match(&list, &ev, front.as_deref()).is_some() {
+                Reason::Config("binding is off")
+            } else {
+                Reason::Unmapped
             };
             return reject(Level::Config, reason);
         };
 
-        let tab = matches!(act, GestureAction::NextTab | GestureAction::PrevTab);
-        if self.cfg.typing_guard && !tab {
+        if self.cfg.typing_guard && bound.typing_guard {
             let muted = self.mute_probe.and_then(|p| p()).unwrap_or(self.muted);
             let unmuting = act == GestureAction::MuteToggle && muted;
             if !unmuting {
@@ -762,6 +824,7 @@ impl Pipeline {
             event: Some(ev),
             via: Some(via),
             action: Some(act),
+            binding: Some(bound),
             touch_id: None,
         }
     }
@@ -1207,4 +1270,84 @@ mod tests {
         classify(&mut fresh, &touch(2, 0.5, 0.5), 200, &g);
         assert_eq!(fresh.class, TouchClass::Finger, "an untouched flag changes nothing");
     }
+    // User bindings (the bindings editor)
+
+    fn user(kind: GestureKind, fingers: u8, action: bindings::BindingAction) -> GestureBinding {
+        GestureBinding {
+            id: format!("{kind:?}{fingers}"),
+            trigger: bindings::Trigger { kind, fingers },
+            typing_guard: action.default_typing_guard(),
+            action,
+            app: None,
+            app_name: None,
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn a_user_binding_dispatches_with_its_target() {
+        let open = bindings::BindingAction::Open { target: "https://celox.io".into() };
+        let mut p = Pipeline::new(cfg(), vec![], true).with_bindings(vec![user(GestureKind::SwipeLeft, 4, open.clone())]);
+        let d = p.external(1_000, GestureEvent { kind: GestureKind::SwipeLeft, fingers: 4 });
+        assert!(d.accepted);
+        assert_eq!(d.action, Some(GestureAction::Open));
+        assert_eq!(d.binding.unwrap().action, open, "the sink needs the target, not just the kind");
+        // The historic bindings are gone with a user list: 3-finger up is unbound.
+        let up = p.external(5_000, GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 });
+        assert_eq!(up.reason, Reason::Unmapped);
+        assert!(up.binding.is_none());
+    }
+
+    #[test]
+    fn a_switched_off_binding_is_named_as_the_reason() {
+        let mut b = user(GestureKind::Tap, 3, bindings::BindingAction::MuteToggle);
+        b.enabled = false;
+        let mut p = Pipeline::new(cfg(), vec![], true).with_bindings(vec![b]);
+        let d = p.external(1_000, GestureEvent { kind: GestureKind::Tap, fingers: 3 });
+        assert!(!d.accepted);
+        assert_eq!(d.reason, Reason::Config("binding is off"));
+    }
+
+    #[test]
+    fn the_typing_guard_is_per_binding() {
+        let shortcut = bindings::BindingAction::Shortcut { keys: "Meta+KeyW".into() };
+        let guarded = user(GestureKind::SwipeLeft, 3, shortcut.clone());
+        let mut free = user(GestureKind::SwipeRight, 3, shortcut);
+        free.typing_guard = false;
+        let mut p = Pipeline::new(cfg(), vec![], true).with_bindings(vec![guarded, free]);
+        p.key(KeyDown { t_ms: 1_000, modifier: false });
+        let left = p.external(1_050, GestureEvent { kind: GestureKind::SwipeLeft, fingers: 3 });
+        assert_eq!(left.reason, Reason::Typing);
+        let right = p.external(1_060, GestureEvent { kind: GestureKind::SwipeRight, fingers: 3 });
+        assert!(right.accepted, "typing guard switched off for this binding");
+    }
+
+    fn iterm() -> Option<String> {
+        Some("com.googlecode.iterm2".into())
+    }
+    fn safari() -> Option<String> {
+        Some("com.apple.Safari".into())
+    }
+
+    #[test]
+    fn app_bindings_follow_the_frontmost_app() {
+        let global = user(GestureKind::SwipeLeft, 3, bindings::BindingAction::PrevTab);
+        let mut scoped = user(GestureKind::SwipeLeft, 3, bindings::BindingAction::Shortcut { keys: "Meta+KeyW".into() });
+        scoped.app = Some("com.googlecode.iterm2".into());
+        let list = vec![global, scoped];
+        let left = GestureEvent { kind: GestureKind::SwipeLeft, fingers: 3 };
+        let mut in_iterm = Pipeline::new(cfg(), vec![], true).with_bindings(list.clone()).with_frontmost(iterm);
+        assert_eq!(in_iterm.external(1_000, left).action, Some(GestureAction::Shortcut));
+        let mut in_safari = Pipeline::new(cfg(), vec![], true).with_bindings(list).with_frontmost(safari);
+        assert_eq!(in_safari.external(1_000, left).action, Some(GestureAction::PrevTab));
+    }
+
+    #[test]
+    fn gestures_off_still_dispatch_nothing() {
+        let off = GestureConfig { enabled: false, ..cfg() };
+        let mut p = Pipeline::new(off, vec![], true).with_bindings(vec![user(GestureKind::Tap, 3, bindings::BindingAction::MuteToggle)]);
+        let d = p.external(1_000, GestureEvent { kind: GestureKind::Tap, fingers: 3 });
+        assert!(!d.accepted && d.binding.is_none());
+    }
+
 }

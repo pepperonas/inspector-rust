@@ -1,5 +1,5 @@
 /**
- * `limits` / `quota` — the Claude subscription's usage limits (session, week,
+ * `limits` / `usage` — the Claude subscription's usage limits (session, week,
  * per-model week, extra usage) as claude.ai shows them. Data and caching live
  * in `claude_limits.rs`: this panel asks every 30 s while it is open, and Rust
  * only touches the network when the poll interval is due. R forces a refresh,

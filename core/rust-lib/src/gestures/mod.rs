@@ -26,6 +26,7 @@ use tauri::Manager;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+pub mod bindings;
 pub mod calibrate;
 pub mod guard;
 pub mod keys;
@@ -349,6 +350,14 @@ pub enum GestureAction {
     MuteToggle,
     NextTab,
     PrevTab,
+    /// One of the app's global actions (user binding).
+    Hotkey,
+    /// A key chord (user binding).
+    Shortcut,
+    /// Open a URL or path (user binding).
+    Open,
+    /// Run an approved AI task (user binding).
+    Task,
 }
 
 // ── Trace recorder (gesture-guard Phase 1) ──────────────────────────────────
@@ -566,7 +575,7 @@ pub fn replay_trace_file(db: &DbHandle, name: &str) -> Result<Vec<trace::ReplayR
     let json = std::fs::read_to_string(trace_dir()?.join(name)).map_err(|e| e.to_string())?;
     let t = trace::Trace::from_json(&json)?;
     let cfg = GestureConfig::load(db);
-    Ok(trace::replay(&t, &cfg).iter().map(|o| o.row()).collect())
+    Ok(trace::replay_with_bindings(&t, &cfg, bindings::load(db)).iter().map(|o| o.row()).collect())
 }
 
 /// Current recorder state.
@@ -883,6 +892,19 @@ pub fn clear_live_log() {
     live::clear();
 }
 
+/// The frontmost app's identifier for app-specific bindings: the bundle id
+/// on macOS, the app name elsewhere (best effort).
+pub(crate) fn frontmost_app_id() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        frontmost_bundle_id()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        crate::frontmost_app::name()
+    }
+}
+
 /// Is the default output currently muted? `None` = unknown (no control, no
 /// macOS) — the guard then treats the toggle as a MUTE, i.e. still vetoable.
 #[cfg(target_os = "macos")]
@@ -898,35 +920,21 @@ fn output_muted_now() -> Option<bool> {
     None
 }
 
-/// Pure mapping (config-gated). Fixed bindings for now, but isolated here so a
-/// future remap UI only has to change this function. Returns `None` when
-/// gestures are off, the finger count doesn't match, or the gesture is unbound.
+/// Pure mapping for the HISTORIC switches (config-gated): the action
+/// [`bindings::legacy`] gives `ev`. The live pipeline resolves the user's own
+/// binding list instead; this stays as the reference the legacy derivation is
+/// pinned against. `None` when gestures are off, the finger count doesn't
+/// match, or the gesture is unbound.
+#[cfg(test)]
 pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureAction> {
     if !cfg.enabled {
         return None;
     }
-    // Tip-taps are inherently two-finger; the `fingers` count only gates the
-    // swipe/tap family.
-    match ev.kind {
-        GestureKind::TipTapLeft => cfg.tiptap.then_some(GestureAction::PrevTab),
-        GestureKind::TipTapRight => cfg.tiptap.then_some(GestureAction::NextTab),
-        // A tap mutes on AT LEAST the configured finger count: a coalesced tap
-        // cluster can over-count slightly if a finger re-touches (a new contact
-        // id), so `>=` keeps a genuine 3-finger tap muting rather than being
-        // dropped as a "4-finger" event. A 1/2-finger tap is still ignored.
-        GestureKind::Tap => {
-            (cfg.mute && ev.fingers >= cfg.fingers).then_some(GestureAction::MuteToggle)
-        }
-        // Swipes need EXACTLY the configured count (a 2-finger scroll must not
-        // change volume).
-        GestureKind::SwipeUp if cfg.volume && ev.fingers == cfg.fingers => {
-            Some(GestureAction::VolumeUp)
-        }
-        GestureKind::SwipeDown if cfg.volume && ev.fingers == cfg.fingers => {
-            Some(GestureAction::VolumeDown)
-        }
-        _ => None,
-    }
+    // Rules (in `Trigger::score`): tip-taps ignore the count; a tap fires on
+    // AT LEAST the configured count (a coalesced cluster can over-count when a
+    // finger re-touches); swipes need EXACTLY it (a 2-finger scroll must not
+    // change volume).
+    bindings::resolve(&bindings::legacy(cfg), ev, None).map(|b| b.action.kind())
 }
 
 /// Why a gesture that WOULD dispatch under all-on switches was dropped by
@@ -937,6 +945,7 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// the settings DB for weeks and every recognised 3-finger tap vanished
 /// WITHOUT A TRACE between "recognised Tap" and "gesture dispatch"; the
 /// typing guard logs its vetoes, the config gate did not).
+#[cfg(test)]
 pub fn config_drop_reason(ev: &GestureEvent, cfg: &GestureConfig) -> Option<&'static str> {
     if map_action(ev, cfg).is_some() {
         return None; // it dispatched — nothing was dropped
@@ -987,8 +996,56 @@ fn seconds_since_last_keydown() -> f64 {
 /// capture callback never blocks; the toast is shown on the main thread (window
 /// op). Rapid re-triggers reuse the same toast (it updates in place — see
 /// `StatusToast.tsx`), they don't re-pop.
-fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
+fn perform(app: &tauri::AppHandle, binding: &bindings::GestureBinding, step: i32) {
+    let action = binding.action.kind();
     tracing::debug!("gesture action: {action:?} (step {step})");
+    // User-bound targets first; the built-ins below keep their tuned paths.
+    match &binding.action {
+        bindings::BindingAction::Hotkey { action: key } => {
+            // The same entry the global shortcut uses, from the same thread.
+            match crate::hotkey::ActionId::from_key(key) {
+                Some(id) => {
+                    let a = app.clone();
+                    let _ = app.run_on_main_thread(move || crate::hotkey::dispatch_action(&a, id));
+                }
+                None => tracing::warn!("gesture binding: unknown action {key:?}"),
+            }
+            return;
+        }
+        bindings::BindingAction::Shortcut { keys } => {
+            if let Err(e) = send_chord(keys) {
+                tracing::warn!("gesture binding: shortcut {keys:?} failed: {e}");
+            }
+            return;
+        }
+        bindings::BindingAction::Open { target } => {
+            if let Err(e) = open_target(app, target) {
+                tracing::warn!("gesture binding: open {target:?} failed: {e}");
+                announce_failure(app, "Öffnen fehlgeschlagen", &e);
+            }
+            return;
+        }
+        bindings::BindingAction::Task { id } => {
+            let (app, id) = (app.clone(), *id);
+            std::thread::spawn(move || {
+                let db = app.state::<DbHandle>().inner().clone();
+                let result = match crate::ai_tasks::store::get(&db, id) {
+                    Ok(Some(task)) => {
+                        crate::ai_tasks::scheduler::start_run(Some(app.clone()), db, task, "manual", Vec::new(), false)
+                            .map(|_| ())
+                    }
+                    Ok(None) => Err("Der KI-Task existiert nicht mehr.".to_string()),
+                    Err(e) => Err(e.to_string()),
+                };
+                if let Err(e) = result {
+                    tracing::warn!("gesture binding: task {id} not started: {e}");
+                    announce_failure(&app, "KI-Task nicht gestartet", &e);
+                }
+            });
+            return;
+        }
+        _ => {}
+    }
     // Tab switching: send the frontmost app's OWN tab-nav shortcut (data-driven
     // per-app map). No toast — the visibly switching tab is the feedback. Runs
     // INLINE on the capture thread for minimal latency; layout-dependent chars
@@ -1046,7 +1103,12 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
                 }
             }
             // Handled above (early return) — kept for match exhaustiveness.
-            GestureAction::NextTab | GestureAction::PrevTab => return,
+            GestureAction::NextTab
+            | GestureAction::PrevTab
+            | GestureAction::Hotkey
+            | GestureAction::Shortcut
+            | GestureAction::Open
+            | GestureAction::Task => return,
         };
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
@@ -1056,6 +1118,125 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
             crate::status_toast::show_passive(&app2, toast);
         });
     });
+}
+
+/// A user binding failed where the user can't see it (no window of ours is
+/// in front): say so on screen instead of only in the log.
+fn announce_failure(app: &tauri::AppHandle, title: &str, detail: &str) {
+    let toast = crate::status_toast::StatusToast {
+        kind: "gesture".into(),
+        on: false,
+        title: title.into(),
+        subtitle: detail.chars().take(80).collect(),
+    };
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || crate::status_toast::show_passive(&app2, toast));
+}
+
+/// Open a URL or an absolute path with the system handler.
+fn open_target(app: &tauri::AppHandle, target: &str) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    match bindings::classify_open(target)? {
+        bindings::OpenTarget::Url(u) => app.opener().open_url(u, None::<&str>).map_err(|e| e.to_string()),
+        bindings::OpenTarget::Path(p) => {
+            let path = crate::path_arg::expand_user_str(&p, dirs::home_dir().as_deref());
+            if !std::path::Path::new(&path).exists() {
+                return Err(format!("{path} gibt es nicht"));
+            }
+            app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
+        }
+    }
+}
+
+/// Send a recorded key chord (`Meta+Shift+KeyT`) to the frontmost app.
+#[cfg(target_os = "macos")]
+fn send_chord(spec: &str) -> Result<(), String> {
+    use tab_keys::*;
+    let (m, code) = bindings::parse_chord(spec)?;
+    let keycode = bindings::mac_keycode(&code).ok_or("unbekannte Taste")?;
+    let mut flags = 0;
+    if m.ctrl {
+        flags |= FLAG_CONTROL;
+    }
+    if m.shift {
+        flags |= FLAG_SHIFT;
+    }
+    if m.alt {
+        flags |= FLAG_ALT;
+    }
+    if m.meta {
+        flags |= FLAG_CMD;
+    }
+    let (fn_flag, numpad) = bindings::needs_fn_flag(&code);
+    if fn_flag {
+        flags |= FLAG_FN;
+    }
+    if numpad {
+        flags |= FLAG_NUMPAD;
+    }
+    tab_keys::post(keycode, flags);
+    Ok(())
+}
+
+/// Windows/Linux: through enigo (runtime-unverified).
+#[cfg(not(target_os = "macos"))]
+fn send_chord(spec: &str) -> Result<(), String> {
+    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+    let (m, code) = bindings::parse_chord(spec)?;
+    let key = enigo_key(&code).ok_or("Taste wird hier nicht unterstützt")?;
+    let mut e = Enigo::new(&Settings::default()).map_err(|e| format!("{e:?}"))?;
+    let mods: Vec<Key> = [(m.ctrl, Key::Control), (m.shift, Key::Shift), (m.alt, Key::Alt), (m.meta, Key::Meta)]
+        .into_iter()
+        .filter_map(|(on, k)| on.then_some(k))
+        .collect();
+    for k in &mods {
+        e.key(*k, Direction::Press).map_err(|e| format!("{e:?}"))?;
+    }
+    let r = e.key(key, Direction::Click).map_err(|e| format!("{e:?}"));
+    for k in mods.iter().rev() {
+        let _ = e.key(*k, Direction::Release);
+    }
+    r
+}
+
+#[cfg(not(target_os = "macos"))]
+fn enigo_key(code: &str) -> Option<enigo::Key> {
+    use enigo::Key;
+    if let Some(l) = code.strip_prefix("Key").filter(|l| l.len() == 1) {
+        return l.chars().next().map(|c| Key::Unicode(c.to_ascii_lowercase()));
+    }
+    if let Some(d) = code.strip_prefix("Digit").filter(|d| d.len() == 1) {
+        return d.chars().next().map(Key::Unicode);
+    }
+    Some(match code {
+        "Enter" | "NumpadEnter" => Key::Return,
+        "Tab" => Key::Tab,
+        "Space" => Key::Space,
+        "Backspace" => Key::Backspace,
+        "Escape" => Key::Escape,
+        "Delete" => Key::Delete,
+        "Home" => Key::Home,
+        "End" => Key::End,
+        "PageUp" => Key::PageUp,
+        "PageDown" => Key::PageDown,
+        "ArrowLeft" => Key::LeftArrow,
+        "ArrowRight" => Key::RightArrow,
+        "ArrowUp" => Key::UpArrow,
+        "ArrowDown" => Key::DownArrow,
+        "F1" => Key::F1,
+        "F2" => Key::F2,
+        "F3" => Key::F3,
+        "F4" => Key::F4,
+        "F5" => Key::F5,
+        "F6" => Key::F6,
+        "F7" => Key::F7,
+        "F8" => Key::F8,
+        "F9" => Key::F9,
+        "F10" => Key::F10,
+        "F11" => Key::F11,
+        "F12" => Key::F12,
+        _ => return None,
+    })
 }
 
 /// One synthesizable key chord (from `assets/tab_shortcuts.json` or the user
@@ -1446,6 +1627,30 @@ fn keep_popup_open_during_toast(app: &tauri::AppHandle) {
 
 // ── Source abstraction ───────────────────────────────────────────────────────
 
+// ── "Show the gesture" (bindings editor) ────────────────────────────────────
+//
+// While the editor waits for the user to demonstrate a gesture, accepted
+// gestures are logged but NOT performed — demonstrating "3-finger tap" must
+// not mute the speakers. The window closes on its own, so a forgotten editor
+// can never leave gestures dead.
+
+/// The longest the editor may hold dispatch off.
+pub const CAPTURE_MAX_MS: u64 = 15_000;
+static CAPTURE_UNTIL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// Start (`true`) or end (`false`) a capture window.
+pub fn set_capture(on: bool) {
+    let mut c = CAPTURE_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+    *c = on.then(|| std::time::Instant::now() + std::time::Duration::from_millis(CAPTURE_MAX_MS));
+}
+
+fn capturing() -> bool {
+    CAPTURE_UNTIL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some_and(|until| std::time::Instant::now() < until)
+}
+
 /// Callback the platform source invokes for every recognised gesture.
 pub type GestureSink = Box<dyn Fn(guard::Decision) + Send + Sync + 'static>;
 
@@ -1465,7 +1670,9 @@ impl ExternalGuard {
     pub fn new(cfg: GestureConfig, sink: GestureSink) -> Self {
         Self {
             start: std::time::Instant::now(),
-            pipe: guard::Pipeline::new(cfg, Vec::new(), true).with_mute(false, Some(output_muted_now)),
+            pipe: guard::Pipeline::new(cfg, Vec::new(), true)
+                .with_mute(false, Some(output_muted_now))
+                .with_live_bindings(Some(frontmost_app_id)),
             sink,
         }
     }
@@ -2442,6 +2649,7 @@ pub fn migrate_volume_step_default(db: &DbHandle) {
 /// and after a settings change (idempotent). Mirrors `auto_expand::apply`.
 pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
     let cfg = GestureConfig::load(db);
+    bindings::set_live(bindings::load(db));
     let mut guard = state.0.lock();
     if cfg.enabled {
         // Restart if already running — the sink closure captures the config, so
@@ -2456,15 +2664,26 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
         let app_sink = app.clone();
         let sink: GestureSink = Box::new(move |d: guard::Decision| {
             live::record(&d);
-            match (d.event, d.action) {
-                (Some(ev), Some(action)) if d.accepted => {
+            match (d.event, d.action, d.binding.as_deref()) {
+                // "Show the gesture" in the bindings editor: recognised and
+                // logged, but nothing fires while the user demonstrates it.
+                (Some(ev), Some(_), _) if d.accepted && capturing() => {
+                    tracing::info!("gesture captured for a binding: {:?} ({} fingers)", ev.kind, ev.fingers);
+                }
+                (Some(ev), Some(action), Some(binding)) if d.accepted => {
                     // One line per dispatched gesture — the single chokepoint.
-                    tracing::info!("gesture dispatch: {:?} ({} fingers) → {:?}", ev.kind, ev.fingers, action);
-                    perform(&app_sink, action, step);
+                    tracing::info!(
+                        "gesture dispatch: {:?} ({} fingers) → {:?} [{}]",
+                        ev.kind,
+                        ev.fingers,
+                        action,
+                        binding.id
+                    );
+                    perform(&app_sink, binding, step);
                 }
                 // Every rejection is logged with level and reason — a gesture
                 // must never vanish without a trace (the 2026-09-04 lesson).
-                (Some(ev), action) => {
+                (Some(ev), action, _) => {
                     if action.is_some() || ev.fingers >= 2 {
                         tracing::info!(
                             "gesture rejected [{:?}] {}: {:?} ({} fingers) → {:?}",
@@ -2476,7 +2695,7 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
                         );
                     }
                 }
-                (None, _) => tracing::debug!(
+                (None, _, _) => tracing::debug!(
                     "gesture guard: contact {:?} excluded [{:?}] {}",
                     d.touch_id,
                     d.level,

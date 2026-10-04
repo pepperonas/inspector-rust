@@ -1664,7 +1664,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "tokens",
-    aliases: ["usage"],
+    aliases: [],
     category: CAT_INFO,
     version_added: "0.101.0",
     tagline: "Claude Code token usage — cost, projects, sessions & models.",
@@ -1676,7 +1676,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     flags: [],
     examples: [
       { input: "tokens", result: "Open the usage panel on Today (fast)." },
-      { input: "usage", result: "Same panel via the alias." },
+      { input: "tokens", result: "Switch to 7d for the week's spend." },
       { input: "tokens", result: "Switch to Models to see Opus vs Sonnet spend." },
     ],
     tips: [
@@ -1691,7 +1691,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "limits",
-    aliases: ["quota"],
+    aliases: ["usage"],
     category: CAT_INFO,
     version_added: "0.190.0",
     tagline: "Usage limits of Claude, Codex and Antigravity, with reset times.",
@@ -1703,7 +1703,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     flags: [],
     examples: [
       { input: "limits", result: "Session 6 % · week 2 % · resets in 2 h 31 min." },
-      { input: "quota", result: "Same panel via the alias." },
+      { input: "usage", result: "Same panel via the alias — also offered while typing (`us`, `usa` …)." },
       { input: "limits", result: "Press R to fetch now instead of waiting for the interval." },
     ],
     tips: [

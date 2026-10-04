@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.193.0] - 2026-10-04
+
+### Added
+- **Bind trackpad gestures yourself.** Settings → Touchpad gestures now has a table of gesture → action that you can add to, edit, switch off and delete any time. Gestures: swipe up, down, left or right and tap with 3, 4 or 5 fingers, plus tip-tap left/right. Actions: volume up/down, mute, next/previous tab, any key shortcut (recorded like the hotkey fields), an Inspector Rust action such as OCR or a screenshot, opening a URL or a file/app by absolute path, or running an approved AI task. Each binding can apply everywhere or only while one app is in front (that one wins over the global binding), and the typing guard can be switched per binding. „Geste vormachen" takes the gesture and finger count straight from the trackpad without firing it. Two active bindings on the same gesture are refused, changes take effect with the next gesture, and „Standard wiederherstellen" brings back the starting set. Existing setups keep working unchanged: until you save, the bindings are derived from the old volume/mute/tip-tap switches, which the table replaces. See docs/gestures.md.
+
+### Changed
+- **`usage` opens the usage limits.** `usage` now shows the Claude/Codex/Antigravity limits (the `limits` panel) and is offered by autocomplete while you type (`us`, `usa` …). It replaces the alias `quota`. The token tracker keeps its own command `tokens`; `usage` no longer opens it.
+
 ## [0.192.0] - 2026-10-04
 
 ### Fixed

@@ -486,7 +486,11 @@ impl GestureSource for WindowsGestureSource {
         let _ = START.set(Instant::now());
         devices().lock().clear();
         DEVICE_CACHE.lock().clear();
-        *PIPELINE.lock() = Some(Pipeline::new(cfg, Vec::new(), false).with_mute(false, Some(super::output_muted_now)));
+        *PIPELINE.lock() = Some(
+            Pipeline::new(cfg, Vec::new(), false)
+                .with_mute(false, Some(super::output_muted_now))
+                .with_live_bindings(Some(super::frontmost_app_id)),
+        );
 
         // The Raw Input window needs its own thread with a message loop.
         std::thread::spawn(|| {

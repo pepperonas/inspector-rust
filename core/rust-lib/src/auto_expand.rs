@@ -623,7 +623,7 @@ pub fn tracked_state() -> (usize, u64) {
 /// makes the same exception); pure modifier presses never reach here (macOS
 /// reports them as flags-changed, not key-down). Option counts: on many
 /// layouts it types characters (`@`, `[`, `{`).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub fn key_counts_as_typing(command_or_control_held: bool) -> bool {
     !command_or_control_held
 }
@@ -631,11 +631,11 @@ pub fn key_counts_as_typing(command_or_control_held: bool) -> bool {
 /// The keyboard tap is armed and delivering — the gesture guard then has the
 /// complete key history (single key vs. burst) instead of "the last key-down".
 pub fn tap_live() -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         RUNNING.load(Ordering::Relaxed) && platform::installed()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }
@@ -1205,6 +1205,21 @@ mod platform {
         }
     }
 
+    /// A shortcut is being pressed: Ctrl or a Windows key held. ⚠️ AltGr
+    /// arrives as Ctrl+Alt on Windows and types `@`, `[`, `{` on German
+    /// layouts — Ctrl together with Alt therefore counts as TYPING.
+    fn modifier_held() -> bool {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN};
+        let down = |k: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY| unsafe {
+            (GetAsyncKeyState(k.0 as i32) as u16 & 0x8000) != 0
+        };
+        crate::gestures::keys::windows_is_shortcut(down(VK_CONTROL), down(VK_MENU), down(VK_LWIN) || down(VK_RWIN))
+    }
+
+    pub fn installed() -> bool {
+        HOOK.load(Ordering::SeqCst) != 0
+    }
+
     extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if code >= 0 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN) {
             let kb = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
@@ -1212,6 +1227,12 @@ mod platform {
             let injected = (kb.flags.0 & LLKHF_INJECTED.0) != 0;
             if !injected {
                 let vk = kb.vkCode as u16;
+                // Gesture guard: only the TIME and whether it was a shortcut —
+                // never the key. Windows delivers modifier presses as key-downs
+                // (macOS doesn't); they are not typing.
+                if !crate::gestures::keys::windows_vk_is_modifier(vk) {
+                    crate::gestures::note_key_down(!key_counts_as_typing(modifier_held()));
+                }
                 let consume = if vk == VK_BACK.0 {
                     on_event(KeyEvent::Backspace)
                 } else if vk_is_reset(vk) {

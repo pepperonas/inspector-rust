@@ -117,11 +117,12 @@ describe("GesturesPanel", () => {
     expect(await screen.findByText(/Lautstärke und Stumm gesperrt/)).toBeTruthy();
   });
 
-  it("explains the missing live view outside macOS", async () => {
+  it("explains the missing live view on Linux (no contacts from libinput)", async () => {
     snapshot = { ...snapshot, contacts_supported: false, frame: null };
     render(<GesturesPanel />);
-    expect(await screen.findByText(/Live-Ansicht der Kontakte gibt es bisher nur unter macOS/)).toBeTruthy();
-    expect(screen.getByText(/die liefert bisher nur macOS/)).toBeTruthy();
+    expect(await screen.findByText(/gibt keine einzelnen Kontakte heraus/)).toBeTruthy();
+    expect(screen.getByText(/Die Kalibrierung misst die Kontakte selbst/)).toBeTruthy();
+    expect(screen.getByText(/Aufnehmen braucht die einzelnen Kontakte/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Kalibrieren" })).toBeNull();
   });
 

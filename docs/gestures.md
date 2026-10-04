@@ -4,7 +4,7 @@ Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes th
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
-> Status: **Phase 5 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel shows the trackpad live, holds the sliders, lists the last 20 decisions, runs the guided calibration and manages the recordings; the hotkey ⌃⇧⌥G saves the last 3 seconds when a gesture fired by itself.
+> Status: **Phase 6 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`). macOS and Windows feed it per-contact data; the typing level gets every key press from the app's keyboard monitor. Linux passes libinput's gestures through levels 3 and 4 with libinput's own palm and typing detection switched on (see *Platforms*). The `gestures` panel shows the trackpad live, holds the sliders, lists the last 20 decisions, runs the guided calibration and manages the recordings; the hotkey ⌃⇧⌥G saves the last 3 seconds when a gesture fired by itself.
 
 ## The pipeline
 
@@ -94,7 +94,7 @@ A contact that **landed** in an edge zone is drawn dashed and hollow; the zones 
 
 **Cost.** The panel polls about 30 times a second while it is visible and stops when the popup hides. The per-frame snapshot is only taken while the panel polls; with it closed a frame pays one atomic read. Measured with the snapshot on every frame: 0.6 µs per frame in a release build (`guard_frame_budget`). The log keeps decisions in memory only; nothing is written or sent.
 
-**Windows and Linux** show the sliders and the log, but no live trackpad: those platforms hand over finished gestures, not contacts.
+**Linux** shows the sliders and the log, but no live trackpad, recording or calibration: libinput hands over finished gestures, not contacts. Windows has all of it.
 
 ## Calibration (Phase 5)
 
@@ -193,12 +193,21 @@ The synthetic scenarios record **today's** behaviour. Their `note` says where th
 | `unmute-tap-while-typing` | Fires (unmuting is never blocked) |
 | `tiptap-with-resting-palm` | Tab switch fires |
 
-## Next phases
+## Platforms (Phase 6)
 
-6. Windows confidence bit, Linux palm data.
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| Source | MultitouchSupport, per contact | Raw Input, Precision Touchpad HID, per contact | libinput, finished gestures |
+| Level 1 | size, ellipse, landing height | the touchpad's **confidence bit** | libinput's palm detection (always on) |
+| Level 2 | edge zones | edge zones | — |
+| Level 3 | keyboard tap (expander) | keyboard hook (expander) | libinput key events + **disable-while-typing** |
+| Level 4 | all rules | all rules | finger-count change (libinput cancels), cooldown |
+| Live view, recording, calibration | yes | yes | no |
+
+**Windows.** `windows.rs` reads each HID report per contact: contact id, tip switch, position, the confidence bit and, when the touchpad reports them, width and height. A Precision Touchpad clears the confidence bit for a contact it judges too large to be a fingertip; that contact becomes a palm until it lifts, even if a later report sets the bit again. Width and height become the contact ellipse in millimetres when the descriptor states physical units. A Precision Touchpad reports no contact size comparable to macOS, so the size and thumb rules stay inactive there — calibration still proposes values, they just have nothing to act on. Hybrid touchpads that spread one frame over several reports are reassembled first (`ptp.rs`, tested on every platform); a contact that disappears without a lift report gets one, so no ghost finger stays on the pad. Key times come from the low-level keyboard hook the text expander already installs: only the time, whether Ctrl or a Windows key was held (Ctrl+Alt counts as typing — that is AltGr on German layouts) and never which key; modifier presses don't count. Edge zones use the pad's physical size for the built-in profile. **Not yet tested on a Windows machine** — it compiles against the `windows` crate and the parsing is unit-tested, like the rest of the repo's Windows code.
+
+**Linux.** libinput recognises the gestures; the app can't see single contacts. In its own libinput context the app switches on **disable-while-typing** and **disable-while-trackpointing** for every touchpad that offers them — this affects the app's gesture events only, not the desktop's cursor or its own gestures. libinput's palm detection is always on. Key presses of the same context (time and whether Ctrl or Super was held, never the key) feed the typing level, and a swipe that libinput cancels because the finger count changed is logged as a level-4 rejection. Compiled against libinput on Debian (bookworm); not run on a real Linux desktop.
+
+## Next phase
+
 7. Docs and release.
-
-**Limits by platform:**
-
-- **Windows** (Precision Touchpad) gets the confidence bit and per-contact data only once the HID parser is rewritten.
-- **Linux** hands libinput's finished gestures through; libinput already does its own palm detection internally. The app's own levels 1 and 2 would only be possible by reading the evdev devices directly, which is deliberately not done.

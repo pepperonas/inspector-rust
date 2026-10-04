@@ -196,8 +196,8 @@ function PadView({
   if (snap && !snap.contacts_supported) {
     return (
       <p className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-[var(--color-muted)]">
-        Die Live-Ansicht der Kontakte gibt es bisher nur unter macOS. Die Entscheidungen unten werden
-        auch hier protokolliert.
+        Unter Linux erkennt libinput die Gesten selbst und gibt keine einzelnen Kontakte heraus — eine
+        Live-Ansicht gibt es darum nicht. Die Entscheidungen unten werden auch hier protokolliert.
       </p>
     );
   }

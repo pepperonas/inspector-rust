@@ -319,7 +319,7 @@ mod tests {
     use super::*;
 
     fn touch(id: i32, y: f64, size: f32, major: f32, minor: f32) -> Touch {
-        Touch { id, x: 0.5, y, vx: 0.0, vy: 0.0, major, minor, angle: 0.0, size, phase: TouchPhase::Touching }
+        Touch { id, x: 0.5, y, vx: 0.0, vy: 0.0, major, minor, angle: 0.0, size, phase: TouchPhase::Touching, palm: false }
     }
 
     /// Absolute trace time of `ms` into step `step` (0-based).

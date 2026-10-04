@@ -101,6 +101,12 @@ pub struct Touch {
     #[serde(default)]
     pub size: f32,
     pub phase: TouchPhase,
+    /// The driver itself says this contact is not a finger — the Windows
+    /// Precision Touchpad's confidence bit was 0. Level 1 treats it as a palm
+    /// until it lifts. macOS has no such flag (always `false`); omitted from
+    /// the JSON when `false`, so older traces and fixtures read unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub palm: bool,
 }
 
 /// Everything a device reported at one instant.
@@ -469,7 +475,7 @@ mod tests {
     use super::*;
 
     fn touch(id: i32, x: f64, y: f64, size: f32, phase: TouchPhase) -> Touch {
-        Touch { id, x, y, vx: 0.0, vy: 0.0, major: 0.0, minor: 0.0, angle: 0.0, size, phase }
+        Touch { id, x, y, vx: 0.0, vy: 0.0, major: 0.0, minor: 0.0, angle: 0.0, size, phase, palm: false }
     }
 
     #[test]

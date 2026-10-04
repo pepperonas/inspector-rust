@@ -10,10 +10,11 @@
 //!
 //! Design: this module is **platform-independent** and holds the normalized
 //! event type, the config, the gesture→action dispatcher, and the pure
-//! recognition logic (`classify_swipe` + `Recognizer` state machine) that the
-//! self-built Windows HID path feeds raw touch frames into. The OS-specific
-//! capture lives behind `#[cfg]` submodules (`linux` = libinput, `windows` =
-//! Raw Input HID), each implementing [`GestureSource`]. Gestures are **opt-in**
+//! recognition logic (`classify_swipe`, the per-contact `PalmAwareRecognizer`)
+//! that macOS and Windows feed through the guard pipeline. The OS-specific
+//! capture lives behind `#[cfg]` submodules (`macos` = MultitouchSupport,
+//! `windows` = Raw Input Precision Touchpad, `linux` = libinput), each
+//! implementing [`GestureSource`]. Gestures are **opt-in**
 //! (off by default) and the daemon runs as a tray-resident background thread —
 //! no window, no focus needed — mirroring `auto_expand`/`input_lock`.
 //
@@ -27,12 +28,64 @@ mod linux;
 mod macos;
 pub mod calibrate;
 pub mod guard;
+pub mod keys;
 pub mod live;
+pub mod ptp;
 pub mod trace;
 #[cfg(test)]
 mod golden;
 #[cfg(target_os = "windows")]
 mod windows;
+
+/// The per-contact capture of this platform — the one place that knows which
+/// module it is. macOS (MultitouchSupport) and Windows (Precision Touchpad)
+/// both run the full pipeline; Linux has libinput recognise gestures itself
+/// and hands out no contact data.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod capture {
+    #[cfg(target_os = "macos")]
+    use super::macos as imp;
+    #[cfg(target_os = "windows")]
+    use super::windows as imp;
+    use super::trace::{DeviceInfo, KeyDown};
+
+    #[cfg(target_os = "macos")]
+    pub(super) const SOURCE: &str = "macos-multitouch";
+    #[cfg(target_os = "windows")]
+    pub(super) const SOURCE: &str = "windows-ptp";
+
+    pub(super) fn now_ms() -> Option<u64> {
+        imp::now_ms()
+    }
+    pub(super) fn running() -> bool {
+        imp::is_running()
+    }
+    /// Devices for a NEW recording (macOS asks the driver again).
+    pub(super) fn fresh_devices() -> Vec<DeviceInfo> {
+        #[cfg(target_os = "macos")]
+        return imp::device_infos();
+        #[cfg(target_os = "windows")]
+        return imp::cached_device_infos();
+    }
+    /// Devices for the live view — the cache, never the driver (30 Hz poll).
+    pub(super) fn devices() -> Vec<DeviceInfo> {
+        imp::cached_device_infos()
+    }
+    pub(super) fn note_key(k: KeyDown) {
+        imp::note_key(k)
+    }
+    pub(super) fn typing_state() -> Option<(bool, bool)> {
+        imp::typing_state()
+    }
+    pub(super) fn update_guard(g: super::guard::GuardConfig) -> bool {
+        imp::update_guard(g)
+    }
+}
+
+/// Why recording/calibration aren't offered on this platform.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const NO_CONTACTS: &str =
+    "Dafür braucht es die einzelnen Kontakte des Touchpads — unter Linux erkennt libinput die Gesten selbst und gibt sie nicht heraus.";
 
 // ── Tuning constants (one place, clearly named) ──────────────────────────────
 
@@ -44,19 +97,6 @@ pub const DEFAULT_FINGERS: u8 = 3;
 /// un-customised installs.
 pub const DEFAULT_VOLUME_STEP: i32 = 5;
 
-/// A swipe must move at least this fraction of the touchpad (0..1, normalized)
-/// to count — used by the self-built Windows recogniser.
-pub const SWIPE_THRESHOLD_NORM: f64 = 0.12;
-/// A tap may move at most this fraction of the pad (else it's a swipe/drag).
-/// Kept tight so a short, quick 3-finger *swipe* (a volume flick) is never
-/// mis-read as a tap → spurious mute.
-pub const TAP_MAX_MOVE_NORM: f64 = 0.03;
-/// A tap must lift within this many milliseconds (else it's a hold/rest).
-pub const TAP_MAX_MS: u64 = 250;
-/// …and must last at least this long. A single-frame contact (start == peak →
-/// `dur == 0`) is a sensor glitch from the private MultitouchSupport feed, not a
-/// real tap — without this floor those glitches muted "by themselves".
-pub const TAP_MIN_MS: u64 = 10;
 /// A tap cluster is FINALISED (emitted) once the pad has had no non-palm contact
 /// for this long. It's the coalescing window that turns a light multi-finger tap
 /// arriving as sequential single-finger touches into ONE N-finger tap — and the
@@ -70,7 +110,7 @@ pub const TAP_CLUSTER_MAX_MS: u64 = 700;
 /// (A quick tap's fingers are each down well under this, even when staggered.)
 pub const TAP_HOLD_MAX_MS: u64 = 350;
 /// In a tap cluster each finger may travel at most this far (its own path). More
-/// is a drag/scroll — generous vs `TAP_MAX_MOVE_NORM` to tolerate the small
+/// is a drag/scroll — generous (the old centroid recogniser allowed 0.03) to tolerate the small
 /// movement of the make/break contact phases + a slightly rolling tap.
 pub const TAP_FINGER_MAX_MOVE_NORM: f64 = 0.12;
 
@@ -86,14 +126,14 @@ pub const TAP_FINGER_MAX_MOVE_NORM: f64 = 0.12;
 pub const PALM_SIZE: f32 = 2.0;
 /// A contact parked (nearly) motionless at least this long is "resting" (palm
 /// heel / anchored thumb) and doesn't count as an active gesture finger. Longer
-/// than `TAP_MAX_MS`, so a slow tap can never rest-out mid-gesture.
+/// than a tap is held (`TAP_HOLD_MAX_MS`), so a slow tap can never rest-out mid-gesture.
 pub const PALM_REST_MIN_MS: u64 = 600;
 /// "Motionless" = total displacement since touch-down below this (a resting
 /// palm wobbles slightly; a scrolling finger travels far past it).
 pub const PALM_REST_EPS_NORM: f64 = 0.03;
 /// At decision time a swipe finger must itself have moved at least this much —
 /// in a real 3-finger swipe every finger travels about the centroid distance
-/// (≥ `SWIPE_THRESHOLD_NORM`), while a resting palm moves ~0. Half the swipe
+/// (≥ 0.12 of the pad), while a resting palm moves ~0. Half the swipe
 /// threshold leaves slack for the outer fingers of a slightly rolling hand.
 pub const SWIPE_FINGER_MIN_MOVE_NORM: f64 = 0.06;
 
@@ -335,7 +375,7 @@ pub(crate) fn set_unintended_armed(on: bool) {
 
 /// Platform hook, called for every frame. Cheap when nothing records (a few
 /// uncontended locks). `device` is only evaluated when something keeps it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn record_frame(now_ms: u64, device: impl FnOnce() -> u32, touches: &[trace::Touch]) {
     let armed = UNINTENDED_ARMED.load(std::sync::atomic::Ordering::Relaxed);
     let mut rec = RECORDER.lock();
@@ -376,11 +416,12 @@ pub(crate) fn record_frame(now_ms: u64, device: impl FnOnce() -> u32, touches: &
 /// A key-down from the app's keyboard tap (`auto_expand`): only its time and
 /// whether it was a shortcut (Cmd/Ctrl held) — never which key. Feeds the
 /// typing level with the complete history and the recorder.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 pub(crate) fn note_key_down(shortcut: bool) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        let Some(now) = macos::now_ms() else { return };
-        macos::note_key(trace::KeyDown { t_ms: now, modifier: shortcut });
+        let Some(now) = capture::now_ms() else { return };
+        capture::note_key(trace::KeyDown { t_ms: now, modifier: shortcut });
         if let Some(rec) = RECORDER.lock().as_mut() {
             rec.push_key(now, shortcut);
         }
@@ -388,7 +429,7 @@ pub(crate) fn note_key_down(shortcut: bool) {
             RECENT.lock().push_key(now, shortcut);
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = shortcut;
 }
 
@@ -410,7 +451,7 @@ pub fn trace_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// File name for a recording that started at local time `stamp`.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub fn trace_file_name(stamp: &str) -> String {
     format!("trace-{stamp}.json")
 }
@@ -418,26 +459,26 @@ pub fn trace_file_name(stamp: &str) -> String {
 /// Start a recording of `secs` seconds; the file is written when it ends.
 /// Fails when the touch capture isn't running (gestures off / no trackpad).
 pub fn start_recording(app: &tauri::AppHandle, secs: u64) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         use tauri::Emitter;
-        if !macos::is_running() {
+        if !capture::running() {
             return Err("Touchpad-Gesten sind aus — erst einschalten, dann aufzeichnen.".into());
         }
-        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        let now = capture::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
         {
             let mut guard = RECORDER.lock();
             if guard.is_some() {
                 return Err("Es läuft bereits eine Aufzeichnung.".into());
             }
-            *guard = Some(trace::Recorder::new("macos-multitouch", macos::device_infos(), now, secs));
+            *guard = Some(trace::Recorder::new(capture::SOURCE, capture::fresh_devices(), now, secs));
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
         let app = app.clone();
         std::thread::spawn(move || {
             let until = RECORDER.lock().as_ref().map(|r| r.until_ms()).unwrap_or(now);
             loop {
-                let t = macos::now_ms().unwrap_or(until);
+                let t = capture::now_ms().unwrap_or(until);
                 if RECORDER.lock().as_ref().is_none_or(|r| r.is_done(t)) {
                     break;
                 }
@@ -461,10 +502,10 @@ pub fn start_recording(app: &tauri::AppHandle, secs: u64) -> Result<(), String> 
         });
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = (app, secs);
-        Err("Aufzeichnung gibt es bisher nur unter macOS.".into())
+        Err(NO_CONTACTS.into())
     }
 }
 
@@ -530,9 +571,9 @@ pub fn replay_trace_file(db: &DbHandle, name: &str) -> Result<Vec<trace::ReplayR
 
 /// Current recorder state.
 pub fn record_status() -> RecordStatus {
-    #[cfg(target_os = "macos")]
-    let now = macos::now_ms().unwrap_or(0);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let now = capture::now_ms().unwrap_or(0);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let now = 0u64;
     match RECORDER.lock().as_ref() {
         Some(r) => RecordStatus {
@@ -608,19 +649,19 @@ fn fired_summary(entries: &[live::LogEntry]) -> String {
 /// Save the last [`trace::RECENT_WINDOW_MS`] of touch data as a misfire report.
 /// Returns the file name.
 pub fn mark_unintended() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        if !macos::is_running() {
+        if !capture::running() {
             return Err("Touchpad-Gesten sind aus.".into());
         }
         if !UNINTENDED_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
             return Err("Der Kurzbefehl ist nicht belegt.".into());
         }
-        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        let now = capture::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
         let note = fired_summary(&live::recent(trace::RECENT_WINDOW_MS));
         let t = RECENT
             .lock()
-            .snapshot(now, "macos-multitouch", macos::cached_device_infos(), note)
+            .snapshot(now, capture::SOURCE, capture::devices(), note)
             .ok_or("In den letzten 3 Sekunden lag nichts auf dem Trackpad.")?;
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
         let name = format!("{UNINTENDED_PREFIX}{stamp}.json");
@@ -628,8 +669,8 @@ pub fn mark_unintended() -> Result<String, String> {
         tracing::info!("gestures: misfire report saved ({} frames) → {}", t.frames.len(), path.display());
         Ok(name)
     }
-    #[cfg(not(target_os = "macos"))]
-    Err("Die Aufzeichnung gibt es bisher nur unter macOS.".into())
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    Err(NO_CONTACTS.into())
 }
 
 /// The hotkey's handler: save, then say so in a passive toast either way.
@@ -684,9 +725,9 @@ pub fn calibration_status() -> CalibrationStatus {
     match CALIBRATION.lock().as_ref() {
         None => CalibrationStatus::Idle,
         Some(CalibState::Running { started_ms, .. }) => {
-            #[cfg(target_os = "macos")]
-            let now = macos::now_ms().unwrap_or(*started_ms);
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            let now = capture::now_ms().unwrap_or(*started_ms);
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let now = *started_ms;
             CalibrationStatus::Running { phase: calibrate::phase_at(now.saturating_sub(*started_ms)) }
         }
@@ -699,12 +740,12 @@ pub fn calibration_status() -> CalibrationStatus {
 /// computed when it ends and waits for [`apply_calibration`] or
 /// [`cancel_calibration`]; nothing is written to disk.
 pub fn start_calibration(app: &tauri::AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        if !macos::is_running() {
+        if !capture::running() {
             return Err("Touchpad-Gesten sind aus — erst einschalten, dann kalibrieren.".into());
         }
-        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        let now = capture::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
         let generation = CALIB_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
         {
             let mut cal = CALIBRATION.lock();
@@ -712,14 +753,14 @@ pub fn start_calibration(app: &tauri::AppHandle) -> Result<(), String> {
                 return Err("Es läuft bereits eine Kalibrierung.".into());
             }
             let secs = calibrate::total_ms() / 1000;
-            let rec = trace::Recorder::new("calibration", macos::device_infos(), now + calibrate::LEAD_MS, secs);
+            let rec = trace::Recorder::new("calibration", capture::fresh_devices(), now + calibrate::LEAD_MS, secs);
             *cal = Some(CalibState::Running { started_ms: now, generation, rec });
         }
         let app = app.clone();
         std::thread::spawn(move || {
             let end = now + calibrate::LEAD_MS + calibrate::total_ms();
             loop {
-                let t = macos::now_ms().unwrap_or(end);
+                let t = capture::now_ms().unwrap_or(end);
                 if t >= end {
                     break;
                 }
@@ -745,10 +786,10 @@ pub fn start_calibration(app: &tauri::AppHandle) -> Result<(), String> {
         });
         Ok(())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = app;
-        Err("Die Kalibrierung braucht die Kontaktdaten des Trackpads — bisher nur unter macOS.".into())
+        Err(NO_CONTACTS.into())
     }
 }
 
@@ -797,13 +838,13 @@ pub struct LiveSnapshot {
 pub fn live_snapshot(state: &GestureState) -> LiveSnapshot {
     let (now_ms, frame, log) = live::poll();
     let running = state.0.lock().is_some();
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     let (contacts_supported, typing, devices) = (
         true,
-        if running { macos::typing_state() } else { None },
-        if running { macos::cached_device_infos() } else { Vec::new() },
+        if running { capture::typing_state() } else { None },
+        if running { capture::devices() } else { Vec::new() },
     );
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let (contacts_supported, typing, devices): (bool, Option<(bool, bool)>, Vec<trace::DeviceInfo>) =
         (false, None, Vec::new());
     let (typing_block, await_center) = typing.unwrap_or((false, false));
@@ -828,9 +869,9 @@ pub fn set_guard(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState, g:
     let mut cfg = GestureConfig::load(db);
     cfg.guard = g.normalized();
     cfg.save(db)?;
-    #[cfg(target_os = "macos")]
-    let applied = macos::update_guard(cfg.guard);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    let applied = capture::update_guard(cfg.guard);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let applied = false;
     if !applied {
         apply(app, db, state);
@@ -1408,28 +1449,44 @@ fn keep_popup_open_during_toast(app: &tauri::AppHandle) {
 /// Callback the platform source invokes for every recognised gesture.
 pub type GestureSink = Box<dyn Fn(guard::Decision) + Send + Sync + 'static>;
 
-/// Sink for a platform that recognises gestures itself (Windows, Linux).
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-pub type EventSink = Box<dyn Fn(GestureEvent) + Send + Sync + 'static>;
+/// The guard for a platform that recognises gestures itself (Linux/libinput):
+/// its gestures still pass the typing level, plausibility, cooldown and
+/// config. Key times come in through [`ExternalGuard::key`] — the complete
+/// history, so the typing level tells a single key from a burst.
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+pub(crate) struct ExternalGuard {
+    start: std::time::Instant,
+    pipe: guard::Pipeline,
+    sink: GestureSink,
+}
 
-/// Wrap a decision sink for a platform that recognises gestures itself: its
-/// events still pass the guard's typing level, cooldown and config.
-#[cfg_attr(target_os = "macos", allow(dead_code))]
-pub(crate) fn external_sink(cfg: GestureConfig, sink: GestureSink) -> EventSink {
-    let start = std::time::Instant::now();
-    let pipe = parking_lot::Mutex::new(guard::Pipeline::new(cfg, Vec::new(), false).with_mute(false, Some(output_muted_now)));
-    Box::new(move |ev| {
-        let now = start.elapsed().as_millis() as u64;
-        let d = {
-            let mut p = pipe.lock();
-            let s = seconds_since_last_keydown();
-            if s.is_finite() {
-                p.key(trace::KeyDown { t_ms: now.saturating_sub((s * 1000.0) as u64), modifier: false });
-            }
-            p.external(now, ev)
-        };
-        sink(d);
-    })
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+impl ExternalGuard {
+    pub fn new(cfg: GestureConfig, sink: GestureSink) -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            pipe: guard::Pipeline::new(cfg, Vec::new(), true).with_mute(false, Some(output_muted_now)),
+            sink,
+        }
+    }
+    fn now(&self) -> u64 {
+        self.start.elapsed().as_millis() as u64
+    }
+    /// A recognised gesture.
+    pub fn event(&mut self, ev: GestureEvent) {
+        let d = self.pipe.external(self.now(), ev);
+        (self.sink)(d);
+    }
+    /// A gesture the platform cancelled because the finger count changed.
+    pub fn count_changed(&mut self, ev: GestureEvent) {
+        let d = self.pipe.external_count_changed(self.now(), ev);
+        (self.sink)(d);
+    }
+    /// A key-down: its time and whether it was a shortcut, never the key.
+    pub fn key(&mut self, shortcut: bool) {
+        let t_ms = self.now();
+        self.pipe.key(trace::KeyDown { t_ms, modifier: shortcut });
+    }
 }
 
 /// A platform-specific gesture capture backend (libinput / Raw Input HID / …).
@@ -1474,85 +1531,10 @@ pub fn classify_swipe(dx: f64, dy: f64, threshold: f64) -> Option<GestureKind> {
     }
 }
 
-/// One touchpad frame (HID): contact count + the contacts' centroid, normalized
-/// to 0..1 over the pad's logical range, with a millisecond timestamp.
-/// Only constructed by the Windows Raw-Input path (+ tests) — macOS moved to
-/// the per-contact [`PalmAwareRecognizer`].
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-#[derive(Debug, Clone, Copy)]
-pub struct TouchFrame {
-    pub contacts: u8,
-    pub x: f64,
-    pub y: f64,
-    pub t_ms: u64,
-}
-
-/// Self-built recogniser for the Windows Raw-Input path: fed a stream of touch
-/// frames, it emits a [`GestureEvent`] when all fingers lift. To avoid the
-/// centroid skewing as fingers are released, the end position is taken from the
-/// last frame at the gesture's **peak** finger count, not the lift frame.
-/// (Windows-only at runtime; macOS uses [`PalmAwareRecognizer`].)
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-#[derive(Debug, Default)]
-pub struct Recognizer {
-    active: bool,
-    start: (f64, f64, u64),
-    peak: (f64, f64, u64), // last frame at max_contacts
-    max_contacts: u8,
-}
-
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-impl Recognizer {
-    pub fn new() -> Self {
-        Recognizer::default()
-    }
-
-    /// Feed one frame. Returns `Some(event)` exactly once, on the lift that ends
-    /// a gesture (`contacts` back to 0).
-    pub fn feed(&mut self, f: TouchFrame) -> Option<GestureEvent> {
-        if f.contacts > 0 {
-            if !self.active {
-                self.active = true;
-                self.start = (f.x, f.y, f.t_ms);
-                self.peak = self.start;
-                self.max_contacts = f.contacts;
-            } else if f.contacts > self.max_contacts {
-                // A finger joined → the centroid jumps as it averages one more
-                // contact. Re-baseline `start` (and `peak`) to here so the swipe
-                // is measured only across the stable peak-finger-count phase and
-                // the join-jump doesn't corrupt the direction. (Fingers rarely
-                // land simultaneously — real frames go 0→2→3.)
-                self.max_contacts = f.contacts;
-                self.start = (f.x, f.y, f.t_ms);
-                self.peak = self.start;
-            }
-            if f.contacts >= self.max_contacts {
-                self.peak = (f.x, f.y, f.t_ms);
-            }
-            None
-        } else {
-            if !self.active {
-                return None;
-            }
-            self.active = false;
-            let dx = self.peak.0 - self.start.0;
-            let dy = self.peak.1 - self.start.1;
-            let dur = self.peak.2.saturating_sub(self.start.2);
-            let fingers = self.max_contacts;
-            let moved = dx.hypot(dy);
-            if (TAP_MIN_MS..=TAP_MAX_MS).contains(&dur) && moved <= TAP_MAX_MOVE_NORM {
-                return Some(GestureEvent { kind: GestureKind::Tap, fingers });
-            }
-            classify_swipe(dx, dy, SWIPE_THRESHOLD_NORM)
-                .map(|kind| GestureEvent { kind, fingers })
-        }
-    }
-}
-
 // ── Palm-aware per-contact recognition (pure; the macOS path) ────────────────
 
 /// One per-contact sample: the driver's stable contact id, normalized position
-/// (y already flipped to screen convention, like [`TouchFrame`]), and whether
+/// (y already flipped to screen convention: 0 = top), and whether
 /// the guard's level 1/2 excluded it (palm, thumb, edge zone). An excluded
 /// contact never counts as a gesture finger and never blocks one — until
 /// v0.191 the recogniser decided this itself from `size ≥ PALM_SIZE`; the
@@ -1593,7 +1575,7 @@ impl Default for RecParams {
 
 /// What the recogniser knew about the swipe it just emitted — the guard's
 /// level 4 judges constancy and speed from it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SwipeStats {
     /// Most active (non-excluded, non-resting) contacts on the pad at once
     /// during the gesture.
@@ -2668,6 +2650,22 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn external_guard_feeds_its_own_keys_and_reports_every_decision() {
+        let got = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let sink_got = got.clone();
+        let cfg = GestureConfig { enabled: true, ..GestureConfig::default() };
+        let mut g = ExternalGuard::new(cfg, Box::new(move |d| sink_got.lock().push(d)));
+        let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
+        g.key(false);
+        g.event(up);
+        g.count_changed(up);
+        let got = got.lock();
+        assert_eq!(got.len(), 2, "every gesture reaches the sink, accepted or not");
+        assert_eq!(got[0].reason, guard::Reason::Typing, "a key just now blocks the swipe");
+        assert_eq!(got[1].reason, guard::Reason::FingerCountChanged);
+    }
+
     // ── Liveness watchdog (v0.113.1; trackpad-scroll proof 2026-09-27) ───
 
     #[test]
@@ -2792,17 +2790,6 @@ mod tests {
         assert!(!cfg.tiptap, "tip-tap is opt-in");
         assert_eq!(cfg.volume_step, DEFAULT_VOLUME_STEP);
         assert_eq!(cfg.fingers, DEFAULT_FINGERS);
-    }
-
-    fn frames_to_event(frames: &[TouchFrame]) -> Option<GestureEvent> {
-        let mut r = Recognizer::new();
-        let mut out = None;
-        for &f in frames {
-            if let Some(ev) = r.feed(f) {
-                out = Some(ev);
-            }
-        }
-        out
     }
 
     // ── Palm-aware recogniser ────────────────────────────────────────────
@@ -3830,106 +3817,6 @@ mod tests {
         assert_eq!(classify_swipe(0.1, -0.3, 0.12), Some(GestureKind::SwipeUp));
         // below threshold → nothing
         assert_eq!(classify_swipe(0.05, 0.05, 0.12), None);
-    }
-
-    #[test]
-    fn recognizer_three_finger_swipe_up() {
-        // 3 fingers down at y=0.6, glide up to 0.2, then lift.
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.6, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.5, y: 0.4, t_ms: 40 },
-            TouchFrame { contacts: 3, x: 0.5, y: 0.2, t_ms: 80 },
-            TouchFrame { contacts: 0, x: 0.5, y: 0.2, t_ms: 120 },
-        ]);
-        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }));
-    }
-
-    #[test]
-    fn recognizer_three_finger_swipe_down() {
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.2, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.5, y: 0.6, t_ms: 80 },
-            TouchFrame { contacts: 0, x: 0.5, y: 0.6, t_ms: 110 },
-        ]);
-        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::SwipeDown, fingers: 3 }));
-    }
-
-    #[test]
-    fn recognizer_three_finger_tap() {
-        // 3 fingers, tiny movement, quick lift → Tap.
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.5, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.51, y: 0.5, t_ms: 60 },
-            TouchFrame { contacts: 0, x: 0.51, y: 0.5, t_ms: 120 },
-        ]);
-        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 }));
-    }
-
-    #[test]
-    fn recognizer_single_frame_glitch_is_not_a_tap() {
-        // 3 fingers appear + vanish in one frame (dur == 0) — a sensor glitch,
-        // not a real tap. Must NOT fire (this caused mute "by itself").
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.5, t_ms: 40 },
-            TouchFrame { contacts: 0, x: 0.5, y: 0.5, t_ms: 40 },
-        ]);
-        assert_eq!(ev, None);
-    }
-
-    #[test]
-    fn recognizer_short_quick_swipe_is_not_a_tap() {
-        // A quick 3-finger flick that moves 0.04 of the pad (between the tightened
-        // tap-move limit 0.03 and the swipe threshold 0.12) must NOT register as a
-        // tap → no spurious mute. It's an ambiguous flick → no action.
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.50, y: 0.50, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.50, y: 0.46, t_ms: 60 },
-            TouchFrame { contacts: 0, x: 0.50, y: 0.46, t_ms: 110 },
-        ]);
-        assert_eq!(ev, None);
-    }
-
-    #[test]
-    fn recognizer_rebaselines_when_finger_count_grows() {
-        // Real trackpads land fingers one at a time: 0→2→3. The 2-finger frame
-        // sits to one side; when the 3rd joins the centroid jumps. The swipe
-        // must be measured from the first 3-finger frame, not the 2-finger one,
-        // so a clean upward 3-finger glide reads as SwipeUp (not a false
-        // direction from the join-jump).
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 2, x: 0.30, y: 0.60, t_ms: 0 }, // 2 fingers land left
-            TouchFrame { contacts: 3, x: 0.50, y: 0.60, t_ms: 20 }, // 3rd joins → centroid jumps right
-            TouchFrame { contacts: 3, x: 0.50, y: 0.40, t_ms: 60 }, // glide up
-            TouchFrame { contacts: 3, x: 0.50, y: 0.20, t_ms: 100 },
-            TouchFrame { contacts: 0, x: 0.50, y: 0.20, t_ms: 140 },
-        ]);
-        // dx from the join-jump (0.30→0.50) must NOT win → vertical up.
-        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }));
-    }
-
-    #[test]
-    fn recognizer_lift_skew_uses_peak_position() {
-        // Fingers glide up to 0.2 (3 down), then one lifts and the remaining
-        // centroid jumps to 0.7 before full lift. The peak (0.2) must win, not
-        // the lift-frame centroid.
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.6, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.5, y: 0.2, t_ms: 80 },
-            TouchFrame { contacts: 1, x: 0.5, y: 0.7, t_ms: 95 },
-            TouchFrame { contacts: 0, x: 0.5, y: 0.7, t_ms: 110 },
-        ]);
-        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }));
-    }
-
-    #[test]
-    fn recognizer_long_rest_no_move_is_not_a_tap() {
-        // 3 fingers resting >TAP_MAX_MS without moving → neither tap nor swipe.
-        let ev = frames_to_event(&[
-            TouchFrame { contacts: 3, x: 0.5, y: 0.5, t_ms: 0 },
-            TouchFrame { contacts: 3, x: 0.5, y: 0.5, t_ms: 600 },
-            TouchFrame { contacts: 0, x: 0.5, y: 0.5, t_ms: 650 },
-        ]);
-        assert_eq!(ev, None);
     }
 
     #[test]

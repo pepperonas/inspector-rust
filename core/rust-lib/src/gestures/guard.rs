@@ -315,6 +315,8 @@ struct TouchMeta {
     max_major: f32,
     max_ratio: f32,
     start_y: f64,
+    /// The driver flagged it as not a finger at some point (sticky).
+    driver_palm: bool,
 }
 
 impl TouchMeta {
@@ -330,11 +332,14 @@ impl TouchMeta {
 /// mutation probe showed would be dead code.
 fn classify(meta: &mut TouchMeta, t: &Touch, now: u64, g: &GuardConfig) {
     meta.max_size = meta.max_size.max(t.size);
+    meta.driver_palm |= t.palm;
     meta.max_major = meta.max_major.max(t.major);
     if t.minor > 0.0 {
         meta.max_ratio = meta.max_ratio.max(t.major / t.minor);
     }
-    let palm = meta.max_size >= g.palm_size || (g.palm_major > 0.0 && meta.max_major >= g.palm_major);
+    let palm = meta.driver_palm
+        || meta.max_size >= g.palm_size
+        || (g.palm_major > 0.0 && meta.max_major >= g.palm_major);
     let thumb = g.thumb_ratio > 0.0
         && meta.max_ratio >= g.thumb_ratio
         && meta.max_size >= g.thumb_min_size
@@ -584,6 +589,7 @@ impl Pipeline {
                 max_major: 0.0,
                 max_ratio: 0.0,
                 start_y: touch.y,
+                driver_palm: false,
             });
             if fresh && g.in_center(touch.x, touch.y) {
                 started_in_center = true;
@@ -660,6 +666,16 @@ impl Pipeline {
     /// stands in for it.
     pub fn external(&mut self, t_ms: u64, ev: GestureEvent) -> Decision {
         self.judge(t_ms, 0, ev, Via::External, None, t_ms, t_ms, false)
+    }
+
+    /// A gesture the platform recognised and then CANCELLED because the number
+    /// of fingers changed mid-gesture (libinput does this). With the
+    /// constant-count rule on it is rejected on level 4 like a recognised
+    /// swipe whose finger count changed; otherwise it is judged normally.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    pub fn external_count_changed(&mut self, t_ms: u64, ev: GestureEvent) -> Decision {
+        let stats = SwipeStats { peak_active: ev.fingers as usize + 1, ..SwipeStats::default() };
+        self.judge(t_ms, 0, ev, Via::External, Some(stats), t_ms, t_ms, false)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -761,7 +777,7 @@ mod tests {
     }
 
     fn touch(id: i32, x: f64, y: f64) -> Touch {
-        Touch { id, x, y, vx: 0.0, vy: 0.0, major: 8.0, minor: 7.0, angle: 0.0, size: 1.0, phase: TouchPhase::Touching }
+        Touch { id, x, y, vx: 0.0, vy: 0.0, major: 8.0, minor: 7.0, angle: 0.0, size: 1.0, phase: TouchPhase::Touching, palm: false }
     }
 
     fn frame(t: u64, touches: Vec<Touch>) -> Frame {
@@ -776,7 +792,7 @@ mod tests {
 
     #[test]
     fn a_contact_is_unclear_until_it_settles_then_a_finger() {
-        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.5 };
+        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.5, driver_palm: false };
         classify(&mut m, &touch(1, 0.5, 0.5), 10, &g());
         assert_eq!(m.class, TouchClass::Unclear);
         classify(&mut m, &touch(1, 0.5, 0.5), 30, &g());
@@ -785,14 +801,14 @@ mod tests {
 
     #[test]
     fn palm_and_thumb_are_sticky() {
-        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.5 };
+        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.5, driver_palm: false };
         let big = Touch { size: 2.5, ..touch(1, 0.5, 0.5) };
         classify(&mut m, &big, 5, &g());
         assert_eq!(m.class, TouchClass::Palm);
         classify(&mut m, &touch(1, 0.5, 0.5), 200, &g()); // area shrinks
         assert_eq!(m.class, TouchClass::Palm, "a palm never turns back into a finger");
 
-        let mut t = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.8 };
+        let mut t = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.8, driver_palm: false };
         let flat = Touch { size: 1.5, major: 14.0, minor: 7.0, ..touch(2, 0.5, 0.8) };
         classify(&mut t, &flat, 40, &g());
         assert_eq!(t.class, TouchClass::Thumb);
@@ -803,7 +819,7 @@ mod tests {
     #[test]
     fn the_major_axis_palm_rule_is_off_by_default_and_works_when_set() {
         let long = Touch { size: 1.2, major: 25.0, minor: 20.0, ..touch(1, 0.5, 0.3) };
-        let fresh = || TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.3 };
+        let fresh = || TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.3, driver_palm: false };
         let mut m = fresh();
         classify(&mut m, &long, 40, &g());
         assert_eq!(m.class, TouchClass::Finger);
@@ -814,7 +830,7 @@ mod tests {
 
     #[test]
     fn a_flat_contact_high_on_the_pad_is_not_a_thumb() {
-        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.3 };
+        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.3, driver_palm: false };
         let flat = Touch { size: 1.5, major: 14.0, minor: 7.0, ..touch(1, 0.5, 0.3) };
         classify(&mut m, &flat, 40, &g());
         assert_eq!(m.class, TouchClass::Finger);
@@ -823,7 +839,7 @@ mod tests {
     #[test]
     fn thumb_rule_can_be_switched_off() {
         let gg = GuardConfig { thumb_ratio: 0.0, ..g() };
-        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.8 };
+        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.8, driver_palm: false };
         classify(&mut m, &Touch { size: 1.5, major: 14.0, minor: 7.0, ..touch(1, 0.5, 0.8) }, 40, &gg);
         assert_eq!(m.class, TouchClass::Finger);
     }
@@ -952,6 +968,19 @@ mod tests {
     }
 
     // Level 4
+
+    #[test]
+    fn a_platform_cancelled_swipe_is_a_changed_finger_count() {
+        let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        let d = p.external_count_changed(1_000, up);
+        assert!(!d.accepted);
+        assert_eq!((d.level, d.reason), (Level::Plausibility, Reason::FingerCountChanged));
+        // Rule off: the cancelled swipe is judged like any other.
+        let loose = GestureConfig { guard: GuardConfig { constant_count: false, ..g() }, ..cfg() };
+        let mut p = Pipeline::new(loose, vec![], true);
+        assert!(p.external_count_changed(1_000, up).accepted);
+    }
 
     #[test]
     fn cooldown_rejects_a_second_gesture_right_after_the_first() {
@@ -1162,5 +1191,20 @@ mod tests {
         ];
         let codes: std::collections::HashSet<String> = all.iter().map(|r| r.code()).collect();
         assert_eq!(codes.len(), all.len());
+    }
+
+    #[test]
+    fn a_contact_the_driver_rejects_is_a_palm_until_it_lifts() {
+        // Windows PTP confidence bit 0, even for a finger-sized contact.
+        let g = GuardConfig::default();
+        let mut m = TouchMeta { first_ms: 0, class: TouchClass::Unclear, in_edge: false, max_size: 0.0, max_major: 0.0, max_ratio: 0.0, start_y: 0.5, driver_palm: false };
+        classify(&mut m, &Touch { palm: true, ..touch(1, 0.5, 0.5) }, 10, &g);
+        assert_eq!(m.class, TouchClass::Palm);
+        classify(&mut m, &touch(1, 0.5, 0.5), 200, &g);
+        assert_eq!(m.class, TouchClass::Palm, "the driver regaining confidence doesn't clear it");
+        let mut fresh = TouchMeta { driver_palm: false, ..m };
+        fresh.class = TouchClass::Unclear;
+        classify(&mut fresh, &touch(2, 0.5, 0.5), 200, &g);
+        assert_eq!(fresh.class, TouchClass::Finger, "an untouched flag changes nothing");
     }
 }

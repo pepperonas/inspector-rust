@@ -1,9 +1,9 @@
 {
-  "loc": 204322,
-  "loc_rust": 106780,
+  "loc": 204854,
+  "loc_rust": 107312,
   "loc_ts": 97542,
-  "tests": 4953,
-  "tests_rust": 1901,
+  "tests": 4962,
+  "tests_rust": 1910,
   "tests_frontend": 3052,
   "commands": 70,
   "features": 195,
@@ -12,7 +12,7 @@
   "crates": 869,
   "ipc": 452,
   "components": 93,
-  "suites": 265,
+  "suites": 267,
   "tables": 16,
   "events": 60
 }

@@ -115,6 +115,7 @@ impl Scenario {
                         angle: 0.0,
                         size: p.size,
                         phase: TouchPhase::Touching,
+                        palm: false,
                     }
                 })
                 .collect();

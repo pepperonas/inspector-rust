@@ -149,7 +149,7 @@ export function GestureRecordings({
           </span>
         </div>
       ) : (
-        <p className="text-[var(--color-muted)]">Aufnehmen gibt es bisher nur unter macOS.</p>
+        <p className="text-[var(--color-muted)]">Aufnehmen braucht die einzelnen Kontakte — die liefert libinput unter Linux nicht.</p>
       )}
 
       {supported && hotkey !== null && (

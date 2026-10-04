@@ -23,7 +23,7 @@ export function GestureCalibration({
   onApplied,
 }: {
   status: GestureCalibrationStatus | undefined;
-  /** The platform reports raw contacts (macOS). */
+  /** The platform reports raw contacts (macOS, Windows). */
   supported: boolean;
   /** Start once on mount (`gestures calibrate` + Enter). */
   autoStart: boolean;
@@ -84,7 +84,7 @@ export function GestureCalibration({
 
       {!supported ? (
         <p className="text-[var(--color-muted)]">
-          Die Kalibrierung misst die Kontakte selbst — die liefert bisher nur macOS.
+          Die Kalibrierung misst die Kontakte selbst — die liefert libinput unter Linux nicht.
         </p>
       ) : view.kind === "idle" ? (
         <>

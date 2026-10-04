@@ -1631,8 +1631,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Calibrate on each trackpad you use — palm and thumb sizes differ between a MacBook and a Magic Trackpad.",
     ],
     caveats: [
-      "The live trackpad view is macOS only; on Windows and Linux the panel shows the sliders and the log.",
-      "Calibration and recording need the raw contacts, which only macOS delivers so far.",
+      "The live trackpad view, calibration and recording work on macOS and Windows (Precision Touchpad). On Linux libinput hands over finished gestures, not contacts — the panel shows the sliders and the log.",
       "Calibration proposes palm and thumb thresholds only; when two classes overlap on your trackpad it keeps the value and says why instead of guessing.",
     ],
     related: ["settings"],

@@ -222,6 +222,7 @@ fn touch_from_finger(f: &Finger) -> Touch {
         angle: f.angle,
         size: f.size,
         phase: TouchPhase::from_mt_state(f.state),
+        palm: false,
     }
 }
 

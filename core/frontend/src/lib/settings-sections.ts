@@ -51,7 +51,60 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "cloud-sync", label: "Cloud-Sync (cue)", names: ["cue", "sync", "cloud", "cloud-sync", "cue-sync", "token"] },
   { id: "backup", label: "Backup & restore", names: ["backup", "restore", "export", "import", "sicherung"] },
   { id: "startup", label: "Startup", names: ["startup", "autostart", "login", "keep running", "keepalive"] },
+  // Appended (v0.194.0) — new entries go LAST: ties keep registry order, so
+  // inserting in the middle could change what an existing query resolves to.
+  { id: "history-hotkey", label: "Clipboard-history hotkey", names: ["history hotkey", "clipboard hotkey", "verlauf hotkey", "ctrl+shift+v"] },
+  { id: "paste", label: "Paste", names: ["paste", "einfügen", "plain text", "formatierung"] },
+  { id: "capture", label: "Capture (OCR / screenshot)", names: ["capture", "ocr", "screenshot", "bildschirmfoto", "texterkennung"] },
+  { id: "keyboard-shortcuts", label: "Keyboard shortcuts overview", names: ["cheat sheet", "shortcut list", "kurzbefehle übersicht", "tastenübersicht"] },
+  { id: "auto-expand", label: "Auto-Expansion", names: ["auto-expansion", "autoexpand", "atext", "automatisch erweitern"] },
+  { id: "direct-slots", label: "Direct hotkey → snippet", names: ["direct hotkey", "snippet hotkey", "direkt"] },
+  { id: "linux-shortcuts", label: "Linux desktop shortcuts", names: ["linux", "gnome", "desktop shortcuts"] },
+  { id: "about", label: "About", names: ["about", "version", "über", "info", "lizenz", "license"] },
 ] as const;
+
+export interface SettingsCategory {
+  /** DOM anchor `settings-cat-<id>`. */
+  id: string;
+  label: string;
+  /** Section ids in display order. */
+  sections: readonly string[];
+}
+
+/**
+ * The order of the Settings tab: categories top to bottom, sections inside.
+ * The panel renders from this list, so this is the ONE place the order lives
+ * (a test pins that every registry id appears exactly once). Most-used and
+ * most basic first; credentials, sync and backup towards the end; About last.
+ */
+export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
+  { id: "general", label: "Allgemein", sections: ["behavior", "appearance", "sounds", "startup"] },
+  {
+    id: "keyboard",
+    label: "Tastatur & Kurzbefehle",
+    sections: ["popup-hotkey", "history-hotkey", "global-shortcuts", "input-lock", "linux-shortcuts", "keyboard-shortcuts"],
+  },
+  {
+    id: "clipboard",
+    label: "Zwischenablage & Aufnahme",
+    sections: ["clipboard-history", "clipboard-privacy", "paste", "capture"],
+  },
+  { id: "snippets", label: "Snippets & Textersetzung", sections: ["snippets", "expander", "auto-expand", "direct-slots"] },
+  { id: "desktop", label: "Trackpad & Fenster", sections: ["gestures", "window", "window-palette", "cursor-wrap"] },
+  {
+    id: "commands",
+    label: "Befehle",
+    sections: ["timer-alarm", "timesheet", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"],
+  },
+  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "pagespeed", "repos"] },
+  { id: "sync", label: "Sync & Sicherung", sections: ["cloud-sync", "device-sync", "auto-backup", "backup"] },
+  { id: "about", label: "Info", sections: ["about"] },
+];
+
+/** The category a section is filed under (for the search row's hint). */
+export function categoryOf(sectionId: string): SettingsCategory | null {
+  return SETTINGS_CATEGORIES.find((c) => c.sections.includes(sectionId)) ?? null;
+}
 
 /**
  * Resolve the command argument to a section, or `null` (open Settings at the

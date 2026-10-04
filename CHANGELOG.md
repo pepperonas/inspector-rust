@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.194.0] - 2026-10-05
+
+### Changed
+- **Settings sorted into categories.** The 40 settings sections had grown in the order they were added, so related settings were scattered. They are now grouped into eight categories in a fixed order, basics first: Allgemein · Tastatur & Kurzbefehle · Zwischenablage & Aufnahme · Snippets & Textersetzung · Trackpad & Fenster · Befehle · Dienste & Zugänge · Sync & Sicherung, with „Info" at the end. Each category has a heading, and a bar of chips at the top of the Settings tab stays visible while you scroll, shows where you are and jumps to a category. Every section keeps its content; `settings <section>` deep links still work and now also find the clipboard-history hotkey, paste, capture, keyboard shortcuts, auto-expansion, direct snippet hotkeys and About.
+
+### Fixed
+- **`settings <section>` landed in the wrong place for sections further down.** The jump ran while the sections above were still loading their values; they grew afterwards and pushed the target away (`settings sync` stopped in the window palette). The target now stays pinned while the page settles, until you scroll yourself.
+
 ## [0.193.0] - 2026-10-04
 
 ### Added

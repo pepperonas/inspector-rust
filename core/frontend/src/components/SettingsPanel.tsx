@@ -1,7 +1,7 @@
 import { CellCountField } from "./CellCountField";
 import { AiProvidersSection } from "./AiProvidersSection";
 import { appVersion as fetchAppVersion } from "../lib/ipc";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -214,6 +214,7 @@ import {
   type AnimationStage,
 } from "../lib/motion-stage";
 import { MEME_ENABLED } from "../lib/meme";
+import { SETTINGS_CATEGORIES } from "../lib/settings-sections";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { confirmDialog } from "../lib/confirm";
@@ -249,17 +250,41 @@ interface Props {
 }
 
 export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   // `settings <section>` deep-link: scroll the target section into view and
   // flash a highlight ring. Re-triggers on every jump via the nonce.
   useEffect(() => {
     if (!jumpTo) return;
     const el = document.getElementById(`settings-${jumpTo.id}`);
     if (!el) return;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    // The jump fires on mount, while the sections above still load their
+    // state — they grow afterwards and push the target down (a deep link
+    // to "sync" stopped in the window palette). So jump instantly and keep
+    // the target pinned while the layout settles, until the user scrolls.
+    const root = scrollRef.current;
+    const pin = () => el.scrollIntoView({ behavior: "auto", block: "start" });
+    pin();
+    let pinning = true;
+    const release = () => {
+      pinning = false;
+    };
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (pinning) pin();
+    });
+    if (root) {
+      for (const child of root.children) ro?.observe(child);
+    }
+    const userInput = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const ev of userInput) root?.addEventListener(ev, release, { passive: true });
+    const stop = window.setTimeout(release, 1200);
     el.classList.add("settings-jump-highlight");
     const t = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(stop);
+      ro?.disconnect();
+      for (const ev of userInput) root?.removeEventListener(ev, release);
+    };
   }, [jumpTo]);
 
   const [cfg, setCfg] = useState<ExpanderConfig | null>(null);
@@ -1224,156 +1249,18 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     setStatus(null);
   };
 
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-auto p-6">
-      {/* macOS permissions card — one consolidated card (it replaced two
-          separate per-permission banners). "Set up permissions" chains
-          the user through both grants with a single click: it opens the
-          first missing System Settings pane, and the chaining effect
-          auto-opens the second once the first flips to granted. macOS
-          does NOT allow an app to grant Accessibility / Screen Recording
-          — the toggle is always the user's, by design — so the card
-          guides the flow rather than automating it. Renders only while a
-          permission is missing; the granted state is silent. */}
-      {(accessibility === false || screenRec === false || finderAutomation === false) && (
-        <div className="-mt-2 mb-4 w-full">
-          <div className="rounded border border-amber-500/60 bg-[var(--color-bg)] text-[12px] text-[var(--color-fg)] shadow-md ring-1 ring-amber-500/30">
-            {/* Header + the one-click chained setup action. */}
-            <div className="flex items-center gap-2 border-b border-amber-500/30 px-3 py-2">
-              <AlertTriangle size={14} className="shrink-0 text-amber-500" />
-              <span className="flex-1 font-medium">macOS permissions needed</span>
-              <button
-                onClick={() => void setUpPermissions()}
-                className="rounded bg-[var(--color-accent)] px-3 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] hover:opacity-90"
-              >
-                {chaining ? "Setting up…" : "Set up permissions"}
-              </button>
-            </div>
-
-            {/* Explainer — honest about what the button can and can't do. */}
-            <p className="px-3 pt-2 text-[var(--color-muted)]">
-              <b className="text-[var(--color-fg)]">Set up permissions</b> wipes any stale
-              macOS TCC entry for Inspector Rust (via <code>tccutil reset</code>, no admin
-              password) and re-fires the macOS permission prompt. Click{" "}
-              <b>Allow → Open System Settings</b>, flip the <b>Inspector Rust</b> switch —
-              once both grants are in, this card auto-prompts to restart. macOS only lets{" "}
-              <i>you</i> flip the switch; the reset removes the friction when a switch{" "}
-              <i>looks</i> on but Inspector Rust still asks.
-            </p>
-
-            {/* Live per-permission status. */}
-            <div className="flex flex-col gap-1.5 px-3 py-2">
-              <PermRow
-                label="Accessibility"
-                hint="Lets Inspector Rust paste and run the text expander"
-                granted={accessibility}
-                onOpen={() =>
-                  void openAccessibilitySettings().catch((e) =>
-                    setStatus({ kind: "err", message: String(e) }),
-                  )
-                }
-              />
-              <PermRow
-                label="Screen Recording"
-                hint="Lets the OCR and screenshot region capture work"
-                granted={screenRec}
-                onOpen={() =>
-                  void openScreenRecordingSettings().catch((e) =>
-                    setStatus({ kind: "err", message: String(e) }),
-                  )
-                }
-              />
-              <PermRow
-                label="Automation → Finder"
-                hint="Lets Ctrl+Shift+F read the current Finder selection"
-                granted={finderAutomation}
-                onOpen={() =>
-                  void openFinderAutomationSettings().catch((e) =>
-                    setStatus({ kind: "err", message: String(e) }),
-                  )
-                }
-              />
-            </div>
-
-            {/* Troubleshooting — collapsed by default. */}
-            <details className="border-t border-amber-500/30 px-3 py-2 text-[11px] text-[var(--color-muted)]">
-              <summary className="cursor-pointer">
-                Switch is already on, but it still doesn&apos;t work?
-              </summary>
-              <p className="mt-1.5">
-                macOS keys each grant to the app&apos;s code signature. As of v0.23.2{" "}
-                <code>scripts/install-macos.sh</code> signs every build with a stable
-                self-signed certificate, so a grant survives rebuilds — you should only
-                need to do this once. If a switch shows on but Inspector Rust still asks,
-                the grant is stale: reset it, then re-toggle and relaunch.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={async () => {
-                    if (
-                      !window.confirm(
-                        "Reset the stale Accessibility + Screen Recording + Automation→Finder grants for Inspector Rust and re-fire the macOS prompts? Use this when a switch shows on but Inspector Rust still asks for permission.",
-                      )
-                    )
-                      return;
-                    try {
-                      await forceResetAndRequestGrant();
-                      await forceResetScreenRecordingGrant();
-                      await forceResetFinderAutomationGrant();
-                    } catch (e) {
-                      setStatus({ kind: "err", message: String(e) });
-                    }
-                  }}
-                  className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                >
-                  Reset stale grants
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      setAccessibility(await getAccessibilityStatus());
-                      setScreenRec(await getScreenRecordingStatus());
-                      setFinderAutomation(await getFinderAutomationStatus());
-                    } catch (e) {
-                      setStatus({ kind: "err", message: String(e) });
-                    }
-                  }}
-                  className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                >
-                  Re-check now
-                </button>
-                <button
-                  onClick={async () => {
-                    if (
-                      !window.confirm(
-                        "Quit Inspector Rust now? Re-launch it via Spotlight / Dock to pick up a freshly-granted permission.",
-                      )
-                    )
-                      return;
-                    try {
-                      await quitApp();
-                    } catch (e) {
-                      setStatus({ kind: "err", message: String(e) });
-                    }
-                  }}
-                  className="rounded border border-amber-500/60 bg-amber-500/10 px-2.5 py-1 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-                >
-                  Quit Inspector Rust
-                </button>
-              </div>
-            </details>
-          </div>
-        </div>
-      )}
-
-      <div className="md3-settings-cascade w-full">
-        {/* Popup behavior — the very first thing: how the overlay dismisses. */}
+  // Every settings block by section id. The ORDER on screen comes from
+  // SETTINGS_CATEGORIES (lib/settings-sections.ts) — the one place it lives.
+  const blocks: Record<string, React.ReactNode> = {
+        /* Popup behavior — the very first thing: how the overlay dismisses. */
+    "behavior": (
         <div className="mb-6">
           <PopupBehaviorSection />
         </div>
-
-        {/* Sound — master toggle for UI feedback cues. At the top so it's
-            easy to silence the app. */}
+    ),
+        /* Sound — master toggle for UI feedback cues. At the top so it's
+            easy to silence the app. */
+    "sounds": (
         <div className="mb-6">
           <Section
             icon={<Volume2 size={16} className="text-[var(--color-accent)]" />}
@@ -1420,8 +1307,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
           </Section>
         </div>
-
-        {/* Touchpad gestures — BetterTouchTool-style 3-finger swipe/tap. */}
+    ),
+        /* Touchpad gestures — BetterTouchTool-style 3-finger swipe/tap. */
+    "gestures": (
         <div className="mb-6">
           <Section
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
@@ -1487,9 +1375,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             )}
           </Section>
         </div>
-
-        {/* Window snapping — drag a window to a screen edge to snap it (macOS). */}
-        {IS_MAC && (
+    ),
+        /* Window snapping — drag a window to a screen edge to snap it (macOS). */
+    "window": (
+        IS_MAC && (
           <div className="mb-6">
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
@@ -1540,10 +1429,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               )}
             </Section>
           </div>
-        )}
-
-        {/* Cursor wrap-around — pointer reappears on the opposite outer edge (macOS). */}
-        {IS_MAC && (
+        )
+    ),
+        /* Cursor wrap-around — pointer reappears on the opposite outer edge (macOS). */
+    "cursor-wrap": (
+        IS_MAC && (
           <div className="mb-6">
             <Section
               icon={<MousePointerClick size={16} className="text-[var(--color-accent)]" />}
@@ -1636,10 +1526,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               )}
             </Section>
           </div>
-        )}
-
-        {/* Window palette — Moom-style hover palette over the green zoom button. */}
-        {IS_MAC && (
+        )
+    ),
+        /* Window palette — Moom-style hover palette over the green zoom button. */
+    "window-palette": (
+        IS_MAC && (
           <div className="mb-6">
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
@@ -1732,9 +1623,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               )}
             </Section>
           </div>
-        )}
-
-        {/* Timer alarm — overlay (loud, dismiss-to-stop) vs OS notification. */}
+        )
+    ),
+        /* Timer alarm — overlay (loud, dismiss-to-stop) vs OS notification. */
+    "timer-alarm": (
         <div className="mb-6">
           <Section
             icon={<AlarmClock size={16} className="text-[var(--color-accent)]" />}
@@ -1777,17 +1669,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
           </Section>
         </div>
-
-        {/* Popup hotkey — the global shortcut that opens the search popup. */}
-        <PopupHotkeySection />
-
-        {/* Second, optional clipboard-history hotkey (default Ctrl+Shift+V). */}
-        <div className="mt-6">
-          <HistoryHotkeySection />
-        </div>
-
-        {/* Global action shortcuts — rebindable OCR / screenshot / timesheet / … */}
-        <div className="mt-6">
+    ),
+        /* Global action shortcuts — rebindable OCR / screenshot / timesheet / … */
+    "global-shortcuts": (
+        <div className="mb-6">
           <Section
             icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
             id="global-shortcuts"
@@ -1797,9 +1682,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <GlobalShortcutsSection />
           </Section>
         </div>
-
-        {/* Text expander section */}
-        <div className="mt-6">
+    ),
+        /* Text expander section */
+    "expander": (
+        <div className="mb-6">
           <Section
             icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
             id="expander"
@@ -2066,23 +1952,27 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </details>
           </Section>
         </div>
-
-        {/* Snippets — count + on-disk storage (v0.95.0) */}
-        <div className="mt-8">
+    ),
+        /* Snippets — count + on-disk storage (v0.95.0) */
+    "snippets": (
+        <div className="mb-6">
           <SnippetsSection />
         </div>
-
-        {/* Clipboard privacy (v0.76.0) */}
-        <div className="mt-8">
+    ),
+        /* Clipboard privacy (v0.76.0) */
+    "clipboard-history": (
+        <div className="mb-6">
           <HistoryLimitSection />
         </div>
-
-        {/* Android (adb) — status + setup guide (v0.119.0) */}
-        <div className="mt-8">
+    ),
+        /* Android (adb) — status + setup guide (v0.119.0) */
+    "adb": (
+        <div className="mb-6">
           <AdbSection />
         </div>
-
-        <div className="mt-8">
+    ),
+    "clipboard-privacy": (
+        <div className="mb-6">
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
             id="clipboard-privacy"
@@ -2157,10 +2047,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             )}
           </Section>
         </div>
-
-        {/* Passive auto-expansion (aText-style) section */}
-        <div className="mt-6">
+    ),
+        /* Passive auto-expansion (aText-style) section */
+    "auto-expand": (
+        <div className="mb-6">
           <Section
+            id="auto-expand"
             icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
             title="Auto-Expansion (aText-Stil)"
             subtitle="Snippets expandieren automatisch beim Tippen — ganz ohne Hotkey, in jeder App. Wie aText / TextExpander."
@@ -2311,10 +2203,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             )}
           </Section>
         </div>
-
-        {/* Direct hotkey → snippet section */}
-        <div className="mt-6">
+    ),
+        /* Direct hotkey → snippet section */
+    "direct-slots": (
+        <div className="mb-6">
           <Section
+            id="direct-slots"
             icon={<Zap size={16} className="text-[var(--color-accent)]" />}
             title="Direct hotkey → snippet"
             subtitle="Press a hotkey, paste a snippet's body straight away — no abbreviation typed. Reads nothing, so it works in any app, including terminals (iTerm2, Terminal.app, …)."
@@ -2430,9 +2324,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </p>
           </Section>
         </div>
-
-        {/* Appearance section */}
-        <div className="mt-6">
+    ),
+        /* Appearance section */
+    "appearance": (
+        <div className="mb-6">
           <Section
             icon={<SunMoon size={16} className="text-[var(--color-accent)]" />}
             id="appearance"
@@ -2584,9 +2479,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <CrtAnimationRow />
           </Section>
         </div>
-
-        {/* Startup section */}
-        <div className="mt-6">
+    ),
+        /* Startup section */
+    "startup": (
+        <div className="mb-6">
           <Section
             icon={<Power size={16} className="text-[var(--color-accent)]" />}
             id="startup"
@@ -2635,10 +2531,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
           </Section>
         </div>
-
-        {/* Paste behaviour section */}
-        <div className="mt-6">
+    ),
+        /* Paste behaviour section */
+    "paste": (
+        <div className="mb-6">
           <Section
+            id="paste"
             icon={<ClipboardType size={16} className="text-[var(--color-accent)]" />}
             title="Paste"
             subtitle="Control how clipboard entries land in the destination app."
@@ -2677,10 +2575,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </div>
           </Section>
         </div>
-
-        {/* Capture section — OCR / screenshot / region-pick behaviours. */}
-        <div className="mt-6">
+    ),
+        /* Capture section — OCR / screenshot / region-pick behaviours. */
+    "capture": (
+        <div className="mb-6">
           <Section
+            id="capture"
             icon={<Camera size={16} className="text-[var(--color-accent)]" />}
             title="Capture"
             subtitle="OCR and screenshot region capture (Ctrl+Shift+O / Ctrl+Shift+S)."
@@ -2705,10 +2605,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
           </Section>
         </div>
-
-        {/* Input Lock section — type `freeze` in the search bar to
-            block all keyboard / mouse input; release with the chord. */}
-        <div className="mt-6">
+    ),
+        /* Input Lock section — type `freeze` in the search bar to
+            block all keyboard / mouse input; release with the chord. */
+    "input-lock": (
+        <div className="mb-6">
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
             id="input-lock"
@@ -2791,10 +2692,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </div>
           </Section>
         </div>
-
-        {/* Keyboard shortcuts cheat sheet */}
-        <div className="mt-6">
+    ),
+        /* Keyboard shortcuts cheat sheet */
+    "keyboard-shortcuts": (
+        <div className="mb-6">
           <Section
+            id="keyboard-shortcuts"
             icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
             title="Keyboard shortcuts"
             subtitle="Global shortcuts fire from anywhere on your system. Popup shortcuts only fire while Inspector Rust's popup is visible."
@@ -2802,9 +2705,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <ShortcutsTable />
           </Section>
         </div>
-
-        {/* Cleaning workflow (v0.60.0) */}
-        <div className="mt-6">
+    ),
+        /* Cleaning workflow (v0.60.0) */
+    "cleaning": (
+        <div className="mb-6">
           <Section
             icon={<Trash2 size={16} className="text-[var(--color-accent)]" />}
             id="cleaning"
@@ -2968,70 +2872,66 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             )}
           </Section>
         </div>
-
-        {/* Timesheet (time tracking) — macOS for now (OS module is macOS-only) */}
-        {IS_MAC && (
-          <div className="mt-6">
+    ),
+        /* Timesheet (time tracking) — macOS for now (OS module is macOS-only) */
+    "timesheet": (
+        IS_MAC && (
+          <div className="mb-6">
             <TimesheetSection />
           </div>
-        )}
-
-        {/* Bruno defaults — German income-tax calculator personal params */}
-        <div className="mt-6">
+        )
+    ),
+        /* Bruno defaults — German income-tax calculator personal params */
+    "bruno": (
+        <div className="mb-6">
           <BrunoSection />
         </div>
-
-        {/* Faker defaults — fake-data generator */}
-        <div className="mt-6">
+    ),
+        /* Faker defaults — fake-data generator */
+    "faker": (
+        <div className="mb-6">
           <FakerSection />
         </div>
-
-        {/* Security builders — pentest command builders */}
-        <div className="mt-6">
+    ),
+        /* Security builders — pentest command builders */
+    "security": (
+        <div className="mb-6">
           <SecuritySection />
         </div>
-
-        {/* Figlet — ASCII-art banner defaults */}
-        <div className="mt-6">
+    ),
+        /* Figlet — ASCII-art banner defaults */
+    "figlet": (
+        <div className="mb-6">
           <FigletSection />
         </div>
-
-        {/* Meme library directory */}
-        {MEME_ENABLED && (
-          <div className="mt-6">
+    ),
+        /* Meme library directory */
+    "meme": MEME_ENABLED && (
+          <div className="mb-6">
             <MemeSection />
           </div>
-        )}
-
-        {/* AI providers — keys + models for the `task` / `ki` command */}
-        <div className="mt-6">
+    ),
+        /* AI providers — keys + models for the `task` / `ki` command */
+    "ai": (
+        <div className="mb-6">
           <AiProvidersSection />
         </div>
-
-        {/* Weather — OpenWeather API key + units */}
-        <div className="mt-6">
+    ),
+        /* Weather — OpenWeather API key + units */
+    "weather": (
+        <div className="mb-6">
           <WeatherSection />
         </div>
-
-        {/* Cloud sync with cue (snippets) */}
-        <div className="mt-6">
+    ),
+        /* Cloud sync with cue (snippets) */
+    "cloud-sync": (
+        <div className="mb-6">
           <CloudSyncSection />
         </div>
-
-        {/* PageSpeed Insights API key */}
-        <div className="mt-6">
-          <PagespeedSection />
-          <RepositoriesSection />
-        </div>
-
-        {/* Device sync between several Macs (shared folder) */}
-        <div className="mt-6">
-          <DeviceSyncSection />
-          <AutoBackupSection onRestored={onBackupImported} />
-        </div>
-
-        {/* Backup & restore section */}
-        <div className="mt-6">
+    ),
+        /* Backup & restore section */
+    "backup": (
+        <div className="mb-6">
           <Section
             icon={<Archive size={16} className="text-[var(--color-accent)]" />}
             id="backup"
@@ -3201,16 +3101,19 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             )}
           </Section>
         </div>
-
-        {IS_LINUX && (
-          <div className="mt-6">
+    ),
+    "linux-shortcuts": (
+        IS_LINUX && (
+          <div id="settings-linux-shortcuts" className="mb-6 scroll-mt-12">
             <LinuxShortcutsSettings />
           </div>
-        )}
-
-        {/* About section — inline (replaced the former modal dialog) */}
-        <div className="mt-6">
+        )
+    ),
+        /* About section — inline (replaced the former modal dialog) */
+    "about": (
+        <div className="mb-6">
           <Section
+            id="about"
             icon={<Info size={16} className="text-[var(--color-accent)]" />}
             title="About"
             subtitle="Version, license, project info."
@@ -3218,8 +3121,278 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <AboutContent version={appVersion} />
           </Section>
         </div>
+    ),
+    "popup-hotkey": (
+        <div className="mb-6">
+          <PopupHotkeySection />
+        </div>
+    ),
+    "history-hotkey": (
+        <div className="mb-6">
+          <HistoryHotkeySection />
+        </div>
+    ),
+    "pagespeed": (
+        <div className="mb-6">
+          <PagespeedSection />
+        </div>
+    ),
+    "repos": (
+        <div className="mb-6">
+          <RepositoriesSection />
+        </div>
+    ),
+    "device-sync": (
+        <div className="mb-6">
+          <DeviceSyncSection />
+        </div>
+    ),
+    "auto-backup": (
+        <div className="mb-6">
+          <AutoBackupSection onRestored={onBackupImported} />
+        </div>
+    ),
+  };
+
+  return (
+    <div ref={scrollRef} className="relative flex min-h-0 flex-1 flex-col overflow-auto p-6">
+      <SettingsCategoryNav scrollRef={scrollRef} />
+      {/* macOS permissions card — one consolidated card (it replaced two
+          separate per-permission banners). "Set up permissions" chains
+          the user through both grants with a single click: it opens the
+          first missing System Settings pane, and the chaining effect
+          auto-opens the second once the first flips to granted. macOS
+          does NOT allow an app to grant Accessibility / Screen Recording
+          — the toggle is always the user's, by design — so the card
+          guides the flow rather than automating it. Renders only while a
+          permission is missing; the granted state is silent. */}
+      {(accessibility === false || screenRec === false || finderAutomation === false) && (
+        <div className="-mt-2 mb-4 w-full">
+          <div className="rounded border border-amber-500/60 bg-[var(--color-bg)] text-[12px] text-[var(--color-fg)] shadow-md ring-1 ring-amber-500/30">
+            {/* Header + the one-click chained setup action. */}
+            <div className="flex items-center gap-2 border-b border-amber-500/30 px-3 py-2">
+              <AlertTriangle size={14} className="shrink-0 text-amber-500" />
+              <span className="flex-1 font-medium">macOS permissions needed</span>
+              <button
+                onClick={() => void setUpPermissions()}
+                className="rounded bg-[var(--color-accent)] px-3 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] hover:opacity-90"
+              >
+                {chaining ? "Setting up…" : "Set up permissions"}
+              </button>
+            </div>
+
+            {/* Explainer — honest about what the button can and can't do. */}
+            <p className="px-3 pt-2 text-[var(--color-muted)]">
+              <b className="text-[var(--color-fg)]">Set up permissions</b> wipes any stale
+              macOS TCC entry for Inspector Rust (via <code>tccutil reset</code>, no admin
+              password) and re-fires the macOS permission prompt. Click{" "}
+              <b>Allow → Open System Settings</b>, flip the <b>Inspector Rust</b> switch —
+              once both grants are in, this card auto-prompts to restart. macOS only lets{" "}
+              <i>you</i> flip the switch; the reset removes the friction when a switch{" "}
+              <i>looks</i> on but Inspector Rust still asks.
+            </p>
+
+            {/* Live per-permission status. */}
+            <div className="flex flex-col gap-1.5 px-3 py-2">
+              <PermRow
+                label="Accessibility"
+                hint="Lets Inspector Rust paste and run the text expander"
+                granted={accessibility}
+                onOpen={() =>
+                  void openAccessibilitySettings().catch((e) =>
+                    setStatus({ kind: "err", message: String(e) }),
+                  )
+                }
+              />
+              <PermRow
+                label="Screen Recording"
+                hint="Lets the OCR and screenshot region capture work"
+                granted={screenRec}
+                onOpen={() =>
+                  void openScreenRecordingSettings().catch((e) =>
+                    setStatus({ kind: "err", message: String(e) }),
+                  )
+                }
+              />
+              <PermRow
+                label="Automation → Finder"
+                hint="Lets Ctrl+Shift+F read the current Finder selection"
+                granted={finderAutomation}
+                onOpen={() =>
+                  void openFinderAutomationSettings().catch((e) =>
+                    setStatus({ kind: "err", message: String(e) }),
+                  )
+                }
+              />
+            </div>
+
+            {/* Troubleshooting — collapsed by default. */}
+            <details className="border-t border-amber-500/30 px-3 py-2 text-[11px] text-[var(--color-muted)]">
+              <summary className="cursor-pointer">
+                Switch is already on, but it still doesn&apos;t work?
+              </summary>
+              <p className="mt-1.5">
+                macOS keys each grant to the app&apos;s code signature. As of v0.23.2{" "}
+                <code>scripts/install-macos.sh</code> signs every build with a stable
+                self-signed certificate, so a grant survives rebuilds — you should only
+                need to do this once. If a switch shows on but Inspector Rust still asks,
+                the grant is stale: reset it, then re-toggle and relaunch.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        "Reset the stale Accessibility + Screen Recording + Automation→Finder grants for Inspector Rust and re-fire the macOS prompts? Use this when a switch shows on but Inspector Rust still asks for permission.",
+                      )
+                    )
+                      return;
+                    try {
+                      await forceResetAndRequestGrant();
+                      await forceResetScreenRecordingGrant();
+                      await forceResetFinderAutomationGrant();
+                    } catch (e) {
+                      setStatus({ kind: "err", message: String(e) });
+                    }
+                  }}
+                  className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                >
+                  Reset stale grants
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setAccessibility(await getAccessibilityStatus());
+                      setScreenRec(await getScreenRecordingStatus());
+                      setFinderAutomation(await getFinderAutomationStatus());
+                    } catch (e) {
+                      setStatus({ kind: "err", message: String(e) });
+                    }
+                  }}
+                  className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                >
+                  Re-check now
+                </button>
+                <button
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        "Quit Inspector Rust now? Re-launch it via Spotlight / Dock to pick up a freshly-granted permission.",
+                      )
+                    )
+                      return;
+                    try {
+                      await quitApp();
+                    } catch (e) {
+                      setStatus({ kind: "err", message: String(e) });
+                    }
+                  }}
+                  className="rounded border border-amber-500/60 bg-amber-500/10 px-2.5 py-1 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                >
+                  Quit Inspector Rust
+                </button>
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+
+      <div className="md3-settings-cascade w-full">
+        {SETTINGS_CATEGORIES.map((cat) => {
+          const items = cat.sections.filter((id) => blocks[id]);
+          if (items.length === 0) return null;
+          return (
+            <section
+              key={cat.id}
+              id={`settings-cat-${cat.id}`}
+              aria-labelledby={`settings-cat-${cat.id}-title`}
+              className="mb-4 scroll-mt-12"
+            >
+              <h2
+                id={`settings-cat-${cat.id}-title`}
+                className="mb-3 border-b border-[var(--color-border)] pb-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted)]"
+              >
+                {cat.label}
+              </h2>
+              {items.map((id) => (
+                <Fragment key={id}>{blocks[id]}</Fragment>
+              ))}
+            </section>
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+/**
+ * Sticky jump bar over the Settings tab: one chip per category, the one in
+ * view highlighted. Scrolls the panel's own container (the tab scrolls, not
+ * the window).
+ */
+/** Chips in the sticky bar — "Info" is a footer, not a destination. */
+const NAV_CATEGORIES = SETTINGS_CATEGORIES.filter((c) => c.id !== "about");
+
+function SettingsCategoryNav({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement | null> }) {
+  const [active, setActive] = useState<string>(SETTINGS_CATEGORIES[0].id);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const top = root.getBoundingClientRect().top + 60;
+      let current = SETTINGS_CATEGORIES[0].id;
+      for (const c of SETTINGS_CATEGORIES) {
+        const el = document.getElementById(`settings-cat-${c.id}`);
+        if (el && el.getBoundingClientRect().top <= top) current = c.id;
+      }
+      // The last sections are too short to reach the top line — at the
+      // bottom end the last chip wins, otherwise a click on it would leave
+      // the highlight on its predecessor.
+      if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) current = NAV_CATEGORIES[NAV_CATEGORIES.length - 1].id;
+      setActive(current);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      root.removeEventListener("scroll", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [scrollRef]);
+
+  const jump = (id: string) => {
+    const el = document.getElementById(`settings-cat-${id}`);
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    setActive(id);
+  };
+
+  return (
+    <nav
+      aria-label="Einstellungs-Kategorien"
+      className="sticky -top-6 z-10 -mx-6 -mt-6 mb-4 flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-2"
+    >
+      {NAV_CATEGORIES.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          aria-current={active === c.id ? "true" : undefined}
+          onClick={() => jump(c.id)}
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] transition-colors duration-(--duration-fast) ease-sharp ${
+            active === c.id
+              ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+              : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+          }`}
+        >
+          {c.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -4335,7 +4508,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div id={id ? `settings-${id}` : undefined} className="scroll-mt-3 rounded-lg">
+    <div id={id ? `settings-${id}` : undefined} className="scroll-mt-12 rounded-lg">
       <div className="mb-1 flex items-center gap-2">
         {icon}
         <h2 className="text-[14px] font-semibold">{title}</h2>
@@ -4725,6 +4898,7 @@ function HistoryHotkeySection() {
   return (
     <Section
       icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
+      id="history-hotkey"
       title="Clipboard-history hotkey"
       subtitle="A second, optional global shortcut that also opens the clipboard history — alongside the main popup hotkey. Clear it to disable."
     >

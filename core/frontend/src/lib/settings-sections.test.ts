@@ -1,5 +1,6 @@
+import panelSrc from "../components/SettingsPanel.tsx?raw";
 import { describe, expect, it } from "vitest";
-import { SETTINGS_SECTIONS, matchSettingsSection, suggestSettingsSections } from "./settings-sections";
+import { SETTINGS_CATEGORIES, SETTINGS_SECTIONS, categoryOf, matchSettingsSection, suggestSettingsSections } from "./settings-sections";
 import { parseCommand } from "./commands";
 
 describe("settings command parsing", () => {
@@ -128,5 +129,53 @@ describe("Repositories section (v0.183.0)", () => {
     expect(matchSettingsSection("klonen")?.id).toBe("repos");
     expect(matchSettingsSection("repositories")?.id).toBe("repos");
     expect(matchSettingsSection("github")?.id).toBe("repos");
+  });
+});
+
+describe("SETTINGS_CATEGORIES", () => {
+  it("files every registry section exactly once, and nothing else", () => {
+    const filed = SETTINGS_CATEGORIES.flatMap((c) => [...c.sections]);
+    expect(new Set(filed).size).toBe(filed.length);
+    expect([...filed].sort()).toEqual(SETTINGS_SECTIONS.map((s) => s.id).sort());
+  });
+
+  it("has unique ids and no empty category", () => {
+    const ids = SETTINGS_CATEGORIES.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const c of SETTINGS_CATEGORIES) expect(c.sections.length).toBeGreaterThan(0);
+  });
+
+  it("puts the basics first and About last", () => {
+    expect(SETTINGS_CATEGORIES[0].sections[0]).toBe("behavior");
+    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].sections).toEqual(["about"]);
+  });
+
+  it("names the category of a section", () => {
+    expect(categoryOf("cue")).toBeNull();
+    expect(categoryOf("cloud-sync")?.id).toBe("sync");
+    expect(categoryOf("gestures")?.label).toBe("Trackpad & Fenster");
+  });
+
+  it("the panel renders a block for every section the categories list", () => {
+    const panel = panelSrc;
+    for (const id of SETTINGS_CATEGORIES.flatMap((c) => [...c.sections])) {
+      expect(panel, id).toContain(`"${id}":`);
+    }
+  });
+  // Layout facts only a browser shows — pinned so they can't silently regress.
+  it("the category bar stays readable and flush with the header", () => {
+    const nav = panelSrc.match(/aria-label="Einstellungs-Kategorien"\s+className="([^"]+)"/)?.[1] ?? "";
+    // A flex-column scroller shrinks an overflow-x child to a sliver.
+    expect(nav.split(" ")).toContain("shrink-0");
+    // Sticky offsets count from inside the scroller's 24 px padding.
+    expect(nav.split(" ")).toContain("-top-6");
+  });
+
+  it("at the bottom end the last chip is the active one", () => {
+    expect(panelSrc).toMatch(/scrollHeight - 4\) current = NAV_CATEGORIES\[NAV_CATEGORIES\.length - 1\]\.id/);
+  });
+
+  it("a deep link keeps its target pinned while the sections load", () => {
+    expect(panelSrc).toMatch(/new ResizeObserver\(\(\) => \{\s*if \(pinning\) pin\(\);/);
   });
 });

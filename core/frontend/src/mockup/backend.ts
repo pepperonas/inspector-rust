@@ -370,6 +370,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return c && c.content_type === "image" ? { ...c, content_data: demoImage() } : c ?? null;
     }
     case "list_snippets": return SNIPPETS;
+    case "get_direct_slots": return [];
     case "find_snippets": {
       const q = String(args.query ?? "").toLowerCase();
       return q ? SNIPPETS.filter((s) => s.abbreviation.startsWith(q) || sameFuzzy(q, s.title)) : [];
@@ -449,6 +450,65 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "loc_count": return LOC;
     case "shazam_history_list": return SONGS;
     case "shazam_is_listening": return false;
+    // ── settings tab (plausible, invented values) ─────────────────────────
+    case "adb_status": return { found: true, devices: [], recording: false };
+    case "ai_get_config": return { provider: "claude_cli", models: {} };
+    case "ai_provider_status": return [
+      { id: "claude_cli", label: "Claude Code (lokal)", configured: true, hint: null, model: "", default_model: "claude-opus-5-5" },
+      { id: "anthropic", label: "Anthropic API", configured: false, hint: null, model: "", default_model: "claude-opus-5-5" },
+    ];
+    case "cleaner_categories": return [];
+    case "db_space": return { bytes: 18_400_000, freelist_pages: 12, page_count: 4500 };
+    case "faker_locales": return [{ code: "en", label: "English" }, { code: "de", label: "Deutsch" }];
+    case "figlet_fonts": return [{ name: "standard", category: "classic", popular: true, pinned: false }];
+    case "figlet_get_defaults": return { font: "standard", width: 80, align: "left", trim: true, comment: "none", boxed: false, pinned: [], save_history: false };
+    case "get_alarm_style": return "overlay";
+    case "get_auto_backup_config": return { enabled: true, folder: "~/Google Drive/Backups", interval_min: 60, keep: 24, encrypt: true, include_history: true, include_timesheet: false };
+    case "get_auto_backup_status": return { last_ms: Date.now() - 1_200_000, last_check_ms: Date.now() - 600_000, next_check_ms: Date.now() + 3_000_000, last_error: "", encrypt: true, has_password: true, folder_ok: true, snapshot_count: 12 };
+    case "get_auto_expand_config": return { enabled: true, trigger: "delimiter", match_case: false, expand_inside_words: false, undo_enabled: true };
+    case "get_autostart_enabled": return true;
+    case "get_cleaner_config": return { level: "safe", min_age_days: 7, categories: {}, dev_roots: ["~/dev"], stale_days: 90 };
+    case "get_clipboard_privacy": return { exclude_apps: "1Password", auto_clear_seconds: 0 };
+    case "get_cursor_wrap_config": return { enabled: true, left: true, right: true, top: true, bottom: true, corner_deadzone_px: 8, wrap_during_drag: false };
+    case "get_device_sync_config": return { enabled: false, folder: "", include_totp: false };
+    case "get_device_sync_status": return { last_ms: 0, last_error: "", device_id: "mock", peers: 0, has_passphrase: false, folder_ok: false };
+    case "get_expander_config": return { enabled: true, hotkey: "Alt+Digit1", accessibility_granted: true };
+    case "get_finder_automation_status": return true;
+    case "get_gesture_config": return { enabled: true, fingers: 3, volume_step: 5, tiptap: false, typing_guard: true, volume: true, mute: true, guard: {} };
+    case "get_history_hotkey": return "Ctrl+Shift+KeyV";
+    case "get_history_hotkey_default": return "Ctrl+Shift+KeyV";
+    case "get_popup_hotkey": return "Ctrl+Space";
+    case "get_popup_hotkey_default": return "Ctrl+Space";
+    case "get_history_max": return { max: 1000, min: 50, ceiling: 100000 };
+    case "get_input_lock_chord": return ["KeyI", "KeyR"];
+    case "get_keepalive_enabled": return false;
+    case "get_meme_dir": return "~/My Drive/media/memes";
+    case "get_ocr_save_source_image": return true;
+    case "get_pagespeed_key": return false;
+    case "get_paste_plain_text_only": return true;
+    case "get_popup_close_on_blur": return true;
+    case "get_repo_config": return { clone_dir: "~/dev", has_token: false, gh_available: true };
+    case "get_screen_recording_status": return true;
+    case "get_screenshot_sound": return "snap";
+    case "get_snippet_storage": return { count: 312, bytes: 184_000 };
+    case "get_sound_enabled": return true;
+    case "get_sync_config": return { enabled: false, url: "", token: "" };
+    case "get_sync_status": return { last_ms: 0, last_error: "" };
+    case "get_timesheet_config": return { idle_seconds: 300, retention_days: 90, claude_watcher: true, denylist: "", daily_goal_minutes: 480 };
+    case "get_window_palette_config": return { enabled: true, cols: 16, rows: 10, trigger: "zoom_hover", hide_system_menu: true };
+    case "get_window_size_preference": return "medium";
+    case "get_window_snap_config": return { enabled: true, dwell_ms: 350 };
+    case "list_action_hotkeys": return [];
+    case "gesture_bindings_get": return {
+      bindings: [
+        { id: "volume-up", trigger: { kind: "swipe_up", fingers: 3 }, action: { type: "volume_up" }, app: null, app_name: null, enabled: true, typing_guard: true },
+        { id: "volume-down", trigger: { kind: "swipe_down", fingers: 3 }, action: { type: "volume_down" }, app: null, app_name: null, enabled: true, typing_guard: true },
+        { id: "mute", trigger: { kind: "tap", fingers: 3 }, action: { type: "mute_toggle" }, app: null, app_name: null, enabled: true, typing_guard: true },
+      ],
+      customised: false, min_fingers: 3, max_fingers: 5,
+    };
+    case "ai_tasks_state": return { tasks: [], running: [], paused: false, languages: [], next_due: {} };
+    case "track_category_rules": return [];
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

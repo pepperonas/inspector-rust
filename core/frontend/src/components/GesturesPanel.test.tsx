@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { GestureConfig, GestureGuardConfig, GestureLiveSnapshot, GestureTraceFile } from "../lib/ipc";
@@ -185,7 +186,12 @@ describe("GesturesPanel", () => {
     });
 
     it("starts by itself once for `gestures calibrate`", async () => {
-      render(<GesturesPanel start="calibrate" />);
+      // StrictMode runs effects twice (the app is wrapped in it).
+      render(
+        <StrictMode>
+          <GesturesPanel start="calibrate" />
+        </StrictMode>,
+      );
       await waitFor(() => expect(calibrateStart).toHaveBeenCalledTimes(1));
       await screen.findByText("Letzte Entscheidungen");
       await act(async () => {
@@ -262,8 +268,16 @@ describe("GesturesPanel", () => {
     });
 
     it("starts a 30-s recording for `gestures record` and shows the countdown", async () => {
-      render(<GesturesPanel start="record" />);
+      render(
+        <StrictMode>
+          <GesturesPanel start="record" />
+        </StrictMode>,
+      );
       await waitFor(() => expect(recordStart).toHaveBeenCalledWith(30));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      expect(recordStart).toHaveBeenCalledTimes(1);
       snapshot = { ...snapshot, recording: { recording: true, remaining_ms: 12_300, frames: 512 } };
       expect(await screen.findByText(/Nimmt auf … 13 s · 512 Frames/)).toBeTruthy();
       expect(calibrateStart).not.toHaveBeenCalled();

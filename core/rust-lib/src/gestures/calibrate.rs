@@ -452,7 +452,8 @@ mod tests {
         let mut f = session();
         hold(&mut f, 2, 1_050, 5_900, touch(99, 0.9, 3.0, 30.0, 20.0));
         let p = propose(&trace(f), &GuardConfig::default()).unwrap();
-        assert!((p.finger.unwrap().size_p90 - 0.9).abs() < 1e-6, "the long contact is filtered out");
+        // The count, not a percentile: one outlier in ten can't move a p90.
+        assert_eq!(p.finger.unwrap().count, 9, "the long contact is filtered out");
     }
 
     #[test]

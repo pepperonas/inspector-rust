@@ -433,6 +433,12 @@ impl RecentFrames {
         self.keys.clear();
     }
 
+    /// Frames held — the buffer must stay bounded however long the pad is used.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.frames.len()
+    }
+
     /// The window ending at `now_ms` as a trace (times relative to its first
     /// frame), marked as a misfire: `expect` is empty — nothing should have
     /// fired. `None` when the pad was untouched for the whole window.
@@ -552,6 +558,7 @@ mod tests {
         r.push_frame(6_100, 0, vec![]);
         r.push_key(5_000, true);
         r.push_key(5_003, true); // same instant reported twice
+        assert_eq!(r.len(), 7, "older frames leave memory, not just the snapshot");
         let t = r.snapshot(6_100, "test", vec![], "n".into()).expect("frames in the window");
         assert_eq!(t.frames.first().map(|f| f.t_ms), Some(0), "relative to the first kept frame");
         // 3_500 .. 6_100 → 3500, 4000, …, 6000, 6100

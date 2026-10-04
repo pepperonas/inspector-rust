@@ -492,8 +492,13 @@ pub fn list_traces() -> Result<Vec<TraceFile>, String> {
             })
         })
         .collect();
-    out.sort_by(|a, b| trace_stamp(&b.name).cmp(trace_stamp(&a.name)));
+    sort_newest_first(&mut out);
     Ok(out)
+}
+
+/// Newest first by time stamp, whatever the kind.
+pub fn sort_newest_first(traces: &mut [TraceFile]) {
+    traces.sort_by(|a, b| trace_stamp(&b.name).cmp(trace_stamp(&a.name)));
 }
 
 /// The time stamp of a trace file name (`YYYYmmdd-HHMMSS`), for ordering —
@@ -4048,9 +4053,10 @@ mod tests {
     fn recordings_sort_by_time_not_by_kind() {
         assert_eq!(trace_stamp("trace-20261004-120000.json"), "20261004-120000");
         assert_eq!(trace_stamp("trace-unintended-20261004-110000.json"), "20261004-110000");
-        let mut names = ["trace-unintended-20261004-110000.json", "trace-20261004-120000.json"];
-        names.sort_by(|a, b| trace_stamp(b).cmp(trace_stamp(a)));
-        assert_eq!(names[0], "trace-20261004-120000.json", "the newer plain recording comes first");
+        let file = |name: &str| TraceFile { name: name.into(), bytes: 0, unintended: false };
+        let mut v = [file("trace-unintended-20261004-110000.json"), file("trace-20261004-120000.json")];
+        sort_newest_first(&mut v);
+        assert_eq!(v[0].name, "trace-20261004-120000.json", "the newer plain recording comes first");
     }
 
     #[test]

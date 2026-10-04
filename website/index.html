@@ -4,7 +4,7 @@
   <!-- nginx SSI: fallbacks for the release facts pulled in below (must precede their first use). -->
   <!--# block name="none" --><!--# endblock -->
   <!--# block name="dash" -->—<!--# endblock -->
-  <!--# block name="meta_fallback" -->Newest release · macOS (Apple silicon), Windows, Linux · free, MIT licence<!--# endblock -->
+  <!--# block name="meta_fallback" -->Newest release · macOS (Apple silicon &amp; Intel), Windows, Linux · free, MIT licence<!--# endblock -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Inspector Rust — Clipboard Manager &amp; Command Palette</title>
@@ -59,7 +59,7 @@
   "description": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 67 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
   "url": "https://inspector-rust.celox.io/",
   "image": "https://inspector-rust.celox.io/assets/og.jpg?v=8",
-  "operatingSystem": "macOS 11 or later (Apple silicon), Windows 10/11 (x64), Linux x86-64",
+  "operatingSystem": "macOS 11 or later (Apple silicon and Intel), Windows 10/11 (x64), Linux x86-64",
   "applicationCategory": "UtilitiesApplication",
   "downloadUrl": "https://inspector-rust.celox.io/download",
   "installUrl": "https://inspector-rust.celox.io/download",
@@ -163,7 +163,7 @@
     "@type": "HowToStep",
     "position": 1,
     "name": "Download for your system",
-    "text": "DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.",
+    "text": "DMG for Macs (Apple silicon or Intel), MSI installer or portable exe for Windows, .deb or AppImage for Linux.",
     "url": "https://inspector-rust.celox.io/download"
    },
    {
@@ -205,7 +205,7 @@
     "name": "Which systems does it run on?",
     "acceptedAnswer": {
      "@type": "Answer",
-     "text": "macOS 11 or later on Apple silicon, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). There is no build for Intel Macs, because the on-device background-removal model's runtime has no Intel macOS binary."
+     "text": "macOS 11 or later on Apple silicon or Intel, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). On Intel Macs everything works except the on-device background removal, because its model runtime has no Intel macOS binary."
     }
    },
    {
@@ -753,7 +753,7 @@
         <li class="card">
           <span class="num">1</span>
           <h3 data-i18n="i1.t">Download for your system</h3>
-          <p data-i18n="i1.p">DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.</p>
+          <p data-i18n="i1.p">DMG for Macs (Apple silicon or Intel), MSI installer or portable exe for Windows, .deb or AppImage for Linux.</p>
         </li>
         <li class="card">
           <span class="num">2</span>
@@ -791,7 +791,7 @@
         </details>
         <details class="faq-item">
           <summary data-i18n="faq.q3">Which systems does it run on?</summary>
-          <p data-i18n="faq.q3a">macOS 11 or later on Apple silicon, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). There is no build for Intel Macs, because the on-device background-removal model's runtime has no Intel macOS binary.</p>
+          <p data-i18n="faq.q3a">macOS 11 or later on Apple silicon or Intel, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). On Intel Macs everything works except the on-device background removal, because its model runtime has no Intel macOS binary.</p>
         </details>
         <details class="faq-item">
           <summary data-i18n="faq.q4">macOS says the app is damaged. What now?</summary>

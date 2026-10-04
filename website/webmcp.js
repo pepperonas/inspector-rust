@@ -40,8 +40,8 @@
       "No account, no telemetry; network only for commands that need it"
     ],
     "limits": [
-      "macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.",
-      "Some features are macOS-only (for example the network monitor and touchpad gestures).",
+      "macOS builds are not notarized and the Intel DMG has no background removal; the first launch needs one Terminal command.",
+      "Some features are macOS-only (for example the network monitor and window snapping).",
       "Linux: global shortcuts may need to be bound in the desktop settings under Wayland."
     ],
     "targets": [

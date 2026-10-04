@@ -1,6 +1,6 @@
 ---
 name: get-inspector-rust
-description: Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows.
+description: Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon and Intel), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows.
 license: MIT
 ---
 
@@ -32,14 +32,14 @@ page itself, browsers with WebMCP expose the same data as the tools `get_latest_
 
 ## 4. Install
 
-1. DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.
+1. DMG for Macs (Apple silicon or Intel), MSI installer or portable exe for Windows, .deb or AppImage for Linux.
 2. On macOS, move the app to Applications and run `xattr -dr com.apple.quarantine /Applications/InspectorRust.app` once. On Windows, SmartScreen may ask — choose *More info → Run anyway*.
 3. The popup opens wherever you are. On macOS, grant Accessibility once so pasting and the expander can type for you.
 
 ## Limits
 
-- macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.
-- Some features are macOS-only (for example the network monitor and touchpad gestures).
+- macOS builds are not notarized and the Intel DMG has no background removal; the first launch needs one Terminal command.
+- Some features are macOS-only (for example the network monitor and window snapping).
 - Linux: global shortcuts may need to be bound in the desktop settings under Wayland.
 
 More: [product page](https://inspector-rust.celox.io/) · [Markdown version](https://inspector-rust.celox.io/index.md) · [changelog](https://inspector-rust.celox.io/changelog.md) · [source](https://github.com/pepperonas/inspector-rust)

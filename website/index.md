@@ -79,7 +79,7 @@ The complete feature catalogue, mirrored from the repository:
 
 ## Install
 
-1. **Download for your system** — DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.
+1. **Download for your system** — DMG for Macs (Apple silicon or Intel), MSI installer or portable exe for Windows, .deb or AppImage for Linux.
 2. **Allow the first launch** — On macOS, move the app to Applications and run `xattr -dr com.apple.quarantine /Applications/InspectorRust.app` once. On Windows, SmartScreen may ask — choose *More info → Run anyway*.
 3. **Press Ctrl+Space** — The popup opens wherever you are. On macOS, grant Accessibility once so pasting and the expander can type for you.
 
@@ -95,7 +95,7 @@ The complete feature catalogue, mirrored from the repository:
 
 **Does it send my clipboard anywhere?** No. The history stays in a local SQLite database, and its contents are encrypted at rest. The app only goes online for commands that need it, such as weather or translation, and only when you run them.
 
-**Which systems does it run on?** macOS 11 or later on Apple silicon, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). There is no build for Intel Macs, because the on-device background-removal model's runtime has no Intel macOS binary.
+**Which systems does it run on?** macOS 11 or later on Apple silicon or Intel, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). On Intel Macs everything works except the on-device background removal, because its model runtime has no Intel macOS binary.
 
 **macOS says the app is damaged. What now?** It is not. The release is not notarized, so macOS marks the download as quarantined. Move the app to Applications and run xattr -dr com.apple.quarantine /Applications/InspectorRust.app once in Terminal.
 
@@ -105,8 +105,8 @@ The complete feature catalogue, mirrored from the repository:
 
 ## Limits
 
-- macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.
-- Some features are macOS-only (for example the network monitor and touchpad gestures).
+- macOS builds are not notarized and the Intel DMG has no background removal; the first launch needs one Terminal command.
+- Some features are macOS-only (for example the network monitor and window snapping).
 - Linux: global shortcuts may need to be bound in the desktop settings under Wayland.
 
 ## Links

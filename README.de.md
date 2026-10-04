@@ -68,7 +68,7 @@
   - 🛠️ **Dev-Quick-Tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (Clipboard pretty-printen) · `jwt` (Clipboard dekodieren) → Clipboard.
   - 🎲 **Fake-Testdaten — `faker`** *(v0.84.270+)* — 70+ Generatoren (Namen, E-Mails, Adressen, Telefon, Firmen, Finanzen, Lorem, Datum, Zahlen, UUID/…, plus Composite-Records **person / user / address / order**) in 14 Locales. `faker` allein listet sie mit Live-Samples; `faker person 50 --csv @de` → 50 deutsche Datensätze als CSV im Clipboard, ein Enter. `--json` / `--sql` / `--ts`, `faker int 1..100`, `--seed=` reproduzierbar, ⌘/Ctrl+R würfelt neu, `faker tpl "{name} <{email}>"`. Ehrlicher Locale-Fallback (nicht unterstützt → EN, sichtbar). Auch `{faker:first_name}` in Snippets. Siehe [docs/faker.md](./docs/faker.md).
   - 🛡️ **Security-Command-Builder — `sec`** *(v0.84.271+)* — geführte Command-Builder für **nmap · sqlmap · feroxbuster · John**. Preset wählen, Ziel eintragen; Inspector Rust baut die korrekte (sh/bash-gequotete) Kommandozeile mit Flag-Erklärungstabelle — `nmap service 10.0.0.5` → `nmap -sV -sC 10.0.0.5`. **Enter kopiert; ⌘/Ctrl+Enter öffnet dein Terminal** mit dem eingefügten Command (macOS, opt-in, standardmäßig nicht abgeschickt). **Scannt nie selbst** — kein Subprozess, kein Netzwerk. Nur autorisierte Ziele. Siehe [docs/security-builder.md](./docs/security-builder.md).
-  - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
+  - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
   - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer. Nimmt nativ (in Rust) auf, sodass der Start die Wiedergabe anderer Apps nie unterbricht. Der kleine Bruder **`dezibel` / `db`** zeigt die Live-Lautstärke in dB (SPL-Schätzung, dBFS + 90) mit derselben Leucht-und-Meter-Animation.
   - 🏁 **CPU-Benchmark** (`benchmark` / `performance`) — sieben Disziplinen nach Geekbench-Vorbild, ein- und mehrkernig, bewertet gegen eine gemessene Referenz. Tippen zeigt erst die Vorschau; gemessen wird erst nach Bestätigung. Läufe liegen als JSON — ein Lauf von **einem anderen Rechner oder OS** lässt sich importieren und mit Deltas nebeneinanderlegen (Unterschiede unterhalb der Streuung sind als Rauschen markiert). Export als HTML/PDF.
   - 📑 **Signierte Reports** — jeder exportierte Report (LoC, PageSpeed, Repo-Statistik, Benchmark, Bruno, Zeiterfassung; HTML wie PDF) trägt **Unterschrift und Vektor-Stempel** im geteilten druckfertigen Design — ein Blick über alle.
@@ -81,7 +81,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **4820 Unit-Tests (1842 Rust + 2978 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **4829 Unit-Tests (1842 Rust + 2987 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
@@ -89,8 +89,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~198k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1842 Rust + 2978 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-4820%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1842 Rust + 2987 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-4829%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -112,7 +112,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-4820%20(1842%20Rust%20%2B%202978%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-4829%20(1842%20Rust%20%2B%202987%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-69-4f46e5?style=flat-square)](#commands)
@@ -120,7 +120,7 @@
   [![Rust modules](https://img.shields.io/badge/rust%20modules-101-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-869-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-439-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
-  [![UI components](https://img.shields.io/badge/UI%20components-89-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
+  [![UI components](https://img.shields.io/badge/UI%20components-90-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
   [![Test suites](https://img.shields.io/badge/test%20suites-256-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
   [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -193,7 +193,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-1842%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-2978%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-2987%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -226,7 +226,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-4820%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-4829%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-439-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-59-blueviolet?style=flat-square)](#)
@@ -243,7 +243,7 @@
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
   [![Rust LoC](https://img.shields.io/badge/Rust-~103k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~95k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-191-0ea5e9?style=flat-square)](./features.txt)
+  [![Features](https://img.shields.io/badge/features-192-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
   [![Audio presets](https://img.shields.io/badge/boom-20%20EQ%20presets-1DB954?style=flat-square)](#)
   [![Material colours](https://img.shields.io/badge/snippets-255%20colours-blueviolet?style=flat-square)](#)
@@ -305,7 +305,7 @@
   [![Unit converter](https://img.shields.io/badge/convert-units%20·%20currencies%20·%20crypto-1f6feb?style=flat-square)](./docs/convert.md)
   [![Color converter](https://img.shields.io/badge/colors-hex%20%E2%86%94%20rgb%20%E2%86%94%20hsl-blueviolet?style=flat-square)](./docs/colors.md)
   [![Dev tools](https://img.shields.io/badge/dev-uuid%20·%20slug%20·%20hash%20·%20json%20·%20jwt-1f6feb?style=flat-square)](#)
-  [![Web bangs](https://img.shields.io/badge/bangs-g%20·%20gh%20·%20yt%20·%20npm%20·%20so%20·%20mdn-1f6feb?style=flat-square)](#)
+  [![Web bangs](https://img.shields.io/badge/bangs-g%20·%20gh%20·%20yt%20·%20npm%20·%20so%20·%20wiki-1f6feb?style=flat-square)](#)
   [![Finder actions](https://img.shields.io/badge/Finder-selection%20actions-000000?style=flat-square&logo=apple&logoColor=white)](#)
   [![Text transforms](https://img.shields.io/badge/text-case%20·%20base64%20·%20url%20·%20slug-1f6feb?style=flat-square)](#)
   [![Snippet groups](https://img.shields.io/badge/snippets-groups%20%2B%20versioning-1f6feb?style=flat-square)](./docs/snippets-import.md)
@@ -411,7 +411,7 @@
   [![Espresso-betrieben](https://img.shields.io/badge/angetrieben%20von-Espresso-6F4E37?style=flat-square)](#)
   [![Zero Config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
   [![Kein Account](https://img.shields.io/badge/account-nicht%20nötig-brightgreen?style=flat-square)](#)
-  [![100+ Features](https://img.shields.io/badge/features-191%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-192%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](https://img.shields.io/badge/versteckt-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
   [![Auf LinkedIn teilen](https://img.shields.io/badge/teilen%20auf-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 
@@ -598,7 +598,7 @@ Englisch.)
 | `brightness` <sub>(alias: `bri`)</sub> | v0.62.0 | Helligkeits-Slider pro Monitor im Preview. |
 | `rnd` <sub>(alias: `random`)</sub> | v0.68.0 | Zufallszahl würfeln — in einem Status-Toast angezeigt. |
 | `meme` | v0.70.0 | Meme-Ordner durchsuchen, gewähltes GIF/Bild kopieren. |
-| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki`)</sub> | v0.76.0 | Web-Such-Bangs — die Suche einer Seite für die Anfrage öffnen. |
+| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `wiki`)</sub> | v0.76.0 | Web-Such-Bangs — die Suche einer Seite für die Anfrage öffnen. |
 | `hash` | v0.76.0 | Text als SHA-256 hashen → Clipboard (Hex). |
 | `json` | v0.76.0 | Clipboard-JSON formatieren → Clipboard. |
 | `jwt` | v0.76.0 | Clipboard-JWT dekodieren (Header + Payload) → Clipboard. |
@@ -984,7 +984,7 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2978 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2987 Tests
 cargo test --workspace  # Rust-Unit-Tests — 1842 Tests
 ```
 

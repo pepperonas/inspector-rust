@@ -163,3 +163,12 @@ function toPlainText(input: string): string {
     .replace(/&#39;/g, "'")
     .trim();
 }
+
+// The copy-feedback preview lives in its own dependency-free module so the
+// start-up bundle (App.tsx) can use it without pulling in every transform.
+export { feedbackPreview, FEEDBACK_PREVIEW_MAX } from "./copy-feedback";
+
+/** Human label of a transform kind (the chip label). */
+export function transformLabel(kind: TransformKind): string {
+  return TRANSFORMS.find((t) => t.kind === kind)?.label ?? kind;
+}

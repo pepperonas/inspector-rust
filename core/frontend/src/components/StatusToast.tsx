@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  ClipboardCheck,
   AlarmClock,
   AudioLines,
   Clock,
@@ -138,7 +139,9 @@ export function StatusToast() {
   const muted = payload.kind === "mute" && on;
 
   const Icon =
-    payload.kind === "iris"
+    payload.kind === "copy"
+      ? ClipboardCheck
+      : payload.kind === "iris"
       ? Siren
       : payload.kind === "boom"
         ? AudioLines

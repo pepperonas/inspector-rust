@@ -179,10 +179,6 @@ export const SEARCH_BANGS: Record<string, { name: string; url: (q: string) => st
       name: "Stack Overflow",
       url: (q) => `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
     },
-    mdn: {
-      name: "MDN",
-      url: (q) => `https://developer.mozilla.org/en-US/search?q=${encodeURIComponent(q)}`,
-    },
     wiki: {
       name: "Wikipedia",
       url: (q) => `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(q)}`,

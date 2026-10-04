@@ -277,3 +277,37 @@ describe("applyTransform — idempotence where it is expected", () => {
     expect(applyTransform("remove-vowels", "syzygy Straße")).toBe("syzygy Strß");
   });
 });
+
+import { feedbackPreview, transformLabel, FEEDBACK_PREVIEW_MAX } from "./text-transform";
+
+describe("copy feedback", () => {
+  it("shows short results as they are", () => {
+    expect(feedbackPreview("Hll Wrld")).toBe("Hll Wrld");
+  });
+
+  it("flattens multi-line results onto one line", () => {
+    expect(feedbackPreview("line one\n\n  line two\tend")).toBe("line one line two end");
+  });
+
+  it("cuts long results with an ellipsis at the limit", () => {
+    const out = feedbackPreview("x".repeat(100));
+    expect([...out].length).toBe(FEEDBACK_PREVIEW_MAX);
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("never splits a surrogate pair", () => {
+    const out = feedbackPreview("😀".repeat(60));
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect([...out].length).toBe(FEEDBACK_PREVIEW_MAX);
+  });
+
+  it("says when the result is empty", () => {
+    expect(feedbackPreview("   ")).toBe("(leer)");
+    expect(feedbackPreview("aeiou".replace(/[aeiou]/g, ""))).toBe("(leer)");
+  });
+
+  it("labels transforms by their chip label", () => {
+    expect(transformLabel("remove-vowels")).toBe("Remove vowels");
+    expect(transformLabel("base64-encode")).toBe("Base64 encode");
+  });
+});

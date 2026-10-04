@@ -94,20 +94,20 @@ export const COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "g",
-    aliases: ["ddg", "gh", "yt", "npm", "crates", "so", "mdn", "wiki"],
+    aliases: ["ddg", "gh", "yt", "npm", "crates", "so", "wiki"],
     category: CAT_WEB,
     version_added: "0.76.0",
     tagline: "Web-search bangs — open a site's search for the query.",
     tagline_de: "Web-Such-Bangs — die Suche einer Seite für die Anfrage öffnen.",
-    synopsis: "g|ddg|gh|yt|npm|crates|so|mdn|wiki <query>",
+    synopsis: "g|ddg|gh|yt|npm|crates|so|wiki <query>",
     description:
-      "A DuckDuckGo-style 'bang' opens a specific site's search results for your query in the browser: `g` Google, `ddg` DuckDuckGo, `gh` GitHub, `yt` YouTube, `npm` npm, `crates` crates.io, `so` Stack Overflow, `mdn` MDN, `wiki` Wikipedia. Data-driven — adding a bang is one map entry.",
+      "A DuckDuckGo-style 'bang' opens a specific site's search results for your query in the browser: `g` Google, `ddg` DuckDuckGo, `gh` GitHub, `yt` YouTube, `npm` npm, `crates` crates.io, `so` Stack Overflow, `wiki` Wikipedia. Data-driven — adding a bang is one map entry.",
     arguments: [{ name: "query", required: true, description: "Search terms (rest of the line).", default: undefined }],
     flags: [],
     examples: [
       { input: "gh tauri clipboard", result: "Opens GitHub search for 'tauri clipboard'." },
       { input: "crates serde", result: "Opens crates.io search for 'serde'." },
-      { input: "mdn addEventListener", result: "Opens MDN search." },
+      { input: "wiki Bauhaus", result: "Opens the Wikipedia search for 'Bauhaus'." },
     ],
     tips: ["The query is URL-encoded, so spaces and symbols are safe."],
     caveats: ["Opens your browser (the search request happens there)."],
@@ -245,7 +245,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline: "Strip vowels from the text → clipboard.",
     tagline_de: "Vokale aus dem Text entfernen → Clipboard.",
     synopsis: "rmvvls <text>",
-    description: "Removes all vowels (aeiou + AEIOU + ä/ö/ü) from the text and puts the result on the clipboard — a compact-writing / obfuscation gag.",
+    description: "Removes all vowels (aeiou + AEIOU + ä/ö/ü) from the text and puts the result on the clipboard — a compact-writing / obfuscation gag. A toast confirms the copy and shows the result.",
     arguments: [{ name: "text", required: true, description: "The text to strip.", default: undefined }],
     flags: [],
     examples: [

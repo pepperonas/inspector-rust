@@ -65,6 +65,7 @@ import {
   retroToggleLens,
 } from "./lib/ipc";
 import { findRetroPalette, parseRetroArg } from "./lib/retro";
+import { feedbackPreview } from "./lib/copy-feedback";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
 const ClaudeLimitsPanel = lazy(() =>
@@ -4014,7 +4015,16 @@ function App() {
             out = decodeJwt((await readText()) ?? "");
           }
           await writeText(out);
-          await hidePopup();
+          // showStatusToast hides the popup itself and confirms the copy — a
+          // bare clipboard write gave no sign that anything happened.
+          const what: Record<string, string> = {
+            uuid: "UUID",
+            slug: "Slug",
+            hash: "SHA-256",
+            json: "JSON formatted",
+            jwt: "JWT decoded",
+          };
+          await showStatusToast("copy", true, "Copied to clipboard", `${what[commandKind]} · ${feedbackPreview(out)}`);
         } catch (e) {
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
@@ -4151,8 +4161,9 @@ function App() {
         }
         await hidePopup();
       } else if (commandKind === "rmvvls") {
-        await removeVowelsToClipboard(arg);
-        await hidePopup();
+        const out = await removeVowelsToClipboard(arg);
+        // The toast hides the popup itself and says what was copied.
+        await showStatusToast("copy", true, "Copied to clipboard", `Remove vowels · ${feedbackPreview(out)}`);
       } else if (commandKind === "reboot") {
         // Destructive: real native confirmation (window.confirm is unreliable
         // in the webview — it can auto-pass without showing anything).

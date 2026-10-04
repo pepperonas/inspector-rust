@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import type { ClipEntry, ListEntry } from "../lib/types";
 
 const { commitTransformedText, socialYtdlpAvailable, imageChromaticity } = vi.hoisted(() => ({
@@ -45,6 +45,9 @@ function textClip(text: string, over: Partial<ClipEntry> = {}): ListEntry {
     },
   };
 }
+
+/** The transform bar is lazy-loaded — wait until its hint is on screen. */
+const bar = () => screen.findByTitle(/Copy this entry in another shape/);
 
 /** The mono `<pre>` the clip body renders into. */
 const body = () => document.querySelector("pre") as HTMLPreElement;
@@ -112,18 +115,20 @@ describe("PreviewPanel — long-text cap", () => {
 });
 
 describe("PreviewPanel — transform bar reveal", () => {
-  it("shows a discoverable hint instead of nothing while the modifier is up", () => {
+  it("shows a discoverable hint instead of nothing while the modifier is up", async () => {
     // Pre-v0.93.2 this slot rendered `null`, so the whole feature was invisible
     // until you already knew about it.
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
 
     const hint = screen.getByTitle(/Copy this entry in another shape/);
     expect(hint.textContent).toMatch(/for formatting options/);
     expect(screen.queryByText("UPPERCASE")).toBeNull();
   });
 
-  it("reveals the chips while the modifier is held, and hides them on release", () => {
+  it("reveals the chips while the modifier is held, and hides them on release", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
 
     fireEvent.keyDown(window, { key: "Meta", ...MOD });
     expect(screen.getByText("UPPERCASE")).toBeTruthy();
@@ -134,8 +139,9 @@ describe("PreviewPanel — transform bar reveal", () => {
     expect(screen.getByTitle(/Copy this entry in another shape/)).toBeTruthy();
   });
 
-  it("clicking the hint PINS the chips open for mouse users", () => {
+  it("clicking the hint PINS the chips open for mouse users", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
     fireEvent.click(screen.getByTitle(/Copy this entry in another shape/));
 
     expect(screen.getByText("UPPERCASE")).toBeTruthy();
@@ -145,8 +151,9 @@ describe("PreviewPanel — transform bar reveal", () => {
     expect(screen.getByText("UPPERCASE")).toBeTruthy();
   });
 
-  it("the pinned bar can be collapsed again", () => {
+  it("the pinned bar can be collapsed again", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
     fireEvent.click(screen.getByTitle(/Copy this entry in another shape/));
 
     fireEvent.click(screen.getByLabelText("Hide the formatting options"));
@@ -155,7 +162,7 @@ describe("PreviewPanel — transform bar reveal", () => {
     expect(screen.getByTitle(/Copy this entry in another shape/)).toBeTruthy();
   });
 
-  it("offers the same transforms on an RTF clip's plain-text representation", () => {
+  it("offers the same transforms on an RTF clip's plain-text representation", async () => {
     render(
       <PreviewPanel
         entry={textClip("Mit freundlichen Grüßen", { content_type: "rtf", content_data: "{\\rtf1}" })}
@@ -166,12 +173,18 @@ describe("PreviewPanel — transform bar reveal", () => {
     expect(screen.getByText("UPPERCASE")).toBeTruthy();
   });
 
-  it("withholds the transform bar from an RTF clip with no text representation", () => {
+  it("withholds the transform bar from an RTF clip with no text representation", async () => {
     render(
       <PreviewPanel
         entry={textClip("", { content_type: "rtf", content_text: "", content_data: "{\\rtf1}" })}
       />,
     );
+    // The bar is lazy: let its module load first, otherwise "absent" would
+    // be trivially true.
+    await act(async () => {
+      await import("./TransformBar");
+      await new Promise((r) => setTimeout(r, 20));
+    });
     expect(screen.queryByTitle(/Copy this entry in another shape/)).toBeNull();
   });
 });
@@ -180,6 +193,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
   it("records the source id and the transform kind, not just the result", async () => {
     // The lineage rail in the list is drawn from exactly these two arguments.
     render(<PreviewPanel entry={textClip("hello", { id: 77 })} />);
+    await bar();
     fireEvent.click(screen.getByTitle(/Copy this entry in another shape/));
 
     fireEvent.click(screen.getByText("UPPERCASE"));
@@ -190,6 +204,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
 
   it("runs the digit-bound transforms via Cmd/Ctrl+1…9 without opening the bar", async () => {
     render(<PreviewPanel entry={textClip("hello world", { id: 5 })} />);
+    await bar();
 
     fireEvent.keyDown(window, { key: "2", ...MOD }); // 2 = UPPERCASE
     await waitFor(() => expect(commitTransformedText).toHaveBeenCalledTimes(1));
@@ -203,6 +218,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
   it("binds Cmd/Ctrl+^ to plain-text regardless of the Shift state", async () => {
     // `^` needs Shift on US layouts but is a bare key on German ISO.
     render(<PreviewPanel entry={textClip("hello", { id: 5 })} />);
+    await bar();
 
     fireEvent.keyDown(window, { key: "^", ...MOD });
     await waitFor(() => expect(commitTransformedText).toHaveBeenCalledTimes(1));
@@ -214,6 +230,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
 
   it("ignores Shift+digit, which types punctuation on US layouts", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
     fireEvent.keyDown(window, { key: "2", shiftKey: true, ...MOD });
     await Promise.resolve();
     expect(commitTransformedText).not.toHaveBeenCalled();
@@ -221,6 +238,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
 
   it("ignores a bare digit — it belongs in the search bar", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
     fireEvent.keyDown(window, { key: "2" });
     await Promise.resolve();
     expect(commitTransformedText).not.toHaveBeenCalled();
@@ -228,6 +246,7 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
 
   it("leaves Alt+Cmd/Ctrl+digit alone", async () => {
     render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
     fireEvent.keyDown(window, { key: "2", altKey: true, ...MOD });
     await Promise.resolve();
     expect(commitTransformedText).not.toHaveBeenCalled();
@@ -238,12 +257,51 @@ describe("PreviewPanel — transforms commit a NEW entry with lineage", () => {
     commitTransformedText.mockRejectedValueOnce(new Error("db locked"));
     try {
       render(<PreviewPanel entry={textClip("hello")} />);
+      await bar();
       fireEvent.keyDown(window, { key: "2", ...MOD });
 
       await waitFor(() => expect(err).toHaveBeenCalled());
       expect(body().textContent).toBe("hello"); // still rendered
     } finally {
       err.mockRestore();
+    }
+  });
+});
+
+describe("PreviewPanel — transforms confirm the copy", () => {
+  it("shows what was copied, also when the chips are hidden (⌘1 shortcut)", async () => {
+    render(<PreviewPanel entry={textClip("Hello World", { id: 9 })} />);
+    await bar();
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.keyDown(window, { key: "1", ...MOD }); // 1 = Remove vowels
+    const toast = await screen.findByRole("status");
+    expect(toast.textContent).toContain("Copied · Remove vowels");
+    expect(toast.textContent).toContain("Hll Wrld");
+  });
+
+  it("confirms only after the write succeeded and says so when it failed", async () => {
+    commitTransformedText.mockRejectedValueOnce(new Error("no clipboard"));
+    render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
+    fireEvent.keyDown(window, { key: "2", ...MOD });
+    const toast = await screen.findByRole("status");
+    expect(toast.textContent).toContain("Clipboard write failed");
+    expect(toast.textContent).not.toContain("Copied");
+  });
+
+  it("disappears again on its own", async () => {
+    render(<PreviewPanel entry={textClip("hello")} />);
+    await bar();
+    vi.useFakeTimers();
+    try {
+      fireEvent.keyDown(window, { key: "2", ...MOD });
+      await vi.waitFor(() => expect(screen.getByRole("status")).toBeTruthy());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

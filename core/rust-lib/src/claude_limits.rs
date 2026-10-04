@@ -121,6 +121,10 @@ pub struct LimitsStatus {
     /// While a 429 backoff runs: when the next attempt is allowed.
     pub retry_at_ms: Option<i64>,
     pub poll_minutes: u32,
+    /// Codex limits from its local session files (no network).
+    pub codex: Option<crate::agent_limits::CodexLimits>,
+    /// Antigravity's last recorded quota block (from its logs).
+    pub antigravity: Option<crate::agent_limits::AntigravityQuota>,
 }
 
 // ── Pure parser ─────────────────────────────────────────────────────────────
@@ -512,6 +516,9 @@ pub fn status(db: &DbHandle, force: bool) -> LimitsStatus {
             }
         }
     }
+    // Local files — read before taking the lock.
+    let codex = crate::agent_limits::codex();
+    let antigravity = crate::agent_limits::antigravity();
     let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
     LimitsStatus {
         report: s.report.clone(),
@@ -520,6 +527,8 @@ pub fn status(db: &DbHandle, force: bool) -> LimitsStatus {
         error_detail: s.error_detail.clone(),
         retry_at_ms: s.retry_at_ms.filter(|r| *r > now),
         poll_minutes: poll,
+        codex,
+        antigravity,
     }
 }
 

@@ -23,6 +23,7 @@ import {
   limitsErrorText,
   limitsPhase,
   relativeReset,
+  sinceLabel,
   standLabel,
   type LimitTone,
 } from "../lib/claude-limits";
@@ -84,6 +85,15 @@ function LimitRow({ l, now }: { l: ClaudeLimit; now: number }) {
   );
 }
 
+function SectionTitle({ title, note }: { title: string; note?: string }) {
+  return (
+    <div className="flex items-baseline justify-between px-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--color-muted)]">
+      <span>{title}</span>
+      {note && <span className="font-normal normal-case tracking-normal">{note}</span>}
+    </div>
+  );
+}
+
 export function ClaudeLimitsPanel({
   focused,
   onExit,
@@ -112,6 +122,8 @@ export function ClaudeLimitsPanel({
           error_detail: null,
           retry_at_ms: null,
           poll_minutes: prev?.poll_minutes ?? 5,
+          codex: prev?.codex ?? null,
+          antigravity: prev?.antigravity ?? null,
         }));
     } finally {
       if (my === seq.current) setLoading(false);
@@ -219,6 +231,9 @@ export function ClaudeLimitsPanel({
             <Loader2 size={14} className="animate-spin" /> lädt…
           </div>
         )}
+        {(report || st?.codex || st?.antigravity) && (
+          <SectionTitle title="Claude" />
+        )}
         {report && (
           <div className="flex flex-col gap-1.5">
             {report.limits.map((l) => (
@@ -254,6 +269,44 @@ export function ClaudeLimitsPanel({
                 Ältere API-Form (five_hour / seven_day) — weniger Details.
               </div>
             )}
+          </div>
+        )}
+
+        {st?.codex && (
+          <div className="flex flex-col gap-1.5">
+            <SectionTitle
+              title={`Codex${st.codex.plan ? ` · ${st.codex.plan}` : ""}`}
+              note={
+                st.codex.as_of
+                  ? `Stand ${sinceLabel(Date.parse(st.codex.as_of), now)} (letzte Codex-Nutzung)`
+                  : undefined
+              }
+            />
+            {st.codex.limits.map((l) => (
+              <LimitRow key={l.id} l={l} now={now} />
+            ))}
+          </div>
+        )}
+
+        {st?.antigravity && (
+          <div className="flex flex-col gap-1.5">
+            <SectionTitle title="Antigravity" />
+            <div className="rounded-lg bg-[color:var(--color-surface)] px-3 py-2 text-[12px]">
+              {st.antigravity.blocked && st.antigravity.resets_at ? (
+                <>
+                  <div className="font-medium text-rose-600">Kontingent erschöpft</div>
+                  <div className="mt-0.5 text-[color:var(--color-muted)]">
+                    Wieder frei {relativeReset(Date.parse(st.antigravity.resets_at), now)} ·{" "}
+                    {absoluteReset(Date.parse(st.antigravity.resets_at))}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[color:var(--color-fg)]">Keine aktive Sperre bekannt</div>
+              )}
+              <div className="mt-1 text-[11px] text-[color:var(--color-muted)]">
+                Antigravity zeigt lokal keine Prozente — nur, wann ein Limit erreicht wurde.
+              </div>
+            </div>
           </div>
         )}
       </div>

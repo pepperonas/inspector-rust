@@ -971,7 +971,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "limits",
     syntax: "limits",
     description:
-      "Claude subscription limits — session, week, per-model week and extra usage, with reset times",
+      "Usage limits of Claude, Codex and Antigravity — session, week, per-model week, with reset times",
     requiresArg: false,
   },
   {

@@ -108,6 +108,7 @@ mod text_field;
 mod timer;
 mod token_usage;
 mod claude_limits;
+mod agent_limits;
 mod totp_import;
 mod totp_store;
 mod tracking;

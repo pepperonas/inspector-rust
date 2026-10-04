@@ -58,12 +58,30 @@ exponentially (doubling from the interval, honouring `Retry-After`, capped at
 Nothing polls while the panel is closed. R forces a refresh (except during a
 backoff).
 
+## Codex and Antigravity
+
+Both are read from **local files only** — no network, no token.
+
+- **Codex** writes its limits into every `token_count` event of
+  `~/.codex/sessions/**/*.jsonl` (`rate_limits.limit_id == "codex"`,
+  `primary`/`secondary` with `used_percent`, `window_minutes`, `resets_at`).
+  The newest event wins; events with another `limit_id` (e.g. `premium`, null
+  windows) are skipped. A window whose `resets_at` has passed shows 0 %. The
+  values are as fresh as the last Codex turn — the panel says when that was.
+  Parsed files are cached by path + mtime.
+- **Antigravity** exposes no percentages. Its CLI logs
+  (`~/.gemini/antigravity-cli/log/cli-YYYYMMDD_HHMMSS.log`) contain a line
+  when a request hits the wall: `E1003 06:09:48… Individual quota reached. …
+  Resets in 88h4m0s.` From the newest such line the panel shows "Kontingent
+  erschöpft, wieder frei …" or "Keine aktive Sperre bekannt". Hidden when
+  Antigravity isn't installed.
+
 ## Code
 
 `core/rust-lib/src/claude_limits.rs` (parser, token read, cache/backoff —
 pure parts unit-tested) · IPC `claude_limits_status`, `set_claude_limits_poll`
 · `core/frontend/src/lib/claude-limits.ts` (formatting, phase) ·
-`components/ClaudeLimitsPanel.tsx`.
+`components/ClaudeLimitsPanel.tsx` · `core/rust-lib/src/agent_limits.rs` (Codex / Antigravity).
 
 Live check (prints names and percentages only):
 `cargo test -p inspector-rust-core --lib claude_limits_live -- --ignored --nocapture`

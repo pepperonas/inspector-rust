@@ -7,6 +7,7 @@ import {
   limitsErrorText,
   limitsPhase,
   relativeReset,
+  sinceLabel,
   standLabel,
 } from "./claude-limits";
 
@@ -61,5 +62,12 @@ describe("claude-limits helpers", () => {
     expect(limitsPhase(true, "limits.rate_limited", now, 5, now)).toBe("veraltet");
     expect(limitsPhase(true, null, now - 11 * 60_000, 5, now)).toBe("veraltet");
     expect(limitsPhase(true, null, now - 4 * 60_000, 5, now)).toBe("aktuell");
+  });
+
+  it("since label", () => {
+    expect(sinceLabel(0, 30_000)).toBe("gerade eben");
+    expect(sinceLabel(0, 12 * 60_000)).toBe("vor 12 Min.");
+    expect(sinceLabel(0, 3 * 3600_000)).toBe("vor 3 Std.");
+    expect(sinceLabel(0, 50 * 3600_000)).toBe("vor 2 T.");
   });
 });

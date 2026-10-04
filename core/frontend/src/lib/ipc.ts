@@ -2829,6 +2829,10 @@ export interface ClaudeLimitsStatus {
   error_detail: string | null;
   retry_at_ms: number | null;
   poll_minutes: number;
+  /** Codex limits from its local session files (null = no Codex data). */
+  codex: { plan: string | null; as_of: string | null; limits: ClaudeLimit[] } | null;
+  /** Antigravity's last recorded quota block (null = not installed). */
+  antigravity: { blocked: boolean; resets_at: string | null; hit_at: string | null } | null;
 }
 
 /** Cached-or-fresh Claude limits (Rust decides whether the network is due). */

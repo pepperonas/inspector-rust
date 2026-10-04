@@ -115,4 +115,15 @@ export function limitsPhase(
   return "aktuell";
 }
 
+/** "gerade eben", "vor 12 Min.", "vor 3 Std.", "vor 2 T." */
+export function sinceLabel(thenMs: number, nowMs: number): string {
+  const d = nowMs - thenMs;
+  if (!Number.isFinite(d) || d < 60_000) return "gerade eben";
+  const min = Math.floor(d / 60_000);
+  if (min < 60) return `vor ${min} Min.`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `vor ${h} Std.`;
+  return `vor ${Math.floor(h / 24)} T.`;
+}
+
 export const POLL_CHOICES = [2, 5, 10, 15, 30, 60];

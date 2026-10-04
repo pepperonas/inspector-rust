@@ -1653,11 +1653,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
     aliases: ["quota"],
     category: CAT_INFO,
     version_added: "0.190.0",
-    tagline: "Claude subscription limits — session, week, per-model, with reset times.",
-    tagline_de: "Claude-Abo-Limits — Sitzung, Woche, je Modell, mit Rücksetzzeit.",
+    tagline: "Usage limits of Claude, Codex and Antigravity, with reset times.",
+    tagline_de: "Nutzungslimits von Claude, Codex und Antigravity, mit Rücksetzzeit.",
     synopsis: "limits",
     description:
-      "Shows the usage limits of your Claude subscription the way claude.ai → Settings → Usage does: the current session, the week across all models, per-model weekly limits, extra usage and the weekly split by surface (Claude Code, chats, …). Each limit has a bar, its percentage and when it resets (relative and absolute, Europe/Berlin). Reads Claude Code's own login read-only and asks api.anthropic.com every 5 minutes while the panel is open (configurable, minimum 2). R refreshes, Esc exits.",
+      "Shows the usage limits of your Claude subscription the way claude.ai → Settings → Usage does: the current session, the week across all models, per-model weekly limits, extra usage and the weekly split by surface (Claude Code, chats, …). Each limit has a bar, its percentage and when it resets (relative and absolute, Europe/Berlin). Reads Claude Code's own login read-only and asks api.anthropic.com every 5 minutes while the panel is open (configurable, minimum 2). Below it: Codex (5-hour window and week, read from its local session files — as fresh as your last Codex turn) and Antigravity (whether its quota is used up and when it frees again, from its logs; it exposes no percentages). R refreshes, Esc exits.",
     arguments: [],
     flags: [],
     examples: [
@@ -1672,6 +1672,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     caveats: [
       "Uses an undocumented endpoint (the one Claude Code's /usage uses) — it can change without notice.",
       "Needs a Claude Code login; the token is only read, never refreshed or written. If it has expired, start Claude Code once.",
+      "Codex values are only as fresh as the last Codex turn; Antigravity only tells when a quota block was hit, not how much is left.",
     ],
     related: ["tokens", "stats"],
   },

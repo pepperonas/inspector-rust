@@ -50,6 +50,7 @@
   - ⏱️ **Time tracking / Timesheet** (`track on/off`; `track` or **`Ctrl+Shift+T`**; macOS) — opt-in, event-based app-usage tracking by window focus with retroactive idle auto-pause; an editable **Timesheet tab** with day/week views, inline-SVG charts (timeline · app donut · categories · projects), **manual Pause/Resume**, CSV + self-contained HTML export following the visible scope (day or Mon–Sun week), **week-wide cleanup**, and a global **toggle-tracking hotkey** (`Ctrl+Shift+Alt+T`, rebindable); detects **Claude Code** usage per project (time + tokens); an optional **browser extension** (loopback socket only). Window titles + URLs encrypted at rest.
   - 📊 **System stats** (`stats`) — live inline dashboard: CPU (overall + per-core), memory + swap, **battery & power draw in watts**, temperatures + **fan RPM** (SMC / hwmon), disks, live network throughput, uptime. **Live ↔ History** toggle with per-metric line charts (1 h / 6 h / 24 h / 7 d).
   - 📈 **AI usage limits — `limits` / `quota`** *(v0.190.0+)* — your **Claude** subscription limits as claude.ai shows them (session, week, per-model week, extra usage, weekly split by surface), each with a bar, percentage and reset time (relative + Berlin time). Below: **Codex** (5-hour window and week, read from its local session files — no network) and **Antigravity** (quota used up / free again at, from its logs). Claude Code's login is read **read-only** — never refreshed, never written back; polls every 5 min only while the panel is open, backs off on 429. [Details](./docs/claude-limits.md)
+  - 👾 **Live retro overlay — `8bit` / `16bit`** *(v0.190.0+, macOS; Windows runtime-unverified)* — your whole screen, live, in retro style while you keep working: pixelation, a fixed palette (NES, C64, PICO-8, Game Boy, CGA, greyscale) or a reduced colour depth per channel (SNES, Mega Drive, Amiga), Bayer dithering, scanlines, CRT curvature. A **focus mode** draws the active window finer and a **cursor lens** shows the area under the mouse in detail, so text stays readable; stage 2 adds retro dialog frames with pixel-font titles and a sprite cursor. Settings panel with live preview and presets; ⌃⇧⌥8 starts and stops it from anywhere. ScreenCaptureKit → Metal shader, zero copy. [Details](./docs/8bit.md)
   - ☀️ **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview for built-in *and* external displays (**↑↓** pick a monitor, **←→** adjust). Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux. On **EDR-capable Macs** (14"/16" MBP XDR, Pro Display XDR) the *same* slider runs **past 100 %** to push the display into its **extra-brightness (EDR/XDR) range** — Vivid-style, up to ~7× — via a multiply-blend Metal overlay; macOS thermal-throttles it automatically (same path as HDR video, within spec).
   - 💡 **Philips Hue** (`hue`) — control your lamps inline: all-lamps on/off + brightness, per-lamp brightness, and 8 colour-preset swatches on colour bulbs. Plus a **Beat-sync** disco that pulses the lamps to music from the mic. Local LAN pairing (discover or enter IP + link button); no cloud.
   - 🖐️ **Touchpad gestures** (opt-in) — **3-finger swipe** up/down for volume (consistent 5 % grid steps), **3-finger tap** to mute, and **tip-tap tab switching** (macOS): rest **two** fingers, tap a third to their right/left → next/previous tab, sending **each app's own shortcut** automatically (Ctrl+Tab for browsers/terminals/Finder, ⌘⌥→/← for VS Code/Cursor, ⇧⌘]/[ for JetBrains/Xcode — resolved for your keyboard layout, e.g. ⌥6 on German). Per-app map ships as a data file + a user-override JSON (`tab-shortcuts.json` in the app data dir) — add any app with one entry, no rebuild. **Palm rejection** (macOS): a hand heel resting on the pad never counts as a gesture finger (size + rest + per-finger-movement guards, libinput/Karabiner-style) — no more accidental volume swipes while scrolling. **Reliable tap recognition**: light multi-finger taps that the trackpad reports as sequential single touches are coalesced into one clean tap (settle-based recognition) — a 3-finger tap toggles mute exactly once, and one drifting finger can't turn a tap into a volume swipe. macOS via the private MultitouchSupport API (consumes the swipe so the app underneath doesn't scroll); Windows Precision Touchpad; Linux libinput.
@@ -85,7 +86,7 @@
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code (Rust + TypeScript source)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~197k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~198k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 1842 Rust + 2978 frontend, all passing">
@@ -315,9 +316,9 @@
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
   [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~102k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~103k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~95k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-190-0ea5e9?style=flat-square)](./features.txt)
+  [![Features](https://img.shields.io/badge/features-191-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
   [![Audio presets](https://img.shields.io/badge/boom-20%20EQ%20presets-1DB954?style=flat-square)](#)
   [![Material colours](https://img.shields.io/badge/snippets-255%20colours-blueviolet?style=flat-square)](#)
@@ -371,12 +372,14 @@
   [![Reduced motion](https://img.shields.io/badge/a11y-prefers--reduced--motion-2ea043?style=flat-square)](#)
   [![Snippet versioning](https://img.shields.io/badge/snippets-content%20versioning-1f6feb?style=flat-square)](./docs/snippets-import.md)
   [![AI usage limits](https://img.shields.io/badge/limits-Claude%20·%20Codex%20·%20Antigravity-D97757?style=flat-square&logo=anthropic&logoColor=white)](./docs/claude-limits.md)
+  [![Retro overlay](https://img.shields.io/badge/8bit-live%20retro%20overlay-7C3AED?style=flat-square)](./docs/8bit.md)
   [![Read-only login](https://img.shields.io/badge/limits-read--only%20token-2ea043?style=flat-square)](./docs/claude-limits.md)
   [![Codex local](https://img.shields.io/badge/Codex-local%20session%20files-412991?style=flat-square&logo=openai&logoColor=white)](./docs/claude-limits.md)
 
   <!-- ── Tech (even more) ────────────────────────────────────── -->
   [![OpenWeatherMap](https://img.shields.io/badge/OpenWeather-forecast%20API-EB6E4B?style=flat-square)](https://openweathermap.org)
   [![Anthropic usage API](https://img.shields.io/badge/Anthropic-OAuth%20usage%20API-D97757?style=flat-square&logo=anthropic&logoColor=white)](./docs/claude-limits.md)
+  [![Metal](https://img.shields.io/badge/macOS-ScreenCaptureKit%20%2B%20Metal-000000?style=flat-square&logo=apple&logoColor=white)](./docs/8bit.md)
   [![Frankfurter](https://img.shields.io/badge/rates-ECB%20via%20Frankfurter-1f6feb?style=flat-square)](./docs/convert.md)
   [![CoinGecko](https://img.shields.io/badge/crypto-CoinGecko-8DC63F?style=flat-square)](./docs/convert.md)
   [![ip-api](https://img.shields.io/badge/ip--api-geolocation-1f6feb?style=flat-square)](https://ip-api.com)
@@ -408,7 +411,7 @@
   [![Espresso-powered](https://img.shields.io/badge/powered%20by-espresso-6F4E37?style=flat-square)](#)
   [![Zero config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
   [![No account](https://img.shields.io/badge/account-not%20required-brightgreen?style=flat-square)](#)
-  [![100+ features](https://img.shields.io/badge/features-190%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ features](https://img.shields.io/badge/features-191%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro games](https://img.shields.io/badge/hidden-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
   [![Share on LinkedIn](https://img.shields.io/badge/share%20on-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 

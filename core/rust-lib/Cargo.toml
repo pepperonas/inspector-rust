@@ -140,6 +140,25 @@ windows = { version = "0.61", features = [
     "Graphics_Imaging",
     "Media_Ocr",
     "Storage_Streams",
+    # Retro overlay (retro/windows.rs): Windows.Graphics.Capture → D3D11 →
+    # DirectComposition, WinEvent focus tracking, session/power notices.
+    "Foundation",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Dwm",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
+    "Win32_System_RemoteDesktop",
+    "Win32_UI_HiDpi",
 ] }
 
 # Linux-only: libinput (touchpad gestures, gestures/linux.rs). `input` wraps

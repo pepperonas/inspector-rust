@@ -23,6 +23,8 @@ pub mod frame;
 pub mod macos;
 #[cfg(target_os = "macos")]
 pub mod macos_focus;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 use std::sync::OnceLock;
 

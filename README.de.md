@@ -50,6 +50,7 @@
   - ⏱️ **Zeiterfassung / Timesheet** (`track on/off`; `track` oder **`Ctrl+Shift+T`**; macOS) — opt-in, event-basierte App-Nutzungserfassung per Fensterfokus mit rückwirkender Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tages-/Wochen-Ansicht, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Projekte), **manueller Pause/Weiter-Taste**, CSV- + eigenständigem HTML-Export im sichtbaren Umfang (Tag oder Mo–So-Woche), **wochenweitem Aufräumen** und globalem **Tracking-Hotkey** (`Ctrl+Shift+Alt+T`, umbelegbar); erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); optionale **Browser-Extension** (nur Loopback-Socket). Fenstertitel + URLs at-rest verschlüsselt.
   - 📊 **System-Stats** (`stats`) — Live-Inline-Dashboard: CPU (gesamt + pro Kern), Speicher + Swap, **Akku & Leistungsaufnahme in Watt**, Temperaturen + **Lüfter-RPM** (SMC / hwmon), Disks, Live-Netzwerk-Durchsatz, Uptime. **Live ↔ History**-Umschalter mit Linien-Charts pro Metrik (1 h / 6 h / 24 h / 7 d).
   - 📈 **KI-Nutzungslimits — `limits` / `quota`** *(v0.190.0+)* — die Limits deines **Claude**-Abos wie auf claude.ai (Sitzung, Woche, Woche je Modell, zusätzliche Nutzung, Wochenanteil je Bereich), je mit Balken, Prozent und Rücksetzzeit (relativ + Berliner Zeit). Darunter **Codex** (5-Stunden-Fenster und Woche aus seinen lokalen Session-Dateien — ohne Netz) und **Antigravity** (Kontingent erschöpft / wieder frei ab, aus seinen Logs). Der Claude-Code-Login wird **nur gelesen** — nie erneuert, nie zurückgeschrieben; fragt alle 5 Min. nur bei offenem Panel, bei 429 mit Backoff. [Details](./docs/claude-limits.md)
+  - 👾 **Live-Retro-Overlay — `8bit` / `16bit`** *(v0.190.0+, macOS; Windows nicht im Betrieb geprüft)* — dein ganzer Bildschirm live in Retro-Optik, während du normal weiterarbeitest: Pixelung, feste Palette (NES, C64, PICO-8, Game Boy, CGA, Graustufen) oder reduzierte Farbtiefe pro Kanal (SNES, Mega Drive, Amiga), Bayer-Dithering, Scanlines, CRT-Krümmung. Ein **Fokus-Modus** zeichnet das aktive Fenster feiner, eine **Cursor-Lupe** zeigt den Bereich unter der Maus im Detail, so bleibt Text lesbar; Stufe 2 bringt Retro-Fensterrahmen mit Pixelschrift-Titeln und einen Sprite-Cursor. Einstellungs-Panel mit Live-Vorschau und Presets; ⌃⇧⌥8 schaltet von überall an und aus. ScreenCaptureKit → Metal-Shader, ohne Kopie. [Details](./docs/8bit.md)
   - ☀️ **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau für interne *und* externe Displays (**↑↓** Monitor wählen, **←→** anpassen). Software-(Gamma-)Dimming auf macOS + Windows, Hardware-DDC/CI auf Linux. Auf **EDR-fähigen Macs** (14"/16" MBP XDR, Pro Display XDR) läuft *derselbe* Slider **über 100 %** hinaus und hebt das Display in seinen **Extra-Helligkeits-Bereich (EDR/XDR)** — Vivid-Stil, bis ~7× — via Multiply-Blend-Metal-Overlay; macOS drosselt thermisch automatisch (gleicher Pfad wie HDR-Video, innerhalb der Spezifikation).
   - 💡 **Philips Hue** (`hue`) — steuere deine Lampen inline: Alle-Lampen an/aus + Helligkeit, Helligkeit pro Lampe, 8 Farb-Preset-Swatches auf Farb-Bulbs. Plus eine **Beat-Sync**-Disco, die die Lampen zur Musik vom Mikro pulsen lässt. Lokales LAN-Pairing (Discovery oder IP + Link-Button); keine Cloud.
   - 🖐️ **Touchpad-Gesten** (opt-in) — **3-Finger-Swipe** hoch/runter für Lautstärke (konsistente 5-%-Raster-Schritte), **3-Finger-Tap** zum Stummschalten, plus **Tip-Tap-Tab-Wechsel** (macOS): **zwei** Finger auflegen, mit einem dritten rechts/links daneben tippen → nächster/voriger Tab — dabei sendet IR automatisch **den passenden Shortcut jeder App** (Ctrl+Tab für Browser/Terminals/Finder, ⌘⌥→/← für VS Code/Cursor, ⇧⌘]/[ für JetBrains/Xcode — layoutbewusst aufgelöst, z. B. ⌥6 auf Deutsch). Die Per-App-Zuordnung ist eine mitgelieferte Daten-Datei + User-Override-JSON (`tab-shortcuts.json` im App-Datenordner) — jede weitere App ist ein Eintrag, kein Rebuild. **Palm-Rejection** (macOS): ein aufliegender Handballen zählt nie als Gestenfinger (Größen- + Ruhe- + Bewegungs-Guards, libinput-/Karabiner-Stil) — keine versehentlichen Lautstärke-Swipes mehr beim Scrollen. **Zuverlässige Tap-Erkennung**: leichte Mehr-Finger-Taps, die das Trackpad als aufeinanderfolgende Einzel-Berührungen meldet, werden zu einem sauberen Tap zusammengefasst (Settle-basierte Erkennung) — ein 3-Finger-Tap toggelt Mute exakt einmal, und ein leicht driftender Finger macht aus einem Tap keinen Lautstärke-Swipe. macOS via die private MultitouchSupport-API (schluckt den Swipe, damit das Fenster darunter nicht scrollt); Windows Precision Touchpad; Linux libinput.
@@ -85,7 +86,7 @@
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~197k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~198k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1842 Rust + 2978 Frontend, alle grün">
@@ -240,9 +241,9 @@
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
   [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~102k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~103k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~95k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-190-0ea5e9?style=flat-square)](./features.txt)
+  [![Features](https://img.shields.io/badge/features-191-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
   [![Audio presets](https://img.shields.io/badge/boom-20%20EQ%20presets-1DB954?style=flat-square)](#)
   [![Material colours](https://img.shields.io/badge/snippets-255%20colours-blueviolet?style=flat-square)](#)
@@ -371,12 +372,14 @@
   [![Reduced Motion](https://img.shields.io/badge/a11y-prefers--reduced--motion-2ea043?style=flat-square)](#)
   [![Snippet-Versionierung](https://img.shields.io/badge/snippets-Inhalts--Versionierung-1f6feb?style=flat-square)](./docs/snippets-import.md)
   [![KI-Nutzungslimits](https://img.shields.io/badge/limits-Claude%20·%20Codex%20·%20Antigravity-D97757?style=flat-square&logo=anthropic&logoColor=white)](./docs/claude-limits.md)
+  [![Retro-Overlay](https://img.shields.io/badge/8bit-Live--Retro--Overlay-7C3AED?style=flat-square)](./docs/8bit.md)
   [![Login nur lesend](https://img.shields.io/badge/limits-Token%20nur%20lesend-2ea043?style=flat-square)](./docs/claude-limits.md)
   [![Codex lokal](https://img.shields.io/badge/Codex-lokale%20Session--Dateien-412991?style=flat-square&logo=openai&logoColor=white)](./docs/claude-limits.md)
 
   <!-- ── Tech (noch mehr) ────────────────────────────────────── -->
   [![OpenWeatherMap](https://img.shields.io/badge/OpenWeather-Vorhersage--API-EB6E4B?style=flat-square)](https://openweathermap.org)
   [![Anthropic usage API](https://img.shields.io/badge/Anthropic-OAuth%20usage%20API-D97757?style=flat-square&logo=anthropic&logoColor=white)](./docs/claude-limits.md)
+  [![Metal](https://img.shields.io/badge/macOS-ScreenCaptureKit%20%2B%20Metal-000000?style=flat-square&logo=apple&logoColor=white)](./docs/8bit.md)
   [![Frankfurter](https://img.shields.io/badge/rates-ECB%20via%20Frankfurter-1f6feb?style=flat-square)](./docs/convert.md)
   [![CoinGecko](https://img.shields.io/badge/crypto-CoinGecko-8DC63F?style=flat-square)](./docs/convert.md)
   [![ip-api](https://img.shields.io/badge/ip--api-Geolokalisierung-1f6feb?style=flat-square)](https://ip-api.com)
@@ -408,7 +411,7 @@
   [![Espresso-betrieben](https://img.shields.io/badge/angetrieben%20von-Espresso-6F4E37?style=flat-square)](#)
   [![Zero Config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
   [![Kein Account](https://img.shields.io/badge/account-nicht%20nötig-brightgreen?style=flat-square)](#)
-  [![100+ Features](https://img.shields.io/badge/features-190%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-191%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](https://img.shields.io/badge/versteckt-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
   [![Auf LinkedIn teilen](https://img.shields.io/badge/teilen%20auf-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 

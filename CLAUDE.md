@@ -1442,6 +1442,7 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   `get_/set_window_palette_config` · `window_palette_context` ·
   `window_palette_apply` · `window_palette_cancel` · `window_palette_preview`
   / `window_palette_preview_hide`.
+- **Density fields (`CellCountField.tsx`, `lib/palette-cells.ts`, 2026-10-04 — field report "Eingabe buggy").** The cols × rows inputs used to save EVERY keystroke and the backend clamps to 2–24, so typing "12" saved "1", came back as "2" and the next digit landed behind it ("22"); `disabled={paletteBusy}` also dropped focus mid-typing, and the field said max 16. Now the field keeps a draft: a complete in-range number saves after `CELL_DRAFT_DEBOUNCE_MS` (700) or at once on Enter/blur (blur/Enter clamp, a non-number keeps the saved value), Esc reverts, never disabled. `PALETTE_MIN/MAX_CELLS` are pinned against `MIN_CELLS`/`MAX_CELLS` in `mod.rs`. ⚠️ `updatePalette` builds on a REF of the latest config, not the render closure — cols and rows commit independently, and a second save starting from a stale copy silently undid the first. 6 mutation probes caught (one only after adding the "pause on an incomplete digit" test).
 - **Live screen-outline preview (v0.84.142).** While dragging the hex grid (and
   on preset hover) the palette calls `window_palette_preview(fx,fy,fw,fh)` →
   `macos::preview` maps the fraction → an absolute rect on the target screen and

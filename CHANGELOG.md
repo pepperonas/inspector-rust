@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+- **Hex-grid density fields (Settings → Window palette) no longer fight your typing.** Every keystroke was saved on its own, and the app corrected out-of-range values on the spot: typing 12 saved 1, which came back as 2, and the next digit landed behind it (22); the field also lost focus while a save ran. The fields now keep what you type and save on Enter, when you leave the field, or after a short pause once the number is complete; Esc throws the edit away, and an emptied field returns to the saved value. The fields accept 2–24 as the backend always did (they showed 16 as the maximum), and saving columns and rows in quick succession no longer lets one undo the other.
+
 ## [0.190.0] - 2026-10-04
 
 ### Added

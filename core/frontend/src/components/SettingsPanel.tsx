@@ -1,3 +1,4 @@
+import { CellCountField } from "./CellCountField";
 import { appVersion as fetchAppVersion } from "../lib/ipc";
 import { useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
@@ -450,16 +451,33 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       .then(setPaletteCfg)
       .catch(() => setPaletteCfg(null));
   }, []);
+  // The LATEST config, not the one this render closed over: the density
+  // fields save columns and rows independently, and a second save that
+  // started from a stale copy would silently undo the first.
+  const paletteRef = useRef<WindowPaletteConfig | null>(null);
+  useEffect(() => {
+    paletteRef.current = paletteCfg;
+  }, [paletteCfg]);
   const updatePalette = async (patch: Partial<WindowPaletteConfig>) => {
-    if (!paletteCfg) return;
+    const base = paletteRef.current;
+    if (!base) return;
     setPaletteBusy(true);
-    const next = { ...paletteCfg, ...patch };
+    const next = { ...base, ...patch };
+    paletteRef.current = next;
     setPaletteCfg(next);
     try {
-      setPaletteCfg(await setWindowPaletteConfig(next));
+      const saved = await setWindowPaletteConfig(next);
+      // A newer edit may have started meanwhile — don't overwrite it.
+      if (paletteRef.current === next) {
+        paletteRef.current = saved;
+        setPaletteCfg(saved);
+      }
     } catch (e) {
       console.error("window-palette config failed", e);
-      setPaletteCfg(paletteCfg);
+      if (paletteRef.current === next) {
+        paletteRef.current = base;
+        setPaletteCfg(base);
+      }
     } finally {
       setPaletteBusy(false);
     }
@@ -1734,30 +1752,16 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               {paletteCfg?.enabled && (
                 <Row label="Hex grid density">
                   <div className="flex items-center gap-1.5 text-[12px]">
-                    <input
-                      type="number"
-                      min={2}
-                      max={16}
+                    <CellCountField
                       value={paletteCfg.cols}
-                      disabled={paletteBusy}
-                      onChange={(e) =>
-                        void updatePalette({ cols: Number(e.target.value) })
-                      }
-                      className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
-                      aria-label="Hex grid columns"
+                      onCommit={(cols) => void updatePalette({ cols })}
+                      label="Hex grid columns"
                     />
                     <span className="text-[var(--color-muted)]">×</span>
-                    <input
-                      type="number"
-                      min={2}
-                      max={16}
+                    <CellCountField
                       value={paletteCfg.rows}
-                      disabled={paletteBusy}
-                      onChange={(e) =>
-                        void updatePalette({ rows: Number(e.target.value) })
-                      }
-                      className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
-                      aria-label="Hex grid rows"
+                      onCommit={(rows) => void updatePalette({ rows })}
+                      label="Hex grid rows"
                     />
                     <span className="text-[var(--color-muted)]">cells</span>
                   </div>

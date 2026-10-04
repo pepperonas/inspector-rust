@@ -1,4 +1,5 @@
 import { appVersion as fetchAppVersion } from "../lib/ipc";
+import { GestureRecordRow } from "./GestureRecordRow";
 import { useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -1491,6 +1492,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     </span>
                   </label>
                 </Row>
+                {IS_MAC && (
+                  <Row label="Record a trace">
+                    <GestureRecordRow />
+                  </Row>
+                )}
               </>
             )}
           </Section>

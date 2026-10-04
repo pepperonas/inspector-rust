@@ -19,9 +19,10 @@
 //! macOS could change them; the code is fully guarded so it never crashes — at
 //! worst gestures stop until the layout is updated.
 
+use super::trace::{contact_feeds, DeviceInfo, Touch, TouchPhase};
 use super::{
-    Contact, GestureConfig, GestureEvent, GestureSink, GestureSource, PalmAwareRecognizer,
-    RawContact, TipTapRecognizer, PALM_SIZE,
+    GestureConfig, GestureEvent, GestureSink, GestureSource, PalmAwareRecognizer,
+    TipTapRecognizer,
 };
 use parking_lot::Mutex;
 use std::ffi::c_void;
@@ -152,6 +153,10 @@ struct Mt {
     stop: unsafe extern "C" fn(MTDeviceRef) -> c_int,
     /// Optional: absent on some OS builds; without it stop() just stops.
     unregister_cb: Option<unsafe extern "C" fn(MTDeviceRef, MTContactCallback)>,
+    /// Optional: built-in vs. external trackpad (per-device profiles).
+    is_builtin: Option<unsafe extern "C" fn(MTDeviceRef) -> bool>,
+    /// Optional: physical surface size, in hundredths of a millimetre.
+    surface_dims: Option<unsafe extern "C" fn(MTDeviceRef, *mut c_int, *mut c_int) -> c_int>,
 }
 
 unsafe fn load_mt() -> Option<Mt> {
@@ -167,6 +172,8 @@ unsafe fn load_mt() -> Option<Mt> {
     let start = sym(b"MTDeviceStart\0");
     let stop = sym(b"MTDeviceStop\0");
     let unregister_cb = sym(b"MTUnregisterContactFrameCallback\0");
+    let is_builtin = sym(b"MTDeviceIsBuiltIn\0");
+    let surface_dims = sym(b"MTDeviceGetSensorSurfaceDimensions\0");
     if create_list.is_null() || register_cb.is_null() || start.is_null() || stop.is_null() {
         return None;
     }
@@ -187,7 +194,79 @@ unsafe fn load_mt() -> Option<Mt> {
                 unregister_cb,
             ))
         },
+        is_builtin: if is_builtin.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef) -> bool>(is_builtin))
+        },
+        surface_dims: if surface_dims.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<
+                *mut c_void,
+                unsafe extern "C" fn(MTDeviceRef, *mut c_int, *mut c_int) -> c_int,
+            >(surface_dims))
+        },
     })
+}
+
+/// One driver contact in the platform-neutral model. y (and its velocity) are
+/// flipped so "up" is decreasing y, the convention every recogniser uses.
+fn touch_from_finger(f: &Finger) -> Touch {
+    Touch {
+        id: f.identifier,
+        x: f.normalized.pos.x as f64,
+        y: 1.0 - f.normalized.pos.y as f64,
+        vx: f.normalized.vel.x as f64,
+        vy: -(f.normalized.vel.y as f64),
+        major: f.major_axis,
+        minor: f.minor_axis,
+        angle: f.angle,
+        size: f.size,
+        phase: TouchPhase::from_mt_state(f.state),
+    }
+}
+
+/// Position of `device` in the started device list (a trace's device index).
+fn device_index(device: MTDeviceRef) -> u32 {
+    MT_DEVICES
+        .lock()
+        .iter()
+        .position(|&d| d == device as isize)
+        .unwrap_or(0) as u32
+}
+
+/// What the platform can say about each started device, in the same order as
+/// `device_index`. Both lookups are optional private symbols — `None` when the
+/// OS build doesn't have them.
+pub(crate) fn device_infos() -> Vec<DeviceInfo> {
+    let Some(mt) = *MT_API.lock() else { return Vec::new() };
+    MT_DEVICES
+        .lock()
+        .iter()
+        .map(|&d| {
+            let dev = d as MTDeviceRef;
+            let builtin = mt.is_builtin.map(|f| unsafe { f(dev) });
+            let (width_mm, height_mm) = match mt.surface_dims {
+                Some(f) => {
+                    let (mut w, mut h): (c_int, c_int) = (0, 0);
+                    unsafe { f(dev, &mut w, &mut h) };
+                    if w > 0 && h > 0 {
+                        (Some(w as f64 / 100.0), Some(h as f64 / 100.0))
+                    } else {
+                        (None, None)
+                    }
+                }
+                None => (None, None),
+            };
+            DeviceInfo { builtin, width_mm, height_mm }
+        })
+        .collect()
+}
+
+/// Milliseconds on the capture clock (the clock frames are stamped with).
+pub(crate) fn now_ms() -> Option<u64> {
+    START.get().map(|s| s.elapsed().as_millis() as u64)
 }
 
 // ── Shared state the C callback / stop() read (the callback can't capture) ───
@@ -365,44 +444,21 @@ extern "C" fn frame_callback(
             .join(" ");
         tracing::debug!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
     }
-    // Per-contact feed for the palm-aware recogniser: stable id + position
-    // (y flipped so "up" = decreasing y, matching `classify_swipe`) + the
-    // driver's contact `size` (palm rejection).
-    //
-    // Count a finger as ON THE PAD across the MAKE-TOUCH (3), TOUCHING (4) and
-    // BREAK-TOUCH (5) states — not TOUCHING alone. Field logs showed a light,
-    // quick 3-finger TAP arriving as three SEPARATE 1-finger touches
-    // (0→1→0 × 3, ~25 ms apart): its fingers take turns in state 4 while the
-    // others sit in make/break, so filtering to 4 alone SERIALISED a simultaneous
-    // tap and the 3-finger count (→ mute) was almost never reached — the gesture
-    // then did random things / collided with swipe. Make + break are still
-    // physical contact (size > 0); only HOVER (2) and LINGER/OUT (6/7) — the true
-    // leaving states — stay excluded.
-    const MT_STATE_MAKE: c_int = 3;
-    const MT_STATE_TOUCHING: c_int = 4;
-    const MT_STATE_BREAK: c_int = 5;
+    // Normalise the driver's contacts into the platform-neutral model (y
+    // flipped so "up" = decreasing y, matching `classify_swipe`), then split
+    // them into the two recogniser feeds with the SAME code the replay tests
+    // run (`trace::contact_feeds`: which states count as on the pad, which
+    // contacts tip-tap sees). Until v0.191 this filtering was inline here.
     let t_ms = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
-    let mut raw: [RawContact; 11] = [RawContact { id: 0, x: 0.0, y: 0.0, size: 0.0 }; 11];
-    let mut rn = 0usize;
-    for f in fingers.iter() {
-        let on_pad = matches!(f.state, MT_STATE_MAKE | MT_STATE_TOUCHING | MT_STATE_BREAK);
-        if !on_pad || rn >= raw.len() {
-            continue;
-        }
-        raw[rn] = RawContact {
-            id: f.identifier,
-            x: f.normalized.pos.x as f64,
-            y: 1.0 - f.normalized.pos.y as f64,
-            size: f.size,
-        };
-        rn += 1;
-    }
+    let touches: Vec<Touch> = fingers.iter().map(touch_from_finger).collect();
+    let (raw, contacts) = contact_feeds(&touches);
+    super::record_frame(t_ms, || device_index(_device), &touches);
 
     let (event, prev_active, active, pending) = {
         let mut rec = REC.lock();
         let rec = rec.get_or_insert_with(PalmAwareRecognizer::new);
         let prev_active = rec.active_fingers();
-        let ev = rec.feed(t_ms, &raw[..rn]);
+        let ev = rec.feed(t_ms, &raw);
         (ev, prev_active, rec.active_fingers(), rec.needs_tick())
     };
     if pending {
@@ -455,40 +511,9 @@ extern "C" fn frame_callback(
         }
     }
 
-    // Tip-tap runs on per-contact positions (the centroid can't tell which
-    // finger tapped). Same y-flip + on-pad state filter as above. It needs
-    // exactly 2 contacts (1 rest + 1 tap) and poisons at ≥ 3, so a 3-slot buffer
-    // is enough to both see the tap and detect "too many". Size-palms are
-    // skipped so a resting palm heel doesn't poison every tip-tap attempt.
-    let mut contacts: [Contact; 3] = [Contact { x: 0.0, y: 0.0 }; 3];
-    let mut cn = 0usize;
-    for f in fingers.iter() {
-        // Use the SAME on-pad state set as the palm-aware feed above
-        // (MAKE|TOUCHING|BREAK), NOT TOUCHING alone. A lightly-resting finger
-        // bounces between TOUCHING and MAKE/BREAK frame-to-frame; a
-        // TOUCHING-only filter dropped it on those frames, so the two resting
-        // fingers never stayed "settled" together long enough and the tip-tap
-        // never fired (v0.85.6 widened the palm feed but forgot this one — the
-        // "tab switch stopped working" regression). Only HOVER/LINGER/OUT (the
-        // true leaving states) and genuine size-palms are excluded.
-        let on_pad = matches!(f.state, MT_STATE_MAKE | MT_STATE_TOUCHING | MT_STATE_BREAK);
-        if !on_pad || f.size >= PALM_SIZE {
-            continue;
-        }
-        if cn >= contacts.len() {
-            cn = contacts.len() + 1; // >4 real contacts → let the recogniser poison
-            break;
-        }
-        contacts[cn] = Contact {
-            x: f.normalized.pos.x as f64,
-            y: 1.0 - f.normalized.pos.y as f64,
-        };
-        cn += 1;
-    }
-    let cn = cn.min(contacts.len());
     let tt_kind = {
         let mut rec = TIPTAP_REC.lock();
-        rec.get_or_insert_with(TipTapRecognizer::new).feed(t_ms, &contacts[..cn])
+        rec.get_or_insert_with(TipTapRecognizer::new).feed(t_ms, &contacts)
     };
     if let Some(kind) = tt_kind {
         tracing::debug!("gestures(mac): recognised {kind:?} (tip-tap)");

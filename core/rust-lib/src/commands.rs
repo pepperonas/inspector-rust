@@ -3225,6 +3225,40 @@ pub async fn set_gesture_config(
     .map_err(|e| format!("gesture task: {e}"))?
 }
 
+/// Start recording the raw touch frames for `secs` seconds (written as a trace
+/// to the app data dir when it ends; `gesture-trace-saved` carries the path).
+#[tauri::command]
+pub fn gesture_record_start(app: AppHandle, secs: u64) -> Result<(), String> {
+    gestures::start_recording(&app, secs)
+}
+
+/// Recorder state (running, time left, frames so far).
+#[tauri::command]
+pub fn gesture_record_status() -> gestures::RecordStatus {
+    gestures::record_status()
+}
+
+/// Saved recordings, newest first.
+#[tauri::command]
+pub fn gesture_trace_list() -> Result<Vec<gestures::TraceFile>, String> {
+    gestures::list_traces()
+}
+
+/// Replay a saved recording against the current config. `async` — reads and
+/// parses a file that can be several MB.
+#[tauri::command]
+pub async fn gesture_trace_replay(
+    app: AppHandle,
+    name: String,
+) -> Result<Vec<gestures::trace::ReplayRow>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        gestures::replay_trace_file(&db, &name)
+    })
+    .await
+    .map_err(|e| format!("replay task: {e}"))?
+}
+
 // ── Text expander ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

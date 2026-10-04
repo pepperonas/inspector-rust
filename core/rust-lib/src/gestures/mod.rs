@@ -25,6 +25,9 @@ use tauri::Manager;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+pub mod trace;
+#[cfg(test)]
+mod golden;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -171,7 +174,8 @@ pub const TIPTAP_MAX_DX_NORM: f64 = 0.40;
 
 // ── Normalized gesture event ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GestureKind {
     SwipeUp,
     SwipeDown,
@@ -281,7 +285,8 @@ impl GestureConfig {
 
 // ── Dispatcher: gesture → action ─────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GestureAction {
     VolumeUp,
     VolumeDown,
@@ -366,6 +371,170 @@ pub(crate) fn note_touch_start() {
 /// delay for a deferred tap).
 pub(crate) fn note_emit_lift_age_ms(ms: u64) {
     EMIT_LIFT_AGE_MS.store(ms, Ordering::Relaxed);
+}
+
+// ── Trace recorder (gesture-guard Phase 1) ──────────────────────────────────
+//
+// `gestures record` captures the raw touch frames for a while and writes them
+// as a trace (see `trace.rs`) — a fixture for the replay tests and the
+// evidence for a misfire report. Touch data and key-down TIMES only, never
+// which key; files stay in the app data directory.
+
+static RECORDER: parking_lot::Mutex<Option<trace::Recorder>> = parking_lot::Mutex::new(None);
+
+/// Platform hook, called for every frame. Cheap when no recording runs (one
+/// uncontended lock). `device` is only evaluated while recording.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn record_frame(now_ms: u64, device: impl FnOnce() -> u32, touches: &[trace::Touch]) {
+    let mut guard = RECORDER.lock();
+    let Some(rec) = guard.as_mut() else { return };
+    rec.push_frame(now_ms, device(), touches.to_vec());
+    // The platform only knows "seconds since the last key-down", so derive
+    // that key's absolute time; the recorder keeps each instant once.
+    let s = seconds_since_last_keydown();
+    if s.is_finite() {
+        rec.note_key(now_ms.saturating_sub((s * 1000.0) as u64));
+    }
+}
+
+/// State of the recorder for the UI.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecordStatus {
+    pub recording: bool,
+    /// Milliseconds left, 0 when idle.
+    pub remaining_ms: u64,
+    pub frames: usize,
+}
+
+/// Folder recordings are written to.
+pub fn trace_dir() -> Result<std::path::PathBuf, String> {
+    let mut d = dirs::data_dir().ok_or("kein Datenverzeichnis")?;
+    d.push("InspectorRust");
+    d.push("gesture-traces");
+    Ok(d)
+}
+
+/// File name for a recording that started at local time `stamp`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn trace_file_name(stamp: &str) -> String {
+    format!("trace-{stamp}.json")
+}
+
+/// Start a recording of `secs` seconds; the file is written when it ends.
+/// Fails when the touch capture isn't running (gestures off / no trackpad).
+pub fn start_recording(app: &tauri::AppHandle, secs: u64) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Emitter;
+        if !macos::is_running() {
+            return Err("Touchpad-Gesten sind aus — erst einschalten, dann aufzeichnen.".into());
+        }
+        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        {
+            let mut guard = RECORDER.lock();
+            if guard.is_some() {
+                return Err("Es läuft bereits eine Aufzeichnung.".into());
+            }
+            *guard = Some(trace::Recorder::new("macos-multitouch", macos::device_infos(), now, secs));
+        }
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let until = RECORDER.lock().as_ref().map(|r| r.until_ms()).unwrap_or(now);
+            loop {
+                let t = macos::now_ms().unwrap_or(until);
+                if RECORDER.lock().as_ref().is_none_or(|r| r.is_done(t)) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis((until - t).min(250)));
+            }
+            let Some(rec) = RECORDER.lock().take() else { return };
+            let trace = rec.finish();
+            let result = trace_dir().and_then(|dir| {
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let path = dir.join(trace_file_name(&stamp));
+                let json = serde_json::to_string_pretty(&trace).map_err(|e| e.to_string())?;
+                std::fs::write(&path, json).map_err(|e| e.to_string())?;
+                Ok(path)
+            });
+            match result {
+                Ok(path) => {
+                    tracing::info!(
+                        "gestures: trace saved ({} frames, {} key-downs) → {}",
+                        trace.frames.len(),
+                        trace.keys.len(),
+                        path.display()
+                    );
+                    let _ = app.emit("gesture-trace-saved", path.display().to_string());
+                }
+                Err(e) => tracing::warn!("gestures: writing the trace failed: {e}"),
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, secs);
+        Err("Aufzeichnung gibt es bisher nur unter macOS.".into())
+    }
+}
+
+/// A saved recording.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TraceFile {
+    pub name: String,
+    pub bytes: u64,
+}
+
+/// Saved recordings, newest first.
+pub fn list_traces() -> Result<Vec<TraceFile>, String> {
+    let dir = trace_dir()?;
+    let Ok(rd) = std::fs::read_dir(&dir) else { return Ok(Vec::new()) };
+    let mut out: Vec<TraceFile> = rd
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            is_trace_name(&name).then(|| TraceFile { name, bytes: e.metadata().map(|m| m.len()).unwrap_or(0) })
+        })
+        .collect();
+    out.sort_by(|a, b| b.name.cmp(&a.name));
+    Ok(out)
+}
+
+/// Only our own file names are accepted — the name comes from the UI and must
+/// not be able to point outside the trace folder.
+pub fn is_trace_name(name: &str) -> bool {
+    name.starts_with("trace-")
+        && name.ends_with(".json")
+        && !name.contains(['/', '\\'])
+        && !name.contains("..")
+}
+
+/// Replay a saved recording against the current config.
+pub fn replay_trace_file(db: &DbHandle, name: &str) -> Result<Vec<trace::ReplayRow>, String> {
+    if !is_trace_name(name) {
+        return Err("ungültiger Dateiname".into());
+    }
+    let json = std::fs::read_to_string(trace_dir()?.join(name)).map_err(|e| e.to_string())?;
+    let t = trace::Trace::from_json(&json)?;
+    let cfg = GestureConfig::load(db);
+    Ok(trace::replay(&t, &cfg).iter().map(|o| o.row()).collect())
+}
+
+/// Current recorder state.
+pub fn record_status() -> RecordStatus {
+    #[cfg(target_os = "macos")]
+    let now = macos::now_ms().unwrap_or(0);
+    #[cfg(not(target_os = "macos"))]
+    let now = 0u64;
+    match RECORDER.lock().as_ref() {
+        Some(r) => RecordStatus {
+            recording: true,
+            remaining_ms: r.until_ms().saturating_sub(now),
+            frames: r.frame_count(),
+        },
+        None => RecordStatus { recording: false, remaining_ms: 0, frames: 0 },
+    }
 }
 
 /// Assemble the guard's view of the gesture being dispatched (see the hooks).

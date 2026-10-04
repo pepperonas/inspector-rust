@@ -1,0 +1,588 @@
+//! Platform-neutral touch model, trace format and deterministic replay.
+//!
+//! Phase 1 of the gesture-guard programme (see `docs/gestures.md`). Three
+//! jobs, all pure — no OS calls, so everything here is unit-testable:
+//!
+//! * [`Touch`] / [`Frame`] / [`Trace`]: what a platform layer reports, in one
+//!   shape for every OS. A trace is the JSON form of a recording — a fixture
+//!   for replay tests and the artefact of `gestures record`. It holds touch
+//!   data and the TIMES of key-downs, never which key: a trace must not be a
+//!   keylogger.
+//! * [`contact_feeds`]: the per-frame filtering the macOS frame callback used
+//!   to do inline (which states count as "on the pad", which contacts the
+//!   tip-tap recogniser sees). Moved here so the live path and the replay run
+//!   the SAME code — a replay that re-implemented it would test a copy.
+//! * [`replay`]: drives the unchanged recognisers + the dispatch decisions
+//!   (config gate, typing guard) through a trace exactly the way the live
+//!   macOS path does, including the 24 ms settle ticker, and reports every
+//!   outcome. Golden fixtures pin today's behaviour with it before any
+//!   recogniser is touched.
+
+use super::{
+    config_drop_reason, map_action, typing_guard_suppresses, Contact, GestureAction,
+    GestureConfig, GestureEvent, GestureKind, PalmAwareRecognizer, RawContact, TipTapRecognizer,
+    TypingTrace, PALM_SIZE,
+};
+use serde::{Deserialize, Serialize};
+
+/// Trace format version. Bump when a field changes meaning; readers reject a
+/// newer version instead of misreading it.
+pub const TRACE_VERSION: u32 = 1;
+
+/// Cadence of the platform settle ticker the replay emulates (ms). Mirrors
+/// `TICK_MS` in `macos.rs`.
+pub const REPLAY_TICK_MS: u64 = 24;
+
+/// Upper bound on a recording, so a forgotten recorder can't grow without end.
+pub const MAX_RECORD_SECS: u64 = 120;
+
+/// Lifecycle of one contact, normalised over the platforms. macOS reports
+/// these as numbered states (1/2 in range, 3 make, 4 touching, 5 break, 6/7
+/// leaving); Windows and Linux map onto the same set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TouchPhase {
+    /// Near the surface, not touching.
+    Hover,
+    /// Landing.
+    Make,
+    /// Down.
+    Touching,
+    /// Lifting.
+    Break,
+    /// Gone or going.
+    Leaving,
+}
+
+impl TouchPhase {
+    /// Physical contact with the pad. MAKE and BREAK count: a lightly resting
+    /// finger flickers between them and TOUCHING frame to frame, and field
+    /// logs showed a light 3-finger tap arriving as fingers taking turns in
+    /// TOUCHING — filtering to TOUCHING alone serialised the tap (v0.85.6).
+    pub fn on_pad(self) -> bool {
+        matches!(self, TouchPhase::Make | TouchPhase::Touching | TouchPhase::Break)
+    }
+
+    /// macOS MultitouchSupport state number → phase.
+    pub fn from_mt_state(state: i32) -> TouchPhase {
+        match state {
+            1 | 2 => TouchPhase::Hover,
+            3 => TouchPhase::Make,
+            4 => TouchPhase::Touching,
+            5 => TouchPhase::Break,
+            _ => TouchPhase::Leaving,
+        }
+    }
+}
+
+/// One contact in one frame. Positions are normalised 0..1 with y growing
+/// DOWNWARDS (screen convention, so "up" is decreasing y, as everywhere in
+/// the recognisers). Fields a platform can't report stay 0.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Touch {
+    /// Driver-stable contact id (unique per device while the contact lives).
+    pub id: i32,
+    pub x: f64,
+    pub y: f64,
+    /// Velocity in normalised units per second as the driver reports it.
+    #[serde(default)]
+    pub vx: f64,
+    #[serde(default)]
+    pub vy: f64,
+    /// Ellipse axes in the driver's units (macOS: millimetre-ish).
+    #[serde(default)]
+    pub major: f32,
+    #[serde(default)]
+    pub minor: f32,
+    /// Ellipse angle in radians.
+    #[serde(default)]
+    pub angle: f32,
+    /// Contact size / area as the driver reports it. The palm guard keys on
+    /// this today (`PALM_SIZE`).
+    #[serde(default)]
+    pub size: f32,
+    pub phase: TouchPhase,
+}
+
+/// Everything a device reported at one instant.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Frame {
+    /// Milliseconds since the start of the trace.
+    pub t_ms: u64,
+    /// Index into [`Trace::devices`].
+    #[serde(default)]
+    pub device: u32,
+    pub touches: Vec<Touch>,
+}
+
+/// A key-down. ONLY the time and whether it was a pure modifier — never the
+/// key itself.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct KeyDown {
+    pub t_ms: u64,
+    #[serde(default)]
+    pub modifier: bool,
+}
+
+/// A touch surface the trace saw.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    /// `None` = the platform couldn't say.
+    #[serde(default)]
+    pub builtin: Option<bool>,
+    /// Physical surface size in millimetres, when the platform reports it.
+    #[serde(default)]
+    pub width_mm: Option<f64>,
+    #[serde(default)]
+    pub height_mm: Option<f64>,
+}
+
+/// One expected dispatcher outcome, as stored in a fixture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExpectedOutcome {
+    pub kind: GestureKind,
+    pub fingers: u8,
+    /// `dispatched`, `typing_guard`, `config:<reason>` or `unmapped`.
+    pub verdict: String,
+    /// The action for a dispatched or vetoed gesture.
+    #[serde(default)]
+    pub action: Option<GestureAction>,
+}
+
+/// A recording or a fixture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Trace {
+    pub version: u32,
+    /// `macos-multitouch`, `synthetic`, …
+    pub source: String,
+    /// Free text: what the scenario is, what today's code does with it.
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub devices: Vec<DeviceInfo>,
+    /// Output was muted when the trace began (the typing guard never vetoes
+    /// an UNMUTE, so this changes the verdict of a mute tap).
+    #[serde(default)]
+    pub muted_at_start: bool,
+    pub frames: Vec<Frame>,
+    #[serde(default)]
+    pub keys: Vec<KeyDown>,
+    /// What replay must produce. `None` for a raw recording.
+    #[serde(default)]
+    pub expect: Option<Vec<ExpectedOutcome>>,
+}
+
+impl Trace {
+    /// Parse and version-check a trace.
+    pub fn from_json(json: &str) -> Result<Trace, String> {
+        let t: Trace = serde_json::from_str(json).map_err(|e| format!("trace: {e}"))?;
+        if t.version > TRACE_VERSION {
+            return Err(format!(
+                "trace: version {} is newer than this build understands ({TRACE_VERSION})",
+                t.version
+            ));
+        }
+        Ok(t)
+    }
+}
+
+// ── The per-frame feeds (shared by the live macOS path and the replay) ───────
+
+/// Contacts the palm-aware recogniser sees (capacity of the live buffer).
+pub const PALM_FEED_MAX: usize = 11;
+/// Contacts the tip-tap recogniser sees: one rest + one tap, and a third so
+/// it can tell "too many" and poison.
+pub const TIPTAP_FEED_MAX: usize = 3;
+
+/// Split one frame into the two recogniser feeds, exactly as the macOS frame
+/// callback did inline until v0.191:
+/// * palm feed: every on-pad contact (MAKE/TOUCHING/BREAK), with its size —
+///   the recogniser decides about palms itself;
+/// * tip-tap feed: on-pad contacts that are not size-palms, at most
+///   [`TIPTAP_FEED_MAX`] (a fourth one is not passed on — three already make
+///   the recogniser poison).
+pub fn contact_feeds(touches: &[Touch]) -> (Vec<RawContact>, Vec<Contact>) {
+    let mut palm = Vec::with_capacity(touches.len().min(PALM_FEED_MAX));
+    let mut tiptap = Vec::with_capacity(TIPTAP_FEED_MAX);
+    for t in touches.iter().filter(|t| t.phase.on_pad()) {
+        if palm.len() < PALM_FEED_MAX {
+            palm.push(RawContact { id: t.id, x: t.x, y: t.y, size: t.size });
+        }
+        if t.size < PALM_SIZE && tiptap.len() < TIPTAP_FEED_MAX {
+            tiptap.push(Contact { x: t.x, y: t.y });
+        }
+    }
+    (palm, tiptap)
+}
+
+// ── Replay ───────────────────────────────────────────────────────────────────
+
+/// Why a recognised gesture did or didn't turn into an action.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Verdict {
+    Dispatched,
+    /// The typing guard vetoed it.
+    TypingGuard,
+    /// A switch in the config turned it off (with the reason the live log prints).
+    Config(&'static str),
+    /// Recognised, but no binding (e.g. a 1-finger tap).
+    Unmapped,
+}
+
+impl Verdict {
+    pub fn code(&self) -> String {
+        match self {
+            Verdict::Dispatched => "dispatched".into(),
+            Verdict::TypingGuard => "typing_guard".into(),
+            Verdict::Config(r) => format!("config:{r}"),
+            Verdict::Unmapped => "unmapped".into(),
+        }
+    }
+}
+
+/// Which recogniser path produced an event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    /// Palm-aware recogniser, emitted from a frame (swipes).
+    Frame,
+    /// Palm-aware recogniser, emitted by the settle ticker (deferred taps).
+    Tick,
+    /// Tip-tap recogniser.
+    TipTap,
+}
+
+/// One recognised gesture and what the dispatcher did with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Outcome {
+    pub t_ms: u64,
+    pub via: Via,
+    pub event: GestureEvent,
+    pub action: Option<GestureAction>,
+    pub verdict: Verdict,
+}
+
+/// One replay outcome in a shape the UI can render.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ReplayRow {
+    pub t_ms: u64,
+    /// `frame`, `tick` or `tiptap`.
+    pub via: &'static str,
+    #[serde(flatten)]
+    pub outcome: ExpectedOutcome,
+}
+
+impl Outcome {
+    pub fn row(&self) -> ReplayRow {
+        ReplayRow {
+            t_ms: self.t_ms,
+            via: match self.via {
+                Via::Frame => "frame",
+                Via::Tick => "tick",
+                Via::TipTap => "tiptap",
+            },
+            outcome: self.expected(),
+        }
+    }
+
+    pub fn expected(&self) -> ExpectedOutcome {
+        ExpectedOutcome {
+            kind: self.event.kind,
+            fingers: self.event.fingers,
+            verdict: self.verdict.code(),
+            action: self.action,
+        }
+    }
+}
+
+/// Seconds between the most recent real (non-modifier) key-down at or before
+/// `t` and `t`; infinite when there is none. Mirrors what macOS answers to
+/// "seconds since the last key-down" — modifiers never count there (they are
+/// flags-changed events, not key-downs).
+fn secs_since_key(keys: &[KeyDown], t: u64) -> f64 {
+    keys.iter()
+        .filter(|k| !k.modifier && k.t_ms <= t)
+        .map(|k| k.t_ms)
+        .max()
+        .map(|k| (t - k) as f64 / 1000.0)
+        .unwrap_or(f64::INFINITY)
+}
+
+struct Dispatch<'a> {
+    cfg: &'a GestureConfig,
+    keys: &'a [KeyDown],
+    muted: bool,
+    /// Seconds since the last key-down, sampled when the pad went from no
+    /// contact to some (the live `note_touch_start`).
+    before_touch_s: f64,
+    out: Vec<Outcome>,
+}
+
+impl Dispatch<'_> {
+    /// The live sink in `gestures::apply`, minus the side effects.
+    fn emit(&mut self, t_ms: u64, via: Via, ev: GestureEvent, lift_age_ms: u64) {
+        let (action, verdict) = match map_action(&ev, self.cfg) {
+            Some(action) => {
+                let vetoed = self.cfg.typing_guard && {
+                    let trace = TypingTrace {
+                        before_touch_s: self.before_touch_s,
+                        before_lift_s: secs_since_key(self.keys, t_ms) - lift_age_ms as f64 / 1000.0,
+                    };
+                    let unmuting = action == GestureAction::MuteToggle && self.muted;
+                    typing_guard_suppresses(action, trace, unmuting)
+                };
+                if vetoed {
+                    (Some(action), Verdict::TypingGuard)
+                } else {
+                    if action == GestureAction::MuteToggle {
+                        self.muted = !self.muted;
+                    }
+                    (Some(action), Verdict::Dispatched)
+                }
+            }
+            None => match config_drop_reason(&ev, self.cfg) {
+                Some(reason) => (None, Verdict::Config(reason)),
+                None => (None, Verdict::Unmapped),
+            },
+        };
+        self.out.push(Outcome { t_ms, via, event: ev, action, verdict });
+    }
+}
+
+/// Run a trace through the recognisers and the dispatch decisions, the way
+/// the live macOS path does: per frame the palm-aware recogniser first, then
+/// the tip-tap recogniser; a deferred tap is finalised by a ticker that wakes
+/// [`REPLAY_TICK_MS`] after a frame left work and keeps ticking at that
+/// cadence while work remains. Deterministic — the same trace always yields
+/// the same outcomes.
+pub fn replay(trace: &Trace, cfg: &GestureConfig) -> Vec<Outcome> {
+    let mut palm = PalmAwareRecognizer::new();
+    let mut tiptap = TipTapRecognizer::new();
+    let mut d = Dispatch {
+        cfg,
+        keys: &trace.keys,
+        muted: trace.muted_at_start,
+        before_touch_s: f64::INFINITY,
+        out: Vec::new(),
+    };
+    let mut next_tick: Option<u64> = None;
+    let mut prev_count = 0usize;
+
+    let run_ticks_until = |limit: u64,
+                           palm: &mut PalmAwareRecognizer,
+                           next_tick: &mut Option<u64>,
+                           d: &mut Dispatch| {
+        while let Some(t) = *next_tick {
+            if t > limit {
+                break;
+            }
+            if let Some(ev) = palm.tick(t) {
+                let lift_age = palm.since_last_contact_ms(t);
+                d.emit(t, Via::Tick, ev, lift_age);
+            }
+            *next_tick = palm.needs_tick().then_some(t + REPLAY_TICK_MS);
+        }
+    };
+
+    for frame in &trace.frames {
+        run_ticks_until(frame.t_ms.saturating_sub(1), &mut palm, &mut next_tick, &mut d);
+
+        let (raw, contacts) = contact_feeds(&frame.touches);
+        // Touch start = the platform reported nothing and now reports something
+        // (hovering fingers included, like the live `n_fingers`).
+        let count = frame.touches.len();
+        if count > 0 && prev_count == 0 {
+            d.before_touch_s = secs_since_key(&trace.keys, frame.t_ms);
+        }
+        prev_count = count;
+
+        if let Some(ev) = palm.feed(frame.t_ms, &raw) {
+            d.emit(frame.t_ms, Via::Frame, ev, 0);
+        }
+        if palm.needs_tick() && next_tick.is_none() {
+            next_tick = Some(frame.t_ms + REPLAY_TICK_MS);
+        }
+        if let Some(kind) = tiptap.feed(frame.t_ms, &contacts) {
+            d.emit(frame.t_ms, Via::TipTap, GestureEvent { kind, fingers: 3 }, 0);
+        }
+    }
+    // Let a pending tap settle after the last frame (bounded).
+    let end = trace.frames.last().map(|f| f.t_ms).unwrap_or(0) + 5_000;
+    run_ticks_until(end, &mut palm, &mut next_tick, &mut d);
+    d.out
+}
+
+// ── Recorder buffer ──────────────────────────────────────────────────────────
+
+/// Accumulates a live recording. The platform pushes frames (and derived
+/// key-down times); [`Recorder::finish`] turns it into a [`Trace`] with times
+/// relative to the first frame. Pure — the platform owns the clock.
+#[derive(Debug)]
+pub struct Recorder {
+    source: String,
+    devices: Vec<DeviceInfo>,
+    started_ms: u64,
+    until_ms: u64,
+    frames: Vec<Frame>,
+    keys: Vec<KeyDown>,
+}
+
+impl Recorder {
+    /// Start recording at `now_ms` for `secs` seconds (clamped to
+    /// 1..=[`MAX_RECORD_SECS`]).
+    pub fn new(source: &str, devices: Vec<DeviceInfo>, now_ms: u64, secs: u64) -> Recorder {
+        let secs = secs.clamp(1, MAX_RECORD_SECS);
+        Recorder {
+            source: source.into(),
+            devices,
+            started_ms: now_ms,
+            until_ms: now_ms + secs * 1000,
+            frames: Vec::new(),
+            keys: Vec::new(),
+        }
+    }
+
+    pub fn is_done(&self, now_ms: u64) -> bool {
+        now_ms >= self.until_ms
+    }
+
+    /// Absolute time the recording ends.
+    pub fn until_ms(&self) -> u64 {
+        self.until_ms
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// Record a frame (absolute time). Ignored outside the window.
+    pub fn push_frame(&mut self, now_ms: u64, device: u32, touches: Vec<Touch>) {
+        if now_ms < self.started_ms || now_ms >= self.until_ms {
+            return;
+        }
+        self.frames.push(Frame { t_ms: now_ms - self.started_ms, device, touches });
+    }
+
+    /// Record that the most recent key-down happened at absolute time
+    /// `key_ms`. The platform can usually only see "the last key-down", so it
+    /// reports it repeatedly; the same instant (±5 ms of rounding) is kept once.
+    pub fn note_key(&mut self, key_ms: u64) {
+        if key_ms < self.started_ms || key_ms >= self.until_ms {
+            return;
+        }
+        let t = key_ms - self.started_ms;
+        if self.keys.last().is_some_and(|k| t.abs_diff(k.t_ms) <= 5) {
+            return;
+        }
+        self.keys.push(KeyDown { t_ms: t, modifier: false });
+    }
+
+    pub fn finish(self) -> Trace {
+        let mut keys = self.keys;
+        keys.sort_by_key(|k| k.t_ms);
+        Trace {
+            version: TRACE_VERSION,
+            source: self.source,
+            note: String::new(),
+            devices: self.devices,
+            muted_at_start: false,
+            frames: self.frames,
+            keys,
+            expect: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn touch(id: i32, x: f64, y: f64, size: f32, phase: TouchPhase) -> Touch {
+        Touch { id, x, y, vx: 0.0, vy: 0.0, major: 0.0, minor: 0.0, angle: 0.0, size, phase }
+    }
+
+    #[test]
+    fn mt_states_map_onto_phases_and_only_contact_counts() {
+        assert_eq!(TouchPhase::from_mt_state(2), TouchPhase::Hover);
+        assert_eq!(TouchPhase::from_mt_state(3), TouchPhase::Make);
+        assert_eq!(TouchPhase::from_mt_state(4), TouchPhase::Touching);
+        assert_eq!(TouchPhase::from_mt_state(5), TouchPhase::Break);
+        assert_eq!(TouchPhase::from_mt_state(7), TouchPhase::Leaving);
+        assert_eq!(TouchPhase::from_mt_state(0), TouchPhase::Leaving);
+        let on: Vec<bool> = (1..=7).map(|s| TouchPhase::from_mt_state(s).on_pad()).collect();
+        assert_eq!(on, [false, false, true, true, true, false, false]);
+    }
+
+    #[test]
+    fn feeds_drop_hover_and_keep_palms_only_for_the_palm_recogniser() {
+        let ts = [
+            touch(1, 0.2, 0.5, 1.0, TouchPhase::Touching),
+            touch(2, 0.4, 0.5, 1.0, TouchPhase::Hover),
+            touch(3, 0.6, 0.5, PALM_SIZE + 1.0, TouchPhase::Make),
+            touch(4, 0.8, 0.5, 1.0, TouchPhase::Break),
+        ];
+        let (palm, tiptap) = contact_feeds(&ts);
+        assert_eq!(palm.iter().map(|c| c.id).collect::<Vec<_>>(), [1, 3, 4]);
+        assert_eq!(tiptap.len(), 2, "hover and the size-palm are not tip-tap contacts");
+    }
+
+    #[test]
+    fn tiptap_feed_is_capped_so_a_crowd_still_reads_as_too_many() {
+        let ts: Vec<Touch> =
+            (0..5).map(|i| touch(i, 0.1 + i as f64 * 0.1, 0.5, 1.0, TouchPhase::Touching)).collect();
+        let (palm, tiptap) = contact_feeds(&ts);
+        assert_eq!(palm.len(), 5);
+        assert_eq!(tiptap.len(), TIPTAP_FEED_MAX);
+    }
+
+    #[test]
+    fn last_key_lookup_ignores_modifiers_and_future_keys() {
+        let keys = [
+            KeyDown { t_ms: 100, modifier: false },
+            KeyDown { t_ms: 400, modifier: true },
+            KeyDown { t_ms: 900, modifier: false },
+        ];
+        assert_eq!(secs_since_key(&keys, 600), 0.5);
+        assert_eq!(secs_since_key(&keys, 950), 0.05);
+        assert!(secs_since_key(&keys, 50).is_infinite());
+    }
+
+    #[test]
+    fn json_round_trip_and_version_gate() {
+        let t = Trace {
+            version: TRACE_VERSION,
+            source: "synthetic".into(),
+            note: String::new(),
+            devices: vec![DeviceInfo { builtin: Some(true), width_mm: None, height_mm: None }],
+            muted_at_start: false,
+            frames: vec![Frame { t_ms: 0, device: 0, touches: vec![touch(1, 0.5, 0.5, 1.0, TouchPhase::Touching)] }],
+            keys: vec![KeyDown { t_ms: 3, modifier: false }],
+            expect: None,
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        assert_eq!(Trace::from_json(&json).unwrap(), t);
+        let newer = json.replacen(&format!("\"version\":{TRACE_VERSION}"), "\"version\":999", 1);
+        assert!(Trace::from_json(&newer).unwrap_err().contains("newer"));
+    }
+
+    #[test]
+    fn recorder_keeps_the_window_rebases_time_and_dedups_keys() {
+        let mut r = Recorder::new("test", vec![], 1_000, 2);
+        r.push_frame(999, 0, vec![]); // before
+        r.push_frame(1_010, 0, vec![]);
+        r.push_frame(3_000, 0, vec![]); // after (window is [1000, 3000))
+        r.note_key(1_200);
+        r.note_key(1_203); // same instant, re-reported
+        r.note_key(1_500);
+        assert!(r.is_done(3_000));
+        let t = r.finish();
+        assert_eq!(t.frames.iter().map(|f| f.t_ms).collect::<Vec<_>>(), [10]);
+        assert_eq!(t.keys.iter().map(|k| k.t_ms).collect::<Vec<_>>(), [200, 500]);
+        assert!(t.expect.is_none());
+    }
+
+    #[test]
+    fn recorder_duration_is_clamped() {
+        assert_eq!(Recorder::new("t", vec![], 0, 0).until_ms(), 1_000);
+        assert_eq!(Recorder::new("t", vec![], 0, 9_999).until_ms(), MAX_RECORD_SECS * 1000);
+    }
+}

@@ -1,0 +1,412 @@
+{
+  "version": 1,
+  "source": "synthetic",
+  "note": "A deliberate 3-finger tap, then typing resumes 60 ms after the lift — BEFORE the deferred tap is dispatched (settle + tick). The key came after the touch, so it must not veto it (the v0.166.1 field bug).",
+  "devices": [
+    {
+      "builtin": true,
+      "width_mm": 160.0,
+      "height_mm": 100.0
+    }
+  ],
+  "muted_at_start": false,
+  "frames": [
+    {
+      "t_ms": 250,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 260,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 270,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 280,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 290,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 300,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 310,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 320,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 330,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5,
+          "vx": 0.0,
+          "vy": 0.0,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 340,
+      "device": 0,
+      "touches": []
+    }
+  ],
+  "keys": [
+    {
+      "t_ms": 400,
+      "modifier": false
+    }
+  ],
+  "expect": [
+    {
+      "kind": "tap",
+      "fingers": 3,
+      "verdict": "dispatched",
+      "action": "mute_toggle"
+    }
+  ]
+}

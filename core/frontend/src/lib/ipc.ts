@@ -1116,6 +1116,48 @@ export function setGestureConfig(config: GestureConfig): Promise<GestureConfig> 
   return invoke("set_gesture_config", { config });
 }
 
+/** Recorder state for gesture traces. */
+export interface GestureRecordStatus {
+  recording: boolean;
+  remaining_ms: number;
+  frames: number;
+}
+
+/** A saved gesture trace (touch data + key-down times only). */
+export interface GestureTraceFile {
+  name: string;
+  bytes: number;
+}
+
+/** One replayed outcome of a saved trace. */
+export interface GestureReplayRow {
+  t_ms: number;
+  via: "frame" | "tick" | "tiptap";
+  kind: string;
+  fingers: number;
+  /** `dispatched`, `typing_guard`, `config:<reason>` or `unmapped`. */
+  verdict: string;
+  action: string | null;
+}
+
+/** Record the raw touch frames for `secs` seconds (macOS). */
+export function gestureRecordStart(secs: number): Promise<void> {
+  return invoke("gesture_record_start", { secs });
+}
+
+export function gestureRecordStatus(): Promise<GestureRecordStatus> {
+  return invoke("gesture_record_status");
+}
+
+export function gestureTraceList(): Promise<GestureTraceFile[]> {
+  return invoke("gesture_trace_list");
+}
+
+/** Replay a saved trace against the current config. */
+export function gestureTraceReplay(name: string): Promise<GestureReplayRow[]> {
+  return invoke("gesture_trace_replay", { name });
+}
+
 /** A configurable global action hotkey (OCR, screenshot, timesheet, …). */
 export interface ActionHotkey {
   id: string;

@@ -1,0 +1,953 @@
+{
+  "version": 1,
+  "source": "synthetic",
+  "note": "A real 3-finger swipe up → volume up.",
+  "devices": [
+    {
+      "builtin": true,
+      "width_mm": 160.0,
+      "height_mm": 100.0
+    }
+  ],
+  "muted_at_start": false,
+  "frames": [
+    {
+      "t_ms": 0,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.7,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.7,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.7,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 10,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6841,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6841,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6841,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 20,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6682,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6682,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6682,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 30,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6523,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6523,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6523,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 40,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6364,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6364,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6364,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 50,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6205,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6205,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6205,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 60,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.6045,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.6045,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.6045,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 70,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5886,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5886,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5886,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 80,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5727,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5727,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5727,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 90,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5568,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5568,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5568,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 100,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5409,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5409,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5409,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 110,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.525,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.525,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.525,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 120,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.5091,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.5091,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.5091,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 130,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4932,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4932,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4932,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 140,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4773,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4773,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4773,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 150,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4614,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4614,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4614,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 160,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4455,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4455,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4455,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 170,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4295,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4295,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4295,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 180,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.4136,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.4136,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.4136,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 190,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.3977,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.3977,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.3977,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 200,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.3818,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.3818,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.3818,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 210,
+      "device": 0,
+      "touches": [
+        {
+          "id": 1,
+          "x": 0.4,
+          "y": 0.3659,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 2,
+          "x": 0.5,
+          "y": 0.3659,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        },
+        {
+          "id": 3,
+          "x": 0.6,
+          "y": 0.3659,
+          "vx": 0.0,
+          "vy": -1.5909,
+          "major": 8.0,
+          "minor": 6.0,
+          "angle": 0.0,
+          "size": 1.0,
+          "phase": "touching"
+        }
+      ]
+    },
+    {
+      "t_ms": 220,
+      "device": 0,
+      "touches": []
+    }
+  ],
+  "keys": [],
+  "expect": [
+    {
+      "kind": "swipe_up",
+      "fingers": 3,
+      "verdict": "dispatched",
+      "action": "volume_up"
+    }
+  ]
+}

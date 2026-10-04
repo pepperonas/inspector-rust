@@ -6,6 +6,12 @@ export const RECORD_SECS = 30;
 const VERDICTS: Record<string, string> = {
   dispatched: "fired",
   typing_guard: "blocked (typing)",
+  typing_await_center: "blocked (typing — waiting for a centre touch)",
+  palm_on_pad: "blocked (palm on the pad)",
+  finger_count_changed: "blocked (finger count changed)",
+  too_slow: "blocked (too slow)",
+  uneven_fingers: "blocked (fingers moved unevenly)",
+  cooldown: "blocked (cooldown)",
   unmapped: "ignored (no binding)",
 };
 

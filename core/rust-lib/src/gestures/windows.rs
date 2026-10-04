@@ -21,7 +21,7 @@
 //! the maintainer has no Windows box) — consistent with the rest of the repo's
 //! Windows code.
 
-use super::{GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TouchFrame};
+use super::{EventSink, GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TouchFrame};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -60,7 +60,7 @@ const WM_GESTURE_QUIT: u32 = WM_APP + 1;
 // ── Shared state the WndProc reads (it can't capture) ────────────────────────
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
-static SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
+static SINK: Mutex<Option<EventSink>> = Mutex::new(None);
 static REC: Mutex<Option<Recognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
 static THREAD_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -403,13 +403,15 @@ impl WindowsGestureSource {
 }
 
 impl GestureSource for WindowsGestureSource {
-    fn start(&mut self, _cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
+    fn start(&mut self, cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
         if RUNNING.swap(true, Ordering::SeqCst) {
             return Ok(()); // already running
         }
         let _ = START.set(Instant::now());
         *REC.lock() = Some(Recognizer::new());
-        *SINK.lock() = Some(sink);
+        // Windows recognises from the centroid; its events still pass the
+        // guard's typing level, cooldown and config.
+        *SINK.lock() = Some(super::external_sink(cfg, sink));
         devices().lock().clear();
 
         // The Raw Input window needs its own thread with a message loop.

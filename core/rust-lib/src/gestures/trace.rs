@@ -18,11 +18,8 @@
 //!   outcome. Golden fixtures pin today's behaviour with it before any
 //!   recogniser is touched.
 
-use super::{
-    config_drop_reason, map_action, typing_guard_suppresses, Contact, GestureAction,
-    GestureConfig, GestureEvent, GestureKind, PalmAwareRecognizer, RawContact, TipTapRecognizer,
-    TypingTrace, PALM_SIZE,
-};
+use super::guard::{Decision, Level, Pipeline, Reason, Via};
+use super::{GestureAction, GestureConfig, GestureEvent, GestureKind};
 use serde::{Deserialize, Serialize};
 
 /// Trace format version. Bump when a field changes meaning; readers reject a
@@ -186,229 +183,102 @@ impl Trace {
     }
 }
 
-// ── The per-frame feeds (shared by the live macOS path and the replay) ───────
-
-/// Contacts the palm-aware recogniser sees (capacity of the live buffer).
-pub const PALM_FEED_MAX: usize = 11;
-/// Contacts the tip-tap recogniser sees: one rest + one tap, and a third so
-/// it can tell "too many" and poison.
-pub const TIPTAP_FEED_MAX: usize = 3;
-
-/// Split one frame into the two recogniser feeds, exactly as the macOS frame
-/// callback did inline until v0.191:
-/// * palm feed: every on-pad contact (MAKE/TOUCHING/BREAK), with its size —
-///   the recogniser decides about palms itself;
-/// * tip-tap feed: on-pad contacts that are not size-palms, at most
-///   [`TIPTAP_FEED_MAX`] (a fourth one is not passed on — three already make
-///   the recogniser poison).
-pub fn contact_feeds(touches: &[Touch]) -> (Vec<RawContact>, Vec<Contact>) {
-    let mut palm = Vec::with_capacity(touches.len().min(PALM_FEED_MAX));
-    let mut tiptap = Vec::with_capacity(TIPTAP_FEED_MAX);
-    for t in touches.iter().filter(|t| t.phase.on_pad()) {
-        if palm.len() < PALM_FEED_MAX {
-            palm.push(RawContact { id: t.id, x: t.x, y: t.y, size: t.size });
-        }
-        if t.size < PALM_SIZE && tiptap.len() < TIPTAP_FEED_MAX {
-            tiptap.push(Contact { x: t.x, y: t.y });
-        }
-    }
-    (palm, tiptap)
-}
-
 // ── Replay ───────────────────────────────────────────────────────────────────
 
-/// Why a recognised gesture did or didn't turn into an action.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Verdict {
-    Dispatched,
-    /// The typing guard vetoed it.
-    TypingGuard,
-    /// A switch in the config turned it off (with the reason the live log prints).
-    Config(&'static str),
-    /// Recognised, but no binding (e.g. a 1-finger tap).
-    Unmapped,
-}
-
-impl Verdict {
-    pub fn code(&self) -> String {
-        match self {
-            Verdict::Dispatched => "dispatched".into(),
-            Verdict::TypingGuard => "typing_guard".into(),
-            Verdict::Config(r) => format!("config:{r}"),
-            Verdict::Unmapped => "unmapped".into(),
-        }
-    }
-}
-
-/// Which recogniser path produced an event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Via {
-    /// Palm-aware recogniser, emitted from a frame (swipes).
-    Frame,
-    /// Palm-aware recogniser, emitted by the settle ticker (deferred taps).
-    Tick,
-    /// Tip-tap recogniser.
-    TipTap,
-}
-
-/// One recognised gesture and what the dispatcher did with it.
+/// One recognised gesture and what the guard decided about it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     pub t_ms: u64,
     pub via: Via,
     pub event: GestureEvent,
     pub action: Option<GestureAction>,
-    pub verdict: Verdict,
+    pub level: Level,
+    pub reason: Reason,
 }
 
 /// One replay outcome in a shape the UI can render.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ReplayRow {
     pub t_ms: u64,
-    /// `frame`, `tick` or `tiptap`.
-    pub via: &'static str,
+    pub via: Via,
+    pub level: Level,
     #[serde(flatten)]
     pub outcome: ExpectedOutcome,
 }
 
 impl Outcome {
+    fn from_decision(d: &Decision) -> Option<Outcome> {
+        Some(Outcome {
+            t_ms: d.t_ms,
+            via: d.via?,
+            event: d.event?,
+            action: d.action,
+            level: d.level,
+            reason: d.reason,
+        })
+    }
+
     pub fn row(&self) -> ReplayRow {
-        ReplayRow {
-            t_ms: self.t_ms,
-            via: match self.via {
-                Via::Frame => "frame",
-                Via::Tick => "tick",
-                Via::TipTap => "tiptap",
-            },
-            outcome: self.expected(),
-        }
+        ReplayRow { t_ms: self.t_ms, via: self.via, level: self.level, outcome: self.expected() }
     }
 
     pub fn expected(&self) -> ExpectedOutcome {
         ExpectedOutcome {
             kind: self.event.kind,
             fingers: self.event.fingers,
-            verdict: self.verdict.code(),
+            verdict: self.reason.code(),
             action: self.action,
         }
     }
 }
 
-/// Seconds between the most recent real (non-modifier) key-down at or before
-/// `t` and `t`; infinite when there is none. Mirrors what macOS answers to
-/// "seconds since the last key-down" — modifiers never count there (they are
-/// flags-changed events, not key-downs).
-fn secs_since_key(keys: &[KeyDown], t: u64) -> f64 {
-    keys.iter()
-        .filter(|k| !k.modifier && k.t_ms <= t)
-        .map(|k| k.t_ms)
-        .max()
-        .map(|k| (t - k) as f64 / 1000.0)
-        .unwrap_or(f64::INFINITY)
-}
-
-struct Dispatch<'a> {
-    cfg: &'a GestureConfig,
-    keys: &'a [KeyDown],
-    muted: bool,
-    /// Seconds since the last key-down, sampled when the pad went from no
-    /// contact to some (the live `note_touch_start`).
-    before_touch_s: f64,
-    out: Vec<Outcome>,
-}
-
-impl Dispatch<'_> {
-    /// The live sink in `gestures::apply`, minus the side effects.
-    fn emit(&mut self, t_ms: u64, via: Via, ev: GestureEvent, lift_age_ms: u64) {
-        let (action, verdict) = match map_action(&ev, self.cfg) {
-            Some(action) => {
-                let vetoed = self.cfg.typing_guard && {
-                    let trace = TypingTrace {
-                        before_touch_s: self.before_touch_s,
-                        before_lift_s: secs_since_key(self.keys, t_ms) - lift_age_ms as f64 / 1000.0,
-                    };
-                    let unmuting = action == GestureAction::MuteToggle && self.muted;
-                    typing_guard_suppresses(action, trace, unmuting)
-                };
-                if vetoed {
-                    (Some(action), Verdict::TypingGuard)
-                } else {
-                    if action == GestureAction::MuteToggle {
-                        self.muted = !self.muted;
-                    }
-                    (Some(action), Verdict::Dispatched)
-                }
-            }
-            None => match config_drop_reason(&ev, self.cfg) {
-                Some(reason) => (None, Verdict::Config(reason)),
-                None => (None, Verdict::Unmapped),
-            },
-        };
-        self.out.push(Outcome { t_ms, via, event: ev, action, verdict });
-    }
-}
-
-/// Run a trace through the recognisers and the dispatch decisions, the way
-/// the live macOS path does: per frame the palm-aware recogniser first, then
-/// the tip-tap recogniser; a deferred tap is finalised by a ticker that wakes
-/// [`REPLAY_TICK_MS`] after a frame left work and keeps ticking at that
-/// cadence while work remains. Deterministic — the same trace always yields
-/// the same outcomes.
-pub fn replay(trace: &Trace, cfg: &GestureConfig) -> Vec<Outcome> {
-    let mut palm = PalmAwareRecognizer::new();
-    let mut tiptap = TipTapRecognizer::new();
-    let mut d = Dispatch {
-        cfg,
-        keys: &trace.keys,
-        muted: trace.muted_at_start,
-        before_touch_s: f64::INFINITY,
-        out: Vec::new(),
-    };
+/// Every decision the guard pipeline makes over a trace, the way the live
+/// macOS path makes them: key-downs are revealed only up to the current time,
+/// frames are fed in order, and a deferred tap is finalised by a ticker that
+/// wakes [`REPLAY_TICK_MS`] after a frame left work and keeps ticking at that
+/// cadence while work remains. Deterministic.
+pub fn replay_decisions(trace: &Trace, cfg: &GestureConfig) -> Vec<Decision> {
+    // A trace carries the complete key history (synthetic, or a future
+    // keyboard-tap recording) — unlike today's live macOS source.
+    let mut p = Pipeline::new(*cfg, trace.devices.clone(), true).with_mute(trace.muted_at_start, None);
+    let mut keys = trace.keys.clone();
+    keys.sort_by_key(|k| k.t_ms);
+    let mut ki = 0;
+    let mut out = Vec::new();
     let mut next_tick: Option<u64> = None;
-    let mut prev_count = 0usize;
 
-    let run_ticks_until = |limit: u64,
-                           palm: &mut PalmAwareRecognizer,
-                           next_tick: &mut Option<u64>,
-                           d: &mut Dispatch| {
-        while let Some(t) = *next_tick {
-            if t > limit {
-                break;
-            }
-            if let Some(ev) = palm.tick(t) {
-                let lift_age = palm.since_last_contact_ms(t);
-                d.emit(t, Via::Tick, ev, lift_age);
-            }
-            *next_tick = palm.needs_tick().then_some(t + REPLAY_TICK_MS);
+    let reveal = |p: &mut Pipeline, ki: &mut usize, upto: u64| {
+        while *ki < keys.len() && keys[*ki].t_ms <= upto {
+            p.key(keys[*ki]);
+            *ki += 1;
         }
     };
 
     for frame in &trace.frames {
-        run_ticks_until(frame.t_ms.saturating_sub(1), &mut palm, &mut next_tick, &mut d);
-
-        let (raw, contacts) = contact_feeds(&frame.touches);
-        // Touch start = the platform reported nothing and now reports something
-        // (hovering fingers included, like the live `n_fingers`).
-        let count = frame.touches.len();
-        if count > 0 && prev_count == 0 {
-            d.before_touch_s = secs_since_key(&trace.keys, frame.t_ms);
+        while let Some(t) = next_tick.filter(|&t| t < frame.t_ms) {
+            reveal(&mut p, &mut ki, t);
+            out.extend(p.tick(t));
+            next_tick = p.needs_tick().then_some(t + REPLAY_TICK_MS);
         }
-        prev_count = count;
-
-        if let Some(ev) = palm.feed(frame.t_ms, &raw) {
-            d.emit(frame.t_ms, Via::Frame, ev, 0);
-        }
-        if palm.needs_tick() && next_tick.is_none() {
+        reveal(&mut p, &mut ki, frame.t_ms);
+        out.extend(p.feed(frame));
+        if p.needs_tick() && next_tick.is_none() {
             next_tick = Some(frame.t_ms + REPLAY_TICK_MS);
-        }
-        if let Some(kind) = tiptap.feed(frame.t_ms, &contacts) {
-            d.emit(frame.t_ms, Via::TipTap, GestureEvent { kind, fingers: 3 }, 0);
         }
     }
     // Let a pending tap settle after the last frame (bounded).
     let end = trace.frames.last().map(|f| f.t_ms).unwrap_or(0) + 5_000;
-    run_ticks_until(end, &mut palm, &mut next_tick, &mut d);
-    d.out
+    while let Some(t) = next_tick.filter(|&t| t <= end) {
+        reveal(&mut p, &mut ki, t);
+        out.extend(p.tick(t));
+        next_tick = p.needs_tick().then_some(t + REPLAY_TICK_MS);
+    }
+    out
+}
+
+/// The gesture decisions of a replay (contact decisions dropped).
+pub fn replay(trace: &Trace, cfg: &GestureConfig) -> Vec<Outcome> {
+    replay_decisions(trace, cfg).iter().filter_map(Outcome::from_decision).collect()
 }
 
 // ── Recorder buffer ──────────────────────────────────────────────────────────
@@ -417,6 +287,7 @@ pub fn replay(trace: &Trace, cfg: &GestureConfig) -> Vec<Outcome> {
 /// key-down times); [`Recorder::finish`] turns it into a [`Trace`] with times
 /// relative to the first frame. Pure — the platform owns the clock.
 #[derive(Debug)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct Recorder {
     source: String,
     devices: Vec<DeviceInfo>,
@@ -513,37 +384,28 @@ mod tests {
     }
 
     #[test]
-    fn feeds_drop_hover_and_keep_palms_only_for_the_palm_recogniser() {
+    fn feeds_drop_hover_and_keep_excluded_contacts_only_for_the_palm_recogniser() {
+        use super::super::guard::contact_feeds;
         let ts = [
             touch(1, 0.2, 0.5, 1.0, TouchPhase::Touching),
             touch(2, 0.4, 0.5, 1.0, TouchPhase::Hover),
-            touch(3, 0.6, 0.5, PALM_SIZE + 1.0, TouchPhase::Make),
+            touch(3, 0.6, 0.5, 2.5, TouchPhase::Make),
             touch(4, 0.8, 0.5, 1.0, TouchPhase::Break),
         ];
-        let (palm, tiptap) = contact_feeds(&ts);
+        let (palm, tiptap) = contact_feeds(&ts, |t| t.size >= 2.0);
         assert_eq!(palm.iter().map(|c| c.id).collect::<Vec<_>>(), [1, 3, 4]);
-        assert_eq!(tiptap.len(), 2, "hover and the size-palm are not tip-tap contacts");
+        assert_eq!(palm.iter().map(|c| c.excluded).collect::<Vec<_>>(), [false, true, false]);
+        assert_eq!(tiptap.len(), 2, "hover and the excluded contact are not tip-tap contacts");
     }
 
     #[test]
     fn tiptap_feed_is_capped_so_a_crowd_still_reads_as_too_many() {
+        use super::super::guard::{contact_feeds, TIPTAP_FEED_MAX};
         let ts: Vec<Touch> =
             (0..5).map(|i| touch(i, 0.1 + i as f64 * 0.1, 0.5, 1.0, TouchPhase::Touching)).collect();
-        let (palm, tiptap) = contact_feeds(&ts);
+        let (palm, tiptap) = contact_feeds(&ts, |_| false);
         assert_eq!(palm.len(), 5);
         assert_eq!(tiptap.len(), TIPTAP_FEED_MAX);
-    }
-
-    #[test]
-    fn last_key_lookup_ignores_modifiers_and_future_keys() {
-        let keys = [
-            KeyDown { t_ms: 100, modifier: false },
-            KeyDown { t_ms: 400, modifier: true },
-            KeyDown { t_ms: 900, modifier: false },
-        ];
-        assert_eq!(secs_since_key(&keys, 600), 0.5);
-        assert_eq!(secs_since_key(&keys, 950), 0.05);
-        assert!(secs_since_key(&keys, 50).is_infinite());
     }
 
     #[test]

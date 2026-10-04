@@ -1105,6 +1105,45 @@ export interface GestureConfig {
   /** Per-gesture switches (default on). */
   volume: boolean;
   mute: boolean;
+  /** Gesture-guard thresholds (all four levels); defaults reproduce the
+   *  historic recogniser. Carried along unchanged when other fields are saved. */
+  guard: GestureGuardConfig;
+}
+
+/** Edge zones as fractions of the pad (0.05 = 5 %). */
+export interface GestureEdgeZones {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** Mirrors `gestures::guard::GuardConfig`. */
+export interface GestureGuardConfig {
+  settle_ms: number;
+  palm_size: number;
+  palm_major: number;
+  thumb_ratio: number;
+  thumb_min_size: number;
+  thumb_zone: number;
+  edges_builtin: GestureEdgeZones;
+  edges_external: GestureEdgeZones;
+  palm_blocks_all: boolean;
+  typing_single_ms: number;
+  typing_burst_ms: number;
+  burst_gap_ms: number;
+  release_by_center: boolean;
+  center_size: number;
+  constant_count: boolean;
+  coherence_min: number;
+  swipe_min_move: number;
+  early_min_move: number;
+  min_speed: number;
+  evenness_min: number;
+  tap_window_ms: number;
+  tap_hold_max_ms: number;
+  tap_max_move: number;
+  cooldown_ms: number;
 }
 
 export function getGestureConfig(): Promise<GestureConfig> {
@@ -1132,10 +1171,13 @@ export interface GestureTraceFile {
 /** One replayed outcome of a saved trace. */
 export interface GestureReplayRow {
   t_ms: number;
-  via: "frame" | "tick" | "tiptap";
+  via: "frame" | "tick" | "tip_tap" | "external";
+  /** Guard level that decided. */
+  level: "classify" | "spatial" | "typing" | "plausibility" | "config";
   kind: string;
   fingers: number;
-  /** `dispatched`, `typing_guard`, `config:<reason>` or `unmapped`. */
+  /** `dispatched`, a guard reason (`typing_guard`, `finger_count_changed`, …),
+   *  `config:<reason>` or `unmapped`. */
   verdict: string;
   action: string | null;
 }

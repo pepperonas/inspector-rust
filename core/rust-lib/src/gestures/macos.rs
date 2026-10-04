@@ -19,11 +19,9 @@
 //! macOS could change them; the code is fully guarded so it never crashes — at
 //! worst gestures stop until the layout is updated.
 
-use super::trace::{contact_feeds, DeviceInfo, Touch, TouchPhase};
-use super::{
-    GestureConfig, GestureEvent, GestureSink, GestureSource, PalmAwareRecognizer,
-    TipTapRecognizer,
-};
+use super::guard::Pipeline;
+use super::trace::{DeviceInfo, Frame, KeyDown, Touch, TouchPhase};
+use super::{GestureConfig, GestureSink, GestureSource};
 use parking_lot::Mutex;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
@@ -273,8 +271,31 @@ pub(crate) fn now_ms() -> Option<u64> {
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
-static REC: Mutex<Option<PalmAwareRecognizer>> = Mutex::new(None);
-static TIPTAP_REC: Mutex<Option<TipTapRecognizer>> = Mutex::new(None);
+/// The gesture guard pipeline (all devices): classification, edge zones,
+/// typing, plausibility, and the recognisers inside it.
+static PIPELINE: Mutex<Option<Pipeline>> = Mutex::new(None);
+
+/// Tell the pipeline about the most recent key-down. macOS only answers "how
+/// long since the last key-down", so the history is incomplete (every key gets
+/// the burst window) until a keyboard tap feeds it.
+fn observe_key(p: &mut Pipeline, now: u64) {
+    let s = super::seconds_since_last_keydown();
+    if s.is_finite() {
+        p.key(KeyDown { t_ms: now.saturating_sub((s * 1000.0) as u64), modifier: false });
+    }
+}
+
+/// Hand decisions to the sink (outside the pipeline lock).
+fn deliver(decisions: Vec<super::guard::Decision>) {
+    if decisions.is_empty() {
+        return;
+    }
+    if let Some(sink) = SINK.lock().as_ref() {
+        for d in decisions {
+            sink(d);
+        }
+    }
+}
 static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -377,7 +398,7 @@ fn wake_ticker() {
 /// clock with no finger on the pad.
 fn tick_thread() {
     while RUNNING.load(Ordering::Relaxed) {
-        let pending = REC.lock().as_ref().map(|r| r.needs_tick()).unwrap_or(false);
+        let pending = PIPELINE.lock().as_ref().map(|p| p.needs_tick()).unwrap_or(false);
         if !pending {
             let mut guard = TICK_GATE.0.lock();
             TICK_GATE.1.wait_for(&mut guard, std::time::Duration::from_secs(1));
@@ -388,25 +409,25 @@ fn tick_thread() {
             break;
         }
         let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
-        let (ev, lift_age_ms) = {
-            let mut rec = REC.lock();
-            match rec.as_mut() {
-                Some(r) => (r.tick(now), r.since_last_contact_ms(now)),
-                None => (None, 0),
+        let decisions = {
+            let mut guard = PIPELINE.lock();
+            match guard.as_mut() {
+                Some(p) => {
+                    observe_key(p, now);
+                    p.tick(now)
+                }
+                None => Vec::new(),
             }
         };
-        if let Some(ev) = ev {
-            tracing::info!(
-                "gestures(mac): recognised {:?} ({} finger(s)) via settle tick",
-                ev.kind, ev.fingers
-            );
-            // A deferred tap is dispatched ≥ TAP_SETTLE_MS after the lift; the
-            // typing guard must judge it against the lift, not against now.
-            super::note_emit_lift_age_ms(lift_age_ms);
-            if let Some(sink) = SINK.lock().as_ref() {
-                sink(ev);
+        for d in &decisions {
+            if let Some(ev) = d.event {
+                tracing::info!(
+                    "gestures(mac): recognised {:?} ({} finger(s)) via settle tick",
+                    ev.kind, ev.fingers
+                );
             }
         }
+        deliver(decisions);
     }
 }
 
@@ -445,21 +466,21 @@ extern "C" fn frame_callback(
         tracing::debug!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
     }
     // Normalise the driver's contacts into the platform-neutral model (y
-    // flipped so "up" = decreasing y, matching `classify_swipe`), then split
-    // them into the two recogniser feeds with the SAME code the replay tests
-    // run (`trace::contact_feeds`: which states count as on the pad, which
-    // contacts tip-tap sees). Until v0.191 this filtering was inline here.
+    // flipped so "up" = decreasing y, matching `classify_swipe`) and run the
+    // frame through the guard pipeline — the SAME code the replay tests run.
     let t_ms = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     let touches: Vec<Touch> = fingers.iter().map(touch_from_finger).collect();
-    let (raw, contacts) = contact_feeds(&touches);
     super::record_frame(t_ms, || device_index(_device), &touches);
+    let device = device_index(_device);
+    let frame = Frame { t_ms, device, touches };
 
-    let (event, prev_active, active, pending) = {
-        let mut rec = REC.lock();
-        let rec = rec.get_or_insert_with(PalmAwareRecognizer::new);
-        let prev_active = rec.active_fingers();
-        let ev = rec.feed(t_ms, &raw);
-        (ev, prev_active, rec.active_fingers(), rec.needs_tick())
+    let (decisions, prev_active, active, pending) = {
+        let mut guard = PIPELINE.lock();
+        let Some(p) = guard.as_mut() else { return 0 };
+        observe_key(p, t_ms);
+        let prev_active = p.active_fingers(device);
+        let d = p.feed(&frame);
+        (d, prev_active, p.active_fingers(device), p.needs_tick())
     };
     if pending {
         wake_ticker(); // a deferred tap needs the settle ticker (A2)
@@ -470,13 +491,6 @@ extern "C" fn frame_callback(
     // keep pushing the swallow deadline to now+GRACE — so it covers the whole
     // gesture plus a grace tail (lift frames + momentum). On full lift, log the
     // leak counters.
-    // Touch start (no contact → any contact): sample the typing clock for the
-    // guard's "was the user typing when the fingers landed?" question. One
-    // µs-cheap CGEventSource read per touch, never per frame.
-    if n > 0 && prev == 0 {
-        super::note_touch_start();
-    }
-
     if active >= ARM_FINGERS {
         // On the leading edge of a gesture, re-assert the tap is enabled — a
         // display reconfiguration (monitor unplug) can silently disable a
@@ -497,30 +511,17 @@ extern "C" fn frame_callback(
         }
     }
 
-    if let Some(ev) = event {
-        // INFO (one line per recogniser emit, incl. events map_action rejects):
-        // lets a mis-classified tap (e.g. a stray SwipeUp with 2 fingers) be seen
-        // in the log without enabling debug. Low volume — only on a real gesture.
-        tracing::info!(
-            "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
-            ev.kind, ev.fingers, t_ms, prev_active, active
-        );
-        super::note_emit_lift_age_ms(0); // in-flight / at-lift emit
-        if let Some(sink) = SINK.lock().as_ref() {
-            sink(ev);
+    for d in &decisions {
+        if let Some(ev) = d.event {
+            // INFO (one line per recogniser emit, incl. ones the guard rejects):
+            // a mis-classified gesture shows up without enabling debug.
+            tracing::info!(
+                "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
+                ev.kind, ev.fingers, t_ms, prev_active, active
+            );
         }
     }
-
-    let tt_kind = {
-        let mut rec = TIPTAP_REC.lock();
-        rec.get_or_insert_with(TipTapRecognizer::new).feed(t_ms, &contacts)
-    };
-    if let Some(kind) = tt_kind {
-        tracing::debug!("gestures(mac): recognised {kind:?} (tip-tap)");
-        if let Some(sink) = SINK.lock().as_ref() {
-            sink(GestureEvent { kind, fingers: 3 });
-        }
-    }
+    deliver(decisions);
     0
 }
 
@@ -641,6 +642,11 @@ fn capture_thread() {
     }
     *MT_API.lock() = Some(mt);
     *MT_DEVICES.lock() = devices.iter().map(|&d| d as isize).collect();
+    let infos = device_infos();
+    tracing::info!("gestures(mac): devices {infos:?}");
+    if let Some(p) = PIPELINE.lock().as_mut() {
+        p.set_devices(infos);
+    }
 
     tracing::info!("gestures(mac): entering run loop (waiting for finger frames)");
     // BOUNDED run loop, deliberately (fixed 2026-08-16). The old `CFRunLoopRun()`
@@ -670,7 +676,7 @@ impl MacGestureSource {
 }
 
 impl GestureSource for MacGestureSource {
-    fn start(&mut self, _cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
+    fn start(&mut self, cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
         // Install the fresh sink FIRST — the old early return dropped it when
         // RUNNING was still true, leaving a live capture that recognised
         // gestures but dispatched nothing (the frame callback lazily revives
@@ -682,8 +688,8 @@ impl GestureSource for MacGestureSource {
         }
         let _ = START.set(Instant::now());
         FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
-        *REC.lock() = Some(PalmAwareRecognizer::new());
-        *TIPTAP_REC.lock() = Some(TipTapRecognizer::new());
+        *PIPELINE.lock() =
+            Some(Pipeline::new(cfg, Vec::new(), false).with_mute(false, Some(super::output_muted_now)));
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).
         let handle = std::thread::Builder::new()
@@ -758,6 +764,6 @@ impl GestureSource for MacGestureSource {
         MT_DEVICES.lock().clear();
         *MT_API.lock() = None;
         *SINK.lock() = None;
-        *REC.lock() = None;
+        *PIPELINE.lock() = None;
     }
 }

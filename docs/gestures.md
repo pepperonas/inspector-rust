@@ -4,9 +4,72 @@ Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes th
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
-> Status: **Phase 1 of 7.** In place so far are the touch model, the recording format, recording and replay, and fixed test scenarios. The four filter levels below are the plan for the next phases; today's filters are described under *What already exists*.
+> Status: **Phase 2 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`) on macOS; Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel, calibration and the keyboard tap follow in Phases 3–5.
 
-## What already exists (macOS)
+## The pipeline
+
+Each frame of touches runs through four levels. Every decision is reported with its level and reason; the app log shows each rejected gesture as `gesture rejected [<level>] <reason>`.
+
+### Level 1: classification per contact
+
+| Class | Rule (default) |
+|---|---|
+| Palm | size ≥ 2.0 (the historic rule), or ellipse major axis ≥ `palm_major` (off by default) |
+| Thumb | major/minor ≥ 1.7 **and** size ≥ 1.3 **and** landed in the lower 40 % of the pad |
+| Finger | none of the above, after 30 ms on the pad |
+| Unclear | the first 30 ms; counts as a finger, so a quick tap isn't delayed |
+
+Palm and thumb are **sticky**: they are judged on the largest size and ratio seen so far, so a contact whose area shrinks later doesn't turn back into a finger. Palms and thumbs never count as gesture fingers.
+
+⚠️ The thumb thresholds are estimates until recordings from real trackpads exist. `thumb_ratio = 0` switches the thumb rule off.
+
+### Level 2: space
+
+- **Edge zones**: left 3 %, right 3 %, top 5 %, bottom 5 % by default. A contact that **lands** in a zone is ignored; a finger that slides into a zone from the middle stays valid.
+- **Profiles**: separate zones for the built-in trackpad and an external one (Magic Trackpad). macOS tells the two apart through an optional private function; if it can't, the built-in profile applies.
+- **Palm blocks everything** (off by default): while a palm lies on the pad, no gesture fires.
+
+### Level 3: typing
+
+A key press shortly before or during a touch blocks volume and mute.
+
+| Situation | Window |
+|---|---|
+| A single key press | 250 ms |
+| A key press within 500 ms of the previous one (a burst) | 600 ms |
+| History unknown (live macOS until the keyboard tap in Phase 3) | 600 ms |
+
+Never blocked: **unmute**, tab switching, and a key pressed **after** the fingers lifted. Modifier keys never count.
+
+Optional **release by a centre touch**: after typing, gestures stay blocked until a touch starts in the centre area (by default the middle half of the pad).
+
+### Level 4: plausibility
+
+| Rule | Default |
+|---|---|
+| Swipe: the finger count stays constant; a contact that joins and stays still rejects it | on |
+| Swipe: fingers move coherently in one direction | coherence ≥ 0.6 |
+| Swipe: minimum travel per finger | 0.06 of the pad (early emission: 0.12) |
+| Swipe: minimum speed and evenness of the fingers | off |
+| Tap: all fingers within one window, held briefly, barely moving | 700 ms / 350 ms / 0.12 |
+| Cooldown after every accepted gesture | 150 ms |
+
+All thresholds are stored as JSON under `gestures.guard` in the settings table. They are clamped on load, so a hand-edited or old value can't break recognition.
+
+### Intentional changes from Phase 1
+
+The golden fixtures pin exactly these four changes; every other scenario behaves as before.
+
+| Scenario | Before | Now |
+|---|---|---|
+| `edge-stripe-top` | volume down | nothing (edge zone) |
+| `swipe-plus-fourth-contact` | volume up | rejected: finger count changed |
+| `tap-landing-while-typing` (single key 0.49 s before) | blocked | fires (a single key blocks for 250 ms) |
+| `thumb-plus-two-finger-tap` (new) | would have muted | 2-finger tap, ignored |
+
+Performance: 0.5 µs per frame in a release build (budget 0.2 ms), measured by `guard_frame_budget`.
+
+## What existed before the pipeline (macOS)
 
 | Filter | What it does |
 |---|---|
@@ -86,14 +149,13 @@ The synthetic scenarios record **today's** behaviour. Their `note` says where th
 | `unmute-tap-while-typing` | Fires (unmuting is never blocked) |
 | `tiptap-with-resting-palm` | Tab switch fires |
 
-## Plan: four filter levels (Phases 2–7)
+## Next phases
 
-1. **Classification per contact** — finger / thumb / palm / unclear, sticky until the contact lifts, decided after a short settling time.
-2. **Spatial** — edge zones (only new contacts are ignored there), separate profiles for the built-in trackpad and a Magic Trackpad, an optional block while a palm rests.
-3. **Typing** — a short block after a single key press, a longer one after a run of key presses; optionally released only by a touch in the middle area.
-4. **Plausibility** — constant finger count for swipes, coherence, minimum distance and speed, a tap window, a cooldown after every gesture.
-
-Each decision is reported as an event (accepted / rejected, reason, level) and shown in the `gestures` panel.
+3. macOS keyboard tap, so the key history is complete (single press vs. burst, live).
+4. `gestures` panel: live view, sliders per device profile, decision log.
+5. Calibration, recording from the panel, a hotkey for "that was unintended".
+6. Windows confidence bit, Linux palm data.
+7. Docs and release.
 
 **Limits by platform:**
 

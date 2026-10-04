@@ -7,12 +7,15 @@ describe("gesture trace replay labels", () => {
     expect(verdictLabel("typing_guard")).toBe("blocked (typing)");
     expect(verdictLabel("unmapped")).toBe("ignored (no binding)");
     expect(verdictLabel("config:gestures.mute is off")).toBe("blocked (gestures.mute is off)");
+    expect(verdictLabel("finger_count_changed")).toBe("blocked (finger count changed)");
+    expect(verdictLabel("cooldown")).toBe("blocked (cooldown)");
   });
 
   it("formats a row with time, kind, fingers, action and verdict", () => {
     const line = formatReplayRow({
       t_ms: 12345,
       via: "tick",
+      level: "typing",
       kind: "tap",
       fingers: 3,
       verdict: "typing_guard",
@@ -25,6 +28,7 @@ describe("gesture trace replay labels", () => {
     const line = formatReplayRow({
       t_ms: 50,
       via: "frame",
+      level: "config",
       kind: "swipe_down",
       fingers: 2,
       verdict: "unmapped",

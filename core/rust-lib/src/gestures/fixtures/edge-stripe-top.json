@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "synthetic",
-  "note": "Three contacts graze the TOP edge and slide down a little (wrist / sleeve). Today: a 3-finger swipe down → volume down FIRES. Known gap: the guard pipeline's edge zones should reject contacts that land there.",
+  "note": "Three contacts graze the TOP edge and slide down a little (wrist / sleeve). Until Phase 1 this fired volume down; since Phase 2 the contacts land in the top edge zone and are excluded — nothing fires.",
   "devices": [
     {
       "builtin": true,
@@ -774,12 +774,5 @@
     }
   ],
   "keys": [],
-  "expect": [
-    {
-      "kind": "swipe_down",
-      "fingers": 3,
-      "verdict": "dispatched",
-      "action": "volume_down"
-    }
-  ]
+  "expect": []
 }

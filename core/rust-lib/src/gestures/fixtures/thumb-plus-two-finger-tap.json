@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "synthetic",
-  "note": "A 3-finger tap that lands 0.49 s after a SINGLE key-down. Until Phase 1 the one 0.5 s window caught it at the touch start; since Phase 2 a lone key blocks for 250 ms (a burst for 600 ms), so this deliberate tap fires.",
+  "note": "Two fingers tap while the thumb, laid flat low on the pad, touches at the same moment. Until Phase 1 that was a 3-finger tap → mute; since Phase 2 the thumb is classified and doesn't count — a 2-finger tap, ignored.",
   "devices": [
     {
       "builtin": true,
@@ -12,13 +12,13 @@
   "muted_at_start": false,
   "frames": [
     {
-      "t_ms": 590,
+      "t_ms": 0,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -29,8 +29,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -41,26 +41,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 600,
+      "t_ms": 10,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -71,8 +71,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -83,26 +83,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 610,
+      "t_ms": 20,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -113,8 +113,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -125,26 +125,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 620,
+      "t_ms": 30,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -155,8 +155,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -167,26 +167,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 630,
+      "t_ms": 40,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -197,8 +197,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -209,26 +209,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 640,
+      "t_ms": 50,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -239,8 +239,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -251,26 +251,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 650,
+      "t_ms": 60,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -281,8 +281,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -293,26 +293,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 660,
+      "t_ms": 70,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -323,8 +323,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -335,26 +335,26 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 670,
+      "t_ms": 80,
       "device": 0,
       "touches": [
         {
           "id": 1,
-          "x": 0.4,
-          "y": 0.5,
+          "x": 0.45,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -365,8 +365,8 @@
         },
         {
           "id": 2,
-          "x": 0.5,
-          "y": 0.5,
+          "x": 0.55,
+          "y": 0.45,
           "vx": 0.0,
           "vy": 0.0,
           "major": 8.0,
@@ -377,36 +377,31 @@
         },
         {
           "id": 3,
-          "x": 0.6,
-          "y": 0.5,
+          "x": 0.35,
+          "y": 0.85,
           "vx": 0.0,
           "vy": 0.0,
-          "major": 8.0,
+          "major": 12.0,
           "minor": 6.0,
           "angle": 0.0,
-          "size": 1.0,
+          "size": 1.5,
           "phase": "touching"
         }
       ]
     },
     {
-      "t_ms": 680,
+      "t_ms": 90,
       "device": 0,
       "touches": []
     }
   ],
-  "keys": [
-    {
-      "t_ms": 100,
-      "modifier": false
-    }
-  ],
+  "keys": [],
   "expect": [
     {
       "kind": "tap",
-      "fingers": 3,
-      "verdict": "dispatched",
-      "action": "mute_toggle"
+      "fingers": 2,
+      "verdict": "unmapped",
+      "action": null
     }
   ]
 }

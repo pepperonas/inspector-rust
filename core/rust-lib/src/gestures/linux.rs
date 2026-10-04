@@ -19,7 +19,7 @@
 //! module can't be built or run from the maintainer's macOS host. Written
 //! against the documented `input` 0.9 API; verify on real Linux.
 
-use super::{classify_swipe, GestureConfig, GestureEvent, GestureKind, GestureSink, GestureSource};
+use super::{classify_swipe, EventSink, GestureConfig, GestureEvent, GestureKind, GestureSink, GestureSource};
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,10 +76,13 @@ impl LinuxGestureSource {
 }
 
 impl GestureSource for LinuxGestureSource {
-    fn start(&mut self, _cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
+    fn start(&mut self, cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
         if RUNNING.swap(true, Ordering::SeqCst) {
             return Ok(()); // already running
         }
+        // libinput recognises the gestures; they still pass the guard's typing
+        // level, cooldown and config.
+        let sink = super::external_sink(cfg, sink);
         std::thread::spawn(move || {
             run_loop(sink);
             RUNNING.store(false, Ordering::SeqCst);
@@ -93,7 +96,7 @@ impl GestureSource for LinuxGestureSource {
     }
 }
 
-fn run_loop(sink: GestureSink) {
+fn run_loop(sink: EventSink) {
     let mut li = Libinput::new_with_udev(Interface);
     if li.udev_assign_seat("seat0").is_err() {
         tracing::warn!("gestures: libinput could not assign seat0 (no /dev/input access?)");

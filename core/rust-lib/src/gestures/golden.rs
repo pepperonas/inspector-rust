@@ -7,10 +7,11 @@
 //!
 //! The synthetic scenarios are built here and written by the ignored
 //! generator: `cargo test -p inspector-rust-core --lib gen_gesture_fixtures
-//! -- --ignored`. Their `expect` is TODAY'S behaviour (characterisation, not
-//! wish) — each `note` says where that behaviour is a known gap the guard
-//! pipeline is meant to close, so a later, deliberate change of an expected
-//! outcome is visible in review instead of silent.
+//! -- --ignored`. Their `expect` is the CURRENT behaviour of the guard
+//! pipeline; each `note` says what the scenario shows, and where an outcome
+//! changed on purpose (Phase 2: edge zones, constant finger count, typing
+//! windows, thumbs) it says so — a deliberate change of an expected outcome is
+//! visible in review, never silent.
 
 use super::trace::{replay, DeviceInfo, Frame, KeyDown, Touch, TouchPhase, Trace, TRACE_VERSION};
 use super::GestureConfig;
@@ -40,6 +41,9 @@ struct Scenario {
     name: &'static str,
     note: &'static str,
     paths: Vec<Path>,
+    /// Contacts with a flat, elongated ellipse (major/minor 2.0, like a thumb
+    /// laid on its side); the rest are round-ish (1.33).
+    flat: Vec<i32>,
     keys: Vec<KeyDown>,
     muted_at_start: bool,
 }
@@ -56,7 +60,7 @@ const FRAME_MS: u64 = 10;
 
 impl Scenario {
     fn new(name: &'static str, note: &'static str) -> Scenario {
-        Scenario { name, note, paths: Vec::new(), keys: Vec::new(), muted_at_start: false }
+        Scenario { name, note, paths: Vec::new(), flat: Vec::new(), keys: Vec::new(), muted_at_start: false }
     }
     fn path(mut self, id: i32, from: (f64, f64), to: (f64, f64), t0: u64, t1: u64, size: f32) -> Self {
         self.paths.push(Path { id, from, to, t0, t1, size });
@@ -64,6 +68,10 @@ impl Scenario {
     }
     fn still(self, id: i32, at: (f64, f64), t0: u64, t1: u64, size: f32) -> Self {
         self.path(id, at, at, t0, t1, size)
+    }
+    fn flat(mut self, id: i32) -> Self {
+        self.flat.push(id);
+        self
     }
     fn key(mut self, t_ms: u64, modifier: bool) -> Self {
         self.keys.push(KeyDown { t_ms, modifier });
@@ -103,7 +111,7 @@ impl Scenario {
                         vx: q((p.to.0 - p.from.0) / span * 1000.0),
                         vy: q((p.to.1 - p.from.1) / span * 1000.0),
                         major: p.size * 8.0,
-                        minor: p.size * 6.0,
+                        minor: if self.flat.contains(&p.id) { p.size * 4.0 } else { p.size * 6.0 },
                         angle: 0.0,
                         size: p.size,
                         phase: TouchPhase::Touching,
@@ -181,8 +189,8 @@ fn scenarios() -> Vec<Scenario> {
         Scenario::new(
             "edge-stripe-top",
             "Three contacts graze the TOP edge and slide down a little (wrist / \
-             sleeve). Today: a 3-finger swipe down → volume down FIRES. Known gap: \
-             the guard pipeline's edge zones should reject contacts that land there.",
+             sleeve). Until Phase 1 this fired volume down; since Phase 2 the \
+             contacts land in the top edge zone and are excluded — nothing fires.",
         )
         .path(1, (0.40, 0.01), (0.40, 0.20), 0, 180, FINGER)
         .path(2, (0.50, 0.01), (0.50, 0.20), 0, 180, FINGER)
@@ -217,9 +225,9 @@ fn scenarios() -> Vec<Scenario> {
 
     let mut fourth = Scenario::new(
         "swipe-plus-fourth-contact",
-        "A 3-finger swipe up while a FOURTH contact lands and stays still. Today: \
-         only movers count, the swipe fires as 3 fingers → volume up. The guard \
-         pipeline is meant to reject a gesture whose contact count changes.",
+        "A 3-finger swipe up while a FOURTH contact lands and stays still. Until \
+         Phase 1 only movers counted and volume went up; since Phase 2 the swipe \
+         is rejected (level 4: the finger count changed).",
     );
     for (i, x) in three.iter().enumerate() {
         fourth = fourth.path(i as i32 + 1, (*x, 0.70), (*x, 0.35), 0, 220, FINGER);
@@ -238,9 +246,9 @@ fn scenarios() -> Vec<Scenario> {
 
     let mut landed = Scenario::new(
         "tap-landing-while-typing",
-        "A 3-finger tap that LANDS 0.49 s after a key-down and lifts 0.58 s after \
-         it. Only the touch-start sample is inside the guard window — the veto \
-         must come from it (libinput's disable-while-typing question).",
+        "A 3-finger tap that lands 0.49 s after a SINGLE key-down. Until Phase 1 \
+         the one 0.5 s window caught it at the touch start; since Phase 2 a lone \
+         key blocks for 250 ms (a burst for 600 ms), so this deliberate tap fires.",
     )
     .key(100, false);
     for (i, x) in three.iter().enumerate() {
@@ -259,6 +267,19 @@ fn scenarios() -> Vec<Scenario> {
         resumed = resumed.still(i as i32 + 1, (*x, 0.50), 250, 340, FINGER);
     }
     s.push(resumed);
+
+    let mut thumb = Scenario::new(
+        "thumb-plus-two-finger-tap",
+        "Two fingers tap while the thumb, laid flat low on the pad, touches at the \
+         same moment. Until Phase 1 that was a 3-finger tap → mute; since Phase 2 \
+         the thumb is classified and doesn't count — a 2-finger tap, ignored.",
+    );
+    thumb = thumb
+        .still(1, (0.45, 0.45), 0, 90, FINGER)
+        .still(2, (0.55, 0.45), 0, 90, FINGER)
+        .still(3, (0.35, 0.85), 0, 90, 1.5)
+        .flat(3);
+    s.push(thumb);
 
     let mut after_mod = Scenario::new(
         "tap-after-modifier",
@@ -325,6 +346,11 @@ fn fixtures_replay_as_expected() {
         let t = Trace::from_json(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let expect = t.expect.clone().unwrap_or_else(|| panic!("{} has no expect", path.display()));
         let got: Vec<_> = replay(&t, &cfg).iter().map(|o| o.expected()).collect();
+        if std::env::var("IR_GOLDEN_REPORT").is_ok() && got != expect {
+            eprintln!("DIVERGED {}\n  was: {:?}\n  now: {:?}", path.display(), expect, got);
+            checked += 1;
+            continue;
+        }
         assert_eq!(got, expect, "{}: replay diverged from its golden outcome", path.display());
         checked += 1;
     }
@@ -358,7 +384,7 @@ fn key_scenarios_have_the_documented_outcome() {
         replay(&sc.trace(), &cfg)
             .into_iter()
             .filter(|o| o.action.is_some())
-            .map(|o| (o.event.kind, o.action.unwrap(), o.verdict.code()))
+            .map(|o| (o.event.kind, o.action.unwrap(), o.reason.code()))
             .collect::<Vec<_>>()
     };
     let d = "dispatched".to_string();
@@ -369,7 +395,11 @@ fn key_scenarios_have_the_documented_outcome() {
     assert_eq!(get("tap-after-keypress"), [(K::Tap, A::MuteToggle, "typing_guard".to_string())]);
     assert_eq!(get("tap-after-modifier"), [(K::Tap, A::MuteToggle, d.clone())]);
     assert_eq!(get("key-right-after-tap"), [(K::Tap, A::MuteToggle, d.clone())]);
-    assert_eq!(get("tap-landing-while-typing"), [(K::Tap, A::MuteToggle, "typing_guard".to_string())]);
+    assert_eq!(get("tap-landing-while-typing"), [(K::Tap, A::MuteToggle, d.clone())]);
+    assert_eq!(get("palm-typing-right"), [(K::Tap, A::MuteToggle, "typing_guard".to_string())]);
+    assert_eq!(get("edge-stripe-top"), []);
+    assert_eq!(get("swipe-plus-fourth-contact"), [(K::SwipeUp, A::VolumeUp, "finger_count_changed".to_string())]);
+    assert_eq!(get("thumb-plus-two-finger-tap"), []);
     assert_eq!(get("unmute-tap-while-typing"), [(K::Tap, A::MuteToggle, d.clone())]);
     assert_eq!(get("palm-typing-left"), []);
     assert_eq!(get("thumb-rest-two-finger-scroll"), []);

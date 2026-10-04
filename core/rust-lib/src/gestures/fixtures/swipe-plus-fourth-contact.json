@@ -1,7 +1,7 @@
 {
   "version": 1,
   "source": "synthetic",
-  "note": "A 3-finger swipe up while a FOURTH contact lands and stays still. Today: only movers count, the swipe fires as 3 fingers → volume up. The guard pipeline is meant to reject a gesture whose contact count changes.",
+  "note": "A 3-finger swipe up while a FOURTH contact lands and stays still. Until Phase 1 only movers counted and volume went up; since Phase 2 the swipe is rejected (level 4: the finger count changed).",
   "devices": [
     {
       "builtin": true,
@@ -1246,7 +1246,7 @@
     {
       "kind": "swipe_up",
       "fingers": 3,
-      "verdict": "dispatched",
+      "verdict": "finger_count_changed",
       "action": "volume_up"
     }
   ]

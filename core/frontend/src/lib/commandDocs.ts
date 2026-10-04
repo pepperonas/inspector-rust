@@ -181,15 +181,19 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Creates an empty file named `<name>` in the folder of the frontmost Finder window (macOS) / Explorer window (Windows), then reveals it. Inline content after `>` is written into the file. Nested relative paths create intermediate directories; absolute paths and `..` traversal are rejected so it can't escape the folder.",
     arguments: [
       { name: "name", required: true, description: "File name; may be a nested relative path (`a/b/c.txt`).", default: undefined },
-      { name: "> text", required: false, description: "Everything after the first `>` becomes the file's content.", default: "(empty file)" },
+      { name: "> text", required: false, description: "Everything after the first `>` becomes the file's content. A pasted multi-line text keeps its line breaks (shown as ↵ in the search bar).", default: "(empty file)" },
     ],
     flags: [],
     examples: [
       { input: "touch notes.md", result: "Empty notes.md in the front Finder folder, selected." },
       { input: "touch hello.txt > das ist ein test", result: "hello.txt containing 'das ist ein test'." },
       { input: "touch src/app/index.ts", result: "Creates src/app/ then index.ts (intermediate dirs made)." },
+      { input: "touch namen.txt > (paste a list)", result: "namen.txt with one list entry per line — the line breaks survive the single-line search bar as ↵." },
     ],
-    tips: ["Falls back to the Desktop when no Finder/Explorer window is open."],
+    tips: [
+      "Falls back to the Desktop when no Finder/Explorer window is open.",
+      "Paste multi-line text after `>` (or the whole `touch x.txt > …` command): line breaks show as ↵ and are written as real newlines; indentation is kept.",
+    ],
     caveats: ["macOS needs the Finder Automation grant. Windows paths are runtime-unverified."],
     related: ["mkdir", "terminal"],
   },

@@ -104,6 +104,7 @@ import { repoUrlEntry } from "./lib/repo-url";
 import { qrLinkEntry } from "./lib/qr-link";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
+import { parseTouchArg, touchLineCount } from "./lib/touch";
 import { tryConvert } from "./lib/convert";
 import {
   parseConvertArg,
@@ -1965,11 +1966,12 @@ function App() {
         break;
       }
       case "touch": {
-        const gt = arg.indexOf(">");
-        const tname = (gt >= 0 ? arg.slice(0, gt) : arg).trim();
-        const tcontent = gt >= 0 ? arg.slice(gt + 1).trim() : "";
+        const { name: tname, content: tcontent } = parseTouchArg(arg);
+        const tlines = touchLineCount(tcontent);
         label = tcontent
-          ? `Create "${tname}" with content in the open folder`
+          ? tlines > 1
+            ? `Create "${tname}" with ${tlines} lines in the open folder`
+            : `Create "${tname}" with content in the open folder`
           : `Create file "${tname}" in the open folder`;
         hint =
           "Frontmost Explorer (Windows) / Finder (macOS) folder · `touch name > text` writes content";
@@ -4227,9 +4229,8 @@ function App() {
         try {
           let path: string;
           if (commandKind === "touch") {
-            const gt = arg.indexOf(">");
-            const name = (gt >= 0 ? arg.slice(0, gt) : arg).trim();
-            const content = gt >= 0 ? arg.slice(gt + 1).trim() : "";
+            // Line breaks come back from their ↵ markers (lib/touch.ts).
+            const { name, content } = parseTouchArg(arg);
             path = await finderTouch(name, content);
           } else {
             path = await finderMkdir(arg);

@@ -1,5 +1,6 @@
 import { Calculator, ChevronRight, X } from "lucide-react";
 import { forwardRef } from "react";
+import { touchPaste } from "../lib/touch";
 
 interface Props {
   value: string;
@@ -43,6 +44,22 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
           placeholder="Search or calculate…"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={(e) => {
+            // A single-line <input> strips newlines from a paste. Inside the
+            // content of `touch name > …` they matter (the file's lines), so
+            // they're kept as visible ↵ markers — see lib/touch.ts.
+            const el = e.currentTarget;
+            const r = touchPaste(
+              el.value,
+              el.selectionStart ?? el.value.length,
+              el.selectionEnd ?? el.value.length,
+              e.clipboardData.getData("text/plain"),
+            );
+            if (!r) return;
+            e.preventDefault();
+            onChange(r.value);
+            requestAnimationFrame(() => el.setSelectionRange(r.caret, r.caret));
+          }}
           className={
             "min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-[var(--color-muted)] " +
             (calcMode ? "caret-rose-500" : "")

@@ -1,7 +1,7 @@
 {
-  "loc": 204294,
-  "loc_rust": 106766,
-  "loc_ts": 97528,
+  "loc": 204322,
+  "loc_rust": 106780,
+  "loc_ts": 97542,
   "tests": 4953,
   "tests_rust": 1901,
   "tests_frontend": 3052,

@@ -103,6 +103,7 @@ export type CommandKind =
   | "ip"
   | "tokens"
   | "limits"
+  | "task"
   | "track"
   | "trim"
   | "calendar"
@@ -1012,6 +1013,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "quota",
     syntax: "quota",
     description: "Alias for limits",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "task",
+    keyword: "task",
+    syntax: "task [beschreibung]",
+    description:
+      "KI-Tasks: die KI schreibt aus deiner Beschreibung ein Skript, du gibst es frei, es läuft im Intervall, zur Uhrzeit oder bei Ereignissen",
+    requiresArg: false,
+  },
+  {
+    kind: "task",
+    keyword: "ki",
+    syntax: "ki [beschreibung]",
+    description: "Alias for task",
     requiresArg: false,
     hidden: true,
   },

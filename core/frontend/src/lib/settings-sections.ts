@@ -40,6 +40,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "figlet", label: "Figlet", names: ["figlet", "banner", "ascii"] },
   { id: "security", label: "Security builder", names: ["security", "sec", "nmap", "pentest"] },
   { id: "meme", label: "Meme library", names: ["meme", "memes", "gif"] },
+  { id: "ai", label: "KI-Anbieter", names: ["ki", "ki-anbieter", "ai", "ai providers", "api key", "api-schlüssel", "claude", "gemini", "chatgpt", "openai", "anthropic", "modell", "model"] },
   { id: "weather", label: "Weather", names: ["weather", "wetter", "openweather", "forecast"] },
   { id: "timer-alarm", label: "Timer alarm", names: ["timer", "alarm", "wecker"] },
   { id: "input-lock", label: "Input lock", names: ["input lock", "freeze", "lock chord"] },

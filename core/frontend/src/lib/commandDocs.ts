@@ -1718,6 +1718,40 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["tokens", "stats"],
   },
   {
+    command: "task",
+    aliases: ["ki"],
+    category: CAT_PROD,
+    version_added: "0.191.0",
+    tagline: "AI tasks — describe it, the AI writes the script, you approve, it runs on its own.",
+    tagline_de: "KI-Tasks — beschreiben, die KI schreibt das Skript, du gibst frei, es läuft von selbst.",
+    synopsis: "task [beschreibung]",
+    description:
+      "Lists your AI tasks and creates new ones. Describe in plain words what should happen; the AI (Claude via API key or the local Claude Code, Gemini or ChatGPT — Settings → KI-Anbieter) writes a script and picks the language (zsh, Bash, Python or AppleScript on macOS; PowerShell or Python on Windows). You review it — risky lines like deletions or sudo are flagged — and approve it. Then it runs on its own: every N minutes, at a time on chosen weekdays, when files appear in a folder, when the app starts or when the computer wakes. Every run is logged with exit code and output. An approval covers exactly the version you saw: any change to the script needs a new one. With a description (`task …`) Enter opens the editor pre-filled. Esc steps back.",
+    arguments: [
+      { required: false, name: "beschreibung", description: "Opens the editor with this description on Enter." },
+    ],
+    flags: [],
+    examples: [
+      { input: "task", result: "Your tasks with status, trigger and next run." },
+      {
+        input: "task lösche .dmg-Dateien im Downloads-Ordner, die älter als 14 Tage sind",
+        result: "Editor pre-filled; ⌘⏎ lets the AI write the script.",
+      },
+      { input: "ki", result: "Same panel via the alias." },
+    ],
+    tips: [
+      "A revision is shown as a diff against the approved version, so you only re-read what changed.",
+      "\"Alle pausieren\" stops every automatic run at once; manual runs stay possible.",
+      "Scripts get IR_TASK_NAME, IR_TASK_TRIGGER and (for folder tasks) IR_TASK_PATHS with the changed files.",
+    ],
+    caveats: [
+      "Scripts run with your user rights — read them before approving. The risk hints are a help, not a guarantee.",
+      "Each run has a time limit (default 120 s); a script that overruns is stopped together with everything it started.",
+      "A schedule missed while the computer was off runs once when it's back, not once per missed slot.",
+    ],
+    related: ["alias", "settings"],
+  },
+  {
     command: "8bit",
     aliases: ["16bit"],
     category: CAT_INFO,

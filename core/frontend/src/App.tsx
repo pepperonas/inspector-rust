@@ -68,6 +68,7 @@ import { findRetroPalette, parseRetroArg } from "./lib/retro";
 import { feedbackPreview } from "./lib/copy-feedback";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
+const TasksPanel = lazy(() => import("./components/TasksPanel").then((m) => ({ default: m.TasksPanel })));
 const ClaudeLimitsPanel = lazy(() =>
   import("./components/ClaudeLimitsPanel").then((m) => ({ default: m.ClaudeLimitsPanel })),
 );
@@ -508,6 +509,9 @@ function App() {
   const [tokensMode, setTokensMode] = useState(false);
   const [limitsMode, setLimitsMode] = useState(false);
   const [limitsFocus, setLimitsFocus] = useState(false);
+  // task / ki (AI tasks) — show-while-typed; Enter hands focus to the panel.
+  const [taskMode, setTaskMode] = useState(false);
+  const [taskFocus, setTaskFocus] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
   // right preview column directly (like `sound`); Enter hands the arrow keys
@@ -1537,6 +1541,18 @@ function App() {
       setTokensFocus(false);
     }
   }, [isTokensCmd, tokensMode]);
+  const isTaskCmd = parsedCommand?.spec.kind === "task";
+  useEffect(() => {
+    // Show-while-fully-typed: the panel only reads the task list; nothing
+    // is generated or run until the user acts inside it.
+    if (isTaskCmd && !taskMode) {
+      setTaskMode(true);
+    } else if (!isTaskCmd && taskMode) {
+      setTaskMode(false);
+      setTaskFocus(false);
+    }
+  }, [isTaskCmd, taskMode]);
+
   const isLimitsCmd = parsedCommand?.spec.kind === "limits";
   useEffect(() => {
     // Show-while-typed: the panel only reads a cache unless the poll is due.
@@ -2208,6 +2224,12 @@ function App() {
       case "ip":
         label = "What is my IP?";
         hint = "Enter → public IP, approximate location, network and map";
+        break;
+      case "task":
+        label = arg ? `KI-Task anlegen: ${arg}` : "KI-Tasks";
+        hint = arg
+          ? "Enter → Editor mit dieser Beschreibung; die KI schreibt das Skript"
+          : "Enter → Tasks verwalten: KI schreibt Skripte, du gibst frei, sie laufen automatisch";
         break;
       case "limits":
         label = "Claude-Limits";
@@ -3916,7 +3938,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3937,6 +3959,7 @@ function App() {
           commandKind === "8bit" ||
           commandKind === "16bit" ||
           commandKind === "alias" ||
+          commandKind === "task" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
@@ -4558,6 +4581,10 @@ function App() {
         setIpMode(true);
         setIpFocus(true);
         return true;
+      } else if (commandKind === "task") {
+        setTaskMode(true);
+        setTaskFocus(true);
+        return true;
       } else if (commandKind === "limits") {
         setLimitsMode(true);
         setLimitsFocus(true);
@@ -5012,6 +5039,7 @@ function App() {
       !benchFocus &&
       !tokensFocus &&
       !limitsFocus &&
+      !taskFocus &&
       !retroFocus &&
       !calendarFocus &&
       !convertFocus &&
@@ -5698,6 +5726,23 @@ function App() {
                         setWeatherMode(false);
                         setWeatherFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : taskMode ? (
+                  <div className="md3-pop-in h-full">
+                    <TasksPanel
+                      arg={isTaskCmd ? (parsedCommand?.arg ?? "") : ""}
+                      focused={taskFocus}
+                      onExit={() => {
+                        setTaskMode(false);
+                        setTaskFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                      onOpenSettings={() => {
+                        setQuery("");
+                        setSettingsJump({ id: "ai", nonce: Date.now() });
+                        setActiveTab("settings");
                       }}
                     />
                   </div>

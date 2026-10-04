@@ -87,6 +87,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // Shazam recognition history (the `shazam` command persists each match).
     crate::shazam::init_schema(&conn)
         .with_context(|| "failed to create shazam_history table")?;
+    // AI tasks + their run log (the `task` / `ki` command).
+    crate::ai_tasks::store::init_schema(&conn)
+        .with_context(|| "failed to create ai_tasks tables")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 

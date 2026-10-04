@@ -4273,3 +4273,67 @@ export function mailcheckRun(email: string): Promise<MailCheckResult> {
 export function appVersion(): Promise<string> {
   return invoke<string>("app_version");
 }
+
+// ── AI tasks (task / ki) ──────────────────────────────────────────────────────
+import type { AiConfig, AiProviderId, AiProviderStatus, AiTask, AiTaskDraft, AiTaskRun, AiTasksState, Generated, ScriptLanguage } from "./tasks";
+
+export function aiProviderStatus(): Promise<AiProviderStatus[]> {
+  return invoke("ai_provider_status");
+}
+/** Store (or, with an empty key, remove) a provider's API key in the keychain. */
+export function aiSetKey(provider: AiProviderId, key: string): Promise<void> {
+  return invoke("ai_set_key", { provider, key });
+}
+export function aiTestProvider(provider: AiProviderId): Promise<string> {
+  return invoke("ai_test_provider", { provider });
+}
+export function aiGetConfig(): Promise<AiConfig> {
+  return invoke("ai_get_config");
+}
+export function aiSetConfig(config: AiConfig): Promise<void> {
+  return invoke("ai_set_config", { config });
+}
+export function aiTasksState(): Promise<AiTasksState> {
+  return invoke("ai_tasks_state");
+}
+/** Ask the AI for a script — a draft; nothing is saved or run. */
+export function aiTaskGenerate(args: {
+  provider: AiProviderId;
+  description: string;
+  previousLanguage?: ScriptLanguage | null;
+  previousScript?: string | null;
+  feedback?: string | null;
+}): Promise<Generated> {
+  return invoke("ai_task_generate", {
+    provider: args.provider,
+    description: args.description,
+    previousLanguage: args.previousLanguage ?? null,
+    previousScript: args.previousScript ?? null,
+    feedback: args.feedback ?? null,
+  });
+}
+export function aiTaskSave(draft: AiTaskDraft): Promise<AiTask> {
+  return invoke("ai_task_save", { draft });
+}
+/** Approve exactly the version whose hash the user was shown. */
+export function aiTaskApprove(id: number, hash: string): Promise<AiTask> {
+  return invoke("ai_task_approve", { id, hash });
+}
+export function aiTaskRevoke(id: number): Promise<void> {
+  return invoke("ai_task_revoke", { id });
+}
+export function aiTaskSetEnabled(id: number, enabled: boolean): Promise<void> {
+  return invoke("ai_task_set_enabled", { id, enabled });
+}
+export function aiTaskDelete(id: number): Promise<void> {
+  return invoke("ai_task_delete", { id });
+}
+export function aiTasksSetPaused(paused: boolean): Promise<void> {
+  return invoke("ai_tasks_set_paused", { paused });
+}
+export function aiTaskRunNow(id: number): Promise<AiTaskRun | null> {
+  return invoke("ai_task_run_now", { id });
+}
+export function aiTaskRuns(id: number, limit?: number): Promise<AiTaskRun[]> {
+  return invoke("ai_task_runs", { id, limit: limit ?? null });
+}

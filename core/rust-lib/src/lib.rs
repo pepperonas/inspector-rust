@@ -6,6 +6,7 @@ mod ambient_light;
 mod app_launcher;
 mod audio;
 mod audio_swap;
+mod ai_tasks;
 mod auto_backup;
 mod auto_expand;
 mod backup;
@@ -487,6 +488,8 @@ pub fn run(context: tauri::Context<Wry>) {
             sync::start(app.handle().clone(), db_handle.clone());
             device_sync::start(app.handle().clone(), db_handle.clone());
             auto_backup::start(app.handle().clone(), db_handle.clone());
+            // AI tasks: approved scripts on their intervals/schedules/events.
+            ai_tasks::scheduler::start(app.handle().clone(), db_handle.clone());
 
             // Re-apply the last-chosen brightness/EDR levels (gamma dies with
             // the process; without this every restart resets to 100 %).
@@ -707,6 +710,21 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_auto_backup_password,
             commands::auto_backup_list_snapshots,
             commands::auto_backup_now,
+            ai_tasks::ipc::ai_provider_status,
+            ai_tasks::ipc::ai_set_key,
+            ai_tasks::ipc::ai_test_provider,
+            ai_tasks::ipc::ai_get_config,
+            ai_tasks::ipc::ai_set_config,
+            ai_tasks::ipc::ai_tasks_state,
+            ai_tasks::ipc::ai_task_generate,
+            ai_tasks::ipc::ai_task_save,
+            ai_tasks::ipc::ai_task_approve,
+            ai_tasks::ipc::ai_task_revoke,
+            ai_tasks::ipc::ai_task_set_enabled,
+            ai_tasks::ipc::ai_task_delete,
+            ai_tasks::ipc::ai_tasks_set_paused,
+            ai_tasks::ipc::ai_task_run_now,
+            ai_tasks::ipc::ai_task_runs,
             commands::auto_backup_restore,
 
             commands::sync_now,

@@ -1,4 +1,5 @@
 import { CellCountField } from "./CellCountField";
+import { AiProvidersSection } from "./AiProvidersSection";
 import { appVersion as fetchAppVersion } from "../lib/ipc";
 import { useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
@@ -3039,6 +3040,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <MemeSection />
           </div>
         )}
+
+        {/* AI providers — keys + models for the `task` / `ki` command */}
+        <div className="mt-6">
+          <AiProvidersSection />
+        </div>
 
         {/* Weather — OpenWeather API key + units */}
         <div className="mt-6">

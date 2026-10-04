@@ -2895,6 +2895,26 @@ export const retroPresetDelete = (name: string): Promise<RetroPreset[]> =>
   invoke("retro_preset_delete", { name });
 export const retroPresetApply = (name: string): Promise<RetroConfig> =>
   invoke("retro_preset_apply", { name });
+export const retroSelectPalette = (id: string): Promise<RetroConfig> =>
+  invoke("retro_select_palette", { id });
+
+export interface RetroStatus {
+  running: boolean;
+  supported: boolean;
+  screen_permission: boolean;
+  accessibility: boolean;
+  note: string | null;
+}
+export const retroStatus = (): Promise<RetroStatus> => invoke("retro_status");
+/** `on` / `off` / `toggle` — returns at once; `retro-state-changed` follows. */
+export const retroRun = (action: "on" | "off" | "toggle"): Promise<void> =>
+  invoke("retro_run", { action });
+export const retroToggleFocus = (): Promise<boolean | null> => invoke("retro_toggle_focus");
+export const retroToggleLens = (): Promise<boolean | null> => invoke("retro_toggle_lens");
+export const retroPreviewStart = (): Promise<void> => invoke("retro_preview_start");
+export const retroPreviewStop = (): Promise<void> => invoke("retro_preview_stop");
+export const retroOpenPermission = (kind: "screen" | "accessibility"): Promise<void> =>
+  invoke("retro_open_permission", { kind });
 
 // ── Clipboard-history cap ───────────────────────────────────────────────────
 

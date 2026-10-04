@@ -69,3 +69,75 @@ describe("palettes + ranges", () => {
     expect(clampHalf(NaN, PIXEL_RANGE["8bit"])).toBe(3);
   });
 });
+
+import { RETRO_ROWS, activeSlot, adjustRow, moveRow, rowInactive, rowValue } from "./retro";
+import type { RetroConfig, RetroModeSettings } from "./ipc";
+
+// Mirrors ModeSettings::defaults in retro/config.rs.
+const EIGHT: RetroModeSettings = {
+  palette: "nes", pixel_pt: 4, dither: "bayer4", dither_strength: 60,
+  focus: false, focus_pixel_pt: 1.5, focus_border: true,
+  lens: false, lens_radius_pt: 80, lens_view: "original",
+  scanlines: true, scanline_intensity: 40, crt: false, crt_strength: 40,
+  opacity: 100, retro_frames: false, sprite_cursor: false,
+};
+const SIXTEEN: RetroModeSettings = {
+  ...EIGHT, palette: "snes", pixel_pt: 2, dither_strength: 25, focus: true,
+  focus_pixel_pt: 1, focus_border: false, scanlines: false, scanline_intensity: 30, crt_strength: 30,
+};
+const CFG: RetroConfig = { mode: "8bit", eight: EIGHT, sixteen: SIXTEEN, target: "current", fps: 60 };
+
+describe("panel rows", () => {
+  it("↑/↓ wraps over every row", () => {
+    expect(moveRow(0, -1)).toBe(RETRO_ROWS.length - 1);
+    expect(moveRow(RETRO_ROWS.length - 1, 1)).toBe(0);
+  });
+
+  it("switching the mode shows that mode's own values (defaults until changed)", () => {
+    let c = adjustRow("pixel", CFG, 1); // 8-bit 4 → 4.5
+    expect(activeSlot(c).pixel_pt).toBe(4.5);
+    c = adjustRow("mode", c, 1);
+    expect(c.mode).toBe("16bit");
+    expect(rowValue("palette", c)).toBe("SNES");
+    expect(activeSlot(c).pixel_pt).toBe(2); // 16-bit default
+    c = adjustRow("mode", c, -1);
+    expect(activeSlot(c).pixel_pt).toBe(4.5); // the user's 8-bit change survived
+  });
+
+  it("value ranges follow the mode", () => {
+    let c = CFG;
+    for (let i = 0; i < 40; i++) c = adjustRow("pixel", c, 1);
+    expect(activeSlot(c).pixel_pt).toBe(12);
+    for (let i = 0; i < 40; i++) c = adjustRow("pixel", c, -1);
+    expect(activeSlot(c).pixel_pt).toBe(3);
+    let d: RetroConfig = { ...CFG, mode: "16bit" };
+    for (let i = 0; i < 20; i++) d = adjustRow("pixel", d, 1);
+    expect(activeSlot(d).pixel_pt).toBe(4);
+    for (let i = 0; i < 20; i++) d = adjustRow("opacity", d, -1);
+    expect(activeSlot(d).opacity).toBe(50);
+    for (let i = 0; i < 30; i++) d = adjustRow("lensRadius", d, 1);
+    expect(activeSlot(d).lens_radius_pt).toBe(200);
+  });
+
+  it("palettes cycle inside the active mode only", () => {
+    let c = CFG;
+    const seen = new Set<string>();
+    for (let i = 0; i < 6; i++) { c = adjustRow("palette", c, 1); seen.add(activeSlot(c).palette); }
+    expect([...seen].sort()).toEqual(["c64", "cga", "gb", "gray", "nes", "pico8"]);
+    const d = adjustRow("palette", { ...CFG, mode: "16bit" }, -1);
+    expect(activeSlot(d).palette).toBe("amiga");
+  });
+
+  it("dependent rows are inactive while their switch is off", () => {
+    const row = RETRO_ROWS.find((r) => r.id === "focusPixel")!;
+    expect(rowInactive(row, CFG)).toBe(true);
+    expect(rowInactive(row, adjustRow("focus", CFG, 1))).toBe(false);
+    expect(rowValue("focusPixel", { ...CFG, mode: "16bit" })).toBe("1 pt (nur Farben)");
+    expect(rowValue("pixel", adjustRow("pixel", CFG, 1))).toBe("4,5 pt");
+  });
+
+  it("fps and target toggle", () => {
+    expect(adjustRow("fps", CFG, 1).fps).toBe(30);
+    expect(adjustRow("target", CFG, -1).target).toBe("all");
+  });
+});

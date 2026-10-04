@@ -8,12 +8,16 @@ use tauri::{AppHandle, Manager};
 #[allow(unused_imports)]
 use crate::{commands, db::DbHandle, hotkey};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliAction {
     TogglePopup,
     Ocr,
     Screenshot,
     PickColor,
+    /// Retro overlay on/off (the global hotkey's CLI twin).
+    RetroToggle,
+    /// Load a retro preset (or palette) and start the overlay.
+    RetroPreset(String),
     #[allow(dead_code)]
     /// Re-scan gsettings conflicts and reinstall desktop shortcuts (Linux).
     SetupShortcuts,
@@ -25,12 +29,17 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    for arg in args.into_iter().skip(1) {
+    let mut it = args.into_iter().skip(1);
+    while let Some(arg) = it.next() {
         match arg.as_ref() {
+            "--retro-preset" => {
+                return it.next().map(|v| CliAction::RetroPreset(v.as_ref().to_string()));
+            }
             "--toggle-popup" | "--open" | "-o" => return Some(CliAction::TogglePopup),
             "--ocr" => return Some(CliAction::Ocr),
             "--screenshot" | "--shot" => return Some(CliAction::Screenshot),
             "--pick-color" | "--color" => return Some(CliAction::PickColor),
+            "--retro" | "--8bit" => return Some(CliAction::RetroToggle),
             #[cfg(target_os = "linux")]
             "--setup-shortcuts" => return Some(CliAction::SetupShortcuts),
             "--help" | "-h" => {
@@ -64,6 +73,8 @@ pub fn print_help() {
            --ocr            OCR a screen region (Ctrl+Shift+O)\n\
            --screenshot     Capture region to clipboard (Ctrl+Shift+S)\n\
            --pick-color     Pick pixel color to clipboard (Ctrl+Shift+C)\n\
+           --retro          Retro overlay on/off (Ctrl+Shift+Alt+8, macOS/Windows)\n\
+           --retro-preset N Start the retro overlay with preset or palette N\n\
            --setup-shortcuts  (Linux) Re-scan shortcut conflicts and reinstall bindings\n\
          \n\
          On GNOME/Cinnamon + Wayland, shortcuts are installed automatically on first start\n\
@@ -115,6 +126,8 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
             let app = app.clone();
             std::thread::spawn(move || commands::run_eyedropper_pipeline(&app));
         }
+        CliAction::RetroToggle => crate::retro::control::toggle_async(app),
+        CliAction::RetroPreset(name) => crate::retro::control::start_with_async(app, &name),
         #[cfg(target_os = "linux")]
         CliAction::SetupShortcuts => {
             if let Some(db) = app.try_state::<DbHandle>() {
@@ -184,6 +197,10 @@ mod tests {
     #[test]
     fn pick_color_has_two_aliases() {
         assert_eq!(parse(&["--pick-color"]), Some(CliAction::PickColor));
+        assert_eq!(parse(&["--retro"]), Some(CliAction::RetroToggle));
+        assert_eq!(parse(&["--8bit"]), Some(CliAction::RetroToggle));
+        assert_eq!(parse(&["--retro-preset", "Alltag"]), Some(CliAction::RetroPreset("Alltag".into())));
+        assert_eq!(parse(&["--retro-preset"]), None);
         assert_eq!(parse(&["--color"]), Some(CliAction::PickColor));
     }
 

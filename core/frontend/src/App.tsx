@@ -54,6 +54,17 @@ const ShazamPanel = lazy(() => import("./components/ShazamPanel").then((m) => ({
 const UptimePanel = lazy(() => import("./components/UptimePanel").then((m) => ({ default: m.UptimePanel })));
 import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
 import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
+import {
+  retroGetConfig,
+  retroPresetApply,
+  retroPresets,
+  retroRun,
+  retroSelectPalette,
+  retroSetConfig,
+  retroToggleFocus,
+  retroToggleLens,
+} from "./lib/ipc";
+import { findRetroPalette, parseRetroArg } from "./lib/retro";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
 const ClaudeLimitsPanel = lazy(() =>
@@ -61,6 +72,7 @@ const ClaudeLimitsPanel = lazy(() =>
 );
 const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({ default: m.TokensPanel })));
 const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
+const RetroPanel = lazy(() => import("./components/RetroPanel").then((m) => ({ default: m.RetroPanel })));
 const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
 const LumenPanel = lazy(() => import("./components/LumenPanel").then((m) => ({ default: m.LumenPanel })));
 const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
@@ -1567,6 +1579,26 @@ function App() {
   // `dezibel` / `db` -- live mic loudness in the preview. Enter-activated on
   // purpose: the house rule is that a panel which OPENS THE MICROPHONE must
   // never start from a stray keystroke (same as `shazam` and bare `iris`).
+  // `8bit` / `16bit` — retro overlay settings + live preview. Shows while
+  // typed (the preview is a passive, low-rate capture); Enter on the row runs
+  // the parsed action (toggle / on / off / palette / preset / focus / lens).
+  const retroKind = parsedCommand?.spec.kind;
+  const isRetroCmd = retroKind === "8bit" || retroKind === "16bit";
+  const [retroMode, setRetroMode] = useState(false);
+  const [retroFocus, setRetroFocus] = useState(false);
+  const [retroPresetNames, setRetroPresetNames] = useState<string[]>(["Show", "Alltag", "Retro-Arbeit"]);
+  useEffect(() => {
+    if (isRetroCmd && !retroMode) {
+      setRetroMode(true);
+      void retroPresets()
+        .then((ps) => setRetroPresetNames(ps.map((p) => p.name)))
+        .catch(() => {});
+    } else if (!isRetroCmd && retroMode) {
+      setRetroMode(false);
+      setRetroFocus(false);
+    }
+  }, [isRetroCmd, retroMode]);
+
   const isDezibelCmd = parsedCommand?.spec.kind === "dezibel";
   const [dezibelMode, setDezibelMode] = useState(false);
   useEffect(() => {
@@ -1837,6 +1869,45 @@ function App() {
         label = "Bluetooth-Geräte verwalten";
         hint = "Verbinden · Trennen · Entkoppeln — ⏎ übergibt die Pfeiltasten";
         break;
+      case "8bit":
+      case "16bit": {
+        const a = parseRetroArg(spec.keyword, arg, retroPresetNames);
+        switch (a.kind) {
+          case "panel":
+            label = spec.kind === "16bit" ? "Retro-Overlay an/aus (16-Bit)" : "Retro-Overlay an/aus";
+            hint = "Enter startet/stoppt · Einstellungen und Vorschau in der Preview";
+            break;
+          case "on":
+            label = "Retro-Overlay starten";
+            hint = "⌃⇧⌥8 beendet es von überall";
+            break;
+          case "off":
+            label = "Retro-Overlay beenden";
+            hint = "Auch über ⌃⇧⌥8 oder das Tray-Menü";
+            break;
+          case "focus":
+            label = "Fokus-Modus umschalten";
+            hint = "Das aktive Fenster feiner zeichnen (⌃⇧⌥9)";
+            break;
+          case "lens":
+            label = "Cursor-Lupe umschalten";
+            hint = "Bereich unter der Maus im Detail";
+            break;
+          case "palette":
+            label = `Retro-Overlay mit ${findRetroPalette(a.id)?.name ?? a.id} starten`;
+            hint = a.mode === "8bit" ? "8-Bit-Palette" : "16-Bit-Farbtiefe";
+            break;
+          case "preset":
+            label = `Preset „${a.name}“ starten`;
+            hint = "Lädt den Preset und startet das Overlay";
+            break;
+          case "unknown":
+            label = `„${a.text}“ ist weder Palette noch Preset`;
+            hint = "Paletten: nes, c64, pico8, gb, cga, gray, snes, megadrive, amiga";
+            break;
+        }
+        break;
+      }
       case "dezibel":
         label = "Lautstärke messen — live in dB";
         hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
@@ -2205,7 +2276,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -3795,7 +3866,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3813,12 +3884,53 @@ function App() {
           commandKind === "repo-export" ||
           commandKind === "nosleep" ||
           commandKind === "pagespeed" ||
+          commandKind === "8bit" ||
+          commandKind === "16bit" ||
           commandKind === "alias";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (commandKind === "bluetooth") {
         setBluetoothMode(true);
         setBluetoothFocus(true);
+        return true;
+      }
+      if (commandKind === "8bit" || commandKind === "16bit") {
+        setRetroMode(true);
+        setRetroFocus(true);
+        const a = parseRetroArg(commandKind, arg, retroPresetNames);
+        try {
+          switch (a.kind) {
+            case "panel":
+              if (commandKind === "16bit") {
+                const c = await retroGetConfig();
+                if (c.mode !== "16bit") await retroSetConfig({ ...c, mode: "16bit" });
+              }
+              await retroRun("toggle");
+              break;
+            case "on":
+            case "off":
+              await retroRun(a.kind);
+              break;
+            case "focus":
+              await retroToggleFocus();
+              break;
+            case "lens":
+              await retroToggleLens();
+              break;
+            case "palette":
+              await retroSelectPalette(a.id);
+              await retroRun("on");
+              break;
+            case "preset":
+              await retroPresetApply(a.name);
+              await retroRun("on");
+              break;
+            case "unknown":
+              break;
+          }
+        } catch (e) {
+          console.warn("retro:", e);
+        }
         return true;
       }
       if (commandKind === "dezibel") {
@@ -4820,6 +4932,7 @@ function App() {
       !benchFocus &&
       !tokensFocus &&
       !limitsFocus &&
+      !retroFocus &&
       !calendarFocus &&
       !convertFocus &&
       !cleanFocus &&
@@ -5532,6 +5645,17 @@ function App() {
                       focused={bluetoothFocus}
                       onExit={() => {
                         setBluetoothFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : retroMode ? (
+                  <div className="md3-pop-in h-full">
+                    <RetroPanel
+                      focused={retroFocus}
+                      keyword={retroKind === "16bit" ? "16bit" : "8bit"}
+                      onExit={() => {
+                        setRetroFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

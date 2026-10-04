@@ -3,6 +3,7 @@
 // with Rust (`retro/mod.rs` include_str!s it), so both sides read the same
 // ids and aliases.
 import paletteFile from "./retro-palettes.json";
+import type { RetroConfig, RetroModeSettings, RetroDither } from "./ipc";
 
 export type RetroMode = "8bit" | "16bit";
 
@@ -88,4 +89,160 @@ export function clampHalf(v: number, [lo, hi]: [number, number]): number {
 /** Palettes that belong to a mode. */
 export function palettesFor(mode: RetroMode): RetroPaletteInfo[] {
   return RETRO_PALETTES.filter((p) => p.mode === mode);
+}
+
+// ── Panel rows (keyboard model: ↑↓ row, ←→ value) ───────────────────────────
+
+
+export type RetroRowId =
+  | "mode" | "palette" | "pixel" | "dither" | "ditherStrength"
+  | "focus" | "focusPixel" | "focusBorder"
+  | "lens" | "lensRadius" | "lensView"
+  | "scanlines" | "scanlineIntensity" | "crt" | "crtStrength"
+  | "opacity" | "frames" | "sprite" | "target" | "fps";
+
+export interface RetroRow {
+  id: RetroRowId;
+  label: string;
+  group: string;
+  /** Row only makes sense while its parent switch is on (shown dimmed). */
+  dependsOn?: RetroRowId;
+}
+
+export const RETRO_ROWS: RetroRow[] = [
+  { id: "mode", label: "Modus", group: "Bild" },
+  { id: "palette", label: "Palette", group: "Bild" },
+  { id: "pixel", label: "Pixelgröße", group: "Bild" },
+  { id: "dither", label: "Dithering", group: "Bild" },
+  { id: "ditherStrength", label: "Dither-Stärke", group: "Bild", dependsOn: "dither" },
+  { id: "focus", label: "Fokus-Modus", group: "Lesbarkeit" },
+  { id: "focusPixel", label: "Pixel im Fokus", group: "Lesbarkeit", dependsOn: "focus" },
+  { id: "focusBorder", label: "Rahmen ums Fokusfenster", group: "Lesbarkeit", dependsOn: "focus" },
+  { id: "lens", label: "Cursor-Lupe", group: "Lesbarkeit" },
+  { id: "lensRadius", label: "Lupen-Radius", group: "Lesbarkeit", dependsOn: "lens" },
+  { id: "lensView", label: "In der Lupe", group: "Lesbarkeit", dependsOn: "lens" },
+  { id: "scanlines", label: "Scanlines", group: "Röhre" },
+  { id: "scanlineIntensity", label: "Scanline-Intensität", group: "Röhre", dependsOn: "scanlines" },
+  { id: "crt", label: "CRT-Krümmung & Vignette", group: "Röhre" },
+  { id: "crtStrength", label: "CRT-Stärke", group: "Röhre", dependsOn: "crt" },
+  { id: "opacity", label: "Deckkraft", group: "Röhre" },
+  { id: "frames", label: "Retro-Fensterrahmen", group: "Stufe 2" },
+  { id: "sprite", label: "Sprite-Cursor", group: "Stufe 2" },
+  { id: "target", label: "Monitor", group: "Ausgabe" },
+  { id: "fps", label: "FPS-Limit", group: "Ausgabe" },
+];
+
+export const DITHER_ORDER: RetroDither[] = ["off", "bayer2", "bayer4", "bayer8"];
+const DITHER_LABEL: Record<RetroDither, string> = {
+  off: "aus",
+  bayer2: "Bayer 2×2",
+  bayer4: "Bayer 4×4",
+  bayer8: "Bayer 8×8",
+};
+
+/** The settings slot of the active mode. */
+export function activeSlot(cfg: RetroConfig): RetroModeSettings {
+  return cfg.mode === "8bit" ? cfg.eight : cfg.sixteen;
+}
+
+function withSlot(cfg: RetroConfig, s: RetroModeSettings): RetroConfig {
+  return cfg.mode === "8bit" ? { ...cfg, eight: s } : { ...cfg, sixteen: s };
+}
+
+const fmtNum = (v: number) => v.toLocaleString("de-DE", { maximumFractionDigits: 1 });
+const onOff = (b: boolean) => (b ? "an" : "aus");
+
+/** Is a row's parent switched off (row shown dimmed)? */
+export function rowInactive(row: RetroRow, cfg: RetroConfig): boolean {
+  if (!row.dependsOn) return false;
+  const s = activeSlot(cfg);
+  switch (row.dependsOn) {
+    case "dither": return s.dither === "off";
+    case "focus": return !s.focus;
+    case "lens": return !s.lens;
+    case "scanlines": return !s.scanlines;
+    case "crt": return !s.crt;
+    default: return false;
+  }
+}
+
+export function rowValue(id: RetroRowId, cfg: RetroConfig): string {
+  const s = activeSlot(cfg);
+  switch (id) {
+    case "mode": return cfg.mode === "8bit" ? "8-Bit" : "16-Bit";
+    case "palette": return findRetroPalette(s.palette)?.name ?? s.palette;
+    case "pixel": return `${fmtNum(s.pixel_pt)} pt`;
+    case "dither": return DITHER_LABEL[s.dither];
+    case "ditherStrength": return `${s.dither_strength} %`;
+    case "focus": return onOff(s.focus);
+    case "focusPixel": return s.focus_pixel_pt <= 1 ? "1 pt (nur Farben)" : `${fmtNum(s.focus_pixel_pt)} pt`;
+    case "focusBorder": return onOff(s.focus_border);
+    case "lens": return onOff(s.lens);
+    case "lensRadius": return `${s.lens_radius_pt} pt`;
+    case "lensView": return s.lens_view === "original" ? "Original" : "Fokus-Pixel";
+    case "scanlines": return onOff(s.scanlines);
+    case "scanlineIntensity": return `${s.scanline_intensity} %`;
+    case "crt": return onOff(s.crt);
+    case "crtStrength": return `${s.crt_strength} %`;
+    case "opacity": return `${s.opacity} %`;
+    case "frames": return onOff(s.retro_frames);
+    case "sprite": return onOff(s.sprite_cursor);
+    case "target": return cfg.target === "current" ? "aktueller" : "alle";
+    case "fps": return `${cfg.fps}`;
+  }
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+function cycle<T>(list: readonly T[], cur: T, dir: number): T {
+  const i = list.indexOf(cur);
+  return list[((i < 0 ? 0 : i) + dir + list.length) % list.length];
+}
+
+/**
+ * Pure: change one row by `dir` (−1 / +1). Returns a new config; switching the
+ * mode just selects the other slot, so it shows that mode's own values —
+ * its defaults until the user changed them.
+ */
+export function adjustRow(id: RetroRowId, cfg: RetroConfig, dir: number): RetroConfig {
+  const s = activeSlot(cfg);
+  const set = (patch: Partial<RetroModeSettings>) => withSlot(cfg, { ...s, ...patch });
+  switch (id) {
+    case "mode": return { ...cfg, mode: cfg.mode === "8bit" ? "16bit" : "8bit" };
+    case "palette": {
+      const ids = palettesFor(cfg.mode).map((p) => p.id);
+      return set({ palette: cycle(ids, s.palette, dir) });
+    }
+    case "pixel": return set({ pixel_pt: clampHalf(s.pixel_pt + dir * PIXEL_STEP, PIXEL_RANGE[cfg.mode]) });
+    case "dither": return set({ dither: cycle(DITHER_ORDER, s.dither, dir) });
+    case "ditherStrength": return set({ dither_strength: clamp(s.dither_strength + dir * 5, 0, 100) });
+    case "focus": return set({ focus: !s.focus });
+    case "focusPixel": return set({ focus_pixel_pt: clampHalf(s.focus_pixel_pt + dir * PIXEL_STEP, FOCUS_PX_RANGE) });
+    case "focusBorder": return set({ focus_border: !s.focus_border });
+    case "lens": return set({ lens: !s.lens });
+    case "lensRadius": return set({ lens_radius_pt: clamp(s.lens_radius_pt + dir * 10, LENS_RANGE[0], LENS_RANGE[1]) });
+    case "lensView": return set({ lens_view: s.lens_view === "original" ? "focus" : "original" });
+    case "scanlines": return set({ scanlines: !s.scanlines });
+    case "scanlineIntensity": return set({ scanline_intensity: clamp(s.scanline_intensity + dir * 5, 0, 100) });
+    case "crt": return set({ crt: !s.crt });
+    case "crtStrength": return set({ crt_strength: clamp(s.crt_strength + dir * 5, 0, 100) });
+    case "opacity": return set({ opacity: clamp(s.opacity + dir * 5, OPACITY_RANGE[0], OPACITY_RANGE[1]) });
+    case "frames": return set({ retro_frames: !s.retro_frames });
+    case "sprite": return set({ sprite_cursor: !s.sprite_cursor });
+    case "target": return { ...cfg, target: cfg.target === "current" ? "all" : "current" };
+    case "fps": return { ...cfg, fps: cfg.fps === 60 ? 30 : 60 };
+  }
+}
+
+/** Pure: next row index for ↑/↓ (wraps). */
+export function moveRow(index: number, dir: number, count = RETRO_ROWS.length): number {
+  return (index + dir + count) % count;
+}
+
+/** Human text for a backend error code. */
+export function retroErrorText(code: string): string {
+  switch (code) {
+    case "retro.no_permission": return "Bildschirmaufnahme ist nicht erlaubt.";
+    case "retro.unsupported": return "Auf diesem System nicht verfügbar.";
+    default: return code;
+  }
 }

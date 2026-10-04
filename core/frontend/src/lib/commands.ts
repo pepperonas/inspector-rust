@@ -59,6 +59,8 @@ export type CommandKind =
   | "alias"
   | "benchmark"
   | "dezibel"
+  | "8bit"
+  | "16bit"
   | "lumen"
   | "bluetooth"
   | "btsniff"
@@ -593,6 +595,24 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "dezibel",
     description: "Live-Lautstärke in dB (SPL-Schätzung) — animierte Anzeige in der Vorschau (Mikrofon).",
     requiresArg: false,
+  },
+  {
+    kind: "8bit",
+    keyword: "8bit",
+    syntax: "8bit [on|off|focus|lens|palette|preset]",
+    description:
+      "Live-Retro-Overlay über den ganzen Bildschirm — Pixelung, Farbpalette, Dithering, CRT. Einstellungen und Vorschau im Panel.",
+    requiresArg: false,
+    platform: ["mac", "win"],
+  },
+  {
+    kind: "16bit",
+    keyword: "16bit",
+    syntax: "16bit [on|off|focus|lens|palette|preset]",
+    description: "Retro-Overlay im 16-Bit-Alltagsmodus — Alias von `8bit`.",
+    requiresArg: false,
+    hidden: true,
+    platform: ["mac", "win"],
   },
   {
     kind: "lumen",

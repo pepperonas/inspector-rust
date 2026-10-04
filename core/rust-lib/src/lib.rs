@@ -466,6 +466,10 @@ pub fn run(context: tauri::Context<Wry>) {
                 gestures::spawn_wake_watchdog(app.handle());
             }
 
+            // Retro overlay: stop on sleep / lock, rebuild on display changes.
+            #[cfg(target_os = "macos")]
+            retro::macos::install_lifecycle(app.handle());
+
             // Seed the faker expander's default locale from settings.
             faker::init_process_default(&db_handle);
 
@@ -1043,6 +1047,14 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::retro_preset_save,
             commands::retro_preset_delete,
             commands::retro_preset_apply,
+            commands::retro_select_palette,
+            commands::retro_status,
+            commands::retro_run,
+            commands::retro_toggle_focus,
+            commands::retro_toggle_lens,
+            commands::retro_preview_start,
+            commands::retro_preview_stop,
+            commands::retro_open_permission,
             commands::iris_start,
             commands::iris_stop,
             commands::iris_status,
@@ -1121,6 +1133,10 @@ pub fn run(context: tauri::Context<Wry>) {
     });
 }
 
+
+/// Tray handle for "Retro-Overlay beenden" (enabled while the overlay runs).
+pub struct RetroTrayItem(pub tauri::menu::MenuItem<tauri::Wry>);
+
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let open_item = MenuItemBuilder::with_id("open", "Open (Ctrl+Space)").build(app)?;
     let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
@@ -1157,6 +1173,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     let finder_item = MenuItemBuilder::with_id("finder", "Finder Selection (⌃⇧F)").build(app)?;
     let pause_item = MenuItemBuilder::with_id("pause", "Pause Capture").build(app)?;
+    // Retro overlay emergency exit — only enabled while the overlay runs
+    // (`retro::macos::emit_state` toggles it through the managed handle).
+    let retro_item = MenuItemBuilder::with_id("retro_stop", "Retro-Overlay beenden")
+        .enabled(false)
+        .build(app)?;
+    app.manage(RetroTrayItem(retro_item.clone()));
     let clear_item = MenuItemBuilder::with_id("clear", "Clear History…").build(app)?;
     let autostart_label = if cfg!(target_os = "windows") {
         "Start with Windows"
@@ -1201,6 +1223,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .items(&[
             &sep,
             &pause_item,
+            &retro_item,
             &autostart_item,
             &clear_item,
             &sep2,
@@ -1237,6 +1260,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "ocr" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::Ocr),
             "screenshot" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::Screenshot),
             "color" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::PickColor),
+            "retro_stop" => crate::retro::control::stop_async(app),
             "pause" => {
                 if let Some(state) = app.try_state::<WatcherState>() {
                     let now = state.paused.load(Ordering::Relaxed);

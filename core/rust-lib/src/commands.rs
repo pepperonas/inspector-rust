@@ -6363,13 +6363,16 @@ pub fn retro_get_config(db: State<'_, DbHandle>) -> crate::retro::config::RetroC
     crate::retro::config::load(&db)
 }
 
-/// Save (clamped per mode) and return what was stored.
+/// Save (clamped per mode), push to a running overlay / the preview, and
+/// return what was stored.
 #[tauri::command]
 pub fn retro_set_config(
     db: State<'_, DbHandle>,
     config: crate::retro::config::RetroConfig,
 ) -> Result<crate::retro::config::RetroConfig, String> {
-    crate::retro::config::save(&db, &config).map_err(|e| e.to_string())
+    let saved = crate::retro::config::save(&db, &config).map_err(|e| e.to_string())?;
+    crate::retro::control::apply(&saved);
+    Ok(saved)
 }
 
 /// Reset the ACTIVE mode to its defaults.
@@ -6377,7 +6380,9 @@ pub fn retro_set_config(
 pub fn retro_reset(db: State<'_, DbHandle>) -> Result<crate::retro::config::RetroConfig, String> {
     let mut c = crate::retro::config::load(&db);
     c.reset_active();
-    crate::retro::config::save(&db, &c).map_err(|e| e.to_string())
+    let saved = crate::retro::config::save(&db, &c).map_err(|e| e.to_string())?;
+    crate::retro::control::apply(&saved);
+    Ok(saved)
 }
 
 /// Built-in presets first, then the user's.
@@ -6426,7 +6431,92 @@ pub fn retro_preset_apply(
     let p = rc::find_preset(&all, &name).ok_or_else(|| format!("Kein Preset „{}“.", name.trim()))?;
     let mut c = rc::load(&db);
     c.apply_preset(p);
-    rc::save(&db, &c).map_err(|e| e.to_string())
+    let saved = rc::save(&db, &c).map_err(|e| e.to_string())?;
+    crate::retro::control::apply(&saved);
+    Ok(saved)
+}
+
+/// Select a palette (the mode follows), save, apply.
+#[tauri::command]
+pub fn retro_select_palette(
+    db: State<'_, DbHandle>,
+    id: String,
+) -> Result<crate::retro::config::RetroConfig, String> {
+    use crate::retro::config as rc;
+    let mut c = rc::load(&db);
+    c.select_palette(&id)?;
+    let saved = rc::save(&db, &c).map_err(|e| e.to_string())?;
+    crate::retro::control::apply(&saved);
+    Ok(saved)
+}
+
+/// Running state, platform support, permissions.
+#[tauri::command]
+pub fn retro_status() -> crate::retro::control::RetroStatus {
+    crate::retro::control::status()
+}
+
+/// `on` / `off` / `toggle`. Returns immediately; the overlay comes up on a
+/// worker thread and announces itself via `retro-state-changed`.
+#[tauri::command]
+pub fn retro_run(app: AppHandle, action: String) -> Result<(), String> {
+    use crate::retro::control as c;
+    match action.as_str() {
+        "on" => {
+            if !c::is_running() {
+                c::start_async(&app)
+            }
+        }
+        "off" => c::stop_async(&app),
+        "toggle" => c::toggle_async(&app),
+        other => return Err(format!("unbekannte Aktion {other}")),
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn retro_toggle_focus(app: AppHandle) -> Option<bool> {
+    crate::retro::control::toggle_focus(&app)
+}
+
+#[tauri::command]
+pub fn retro_toggle_lens(app: AppHandle) -> Option<bool> {
+    crate::retro::control::toggle_lens(&app)
+}
+
+/// Start the panel's live preview (≤ 10 fps, `retro-preview-frame` events).
+#[tauri::command]
+pub async fn retro_preview_start(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::retro::control::preview_start(&app))
+        .await
+        .map_err(|e| format!("preview task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn retro_preview_stop() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::retro::control::preview_stop)
+        .await
+        .map_err(|e| format!("preview task: {e}"))
+}
+
+/// Open the system settings pane for a missing permission.
+#[tauri::command]
+pub fn retro_open_permission(kind: String) -> Result<(), String> {
+    match kind.as_str() {
+        "screen" => crate::screen_recording::open_screen_recording_settings().map_err(|e| e.to_string()),
+        _ => {
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("/usr/bin/open")
+                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(not(target_os = "macos"))]
+            Ok(())
+        }
+    }
 }
 
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────

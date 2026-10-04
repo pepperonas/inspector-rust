@@ -156,6 +156,14 @@ libc = "0.2"
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSData", "NSArray", "NSDictionary", "NSValue", "NSError", "NSUUID"] }
+# Retro overlay (`8bit`): ScreenCaptureKit capture → Metal shader → CAMetalLayer.
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation", "SCStream", "SCShareableContent", "SCError", "SCScreenshotManager", "dispatch2"] }
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice", "MTLCommandQueue", "MTLCommandBuffer", "MTLCommandEncoder", "MTLRenderCommandEncoder", "MTLRenderPipeline", "MTLRenderPass", "MTLLibrary", "MTLTexture", "MTLPixelFormat", "MTLTypes", "MTLDrawable", "MTLResource", "MTLBuffer", "MTLAllocation", "MTLSampler", "MTLArgument"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-metal", "objc2-core-foundation", "CALayer", "CAMetalLayer"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "objc2-metal", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVMetalTexture", "CVMetalTextureCache", "CVReturn"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-video", "CMSampleBuffer", "CMTime", "CMFormatDescription"] }
+dispatch2 = "0.3"
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes", "CFBase", "CFDictionary", "CFString", "CFArray"] }
 objc2-core-bluetooth = { version = "0.3.2", default-features = false, features = ["std", "CBCentralManager", "CBCentralManagerConstants", "CBManager", "CBPeripheral", "CBPeer", "CBService", "CBCharacteristic", "CBAttribute", "CBUUID", "CBAdvertisementData", "CBError", "CBDefines"] }
 # Native CGEventTap + CFRunLoop for the input-lock feature lives in
 # `input_lock.rs` as raw FFI via `#[link(name = "ApplicationServices")]`

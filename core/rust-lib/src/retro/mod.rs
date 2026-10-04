@@ -16,6 +16,13 @@
 #![allow(dead_code)]
 
 pub mod config;
+pub mod control;
+pub mod font;
+pub mod frame;
+#[cfg(target_os = "macos")]
+pub mod macos;
+#[cfg(target_os = "macos")]
+pub mod macos_focus;
 
 use std::sync::OnceLock;
 
@@ -138,6 +145,14 @@ pub fn quantize_channel(v: u8, bits: u8) -> u8 {
     (level / max * 255.0).round() as u8
 }
 
+/// Pure: quantise a (dithered, fractional) channel value — single rounding.
+pub fn quantize_f(v: f32, bits: u8) -> u8 {
+    let bits = bits.clamp(1, 8);
+    let max = ((1u32 << bits) - 1) as f32;
+    let level = (v.clamp(0.0, 255.0) / 255.0 * max).round();
+    (level / max * 255.0).round() as u8
+}
+
 /// Luminance weights (Rec. 601) used for the palette distance — the eye is
 /// far more sensitive to green than to blue.
 const LUMA_W: [f32; 3] = [0.299, 0.587, 0.114];
@@ -203,7 +218,10 @@ pub fn reduce_color(c: [u8; 3], reduce: &Reduce, offset: f32) -> [u8; 3] {
     let shifted = [c[0] as f32 + offset, c[1] as f32 + offset, c[2] as f32 + offset];
     match reduce {
         Reduce::Depth { bits } => {
-            let q = |v: f32| quantize_channel(v.round().clamp(0.0, 255.0) as u8, *bits);
+            // Quantise the dithered float directly — rounding to an integer
+            // first would round twice (≈12 % of 5-bit pixels one level off;
+            // the GPU comparison test found it).
+            let q = |v: f32| quantize_f(v, *bits);
             [q(shifted[0]), q(shifted[1]), q(shifted[2])]
         }
         Reduce::Fixed { colors } => nearest_color(shifted, colors),
@@ -234,6 +252,12 @@ pub fn pt_to_px(pt: f32, scale: f32) -> f32 {
 /// "no pixelation, colour reduction only" — one physical pixel per cell.
 pub fn cell_px(pt: f32, scale: f32) -> f32 {
     if pt <= 1.0 { 1.0 } else { pt_to_px(pt, scale).max(1.0) }
+}
+
+/// Pure: where inside a cell the source is sampled — the texel centre at
+/// (or just before) the middle. Mirrored in `shader.metal`.
+pub fn sample_offset(cell: f32) -> f32 {
+    (cell / 2.0).floor() + 0.5
 }
 
 /// Pure: snap a coordinate down to the global grid of `cell`.
@@ -398,7 +422,10 @@ fn cell_color(
 ) -> [u8; 3] {
     let cx = snap(x, cell);
     let cy = snap(y, cell);
-    let c = sample(cx + cell / 2.0, cy + cell / 2.0);
+    // Sample on a texel CENTRE, never on a texel boundary: with an even
+    // cell the geometric middle lies exactly between two texels and GPU
+    // nearest sampling may pick either (GPU/CPU test found it).
+    let c = sample(cx + sample_offset(cell), cy + sample_offset(cell));
     let offset = match p.dither {
         Some(n) if p.dither_strength > 0.0 => {
             bayer_threshold(n, (cx / cell) as i64, (cy / cell) as i64) * spread * p.dither_strength.clamp(0.0, 1.0)

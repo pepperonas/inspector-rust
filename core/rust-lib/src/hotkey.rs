@@ -639,10 +639,12 @@ pub enum ActionId {
     Timesheet,
     TrackToggle,
     WindowPalette,
+    RetroToggle,
+    RetroFocus,
 }
 
 impl ActionId {
-    pub const ALL: [ActionId; 10] = [
+    pub const ALL: [ActionId; 12] = [
         ActionId::Ocr,
         ActionId::Screenshot,
         ActionId::Color,
@@ -653,6 +655,8 @@ impl ActionId {
         ActionId::Timesheet,
         ActionId::TrackToggle,
         ActionId::WindowPalette,
+        ActionId::RetroToggle,
+        ActionId::RetroFocus,
     ];
 
     pub fn key(self) -> &'static str {
@@ -667,6 +671,8 @@ impl ActionId {
             ActionId::Timesheet => "timesheet",
             ActionId::TrackToggle => "tracktoggle",
             ActionId::WindowPalette => "windowpalette",
+            ActionId::RetroToggle => "retrotoggle",
+            ActionId::RetroFocus => "retrofocus",
         }
     }
 
@@ -686,6 +692,8 @@ impl ActionId {
             ActionId::Timesheet => "Open Timesheet",
             ActionId::TrackToggle => "Toggle time tracking",
             ActionId::WindowPalette => "Window palette (focused window)",
+            ActionId::RetroToggle => "Retro overlay on/off",
+            ActionId::RetroFocus => "Retro overlay: focus mode on/off",
         }
     }
 
@@ -706,6 +714,9 @@ impl ActionId {
             // ⚠️ Deliberately a shortcut and not a hover: since macOS 15 the
             // system owns hover over the green zoom button.
             ActionId::WindowPalette => "Ctrl+Shift+Alt+KeyW",
+            // The emergency exit of a full-screen overlay: works from any app.
+            ActionId::RetroToggle => "Ctrl+Shift+Alt+Digit8",
+            ActionId::RetroFocus => "Ctrl+Shift+Alt+Digit9",
         }
     }
 
@@ -902,6 +913,14 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
             // inside `toggle_for_focused_window`.
             #[cfg(target_os = "macos")]
             std::thread::spawn(crate::window_palette::macos::toggle_for_focused_window);
+        }
+        // Both only spawn worker threads — never block the shortcut handler.
+        ActionId::RetroToggle => crate::retro::control::toggle_async(app),
+        ActionId::RetroFocus => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                crate::retro::control::toggle_focus(&app);
+            });
         }
     }
 }
@@ -1499,7 +1518,7 @@ mod tests {
         // so it must be a deliberate decision. Bump consciously, never
         // reflexively — and never restate the number in the message, or the
         // two drift apart (the `commands.test.ts` lesson).
-        assert_eq!(keys.len(), 10, "action-hotkey count changed — is the new binding really free?");
+        assert_eq!(keys.len(), 12, "action-hotkey count changed — is the new binding really free?");
         assert_eq!(ActionId::from_key("nope"), None);
     }
 

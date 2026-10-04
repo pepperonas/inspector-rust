@@ -25,6 +25,7 @@ use tauri::Manager;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+pub mod calibrate;
 pub mod guard;
 pub mod live;
 pub mod trace;
@@ -319,20 +320,55 @@ pub enum GestureAction {
 
 static RECORDER: parking_lot::Mutex<Option<trace::Recorder>> = parking_lot::Mutex::new(None);
 
-/// Platform hook, called for every frame. Cheap when no recording runs (one
-/// uncontended lock). `device` is only evaluated while recording.
+/// The last 3 s of frames for the "that was unintended" hotkey (Phase 5).
+/// In memory only, and only while that hotkey is bound ([`set_unintended_armed`]).
+static RECENT: parking_lot::Mutex<trace::RecentFrames> = parking_lot::Mutex::new(trace::RecentFrames::new());
+static UNINTENDED_ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Bound/unbound "unintended" hotkey → keep/drop the 3-s buffer.
+pub(crate) fn set_unintended_armed(on: bool) {
+    UNINTENDED_ARMED.store(on, std::sync::atomic::Ordering::Relaxed);
+    if !on {
+        RECENT.lock().clear();
+    }
+}
+
+/// Platform hook, called for every frame. Cheap when nothing records (a few
+/// uncontended locks). `device` is only evaluated when something keeps it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn record_frame(now_ms: u64, device: impl FnOnce() -> u32, touches: &[trace::Touch]) {
-    let mut guard = RECORDER.lock();
-    let Some(rec) = guard.as_mut() else { return };
-    rec.push_frame(now_ms, device(), touches.to_vec());
+    let armed = UNINTENDED_ARMED.load(std::sync::atomic::Ordering::Relaxed);
+    let mut rec = RECORDER.lock();
+    let mut cal = CALIBRATION.lock();
+    let calibrating = matches!(cal.as_ref(), Some(CalibState::Running { .. }));
+    if rec.is_none() && !calibrating && !armed {
+        return;
+    }
+    let device = device();
     // Without the keyboard tap the platform only knows "seconds since the
     // last key-down", so derive that key's time; with the tap every key-down
     // arrives through `note_key_down` and deriving would double them.
-    if !crate::auto_expand::tap_live() {
+    let derived_key = if crate::auto_expand::tap_live() {
+        None
+    } else {
         let s = seconds_since_last_keydown();
-        if s.is_finite() {
-            rec.note_key(now_ms.saturating_sub((s * 1000.0) as u64));
+        s.is_finite().then(|| now_ms.saturating_sub((s * 1000.0) as u64))
+    };
+    if let Some(r) = rec.as_mut() {
+        r.push_frame(now_ms, device, touches.to_vec());
+        if let Some(k) = derived_key {
+            r.note_key(k);
+        }
+    }
+    // A calibration measures touches only — no key times.
+    if let Some(CalibState::Running { rec: r, .. }) = cal.as_mut() {
+        r.push_frame(now_ms, device, touches.to_vec());
+    }
+    if armed {
+        let mut recent = RECENT.lock();
+        recent.push_frame(now_ms, device, touches.to_vec());
+        if let Some(k) = derived_key {
+            recent.push_key(k, false);
         }
     }
 }
@@ -347,6 +383,9 @@ pub(crate) fn note_key_down(shortcut: bool) {
         macos::note_key(trace::KeyDown { t_ms: now, modifier: shortcut });
         if let Some(rec) = RECORDER.lock().as_mut() {
             rec.push_key(now, shortcut);
+        }
+        if UNINTENDED_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+            RECENT.lock().push_key(now, shortcut);
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -406,13 +445,7 @@ pub fn start_recording(app: &tauri::AppHandle, secs: u64) -> Result<(), String> 
             }
             let Some(rec) = RECORDER.lock().take() else { return };
             let trace = rec.finish();
-            let result = trace_dir().and_then(|dir| {
-                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-                let path = dir.join(trace_file_name(&stamp));
-                let json = serde_json::to_string_pretty(&trace).map_err(|e| e.to_string())?;
-                std::fs::write(&path, json).map_err(|e| e.to_string())?;
-                Ok(path)
-            });
+            let result = write_trace(&trace_file_name(&stamp), &trace);
             match result {
                 Ok(path) => {
                     tracing::info!(
@@ -440,6 +473,8 @@ pub fn start_recording(app: &tauri::AppHandle, secs: u64) -> Result<(), String> 
 pub struct TraceFile {
     pub name: String,
     pub bytes: u64,
+    /// Saved by the "that was unintended" hotkey.
+    pub unintended: bool,
 }
 
 /// Saved recordings, newest first.
@@ -450,11 +485,22 @@ pub fn list_traces() -> Result<Vec<TraceFile>, String> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
-            is_trace_name(&name).then(|| TraceFile { name, bytes: e.metadata().map(|m| m.len()).unwrap_or(0) })
+            is_trace_name(&name).then(|| TraceFile {
+                unintended: name.starts_with(UNINTENDED_PREFIX),
+                bytes: e.metadata().map(|m| m.len()).unwrap_or(0),
+                name,
+            })
         })
         .collect();
-    out.sort_by(|a, b| b.name.cmp(&a.name));
+    out.sort_by(|a, b| trace_stamp(&b.name).cmp(trace_stamp(&a.name)));
     Ok(out)
+}
+
+/// The time stamp of a trace file name (`YYYYmmdd-HHMMSS`), for ordering —
+/// sorting by the whole name would put every misfire report first.
+pub fn trace_stamp(name: &str) -> &str {
+    let rest = name.strip_prefix(UNINTENDED_PREFIX).or_else(|| name.strip_prefix("trace-")).unwrap_or(name);
+    rest.strip_suffix(".json").unwrap_or(rest)
 }
 
 /// Only our own file names are accepted — the name comes from the UI and must
@@ -493,6 +539,232 @@ pub fn record_status() -> RecordStatus {
     }
 }
 
+/// Write a trace into the trace folder under `name`.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn write_trace(name: &str, t: &trace::Trace) -> Result<std::path::PathBuf, String> {
+    let dir = trace_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(name);
+    let json = serde_json::to_string_pretty(t).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// File-name prefix of a misfire report saved by the "unintended" hotkey.
+pub const UNINTENDED_PREFIX: &str = "trace-unintended-";
+
+/// Delete one recording (panel). Only our own file names are accepted.
+pub fn delete_trace(name: &str) -> Result<(), String> {
+    if !is_trace_name(name) {
+        return Err("ungültiger Dateiname".into());
+    }
+    match std::fs::remove_file(trace_dir()?.join(name)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Delete every recording — and nothing else that might sit in the folder.
+pub fn delete_all_traces() -> Result<usize, String> {
+    let mut n = 0;
+    for t in list_traces()? {
+        delete_trace(&t.name)?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+// ── "That was unintended" (gesture-guard Phase 5) ───────────────────────────
+
+/// One line per gesture the guard let through in the window — the report says
+/// what fired, not just what the fingers did.
+fn fired_summary(entries: &[live::LogEntry]) -> String {
+    let name = |v: serde_json::Value| v.as_str().map(str::to_owned).unwrap_or_default();
+    let fired: Vec<String> = entries
+        .iter()
+        .filter(|e| e.accepted)
+        .filter_map(|e| {
+            let kind = name(serde_json::to_value(e.kind?).ok()?);
+            let action = e.action.and_then(|a| serde_json::to_value(a).ok()).map(name);
+            Some(match action {
+                Some(a) => format!("{a} ({kind} ×{})", e.fingers.unwrap_or(0)),
+                None => format!("{kind} ×{}", e.fingers.unwrap_or(0)),
+            })
+        })
+        .collect();
+    if fired.is_empty() {
+        "Als ungewollt markiert; in diesem Fenster hat keine Geste ausgelöst.".into()
+    } else {
+        format!("Als ungewollt markiert. Ausgelöst: {}", fired.join(", "))
+    }
+}
+
+/// Save the last [`trace::RECENT_WINDOW_MS`] of touch data as a misfire report.
+/// Returns the file name.
+pub fn mark_unintended() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if !macos::is_running() {
+            return Err("Touchpad-Gesten sind aus.".into());
+        }
+        if !UNINTENDED_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("Der Kurzbefehl ist nicht belegt.".into());
+        }
+        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        let note = fired_summary(&live::recent(trace::RECENT_WINDOW_MS));
+        let t = RECENT
+            .lock()
+            .snapshot(now, "macos-multitouch", macos::cached_device_infos(), note)
+            .ok_or("In den letzten 3 Sekunden lag nichts auf dem Trackpad.")?;
+        let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let name = format!("{UNINTENDED_PREFIX}{stamp}.json");
+        let path = write_trace(&name, &t)?;
+        tracing::info!("gestures: misfire report saved ({} frames) → {}", t.frames.len(), path.display());
+        Ok(name)
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("Die Aufzeichnung gibt es bisher nur unter macOS.".into())
+}
+
+/// The hotkey's handler: save, then say so in a passive toast either way.
+pub fn mark_unintended_and_announce(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let result = mark_unintended();
+    let toast = match &result {
+        Ok(_) => crate::status_toast::StatusToast {
+            kind: "gesture".into(),
+            on: true,
+            title: "Als ungewollt gespeichert".into(),
+            subtitle: "Die letzten 3 s — im gestures-Panel".into(),
+        },
+        Err(e) => crate::status_toast::StatusToast {
+            kind: "gesture".into(),
+            on: false,
+            title: "Nichts gespeichert".into(),
+            subtitle: e.clone(),
+        },
+    };
+    if let Ok(name) = &result {
+        let _ = app.emit("gesture-trace-saved", name.clone());
+    }
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || crate::status_toast::show_passive(&app2, toast));
+}
+
+// ── Calibration (gesture-guard Phase 5) ─────────────────────────────────────
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+enum CalibState {
+    Running { started_ms: u64, generation: u64, rec: trace::Recorder },
+    Done(Box<calibrate::Proposal>),
+    Failed(String),
+}
+
+static CALIBRATION: parking_lot::Mutex<Option<CalibState>> = parking_lot::Mutex::new(None);
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+static CALIB_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What the panel shows of a calibration.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CalibrationStatus {
+    Idle,
+    Running { phase: calibrate::Phase },
+    Done { proposal: Box<calibrate::Proposal> },
+    Failed { error: String },
+}
+
+pub fn calibration_status() -> CalibrationStatus {
+    match CALIBRATION.lock().as_ref() {
+        None => CalibrationStatus::Idle,
+        Some(CalibState::Running { started_ms, .. }) => {
+            #[cfg(target_os = "macos")]
+            let now = macos::now_ms().unwrap_or(*started_ms);
+            #[cfg(not(target_os = "macos"))]
+            let now = *started_ms;
+            CalibrationStatus::Running { phase: calibrate::phase_at(now.saturating_sub(*started_ms)) }
+        }
+        Some(CalibState::Done(p)) => CalibrationStatus::Done { proposal: p.clone() },
+        Some(CalibState::Failed(e)) => CalibrationStatus::Failed { error: e.clone() },
+    }
+}
+
+/// Start the guided calibration (countdown, three steps). The proposal is
+/// computed when it ends and waits for [`apply_calibration`] or
+/// [`cancel_calibration`]; nothing is written to disk.
+pub fn start_calibration(app: &tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if !macos::is_running() {
+            return Err("Touchpad-Gesten sind aus — erst einschalten, dann kalibrieren.".into());
+        }
+        let now = macos::now_ms().ok_or("Touch-Erfassung läuft noch nicht")?;
+        let generation = CALIB_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
+        {
+            let mut cal = CALIBRATION.lock();
+            if matches!(cal.as_ref(), Some(CalibState::Running { .. })) {
+                return Err("Es läuft bereits eine Kalibrierung.".into());
+            }
+            let secs = calibrate::total_ms() / 1000;
+            let rec = trace::Recorder::new("calibration", macos::device_infos(), now + calibrate::LEAD_MS, secs);
+            *cal = Some(CalibState::Running { started_ms: now, generation, rec });
+        }
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let end = now + calibrate::LEAD_MS + calibrate::total_ms();
+            loop {
+                let t = macos::now_ms().unwrap_or(end);
+                if t >= end {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis((end - t).min(200)));
+            }
+            let mut cal = CALIBRATION.lock();
+            // Cancelled, or replaced by a newer run: that one owns the state.
+            let ours = matches!(cal.as_ref(), Some(CalibState::Running { generation: g, .. }) if *g == generation);
+            if !ours {
+                return;
+            }
+            let Some(CalibState::Running { rec, .. }) = cal.take() else { return };
+            let trace = rec.finish();
+            let db = app.state::<DbHandle>();
+            let current = GestureConfig::load(&db).guard;
+            *cal = Some(match calibrate::propose(&trace, &current) {
+                Ok(p) => {
+                    tracing::info!("gestures: calibration done, {} change(s)", p.changes.len());
+                    CalibState::Done(Box::new(p))
+                }
+                Err(e) => CalibState::Failed(e),
+            });
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("Die Kalibrierung braucht die Kontaktdaten des Trackpads — bisher nur unter macOS.".into())
+    }
+}
+
+/// Stop a running calibration or discard its result.
+pub fn cancel_calibration() {
+    *CALIBRATION.lock() = None;
+}
+
+/// Save the proposal onto the CURRENT thresholds (a slider moved during the
+/// calibration keeps its value) and clear the calibration.
+pub fn apply_calibration(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) -> anyhow::Result<GestureConfig> {
+    let changes = match CALIBRATION.lock().as_ref() {
+        Some(CalibState::Done(p)) => p.changes.clone(),
+        _ => anyhow::bail!("Es liegt kein Kalibrierungsergebnis vor."),
+    };
+    let current = GestureConfig::load(db).guard;
+    let cfg = set_guard(app, db, state, calibrate::apply(&current, &changes))?;
+    cancel_calibration();
+    Ok(cfg)
+}
+
 // ── Live view (gesture-guard Phase 4) ───────────────────────────────────────
 
 /// What the `gestures` panel polls (~30 Hz while it is visible).
@@ -512,6 +784,9 @@ pub struct LiveSnapshot {
     pub devices: Vec<trace::DeviceInfo>,
     /// Newest first, at most [`live::LOG_LEN`].
     pub log: Vec<live::LogEntry>,
+    /// A recording in progress (countdown in the panel).
+    pub recording: RecordStatus,
+    pub calibration: CalibrationStatus,
 }
 
 pub fn live_snapshot(state: &GestureState) -> LiveSnapshot {
@@ -527,7 +802,18 @@ pub fn live_snapshot(state: &GestureState) -> LiveSnapshot {
     let (contacts_supported, typing, devices): (bool, Option<(bool, bool)>, Vec<trace::DeviceInfo>) =
         (false, None, Vec::new());
     let (typing_block, await_center) = typing.unwrap_or((false, false));
-    LiveSnapshot { contacts_supported, running, now_ms, frame, typing_block, await_center, devices, log }
+    LiveSnapshot {
+        contacts_supported,
+        running,
+        now_ms,
+        frame,
+        typing_block,
+        await_center,
+        devices,
+        log,
+        recording: record_status(),
+        calibration: calibration_status(),
+    }
 }
 
 /// Save new guard thresholds. On macOS they reach the running pipeline in
@@ -3755,4 +4041,48 @@ mod tests {
         frames.push((500, vec![]));
         assert_eq!(tiptap_events(&frames), vec![GestureKind::TipTapRight]);
     }
+
+    // ── Phase 5: recordings, misfire reports ─────────────────────────────────
+
+    #[test]
+    fn recordings_sort_by_time_not_by_kind() {
+        assert_eq!(trace_stamp("trace-20261004-120000.json"), "20261004-120000");
+        assert_eq!(trace_stamp("trace-unintended-20261004-110000.json"), "20261004-110000");
+        let mut names = ["trace-unintended-20261004-110000.json", "trace-20261004-120000.json"];
+        names.sort_by(|a, b| trace_stamp(b).cmp(trace_stamp(a)));
+        assert_eq!(names[0], "trace-20261004-120000.json", "the newer plain recording comes first");
+    }
+
+    #[test]
+    fn delete_refuses_names_outside_the_trace_folder() {
+        for bad in ["../history.db", "trace-../../x.json", "notes.json", "trace-x/../y.json"] {
+            assert!(delete_trace(bad).is_err(), "{bad} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_misfire_report_names_what_fired() {
+        use super::guard::{Level, Via};
+        let entry = |accepted: bool, kind: Option<GestureKind>, action: Option<GestureAction>| live::LogEntry {
+            seq: 1,
+            at_ms: 1,
+            device: 0,
+            level: Level::Plausibility,
+            verdict: String::new(),
+            accepted,
+            kind,
+            fingers: kind.map(|_| 3),
+            action,
+            via: Some(Via::Frame),
+            touch_id: None,
+        };
+        let note = fired_summary(&[
+            entry(true, Some(GestureKind::SwipeUp), Some(GestureAction::VolumeUp)),
+            entry(false, Some(GestureKind::Tap), Some(GestureAction::MuteToggle)),
+            entry(false, None, None),
+        ]);
+        assert_eq!(note, "Als ungewollt markiert. Ausgelöst: volume_up (swipe_up ×3)");
+        assert!(fired_summary(&[]).contains("keine Geste"));
+    }
+
 }

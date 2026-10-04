@@ -3301,6 +3301,43 @@ pub async fn gesture_trace_replay(
     .map_err(|e| format!("replay task: {e}"))?
 }
 
+/// Delete one saved recording (panel). Only trace file names are accepted.
+#[tauri::command]
+pub fn gesture_trace_delete(name: String) -> Result<(), String> {
+    gestures::delete_trace(&name)
+}
+
+/// Delete every saved recording; returns how many.
+#[tauri::command]
+pub fn gesture_trace_delete_all() -> Result<usize, String> {
+    gestures::delete_all_traces()
+}
+
+/// Start the guided calibration (countdown + three steps); progress and the
+/// proposal arrive with `gesture_live`.
+#[tauri::command]
+pub fn gesture_calibrate_start(app: AppHandle) -> Result<(), String> {
+    gestures::start_calibration(&app)
+}
+
+/// Stop a running calibration or discard its proposal.
+#[tauri::command]
+pub fn gesture_calibrate_cancel() {
+    gestures::cancel_calibration();
+}
+
+/// Save the calibration's proposal. `async` — may restart the capture.
+#[tauri::command]
+pub async fn gesture_calibrate_apply(app: AppHandle) -> Result<gestures::GestureConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        let g = app.state::<gestures::GestureState>();
+        gestures::apply_calibration(&app, &db, &g).map_err(map_err)
+    })
+    .await
+    .map_err(|e| format!("gesture task: {e}"))?
+}
+
 // ── Text expander ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

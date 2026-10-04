@@ -1,6 +1,6 @@
 import type { GestureReplayRow } from "./ipc";
 
-/** Length of a recording started from Settings. */
+/** Length of a recording (`gestures record`). */
 export const RECORD_SECS = 30;
 
 const VERDICTS: Record<string, string> = {

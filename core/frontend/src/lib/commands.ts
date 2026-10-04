@@ -614,15 +614,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "gestures",
     keyword: "gestures",
-    syntax: "gestures [on|off]",
+    syntax: "gestures [on|off|calibrate|record]",
     description:
-      "Gesten-Schutz: Live-Ansicht des Trackpads (Finger, Daumen, Handballen), Regler je Geräteprofil und die letzten 20 Entscheidungen.",
+      "Gesten-Schutz: Live-Ansicht des Trackpads (Finger, Daumen, Handballen), Regler je Geräteprofil, die letzten 20 Entscheidungen, Kalibrierung und Aufnahmen.",
     requiresArg: false,
   },
   {
     kind: "gestures",
     keyword: "gesten",
-    syntax: "gesten [on|off]",
+    syntax: "gesten [on|off|calibrate|record]",
     description: "Gesten-Schutz — Alias von `gestures`.",
     requiresArg: false,
     hidden: true,

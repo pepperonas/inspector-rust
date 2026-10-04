@@ -1,5 +1,4 @@
 import { appVersion as fetchAppVersion } from "../lib/ipc";
-import { GestureRecordRow } from "./GestureRecordRow";
 import { useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -1496,11 +1495,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     </span>
                   </label>
                 </Row>
-                {IS_MAC && (
-                  <Row label="Record a trace">
-                    <GestureRecordRow />
-                  </Row>
-                )}
+                <Row label="Live view, calibration, recordings">
+                  <span className="text-[var(--color-muted)]">
+                    Type <code>gestures</code> in the search bar: live trackpad, thresholds per
+                    device, the last decisions, <code>gestures calibrate</code> and{" "}
+                    <code>gestures record</code>. Saved recordings are listed and deleted there.
+                  </span>
+                </Row>
               </>
             )}
           </Section>

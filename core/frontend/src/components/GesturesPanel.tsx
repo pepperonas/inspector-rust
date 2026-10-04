@@ -32,6 +32,8 @@ import {
   type PadProfile,
 } from "../lib/gestures-live";
 import { useTauriEvent } from "../hooks/useTauriEvent";
+import { GestureCalibration } from "./GestureCalibration";
+import { GestureRecordings } from "./GestureRecordings";
 
 /** Debounce for saving slider changes — a drag sends one write, not fifty. */
 const SAVE_DEBOUNCE_MS = 250;
@@ -40,9 +42,10 @@ const PAD_W = 320;
 /**
  * The `gestures` panel: a live view of the trackpad with each contact's
  * classification, sliders for the guard thresholds (edge zones per device
- * profile) and the last 20 decisions. Polls only while the popup is visible.
+ * profile), the last 20 decisions, the guided calibration and the
+ * recordings. Polls only while the popup is visible.
  */
-export function GesturesPanel() {
+export function GesturesPanel({ start = null }: { start?: "calibrate" | "record" | null } = {}) {
   const [cfg, setCfg] = useState<GestureConfig | null>(null);
   const [defaults, setDefaults] = useState<GestureGuardConfig | null>(null);
   const [snap, setSnap] = useState<GestureLiveSnapshot | null>(null);
@@ -143,6 +146,13 @@ export function GesturesPanel() {
 
       <PadView snap={snap} guard={cfg?.guard ?? null} profile={activeProfile} />
 
+      <GestureCalibration
+        status={snap?.calibration}
+        supported={snap?.contacts_supported ?? true}
+        autoStart={start === "calibrate"}
+        onApplied={setCfg}
+      />
+
       {cfg && (
         <Controls
           guard={cfg.guard}
@@ -155,6 +165,12 @@ export function GesturesPanel() {
       )}
 
       <DecisionLog snap={snap} />
+
+      <GestureRecordings
+        status={snap?.recording}
+        supported={snap?.contacts_supported ?? true}
+        autoStart={start === "record"}
+      />
     </div>
   );
 }

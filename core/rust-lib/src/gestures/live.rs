@@ -173,6 +173,13 @@ pub(crate) fn poll() -> (u64, Option<LiveFrame>, Vec<LogEntry>) {
     (now, live.frame(), live.log())
 }
 
+/// The decisions of the last `window_ms`, oldest first (misfire reports).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn recent(window_ms: u64) -> Vec<LogEntry> {
+    let from = clock().saturating_sub(window_ms);
+    LIVE.lock().log.iter().filter(|e| e.at_ms >= from).cloned().collect()
+}
+
 /// Forget the log and the frame (panel's "clear" button).
 pub(crate) fn clear() {
     LIVE.lock().clear();

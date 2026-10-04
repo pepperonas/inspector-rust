@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { GestureConfig, GestureGuardConfig, GestureLiveSnapshot } from "../lib/ipc";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { GestureConfig, GestureGuardConfig, GestureLiveSnapshot, GestureTraceFile } from "../lib/ipc";
 
 const zones = { left: 0.03, right: 0.03, top: 0.05, bottom: 0.05 };
 const guard: GestureGuardConfig = {
@@ -17,6 +17,13 @@ const config: GestureConfig = {
 let snapshot: GestureLiveSnapshot;
 const gestureSetGuard = vi.fn(async (g: GestureGuardConfig) => ({ ...config, guard: g }));
 const setGestureConfig = vi.fn(async (c: GestureConfig) => c);
+const calibrateStart = vi.fn(async () => undefined);
+const calibrateCancel = vi.fn(async () => undefined);
+const calibrateApply = vi.fn(async () => ({ ...config, guard: { ...guard, palm_size: 1.9 } }));
+const recordStart = vi.fn(async (_secs: number) => undefined);
+const traceDelete = vi.fn(async (_name: string) => undefined);
+const traceDeleteAll = vi.fn(async () => 0);
+let traces: GestureTraceFile[] = [];
 vi.mock("../lib/ipc", () => ({
   getGestureConfig: async () => config,
   gestureDefaultGuard: async () => guard,
@@ -24,6 +31,17 @@ vi.mock("../lib/ipc", () => ({
   gestureLiveClear: async () => undefined,
   gestureSetGuard: (g: GestureGuardConfig) => gestureSetGuard(g),
   setGestureConfig: (c: GestureConfig) => setGestureConfig(c),
+  gestureCalibrateStart: () => calibrateStart(),
+  gestureCalibrateCancel: () => calibrateCancel(),
+  gestureCalibrateApply: () => calibrateApply(),
+  gestureRecordStart: (secs: number) => recordStart(secs),
+  gestureTraceList: async () => traces,
+  gestureTraceReplay: async () => [],
+  gestureTraceDelete: (name: string) => traceDelete(name),
+  gestureTraceDeleteAll: () => traceDeleteAll(),
+  listActionHotkeys: async () => [
+    { id: "gestureunintended", label: "", shortcut: "Ctrl+Shift+Alt+KeyG", default: "", is_default: true },
+  ],
 }));
 vi.mock("../hooks/useTauriEvent", () => ({ useTauriEvent: () => undefined }));
 
@@ -52,9 +70,13 @@ beforeEach(() => {
         kind: "tap", fingers: 3, action: "mute_toggle", via: "tick", touch_id: null,
       },
     ],
+    recording: { recording: false, remaining_ms: 0, frames: 0 },
+    calibration: { state: "idle" },
   };
-  gestureSetGuard.mockClear();
-  setGestureConfig.mockClear();
+  traces = [];
+  for (const m of [gestureSetGuard, setGestureConfig, calibrateStart, calibrateCancel, calibrateApply, recordStart, traceDelete, traceDeleteAll]) {
+    m.mockClear();
+  }
 });
 afterEach(() => {
   cleanup();
@@ -97,7 +119,9 @@ describe("GesturesPanel", () => {
   it("explains the missing live view outside macOS", async () => {
     snapshot = { ...snapshot, contacts_supported: false, frame: null };
     render(<GesturesPanel />);
-    expect(await screen.findByText(/nur unter macOS/)).toBeTruthy();
+    expect(await screen.findByText(/Live-Ansicht der Kontakte gibt es bisher nur unter macOS/)).toBeTruthy();
+    expect(screen.getByText(/die liefert bisher nur macOS/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Kalibrieren" })).toBeNull();
   });
 
   it("saves a slider drag once, after the debounce, with the new value", async () => {
@@ -143,5 +167,106 @@ describe("GesturesPanel", () => {
     fireEvent.click(sw);
     await waitFor(() => expect(setGestureConfig).toHaveBeenCalledTimes(1));
     expect(setGestureConfig.mock.calls[0][0].enabled).toBe(false);
+  });
+
+  describe("calibration", () => {
+    it("starts on the button and walks through the steps from the live status", async () => {
+      render(<GesturesPanel />);
+      fireEvent.click(await screen.findByRole("button", { name: "Kalibrieren" }));
+      await waitFor(() => expect(calibrateStart).toHaveBeenCalledTimes(1));
+      snapshot = {
+        ...snapshot,
+        calibration: { state: "running", phase: { phase: "step", step: 2, steps: 3, remaining_ms: 1500, step_ms: 6000 } },
+      };
+      expect(await screen.findByText("Schritt 2 von 3 · Daumen")).toBeTruthy();
+      expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("75");
+      fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+      expect(calibrateCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts by itself once for `gestures calibrate`", async () => {
+      render(<GesturesPanel start="calibrate" />);
+      await waitFor(() => expect(calibrateStart).toHaveBeenCalledTimes(1));
+      await screen.findByText("Letzte Entscheidungen");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 80)); // several polls later
+      });
+      expect(calibrateStart).toHaveBeenCalledTimes(1);
+      expect(recordStart).not.toHaveBeenCalled();
+    });
+
+    it("shows the proposal and saves only on confirmation", async () => {
+      snapshot = {
+        ...snapshot,
+        calibration: {
+          state: "done",
+          proposal: {
+            device: { builtin: true, width_mm: null, height_mm: null },
+            palm: null,
+            thumb: null,
+            finger: null,
+            changes: [{ key: "palm_size", current: 2, proposed: 1.9 }],
+            warnings: ["Schritt 2: kein ruhender Daumen erkannt — Daumen-Werte bleiben."],
+          },
+        },
+      };
+      render(<GesturesPanel />);
+      const card = within(await screen.findByRole("region", { name: "Kalibrierung" }));
+      expect(await card.findByText("Handballen ab Größe")).toBeTruthy();
+      expect(card.getByText("1,9")).toBeTruthy();
+      expect(card.getByText(/kein ruhender Daumen/)).toBeTruthy();
+      expect(calibrateApply).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: /Übernehmen/ }));
+      await waitFor(() => expect(calibrateApply).toHaveBeenCalledTimes(1));
+    });
+
+    it("names a failed calibration and offers another run", async () => {
+      snapshot = { ...snapshot, calibration: { state: "failed", error: "Schritt 3 hat nur 2 Fingerkontakte erkannt" } };
+      render(<GesturesPanel />);
+      expect(await screen.findByText(/nur 2 Fingerkontakte/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Nochmal" }));
+      await waitFor(() => expect(calibrateStart).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe("recordings", () => {
+    const rec = (name: string, unintended = false): GestureTraceFile => ({ name, bytes: 40_000, unintended });
+
+    it("lists recordings with their kind and time, misfire reports marked", async () => {
+      traces = [rec("trace-unintended-20261004-141516.json", true), rec("trace-20261003-090000.json")];
+      render(<GesturesPanel />);
+      expect(await screen.findByText("04.10. 14:15:16")).toBeTruthy();
+      expect(screen.getByText("Ungewollt")).toBeTruthy();
+      expect(screen.getByText("Aufnahme")).toBeTruthy();
+      expect(screen.getByText(/⌃⇧⌥G|Ctrl\+Shift\+Alt\+G/)).toBeTruthy();
+    });
+
+    it("deletes a recording only after the second click", async () => {
+      traces = [rec("trace-20261003-090000.json")];
+      render(<GesturesPanel />);
+      fireEvent.click(await screen.findByRole("button", { name: "03.10. 09:00:00 löschen" }));
+      expect(traceDelete).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Ja, löschen" }));
+      await waitFor(() => expect(traceDelete).toHaveBeenCalledWith("trace-20261003-090000.json"));
+    });
+
+    it("deletes all only after confirming", async () => {
+      traces = [rec("trace-20261003-090000.json"), rec("trace-20261003-100000.json")];
+      render(<GesturesPanel />);
+      fireEvent.click(await screen.findByRole("button", { name: "Alle löschen" }));
+      fireEvent.click(screen.getByRole("button", { name: "Nein" }));
+      expect(traceDeleteAll).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Alle löschen" }));
+      fireEvent.click(screen.getByRole("button", { name: "Ja, löschen" }));
+      await waitFor(() => expect(traceDeleteAll).toHaveBeenCalledTimes(1));
+    });
+
+    it("starts a 30-s recording for `gestures record` and shows the countdown", async () => {
+      render(<GesturesPanel start="record" />);
+      await waitFor(() => expect(recordStart).toHaveBeenCalledWith(30));
+      snapshot = { ...snapshot, recording: { recording: true, remaining_ms: 12_300, frames: 512 } };
+      expect(await screen.findByText(/Nimmt auf … 13 s · 512 Frames/)).toBeTruthy();
+      expect(calibrateStart).not.toHaveBeenCalled();
+    });
   });
 });

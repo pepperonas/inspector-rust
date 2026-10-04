@@ -1166,6 +1166,8 @@ export interface GestureRecordStatus {
 export interface GestureTraceFile {
   name: string;
   bytes: number;
+  /** Saved by the "that was unintended" hotkey (last 3 s). */
+  unintended: boolean;
 }
 
 /** One replayed outcome of a saved trace. */
@@ -1262,7 +1264,46 @@ export interface GestureLiveSnapshot {
   devices: GestureDeviceInfo[];
   /** Newest first, at most 20. */
   log: GestureLogEntry[];
+  recording: GestureRecordStatus;
+  calibration: GestureCalibrationStatus;
 }
+
+/** What one calibration step measured (`gestures::calibrate::StepStats`). */
+export interface GestureStepStats {
+  count: number;
+  size_p10: number;
+  size_p90: number;
+  ratio_p10: number;
+  ratio_p90: number;
+  y_p10: number;
+}
+
+/** One proposed threshold; `key` is a field of the guard config. */
+export interface GestureCalibrationChange {
+  key: "palm_size" | "thumb_ratio" | "thumb_min_size" | "thumb_zone";
+  current: number;
+  proposed: number;
+}
+
+export interface GestureCalibrationProposal {
+  device: GestureDeviceInfo | null;
+  palm: GestureStepStats | null;
+  thumb: GestureStepStats | null;
+  finger: GestureStepStats | null;
+  changes: GestureCalibrationChange[];
+  warnings: string[];
+}
+
+export type GestureCalibrationPhase =
+  | { phase: "countdown"; remaining_ms: number }
+  | { phase: "step"; step: number; steps: number; remaining_ms: number; step_ms: number }
+  | { phase: "finished" };
+
+export type GestureCalibrationStatus =
+  | { state: "idle" }
+  | { state: "running"; phase: GestureCalibrationPhase }
+  | { state: "done"; proposal: GestureCalibrationProposal }
+  | { state: "failed"; error: string };
 
 /** Poll the live view (~30 Hz while the panel is visible). */
 export function gestureLive(): Promise<GestureLiveSnapshot> {
@@ -1281,6 +1322,31 @@ export function gestureDefaultGuard(): Promise<GestureGuardConfig> {
 
 export function gestureLiveClear(): Promise<void> {
   return invoke("gesture_live_clear");
+}
+
+/** Delete one saved recording. */
+export function gestureTraceDelete(name: string): Promise<void> {
+  return invoke("gesture_trace_delete", { name });
+}
+
+/** Delete every saved recording; resolves to how many. */
+export function gestureTraceDeleteAll(): Promise<number> {
+  return invoke("gesture_trace_delete_all");
+}
+
+/** Start the guided calibration (macOS); progress comes with `gestureLive`. */
+export function gestureCalibrateStart(): Promise<void> {
+  return invoke("gesture_calibrate_start");
+}
+
+/** Stop a calibration or discard its proposal. */
+export function gestureCalibrateCancel(): Promise<void> {
+  return invoke("gesture_calibrate_cancel");
+}
+
+/** Save the calibration's proposal onto the current thresholds. */
+export function gestureCalibrateApply(): Promise<GestureConfig> {
+  return invoke("gesture_calibrate_apply");
 }
 
 /** A configurable global action hotkey (OCR, screenshot, timesheet, …). */

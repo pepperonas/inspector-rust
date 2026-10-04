@@ -4,7 +4,7 @@ Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes th
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
-> Status: **Phase 4 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel shows the trackpad live, holds the sliders and lists the last 20 decisions. Calibration, recording from the panel and the "unintended" hotkey follow in Phase 5.
+> Status: **Phase 5 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel shows the trackpad live, holds the sliders, lists the last 20 decisions, runs the guided calibration and manages the recordings; the hotkey ⌃⇧⌥G saves the last 3 seconds when a gesture fired by itself.
 
 ## The pipeline
 
@@ -21,7 +21,7 @@ Each frame of touches runs through four levels. Every decision is reported with 
 
 Palm and thumb are **sticky**: they are judged on the largest size and ratio seen so far, so a contact whose area shrinks later doesn't turn back into a finger. Palms and thumbs never count as gesture fingers.
 
-⚠️ The thumb thresholds are estimates until recordings from real trackpads exist. `thumb_ratio = 0` switches the thumb rule off.
+⚠️ The default thumb thresholds are estimates; `gestures calibrate` measures them on your trackpad (see [Calibration](#calibration-phase-5)). `thumb_ratio = 0` switches the thumb rule off.
 
 ### Level 2: space
 
@@ -96,6 +96,20 @@ A contact that **landed** in an edge zone is drawn dashed and hollow; the zones 
 
 **Windows and Linux** show the sliders and the log, but no live trackpad: those platforms hand over finished gestures, not contacts.
 
+## Calibration (Phase 5)
+
+`gestures calibrate` + Enter, or **Kalibrieren** in the panel. After a 3-second countdown three steps of 6 seconds each follow; the first second of every step is not measured, the hands are still moving there.
+
+| Step | What to do | What it measures |
+|---|---|---|
+| 1 Handballen | Both hands on the keyboard as when typing, palm heels on the trackpad | contacts resting ≥ 400 ms → palm size |
+| 2 Daumen | Hands off, only the thumb resting low on the pad | contacts resting ≥ 400 ms → thumb size, shape (major/minor axis) and landing height |
+| 3 Finger | Thumb off, tap and swipe with three fingers several times | contacts shorter than 1.5 s → finger size and shape (a palm left on the pad is longer and drops out) |
+
+From each class the 10th and 90th percentile are taken (nearest rank). A threshold is placed halfway between what the fingers reached (90 %) and where the other class starts (10 %), on the slider's grid and never at or below the fingers. Two classes count as separable only with a 10 % margin; if palms and fingers are closer than that, `palm_size` keeps its value and the proposal says why. For the thumb, the rule needs shape **and** size **and** a low landing: whichever of shape and size separates is placed between the classes, the other is lowered just under the thumb so it can't block it; the thumb zone becomes the thumb's landing height minus 5 %. Step 3 needs at least 6 finger contacts — without fingers there is nothing to separate from, so that is an error, not a guess.
+
+The proposal lists only the values that change (current → proposed) and the warnings. **Nothing is saved until you press *Übernehmen***; it is then applied onto the current thresholds, so a slider moved during the calibration keeps its value. The device that saw most of the calibration is the one measured; the classification thresholds apply to every device (only the edge zones are per profile). The recording behind a calibration stays in memory and is never written to disk. The calculation is pure (`gestures/calibrate.rs`) and tested on synthetic sessions, including that the proposal classifies the session it came from.
+
 ## What existed before the pipeline (macOS)
 
 | Filter | What it does |
@@ -107,21 +121,24 @@ A contact that **landed** in an edge zone is drawn dashed and hollow; the zones 
 | Tip-tap | The resting finger has to be still beforehand, and neither finger may travel during the gesture. |
 | Typing guard | Volume and mute are blocked if a real key was pressed within 0.5 s before the fingers landed or while they were down. A key pressed after the lift doesn't count. **Unmuting is never blocked.** Modifier keys never count. |
 
-## Recording and replay (Phase 1)
+## Recording and replay
 
-**Record:** Settings → Touchpad gestures → *Record a trace* → **Record 30 s**. For the next 30 seconds every trackpad frame is recorded and then saved as a JSON file:
+**Record:** `gestures record` + Enter, or **30 s aufnehmen** in the panel. For the next 30 seconds every trackpad frame is recorded and then saved as a JSON file:
 
 ```
 ~/Library/Application Support/InspectorRust/gesture-traces/trace-YYYYMMDD-HHMMSS.json
 ```
 
-**Replay:** In the same section, *Replay* plays a saved recording against the current settings and lists, per gesture, whether it fired, was blocked (and why) or was ignored. That is the evidence for "that fired by itself".
+**"That was unintended" (⌃⇧⌥G).** A gesture fired by itself: press the hotkey right away. The last 3 seconds of touch data are saved as `trace-unintended-YYYYMMDD-HHMMSS.json`, with `expect: []` (nothing should have fired) and a note naming what did fire in that window. A passive toast says whether something was saved. The 3-second buffer lives in memory only and only while the hotkey is bound; rebind or switch it off under Settings → Global shortcuts.
+
+**List, replay, delete:** the panel lists every recording (kind *Aufnahme* or *Ungewollt*, time, size), newest first. ▶ plays one against the current settings and lists, per gesture, whether it fired, was blocked (and why) or was ignored — move a slider and play again to see whether it would have caught the misfire. 🗑 deletes one, *Alle löschen* all of them; both ask once more inline. Only file names of the form `trace-….json` are accepted, so a name from the UI can't reach outside the folder.
 
 ### Privacy
 
 - A recording holds **touch data** (position, velocity, ellipse, size, state) and the **times** of key presses — **never which key**.
 - The key times come from the app's one keyboard tap (the text expander's), or, without it, from macOS's "how long since the last key press?". No second keyboard event tap is installed.
-- Files stay in the app data folder. There is no network access.
+- Files stay in the app data folder until you delete them in the panel. There is no network access.
+- A calibration is never written to disk; the 3-second buffer of the hotkey is memory only.
 
 ### Trace format (version 1)
 
@@ -178,7 +195,6 @@ The synthetic scenarios record **today's** behaviour. Their `note` says where th
 
 ## Next phases
 
-5. Calibration, recording from the panel, a hotkey for "that was unintended".
 6. Windows confidence bit, Linux palm data.
 7. Docs and release.
 

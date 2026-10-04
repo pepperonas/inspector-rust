@@ -70,7 +70,11 @@ describe("gestures argument", () => {
     expect(parseGesturesArg(" On ")).toBe("on");
     expect(parseGesturesArg("aus")).toBe("off");
     expect(parseGesturesArg("of")).toBe("unknown");
-    expect(parseGesturesArg("calibrate")).toBe("unknown");
+    expect(parseGesturesArg("calibrate")).toBe("calibrate");
+    expect(parseGesturesArg("Kalibrieren")).toBe("calibrate");
+    expect(parseGesturesArg("record")).toBe("record");
+    expect(parseGesturesArg("aufnahme")).toBe("record");
+    expect(parseGesturesArg("recording")).toBe("unknown");
   });
 });
 

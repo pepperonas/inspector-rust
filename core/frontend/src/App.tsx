@@ -437,6 +437,8 @@ function App() {
   // `gesturesRev` remounts the panel after an on/off so it re-reads the config.
   const [gesturesMode, setGesturesMode] = useState(false);
   const [gesturesRev, setGesturesRev] = useState(0);
+  // `gestures calibrate|record` + Enter: the (remounted) panel starts it once.
+  const [gesturesStart, setGesturesStart] = useState<"calibrate" | "record" | null>(null);
   // Iris mode — the mic-triggered red screen vignette. Unlike the other inline
   // panels this one is a TOGGLE: Enter arms it (and opens the calibration
   // panel), Enter on an already-armed session disarms it. The panel is only
@@ -1293,6 +1295,7 @@ function App() {
       setGesturesMode(true);
     } else if (!isGesturesCmd && gesturesMode) {
       setGesturesMode(false);
+      setGesturesStart(null);
     }
   }, [isGesturesCmd, gesturesMode]);
 
@@ -2115,10 +2118,14 @@ function App() {
             ? "Touchpad-Gesten einschalten"
             : a === "off"
               ? "Touchpad-Gesten ausschalten"
-              : "Gesten-Schutz";
+              : a === "calibrate"
+                ? "Gesten kalibrieren (~20 s)"
+                : a === "record"
+                  ? "30 s Trackpad aufnehmen"
+                  : "Gesten-Schutz";
         hint =
           a === "unknown"
-            ? "Unbekanntes Argument — nur on oder off"
+            ? "Unbekanntes Argument — on, off, calibrate oder record"
             : "Preview: Live-Trackpad, Schwellen je Gerät, letzte Entscheidungen";
         break;
       }
@@ -3989,6 +3996,9 @@ function App() {
           } catch (e) {
             console.warn("gestures:", e);
           }
+        } else if (a === "calibrate" || a === "record") {
+          setGesturesStart(a);
+          setGesturesRev((r) => r + 1);
         }
         return true;
       }
@@ -5481,7 +5491,7 @@ function App() {
                   </div>
                 ) : gesturesMode ? (
                   <div className="md3-pop-in h-full">
-                    <GesturesPanel key={gesturesRev} />
+                    <GesturesPanel key={gesturesRev} start={gesturesStart} />
                   </div>
                 ) : lumenMode ? (
                   <div className="md3-pop-in h-full">

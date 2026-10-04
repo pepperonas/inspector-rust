@@ -375,6 +375,89 @@ impl Recorder {
     }
 }
 
+// ── Rolling window for "that was unintended" ────────────────────────────────
+
+/// How far back the "unintended" hotkey reaches.
+pub const RECENT_WINDOW_MS: u64 = 3_000;
+
+/// The last [`RECENT_WINDOW_MS`] of frames and key-down times, kept in memory
+/// only so the "that was unintended" hotkey can save what just happened.
+/// Nothing here is written anywhere until the hotkey is pressed. Pure — the
+/// platform owns the clock.
+#[derive(Debug)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub struct RecentFrames {
+    frames: std::collections::VecDeque<Frame>,
+    keys: std::collections::VecDeque<KeyDown>,
+}
+
+impl Default for RecentFrames {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+impl RecentFrames {
+    pub const fn new() -> RecentFrames {
+        RecentFrames { frames: std::collections::VecDeque::new(), keys: std::collections::VecDeque::new() }
+    }
+
+    /// Frame at absolute time `now_ms`; anything older than the window goes.
+    pub fn push_frame(&mut self, now_ms: u64, device: u32, touches: Vec<Touch>) {
+        self.frames.push_back(Frame { t_ms: now_ms, device, touches });
+        self.trim(now_ms);
+    }
+
+    /// Key-down at absolute time `key_ms` (same ±5 ms dedupe as the recorder:
+    /// the derived path reports the same key repeatedly).
+    pub fn push_key(&mut self, key_ms: u64, modifier: bool) {
+        if self.keys.back().is_some_and(|k| key_ms.abs_diff(k.t_ms) <= 5) {
+            return;
+        }
+        self.keys.push_back(KeyDown { t_ms: key_ms, modifier });
+    }
+
+    fn trim(&mut self, now_ms: u64) {
+        let from = now_ms.saturating_sub(RECENT_WINDOW_MS);
+        while self.frames.front().is_some_and(|f| f.t_ms < from) {
+            self.frames.pop_front();
+        }
+        while self.keys.front().is_some_and(|k| k.t_ms < from) {
+            self.keys.pop_front();
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+        self.keys.clear();
+    }
+
+    /// The window ending at `now_ms` as a trace (times relative to its first
+    /// frame), marked as a misfire: `expect` is empty — nothing should have
+    /// fired. `None` when the pad was untouched for the whole window.
+    pub fn snapshot(&self, now_ms: u64, source: &str, devices: Vec<DeviceInfo>, note: String) -> Option<Trace> {
+        let from = now_ms.saturating_sub(RECENT_WINDOW_MS);
+        let frames: Vec<&Frame> = self.frames.iter().filter(|f| f.t_ms >= from && f.t_ms <= now_ms).collect();
+        let start = frames.first()?.t_ms;
+        Some(Trace {
+            version: TRACE_VERSION,
+            source: source.into(),
+            note,
+            devices,
+            muted_at_start: false,
+            frames: frames.iter().map(|f| Frame { t_ms: f.t_ms - start, ..(*f).clone() }).collect(),
+            keys: self
+                .keys
+                .iter()
+                .filter(|k| k.t_ms >= start && k.t_ms <= now_ms)
+                .map(|k| KeyDown { t_ms: k.t_ms - start, modifier: k.modifier })
+                .collect(),
+            expect: Some(Vec::new()),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,4 +542,33 @@ mod tests {
         assert_eq!(Recorder::new("t", vec![], 0, 0).until_ms(), 1_000);
         assert_eq!(Recorder::new("t", vec![], 0, 9_999).until_ms(), MAX_RECORD_SECS * 1000);
     }
+    #[test]
+    fn the_recent_window_keeps_only_the_last_three_seconds() {
+        let mut r = RecentFrames::new();
+        for t in (0..=6_000).step_by(500) {
+            r.push_frame(t, 0, vec![touch(1, 0.5, 0.5, 1.0, TouchPhase::Touching)]);
+        }
+        r.push_key(1_000, false); // before the window: trimmed with the next frame
+        r.push_frame(6_100, 0, vec![]);
+        r.push_key(5_000, true);
+        r.push_key(5_003, true); // same instant reported twice
+        let t = r.snapshot(6_100, "test", vec![], "n".into()).expect("frames in the window");
+        assert_eq!(t.frames.first().map(|f| f.t_ms), Some(0), "relative to the first kept frame");
+        // 3_500 .. 6_100 → 3500, 4000, …, 6000, 6100
+        assert_eq!(t.frames.len(), 7);
+        assert_eq!(t.frames.last().map(|f| f.t_ms), Some(2_600));
+        assert_eq!(t.keys, vec![KeyDown { t_ms: 1_500, modifier: true }]);
+        assert_eq!(t.expect, Some(vec![]), "a misfire expects nothing to fire");
+        assert_eq!(t.note, "n");
+    }
+
+    #[test]
+    fn an_untouched_window_has_no_snapshot() {
+        let mut r = RecentFrames::new();
+        r.push_frame(1_000, 0, vec![]);
+        assert!(r.snapshot(9_000, "t", vec![], String::new()).is_none(), "the only frame is long gone");
+        r.clear();
+        assert!(r.snapshot(0, "t", vec![], String::new()).is_none());
+    }
+
 }

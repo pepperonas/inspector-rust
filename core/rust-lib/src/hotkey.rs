@@ -641,10 +641,11 @@ pub enum ActionId {
     WindowPalette,
     RetroToggle,
     RetroFocus,
+    GestureUnintended,
 }
 
 impl ActionId {
-    pub const ALL: [ActionId; 12] = [
+    pub const ALL: [ActionId; 13] = [
         ActionId::Ocr,
         ActionId::Screenshot,
         ActionId::Color,
@@ -657,6 +658,7 @@ impl ActionId {
         ActionId::WindowPalette,
         ActionId::RetroToggle,
         ActionId::RetroFocus,
+        ActionId::GestureUnintended,
     ];
 
     pub fn key(self) -> &'static str {
@@ -673,6 +675,7 @@ impl ActionId {
             ActionId::WindowPalette => "windowpalette",
             ActionId::RetroToggle => "retrotoggle",
             ActionId::RetroFocus => "retrofocus",
+            ActionId::GestureUnintended => "gestureunintended",
         }
     }
 
@@ -694,6 +697,7 @@ impl ActionId {
             ActionId::WindowPalette => "Window palette (focused window)",
             ActionId::RetroToggle => "Retro overlay on/off",
             ActionId::RetroFocus => "Retro overlay: focus mode on/off",
+            ActionId::GestureUnintended => "Gesture was unintended (save last 3 s)",
         }
     }
 
@@ -717,6 +721,9 @@ impl ActionId {
             // The emergency exit of a full-screen overlay: works from any app.
             ActionId::RetroToggle => "Ctrl+Shift+Alt+Digit8",
             ActionId::RetroFocus => "Ctrl+Shift+Alt+Digit9",
+            // G for gesture. Saves the last 3 s of touch data as a misfire
+            // report; the toast says what was saved.
+            ActionId::GestureUnintended => "Ctrl+Shift+Alt+KeyG",
         }
     }
 
@@ -922,6 +929,12 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
                 crate::retro::control::toggle_focus(&app);
             });
         }
+        // File write on a worker; the passive toast names the outcome either
+        // way — a hotkey that silently did nothing would be worse than none.
+        ActionId::GestureUnintended => {
+            let app = app.clone();
+            std::thread::spawn(move || crate::gestures::mark_unintended_and_announce(&app));
+        }
     }
 }
 
@@ -942,6 +955,8 @@ pub fn apply_action_hotkeys(app: &AppHandle) {
     for sc in reg.drain(..) {
         let _ = app.global_shortcut().unregister(sc);
     }
+    // The 3-s touch buffer only runs while its hotkey is bound.
+    crate::gestures::set_unintended_armed(false);
     for id in ActionId::ALL {
         let spec = effective_action_spec(&db, id);
         if spec.trim().is_empty() {
@@ -967,7 +982,12 @@ pub fn apply_action_hotkeys(app: &AppHandle) {
                 dispatch_action(&appc, id);
             }
         }) {
-            Ok(()) => reg.push(shortcut),
+            Ok(()) => {
+                reg.push(shortcut);
+                if id == ActionId::GestureUnintended {
+                    crate::gestures::set_unintended_armed(true);
+                }
+            }
             Err(e) => tracing::warn!("register action hotkey {} ({spec}): {e}", id.key()),
         }
     }
@@ -1518,7 +1538,7 @@ mod tests {
         // so it must be a deliberate decision. Bump consciously, never
         // reflexively — and never restate the number in the message, or the
         // two drift apart (the `commands.test.ts` lesson).
-        assert_eq!(keys.len(), 12, "action-hotkey count changed — is the new binding really free?");
+        assert_eq!(keys.len(), 13, "action-hotkey count changed — is the new binding really free?");
         assert_eq!(ActionId::from_key("nope"), None);
     }
 

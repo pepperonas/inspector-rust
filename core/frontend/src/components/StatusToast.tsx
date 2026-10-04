@@ -4,6 +4,7 @@ import {
   AlarmClock,
   AudioLines,
   Clock,
+  Hand,
   Coffee,
   Dices,
   FileText,
@@ -159,6 +160,8 @@ export function StatusToast() {
               ? Music
               : payload.kind === "track"
                 ? Clock
+              : payload.kind === "gesture"
+                ? Hand
               : payload.kind === "volume"
                 ? (level === 0 ? VolumeX : Volume2)
                 : payload.kind === "mute"

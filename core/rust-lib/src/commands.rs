@@ -3229,6 +3229,44 @@ pub async fn set_gesture_config(
     .map_err(|e| format!("gesture task: {e}"))?
 }
 
+/// Live view of the `gestures` panel: latest frame with each contact's
+/// classification, typing state and the last 20 decisions. Polled ~30 Hz
+/// while the panel is visible; cheap (two uncontended locks).
+#[tauri::command]
+pub fn gesture_live(state: State<'_, gestures::GestureState>) -> gestures::LiveSnapshot {
+    gestures::live_snapshot(&state)
+}
+
+/// Save new guard thresholds from the panel's sliders. macOS updates the
+/// running pipeline in place; elsewhere the capture is restarted. `async` —
+/// the restart path joins threads.
+#[tauri::command]
+pub async fn gesture_set_guard(
+    app: AppHandle,
+    guard: gestures::guard::GuardConfig,
+) -> Result<gestures::GestureConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        let g = app.state::<gestures::GestureState>();
+        gestures::set_guard(&app, &db, &g, guard).map_err(map_err)
+    })
+    .await
+    .map_err(|e| format!("gesture task: {e}"))?
+}
+
+/// The guard's default thresholds (the panel's "reset" target — one source,
+/// the Rust `Default`, rather than a copy in TypeScript).
+#[tauri::command]
+pub fn gesture_default_guard() -> gestures::guard::GuardConfig {
+    gestures::guard::GuardConfig::default()
+}
+
+/// Empty the panel's decision log.
+#[tauri::command]
+pub fn gesture_live_clear() {
+    gestures::clear_live_log();
+}
+
 /// Start recording the raw touch frames for `secs` seconds (written as a trace
 /// to the app data dir when it ends; `gesture-trace-saved` carries the path).
 #[tauri::command]

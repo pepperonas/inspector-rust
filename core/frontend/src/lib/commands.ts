@@ -62,6 +62,7 @@ export type CommandKind =
   | "8bit"
   | "16bit"
   | "lumen"
+  | "gestures"
   | "bluetooth"
   | "btsniff"
   | "mailcheck"
@@ -609,6 +610,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     hidden: true,
     platform: ["mac", "win"],
+  },
+  {
+    kind: "gestures",
+    keyword: "gestures",
+    syntax: "gestures [on|off]",
+    description:
+      "Gesten-Schutz: Live-Ansicht des Trackpads (Finger, Daumen, Handballen), Regler je Geräteprofil und die letzten 20 Entscheidungen.",
+    requiresArg: false,
+  },
+  {
+    kind: "gestures",
+    keyword: "gesten",
+    syntax: "gesten [on|off]",
+    description: "Gesten-Schutz — Alias von `gestures`.",
+    requiresArg: false,
+    hidden: true,
   },
   {
     kind: "lumen",

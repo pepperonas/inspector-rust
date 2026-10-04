@@ -510,6 +510,45 @@ impl Pipeline {
         self.dev.get(&device).map(|d| d.palm.active_fingers()).unwrap_or(0)
     }
 
+    /// Replace the guard thresholds without a restart (the panel's sliders).
+    /// The per-device recogniser state is dropped — it was built with the old
+    /// thresholds; contacts still down are re-classified from scratch.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn set_guard(&mut self, g: GuardConfig) {
+        self.cfg.guard = g;
+        self.g = g.normalized();
+        self.dev.clear();
+    }
+
+    /// The contacts of `frame` with their current classification, for the
+    /// live view. Call after [`Pipeline::feed`] with the same frame.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub fn live_touches(&self, frame: &Frame) -> Vec<super::live::LiveTouch> {
+        let meta = self.dev.get(&frame.device).map(|d| &d.meta);
+        frame
+            .touches
+            .iter()
+            .filter(|t| t.phase.on_pad())
+            .map(|t| {
+                let m = meta.and_then(|m| m.get(&t.id));
+                super::live::live_touch(
+                    t,
+                    m.map(|m| m.class).unwrap_or(TouchClass::Unclear),
+                    m.is_some_and(|m| m.in_edge),
+                )
+            })
+            .collect()
+    }
+
+    /// Typing level right now: would a touch starting at `now` be blocked by
+    /// a recent key-down, and is the "release by a centre touch" still owed?
+    pub fn typing_state(&self, now: u64) -> (bool, bool) {
+        (
+            self.cfg.typing_guard && self.typing.blocks(now, now, &self.g),
+            self.cfg.typing_guard && self.g.release_by_center && self.typing.await_center,
+        )
+    }
+
     /// A deferred tap is waiting for [`Pipeline::tick`].
     pub fn needs_tick(&self) -> bool {
         self.dev.values().any(|d| d.palm.needs_tick())
@@ -960,6 +999,85 @@ mod tests {
 
     /// The per-frame budget: < 0.2 ms. Run in release:
     /// `cargo test --release -p inspector-rust-core --lib guard_frame_budget -- --ignored --nocapture`
+    // Live view (Phase 4)
+
+    #[test]
+    fn live_touches_carry_the_pipelines_classification() {
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        let mut palm = touch(2, 0.8, 0.5);
+        palm.size = 3.0;
+        let f = frame(100, vec![touch(1, 0.4, 0.5), palm, touch(3, 0.5, 0.01)]);
+        p.feed(&f);
+        let live = p.live_touches(&f);
+        let by = |id| live.iter().find(|t| t.id == id).unwrap().clone();
+        assert_eq!(by(1).class, TouchClass::Unclear, "not settled yet");
+        assert_eq!(by(2).class, TouchClass::Palm);
+        assert!(by(3).in_edge && !by(1).in_edge);
+        let f2 = frame(200, vec![touch(1, 0.4, 0.5)]);
+        p.feed(&f2);
+        assert_eq!(p.live_touches(&f2)[0].class, TouchClass::Finger);
+    }
+
+    #[test]
+    fn live_touches_skip_contacts_that_are_not_on_the_pad() {
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        let mut hover = touch(5, 0.5, 0.5);
+        hover.phase = TouchPhase::Hover;
+        let f = frame(100, vec![touch(1, 0.4, 0.5), hover]);
+        p.feed(&f);
+        assert_eq!(p.live_touches(&f).len(), 1);
+    }
+
+    #[test]
+    fn typing_state_follows_the_key_window() {
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        assert_eq!(p.typing_state(1_000), (false, false));
+        p.key(KeyDown { t_ms: 1_000, modifier: false });
+        assert!(p.typing_state(1_100).0, "inside the single-key window");
+        assert!(!p.typing_state(1_000 + g().typing_single_ms + 1).0, "past it");
+        // With the typing guard off nothing is ever reported as blocked.
+        let mut off = Pipeline::new(GestureConfig { typing_guard: false, ..cfg() }, vec![], true);
+        off.key(KeyDown { t_ms: 1_000, modifier: false });
+        assert_eq!(off.typing_state(1_100), (false, false));
+    }
+
+    #[test]
+    fn set_guard_takes_effect_without_a_restart() {
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
+        assert!(p.external(1_000, up).accepted);
+        p.set_guard(GuardConfig { cooldown_ms: 1_000, ..g() });
+        assert_eq!(p.external(1_500, up).reason, Reason::Cooldown, "the new, longer cooldown applies");
+        // Garbage is normalised like a stored config.
+        p.set_guard(GuardConfig { cooldown_ms: 99_999, ..g() });
+        assert_eq!(p.g.cooldown_ms, 2_000);
+    }
+
+    #[test]
+    fn set_guard_hands_the_new_thresholds_to_the_recognisers() {
+        // The recognisers bake their thresholds in at creation; without
+        // rebuilding them a slider for tap/swipe limits would do nothing.
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        assert_eq!(tap3(&mut p, 1_000)[0].reason, Reason::Accepted, "a 90 ms tap");
+        p.set_guard(GuardConfig { tap_hold_max_ms: 50, ..g() });
+        assert!(tap3(&mut p, 5_000).is_empty(), "held 90 ms > 50 ms: no tap any more");
+    }
+
+    #[test]
+    fn set_guard_reclassifies_contacts_with_the_new_thresholds() {
+        let mut p = Pipeline::new(cfg(), vec![], true);
+        let mut big = touch(1, 0.5, 0.5);
+        big.size = 1.5;
+        let f = frame(100, vec![big]);
+        p.feed(&f);
+        p.feed(&frame(200, vec![big]));
+        assert_eq!(p.live_touches(&f)[0].class, TouchClass::Finger);
+        p.set_guard(GuardConfig { palm_size: 1.2, ..g() });
+        let f3 = frame(300, vec![big]);
+        p.feed(&f3);
+        assert_eq!(p.live_touches(&f3)[0].class, TouchClass::Palm);
+    }
+
     #[test]
     #[ignore = "timing — run by hand in release"]
     fn guard_frame_budget() {
@@ -973,7 +1091,10 @@ mod tests {
             let y = 0.7 - (i % 30) as f64 * 0.01;
             let ts = vec![touch(1, 0.4, y), touch(2, 0.5, y), touch(3, 0.6, y), Touch { size: 2.6, ..touch(4, 0.1, 0.9) }];
             let ts = if i % 30 == 29 { Vec::new() } else { ts };
-            let _ = p.feed(&frame(i * 8, ts));
+            let f = frame(i * 8, ts);
+            let _ = p.feed(&f);
+            // Worst case: the `gestures` panel is open and snapshots every frame.
+            std::hint::black_box(p.live_touches(&f));
             if p.needs_tick() {
                 let _ = p.tick(i * 8 + 4);
             }
@@ -1023,9 +1144,9 @@ mod tests {
     fn every_gesture_reason_has_a_frontend_label() {
         let ts = include_str!("../../../frontend/src/lib/gesture-trace.ts");
         for r in [
-            Reason::Accepted, Reason::PalmOnPad, Reason::FingerCountChanged, Reason::TooSlow,
-            Reason::UnevenFingers, Reason::Cooldown, Reason::Typing, Reason::TypingAwaitCenter,
-            Reason::Unmapped,
+            Reason::Accepted, Reason::Palm, Reason::Thumb, Reason::EdgeZone, Reason::PalmOnPad,
+            Reason::FingerCountChanged, Reason::TooSlow, Reason::UnevenFingers, Reason::Cooldown,
+            Reason::Typing, Reason::TypingAwaitCenter, Reason::Unmapped,
         ] {
             let code = r.code();
             assert!(ts.contains(&format!("  {code}: ")), "no label for {code} in gesture-trace.ts");

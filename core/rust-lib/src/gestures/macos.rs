@@ -262,6 +262,14 @@ pub(crate) fn device_infos() -> Vec<DeviceInfo> {
         .collect()
 }
 
+/// [`device_infos`] as of the last capture start — the panel polls ~30×/s
+/// and must not call into the driver each time.
+static DEVICE_CACHE: Mutex<Vec<DeviceInfo>> = Mutex::new(Vec::new());
+
+pub(crate) fn cached_device_infos() -> Vec<DeviceInfo> {
+    DEVICE_CACHE.lock().clone()
+}
+
 /// Milliseconds on the capture clock (the clock frames are stamped with).
 pub(crate) fn now_ms() -> Option<u64> {
     START.get().map(|s| s.elapsed().as_millis() as u64)
@@ -292,6 +300,28 @@ pub(crate) fn note_key(k: KeyDown) {
         p.set_complete_keys(true);
         p.key(k);
     }
+}
+
+/// New guard thresholds from the panel, applied to the running pipeline
+/// without restarting the capture. `false` = no capture running.
+pub(crate) fn update_guard(g: super::guard::GuardConfig) -> bool {
+    match PIPELINE.lock().as_mut() {
+        Some(p) => {
+            p.set_guard(g);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Typing level right now (see [`Pipeline::typing_state`]); `None` = no
+/// capture running.
+pub(crate) fn typing_state() -> Option<(bool, bool)> {
+    let now = now_ms()?;
+    let mut guard = PIPELINE.lock();
+    let p = guard.as_mut()?;
+    sync_keys(p, now);
+    Some(p.typing_state(now))
 }
 
 /// Before each frame/tick: is the keyboard tap delivering? If so the history
@@ -500,6 +530,10 @@ extern "C" fn frame_callback(
         sync_keys(p, t_ms);
         let prev_active = p.active_fingers(device);
         let d = p.feed(&frame);
+        // Live view: one atomic load while the `gestures` panel is closed.
+        if super::live::watched() {
+            super::live::set_frame(device, p.live_touches(&frame));
+        }
         (d, prev_active, p.active_fingers(device), p.needs_tick())
     };
     if pending {
@@ -664,6 +698,7 @@ fn capture_thread() {
     *MT_DEVICES.lock() = devices.iter().map(|&d| d as isize).collect();
     let infos = device_infos();
     tracing::info!("gestures(mac): devices {infos:?}");
+    *DEVICE_CACHE.lock() = infos.clone();
     if let Some(p) = PIPELINE.lock().as_mut() {
         p.set_devices(infos);
     }

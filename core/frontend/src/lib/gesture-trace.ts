@@ -5,6 +5,9 @@ export const RECORD_SECS = 30;
 
 const VERDICTS: Record<string, string> = {
   dispatched: "fired",
+  palm: "ignored (palm)",
+  thumb: "ignored (thumb)",
+  edge_zone: "ignored (edge zone)",
   typing_guard: "blocked (typing)",
   typing_await_center: "blocked (typing — waiting for a centre touch)",
   palm_on_pad: "blocked (palm on the pad)",

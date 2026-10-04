@@ -47,7 +47,7 @@ describe("COMMANDS catalogue", () => {
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
     // +4 for `btsniff` and its `btcap`/`btcapture`/`blecap` aliases.
     // +4 for `mailcheck` and its `emailcheck`/`mailverify`/`mxcheck` aliases.
-    expect(COMMANDS.length).toBe(121);
+    expect(COMMANDS.length).toBe(123);
   });
 
   it("every keyword is unique", () => {

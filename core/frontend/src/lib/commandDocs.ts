@@ -1600,6 +1600,35 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["uptime", "clean", "snitch"],
   },
   {
+    command: "gestures",
+    aliases: ["gesten"],
+    category: CAT_SYS,
+    version_added: "0.190.0",
+    tagline: "Gesture guard: live trackpad view, thresholds per device, last 20 decisions.",
+    tagline_de: "Gesten-Schutz: Live-Trackpad, Schwellen je Gerät, die letzten 20 Entscheidungen.",
+    synopsis: "gestures [on|off]",
+    description:
+      "Shows how Inspector Rust's own trackpad gestures are filtered. The top half draws the trackpad live: every contact as an ellipse, coloured by how the guard classifies it (finger, thumb, palm, not yet decided), contacts that landed in an edge zone dashed, the edge zones themselves shaded. A badge says when a recent key press blocks volume and mute. Below are the sliders for the guard's thresholds — edge zones per device profile (built-in or external trackpad), palm size, thumb ratio, the typing windows, the cooldown — saved as you drag and applied to the running capture without a restart. The log lists the last 20 decisions: what was recognised, whether it fired, and if not, which level stopped it. `gestures on`/`off` switches the gestures themselves. Nothing is recorded or sent anywhere; the view only polls while the panel is open.",
+    arguments: [
+      { name: "on|off", required: false, description: "Switch Inspector Rust's touchpad gestures on or off (Enter). Without it the panel opens." },
+    ],
+    flags: [],
+    examples: [
+      { input: "gestures", result: "Opens the panel: live trackpad, sliders, decision log." },
+      { input: "gestures off", result: "Enter switches the touchpad gestures off." },
+      { input: "gesten on", result: "German alias — switches them back on." },
+    ],
+    tips: [
+      "Put your palm on the pad while the panel is open: it turns red and stops counting as a finger.",
+      "Something fired by itself? The log line says which gesture it was and why it passed — the starting point for moving a slider.",
+    ],
+    caveats: [
+      "The live trackpad view is macOS only; on Windows and Linux the panel shows the sliders and the log.",
+      "The thumb thresholds are estimates until recordings from real trackpads exist.",
+    ],
+    related: ["settings"],
+  },
+  {
     command: "lumen",
     aliases: [],
     category: CAT_INFO,

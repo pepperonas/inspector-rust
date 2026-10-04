@@ -26,6 +26,7 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 pub mod guard;
+pub mod live;
 pub mod trace;
 #[cfg(test)]
 mod golden;
@@ -490,6 +491,64 @@ pub fn record_status() -> RecordStatus {
         },
         None => RecordStatus { recording: false, remaining_ms: 0, frames: 0 },
     }
+}
+
+// ── Live view (gesture-guard Phase 4) ───────────────────────────────────────
+
+/// What the `gestures` panel polls (~30 Hz while it is visible).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LiveSnapshot {
+    /// The platform delivers raw contacts (macOS) — without them there is no
+    /// trackpad view, only the decision log.
+    pub contacts_supported: bool,
+    /// The capture is running.
+    pub running: bool,
+    pub now_ms: u64,
+    pub frame: Option<live::LiveFrame>,
+    /// A touch starting now would be blocked by a recent key-down.
+    pub typing_block: bool,
+    /// Typing happened; gestures wait for a touch in the centre.
+    pub await_center: bool,
+    pub devices: Vec<trace::DeviceInfo>,
+    /// Newest first, at most [`live::LOG_LEN`].
+    pub log: Vec<live::LogEntry>,
+}
+
+pub fn live_snapshot(state: &GestureState) -> LiveSnapshot {
+    let (now_ms, frame, log) = live::poll();
+    let running = state.0.lock().is_some();
+    #[cfg(target_os = "macos")]
+    let (contacts_supported, typing, devices) = (
+        true,
+        if running { macos::typing_state() } else { None },
+        if running { macos::cached_device_infos() } else { Vec::new() },
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (contacts_supported, typing, devices): (bool, Option<(bool, bool)>, Vec<trace::DeviceInfo>) =
+        (false, None, Vec::new());
+    let (typing_block, await_center) = typing.unwrap_or((false, false));
+    LiveSnapshot { contacts_supported, running, now_ms, frame, typing_block, await_center, devices, log }
+}
+
+/// Save new guard thresholds. On macOS they reach the running pipeline in
+/// place (the panel's sliders must not tear down the capture per drag);
+/// elsewhere — and when nothing runs — the regular `apply` takes over.
+pub fn set_guard(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState, g: guard::GuardConfig) -> anyhow::Result<GestureConfig> {
+    let mut cfg = GestureConfig::load(db);
+    cfg.guard = g.normalized();
+    cfg.save(db)?;
+    #[cfg(target_os = "macos")]
+    let applied = macos::update_guard(cfg.guard);
+    #[cfg(not(target_os = "macos"))]
+    let applied = false;
+    if !applied {
+        apply(app, db, state);
+    }
+    Ok(GestureConfig::load(db))
+}
+
+pub fn clear_live_log() {
+    live::clear();
 }
 
 /// Is the default output currently muted? `None` = unknown (no control, no
@@ -2123,6 +2182,7 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
         let step = cfg.volume_step;
         let app_sink = app.clone();
         let sink: GestureSink = Box::new(move |d: guard::Decision| {
+            live::record(&d);
             match (d.event, d.action) {
                 (Some(ev), Some(action)) if d.accepted => {
                     // One line per dispatched gesture — the single chokepoint.

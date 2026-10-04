@@ -75,6 +75,9 @@ const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({
 const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
 const RetroPanel = lazy(() => import("./components/RetroPanel").then((m) => ({ default: m.RetroPanel })));
 const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
+const GesturesPanel = lazy(() =>
+  import("./components/GesturesPanel").then((m) => ({ default: m.GesturesPanel })),
+);
 const LumenPanel = lazy(() => import("./components/LumenPanel").then((m) => ({ default: m.LumenPanel })));
 const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
 const RandomPanel = lazy(() => import("./components/RandomPanel").then((m) => ({ default: m.RandomPanel })));
@@ -114,6 +117,8 @@ import {
   type ConvertParse,
 } from "./lib/convert-cmd";
 import { fxRates, type FxRates } from "./lib/ipc";
+import { getGestureConfig, setGestureConfig } from "./lib/ipc";
+import { parseGesturesArg } from "./lib/gestures-arg";
 import { tryParseColor } from "./lib/colors";
 import {
   COMMANDS,
@@ -427,6 +432,11 @@ function App() {
   // Lumen mode — lightweight read-only ambient-light polling. It appears as
   // soon as the complete command is typed and unmounts when the query changes.
   const [lumenMode, setLumenMode] = useState(false);
+  // Gestures mode — the gesture-guard panel (live trackpad, sliders, log).
+  // Shows while the command is typed; `gestures on|off` acts on Enter.
+  // `gesturesRev` remounts the panel after an on/off so it re-reads the config.
+  const [gesturesMode, setGesturesMode] = useState(false);
+  const [gesturesRev, setGesturesRev] = useState(0);
   // Iris mode — the mic-triggered red screen vignette. Unlike the other inline
   // panels this one is a TOGGLE: Enter arms it (and opens the calibration
   // panel), Enter on an already-armed session disarms it. The panel is only
@@ -1277,6 +1287,15 @@ function App() {
     }
   }, [isStatsCmd, statsMode]);
 
+  const isGesturesCmd = parsedCommand?.spec.kind === "gestures";
+  useEffect(() => {
+    if (isGesturesCmd && !gesturesMode) {
+      setGesturesMode(true);
+    } else if (!isGesturesCmd && gesturesMode) {
+      setGesturesMode(false);
+    }
+  }, [isGesturesCmd, gesturesMode]);
+
   const isLumenCmd = parsedCommand?.spec.kind === "lumen";
   useEffect(() => {
     if (isLumenCmd && !lumenMode) {
@@ -2089,6 +2108,20 @@ function App() {
         hint =
           "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
         break;
+      case "gestures": {
+        const a = parseGesturesArg(arg);
+        label =
+          a === "on"
+            ? "Touchpad-Gesten einschalten"
+            : a === "off"
+              ? "Touchpad-Gesten ausschalten"
+              : "Gesten-Schutz";
+        hint =
+          a === "unknown"
+            ? "Unbekanntes Argument — nur on oder off"
+            : "Preview: Live-Trackpad, Schwellen je Gerät, letzte Entscheidungen";
+        break;
+      }
       case "lumen":
         label = "Live ambient light";
         hint = "Current illuminance in lux — when this device exposes a sensor";
@@ -3869,7 +3902,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "tokens", "limits", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3889,7 +3922,8 @@ function App() {
           commandKind === "pagespeed" ||
           commandKind === "8bit" ||
           commandKind === "16bit" ||
-          commandKind === "alias";
+          commandKind === "alias" ||
+          commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (commandKind === "bluetooth") {
@@ -3942,6 +3976,20 @@ function App() {
       }
       if (commandKind === "lumen") {
         setLumenMode(true);
+        return true;
+      }
+      if (commandKind === "gestures") {
+        setGesturesMode(true);
+        const a = parseGesturesArg(arg);
+        if (a === "on" || a === "off") {
+          try {
+            const cfg = await getGestureConfig();
+            await setGestureConfig({ ...cfg, enabled: a === "on" });
+            setGesturesRev((r) => r + 1);
+          } catch (e) {
+            console.warn("gestures:", e);
+          }
+        }
         return true;
       }
       if (isTranslateKind(commandKind)) {
@@ -5430,6 +5478,10 @@ function App() {
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />
+                  </div>
+                ) : gesturesMode ? (
+                  <div className="md3-pop-in h-full">
+                    <GesturesPanel key={gesturesRev} />
                   </div>
                 ) : lumenMode ? (
                   <div className="md3-pop-in h-full">

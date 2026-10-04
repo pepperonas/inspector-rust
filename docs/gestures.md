@@ -4,7 +4,7 @@ Inspector Rust recognises its own trackpad gestures: a 3-finger swipe changes th
 
 **Scope.** Only Inspector Rust's own gestures are filtered. macOS system gestures, pointer movement and tap-to-click stay untouched — BetterTouchTool has the same limit.
 
-> Status: **Phase 3 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel and calibration follow in Phases 4–5.
+> Status: **Phase 4 of 7.** The four filter levels run as one pipeline (`core/rust-lib/src/gestures/guard.rs`); on macOS the typing level gets every key press from the app's keyboard tap. Windows and Linux pass the gestures they recognise themselves through levels 3 and 4. The `gestures` panel shows the trackpad live, holds the sliders and lists the last 20 decisions. Calibration, recording from the panel and the "unintended" hotkey follow in Phase 5.
 
 ## The pipeline
 
@@ -71,6 +71,31 @@ The golden fixtures pin exactly these four changes; every other scenario behaves
 
 Performance: 0.5 µs per frame in a release build (budget 0.2 ms), measured by `guard_frame_budget`.
 
+## The `gestures` panel (Phase 4)
+
+Type `gestures` (or `gesten`). The panel appears while the command is typed.
+
+**Live trackpad (macOS).** Every contact is drawn as an ellipse, using the size and angle the trackpad reports:
+
+| Colour | Class |
+|---|---|
+| blue | finger |
+| grey | not yet decided (the first 30 ms) |
+| amber | thumb |
+| red | palm |
+
+A contact that **landed** in an edge zone is drawn dashed and hollow; the zones themselves are shaded. With "release by a centre touch" on, the centre area is outlined. A badge appears while a recent key press would block volume and mute. The pad keeps the real proportions of the device (157.8 × 97.8 mm on the built-in MacBook trackpad, reported by the driver).
+
+**Sliders.** Edge zones per device profile (built-in / external — "aktiv" marks the one in use), palm size, thumb ratio, settle time, both typing windows, cooldown, minimum swipe travel, maximum tap hold, and three switches (palm blocks everything, release by a centre touch, constant finger count). They are saved 250 ms after you stop dragging. On macOS they reach the running pipeline **in place** — no restart of the capture; the recognisers are rebuilt with the new limits and contacts still down are classified again. A reset button appears once anything differs from the defaults (taken from the Rust `Default`, not a copy). Each slider's range lies inside the backend's clamp, so the panel can't produce a value that would be silently corrected.
+
+**Decision log.** The last 20 decisions, newest first: what was recognised, whether it fired, and if not, which level stopped it (hover the verdict for the level). Contacts excluded as palm, thumb or edge contact appear too. The trash button empties it.
+
+**`gestures on` / `gestures off`** switches the gestures themselves (Enter). Anything else after `gestures` is rejected rather than read as a toggle.
+
+**Cost.** The panel polls about 30 times a second while it is visible and stops when the popup hides. The per-frame snapshot is only taken while the panel polls; with it closed a frame pays one atomic read. Measured with the snapshot on every frame: 0.6 µs per frame in a release build (`guard_frame_budget`). The log keeps decisions in memory only; nothing is written or sent.
+
+**Windows and Linux** show the sliders and the log, but no live trackpad: those platforms hand over finished gestures, not contacts.
+
 ## What existed before the pipeline (macOS)
 
 | Filter | What it does |
@@ -95,7 +120,7 @@ Performance: 0.5 µs per frame in a release build (budget 0.2 ms), measured by `
 ### Privacy
 
 - A recording holds **touch data** (position, velocity, ellipse, size, state) and the **times** of key presses — **never which key**.
-- The key times come from macOS's question "how long since the last key press?". No second keyboard event tap is installed.
+- The key times come from the app's one keyboard tap (the text expander's), or, without it, from macOS's "how long since the last key press?". No second keyboard event tap is installed.
 - Files stay in the app data folder. There is no network access.
 
 ### Trace format (version 1)
@@ -153,7 +178,6 @@ The synthetic scenarios record **today's** behaviour. Their `note` says where th
 
 ## Next phases
 
-4. `gestures` panel: live view, sliders per device profile, decision log.
 5. Calibration, recording from the panel, a hotkey for "that was unintended".
 6. Windows confidence bit, Linux palm data.
 7. Docs and release.

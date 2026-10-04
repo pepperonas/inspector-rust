@@ -1,0 +1,147 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { GestureConfig, GestureGuardConfig, GestureLiveSnapshot } from "../lib/ipc";
+
+const zones = { left: 0.03, right: 0.03, top: 0.05, bottom: 0.05 };
+const guard: GestureGuardConfig = {
+  settle_ms: 30, palm_size: 2, palm_major: 0, thumb_ratio: 1.7, thumb_min_size: 1.3, thumb_zone: 0.6,
+  edges_builtin: zones, edges_external: zones, palm_blocks_all: false, typing_single_ms: 250,
+  typing_burst_ms: 600, burst_gap_ms: 500, release_by_center: false, center_size: 0.5,
+  constant_count: true, coherence_min: 0.6, swipe_min_move: 0.06, early_min_move: 0.12, min_speed: 0,
+  evenness_min: 0, tap_window_ms: 700, tap_hold_max_ms: 350, tap_max_move: 0.12, cooldown_ms: 150,
+};
+const config: GestureConfig = {
+  enabled: true, fingers: 3, volume_step: 5, tiptap: false, typing_guard: true, volume: true, mute: true, guard,
+};
+
+let snapshot: GestureLiveSnapshot;
+const gestureSetGuard = vi.fn(async (g: GestureGuardConfig) => ({ ...config, guard: g }));
+const setGestureConfig = vi.fn(async (c: GestureConfig) => c);
+vi.mock("../lib/ipc", () => ({
+  getGestureConfig: async () => config,
+  gestureDefaultGuard: async () => guard,
+  gestureLive: async () => snapshot,
+  gestureLiveClear: async () => undefined,
+  gestureSetGuard: (g: GestureGuardConfig) => gestureSetGuard(g),
+  setGestureConfig: (c: GestureConfig) => setGestureConfig(c),
+}));
+vi.mock("../hooks/useTauriEvent", () => ({ useTauriEvent: () => undefined }));
+
+import { GesturesPanel } from "./GesturesPanel";
+
+beforeEach(() => {
+  snapshot = {
+    contacts_supported: true,
+    running: true,
+    now_ms: 1000,
+    frame: {
+      at_ms: 990,
+      device: 0,
+      touches: [
+        { id: 1, x: 0.4, y: 0.5, major: 9, minor: 8, angle: 0, size: 0.9, class: "finger", in_edge: false },
+        { id: 2, x: 0.8, y: 0.8, major: 30, minor: 20, angle: 0, size: 2.6, class: "palm", in_edge: false },
+        { id: 3, x: 0.5, y: 0.01, major: 9, minor: 8, angle: 0, size: 0.9, class: "finger", in_edge: true },
+      ],
+    },
+    typing_block: false,
+    await_center: false,
+    devices: [{ builtin: true, width_mm: 157.8, height_mm: 97.8 }],
+    log: [
+      {
+        seq: 2, at_ms: 900, device: 0, level: "typing", verdict: "typing_guard", accepted: false,
+        kind: "tap", fingers: 3, action: "mute_toggle", via: "tick", touch_id: null,
+      },
+    ],
+  };
+  gestureSetGuard.mockClear();
+  setGestureConfig.mockClear();
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+describe("GesturesPanel", () => {
+  it("draws every contact, coloured by class, edge contacts dashed", async () => {
+    const { container } = render(<GesturesPanel />);
+    await waitFor(() => expect(container.querySelectorAll("ellipse")).toHaveLength(3));
+    const [finger, palm, edge] = Array.from(container.querySelectorAll("ellipse"));
+    expect(finger.getAttribute("stroke")).toBe("#38bdf8");
+    expect(palm.getAttribute("stroke")).toBe("#f43f5e");
+    expect(edge.getAttribute("stroke-dasharray")).toBe("3 3");
+    expect(finger.getAttribute("stroke-dasharray")).toBeNull();
+  });
+
+  it("drops a stale frame instead of freezing the last contacts", async () => {
+    snapshot = { ...snapshot, now_ms: 5000 };
+    const { container } = render(<GesturesPanel />);
+    await screen.findByText("Letzte Entscheidungen");
+    await waitFor(() => expect(screen.getByRole("img").getAttribute("aria-label")).toContain("0 Kontakte"));
+    expect(container.querySelectorAll("ellipse")).toHaveLength(0);
+  });
+
+  it("lists the decisions with their verdict", async () => {
+    render(<GesturesPanel />);
+    expect(await screen.findByText("blocked (typing)")).toBeTruthy();
+    expect(screen.getByText("Tippen ×3")).toBeTruthy();
+  });
+
+  it("shows the typing badge only while a key press blocks", async () => {
+    render(<GesturesPanel />);
+    await screen.findByText("blocked (typing)");
+    expect(screen.queryByText(/Lautstärke und Stumm gesperrt/)).toBeNull();
+    snapshot = { ...snapshot, typing_block: true };
+    expect(await screen.findByText(/Lautstärke und Stumm gesperrt/)).toBeTruthy();
+  });
+
+  it("explains the missing live view outside macOS", async () => {
+    snapshot = { ...snapshot, contacts_supported: false, frame: null };
+    render(<GesturesPanel />);
+    expect(await screen.findByText(/nur unter macOS/)).toBeTruthy();
+  });
+
+  it("saves a slider drag once, after the debounce, with the new value", async () => {
+    render(<GesturesPanel />);
+    const slider = (await screen.findByText("Pause nach Geste")).closest("label")!.querySelector("input")!;
+    vi.useFakeTimers();
+    fireEvent.change(slider, { target: { value: "300" } });
+    fireEvent.change(slider, { target: { value: "400" } });
+    expect(gestureSetGuard).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(gestureSetGuard).toHaveBeenCalledTimes(1);
+    expect(gestureSetGuard.mock.calls[0][0].cooldown_ms).toBe(400);
+  });
+
+  it("edits the edge zones of the selected profile only", async () => {
+    render(<GesturesPanel />);
+    fireEvent.click(await screen.findByRole("button", { name: /Extern/ }));
+    const top = screen.getByText("oben").closest("label")!.querySelector("input")!;
+    vi.useFakeTimers();
+    fireEvent.change(top, { target: { value: "12" } });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    const saved = gestureSetGuard.mock.calls[0][0];
+    expect(saved.edges_external.top).toBeCloseTo(0.12);
+    expect(saved.edges_builtin.top).toBe(0.05);
+  });
+
+  it("offers the reset only once something differs from the defaults", async () => {
+    render(<GesturesPanel />);
+    const slider = (await screen.findByText("Pause nach Geste")).closest("label")!.querySelector("input")!;
+    expect(screen.queryByText("Standardwerte")).toBeNull();
+    fireEvent.change(slider, { target: { value: "300" } });
+    expect(screen.getByText("Standardwerte")).toBeTruthy();
+  });
+
+  it("switches the gestures off from the header switch", async () => {
+    render(<GesturesPanel />);
+    const sw = await screen.findByRole("switch");
+    await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(sw);
+    await waitFor(() => expect(setGestureConfig).toHaveBeenCalledTimes(1));
+    expect(setGestureConfig.mock.calls[0][0].enabled).toBe(false);
+  });
+});

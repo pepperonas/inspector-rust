@@ -1200,6 +1200,89 @@ export function gestureTraceReplay(name: string): Promise<GestureReplayRow[]> {
   return invoke("gesture_trace_replay", { name });
 }
 
+/** Live view of the `gestures` panel (gesture guard Phase 4). */
+export type GestureTouchClass = "unclear" | "finger" | "thumb" | "palm";
+export type GestureLevel = "classify" | "spatial" | "typing" | "plausibility" | "config";
+export type GestureKindName =
+  | "swipe_up"
+  | "swipe_down"
+  | "swipe_left"
+  | "swipe_right"
+  | "tap"
+  | "tip_tap_left"
+  | "tip_tap_right";
+
+export interface GestureLiveTouch {
+  id: number;
+  /** 0..1, y grows downwards. */
+  x: number;
+  y: number;
+  /** Ellipse axes (≈ mm) and angle (radians). */
+  major: number;
+  minor: number;
+  angle: number;
+  size: number;
+  class: GestureTouchClass;
+  in_edge: boolean;
+}
+
+export interface GestureLiveFrame {
+  at_ms: number;
+  device: number;
+  touches: GestureLiveTouch[];
+}
+
+export interface GestureDeviceInfo {
+  builtin: boolean | null;
+  width_mm: number | null;
+  height_mm: number | null;
+}
+
+export interface GestureLogEntry {
+  seq: number;
+  at_ms: number;
+  device: number;
+  level: GestureLevel;
+  verdict: string;
+  accepted: boolean;
+  kind: GestureKindName | null;
+  fingers: number | null;
+  action: string | null;
+  via: "frame" | "tick" | "tip_tap" | "external" | null;
+  touch_id: number | null;
+}
+
+export interface GestureLiveSnapshot {
+  contacts_supported: boolean;
+  running: boolean;
+  now_ms: number;
+  frame: GestureLiveFrame | null;
+  typing_block: boolean;
+  await_center: boolean;
+  devices: GestureDeviceInfo[];
+  /** Newest first, at most 20. */
+  log: GestureLogEntry[];
+}
+
+/** Poll the live view (~30 Hz while the panel is visible). */
+export function gestureLive(): Promise<GestureLiveSnapshot> {
+  return invoke("gesture_live");
+}
+
+/** Save guard thresholds; macOS applies them to the running capture in place. */
+export function gestureSetGuard(guard: GestureGuardConfig): Promise<GestureConfig> {
+  return invoke("gesture_set_guard", { guard });
+}
+
+/** The guard's default thresholds (Rust `Default`). */
+export function gestureDefaultGuard(): Promise<GestureGuardConfig> {
+  return invoke("gesture_default_guard");
+}
+
+export function gestureLiveClear(): Promise<void> {
+  return invoke("gesture_live_clear");
+}
+
 /** A configurable global action hotkey (OCR, screenshot, timesheet, …). */
 export interface ActionHotkey {
   id: string;

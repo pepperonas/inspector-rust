@@ -204,16 +204,6 @@ fn parse_window(key: &str, v: &Value, name: &str, known: bool) -> Option<Limit> 
     })
 }
 
-/// Top-level keys that are NOT limits, or are the legacy forms of what
-/// `limits[]` already carries (used only as fallback).
-fn is_legacy_or_meta(key: &str) -> bool {
-    matches!(
-        key,
-        "five_hour" | "seven_day" | "limits" | "extra_usage" | "spend" | "seven_day_breakdown"
-            | "member_dashboard_available"
-    ) || key.starts_with("seven_day_")
-}
-
 fn money_value(v: Option<&Value>) -> Option<(f64, String)> {
     let o = v?.as_object()?;
     let minor = num(o.get("amount_minor"))?;
@@ -289,16 +279,6 @@ pub fn parse(body: &str) -> Result<LimitsReport, String> {
             limits.push(l);
         }
         if let Some(l) = root.get("seven_day").and_then(|v| parse_window("seven_day", v, "Woche · alle Modelle", true)) {
-            limits.push(l);
-        }
-    }
-
-    // Filled codename budgets (e.g. `iguana_necktie`): not in `limits[]`, but
-    // real — show them under their raw name. Sorted for a stable order.
-    let mut keys: Vec<&String> = root.keys().filter(|k| !is_legacy_or_meta(k)).collect();
-    keys.sort();
-    for k in keys {
-        if let Some(l) = parse_window(k, &root[k.as_str()], k, false) {
             limits.push(l);
         }
     }
@@ -564,15 +544,11 @@ mod tests {
     }
 
     #[test]
-    fn filled_codename_budget_is_kept_under_its_raw_name() {
+    fn top_level_codename_budgets_are_not_shown() {
+        // e.g. `iguana_necktie` (filled in the sample) and the null ones.
         let r = parse(SAMPLE).unwrap();
-        let ig = r.limits.iter().find(|l| l.kind == "iguana_necktie").expect("codename kept");
-        assert!(!ig.known);
-        assert_eq!(ig.name, "iguana_necktie");
-        let m = ig.money.as_ref().unwrap();
-        assert_eq!(m.limit, 250.0);
-        // null codenames and seven_day_* legacy fields never become rows
-        assert!(!r.limits.iter().any(|l| l.kind == "tangelo" || l.kind.starts_with("seven_day")));
+        assert_eq!(r.limits.len(), 3);
+        assert!(r.limits.iter().all(|l| l.known));
     }
 
     #[test]

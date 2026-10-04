@@ -44,7 +44,7 @@ Defensive: every field is optional, one broken entry never drops the others.
 | `limits[]` kind `weekly_scoped` | Woche · `<scope.model.display_name>` |
 | `limits[]` unknown kind | the raw kind, marked *unbekannt* |
 | `five_hour` / `seven_day` | only when `limits[]` is missing or empty |
-| other filled top-level objects with `utilization` (codename budgets) | raw field name, marked *unbekannt*, with dollars if present |
+| other top-level objects (codename budgets like `iguana_necktie`) | not shown |
 | `spend` (fallback `extra_usage`) | Zusätzliche Nutzung |
 | `seven_day_breakdown.rows` | one line "Wochennutzung nach Bereich" |
 

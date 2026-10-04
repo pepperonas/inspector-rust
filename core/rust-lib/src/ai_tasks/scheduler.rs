@@ -146,8 +146,14 @@ pub fn watched_folders(tasks: &[Task], paused: bool) -> HashSet<String> {
         .collect()
 }
 
-/// Skip noise a script should never be started for.
+/// Skip noise a script should never be started for — and any path with a
+/// control character: `IR_TASK_PATHS` is one path per line, so a file named
+/// `x\n/Users/me/important` dropped into a watched folder would otherwise hand
+/// the script a second, attacker-chosen path.
 pub fn ignorable_path(path: &str) -> bool {
+    if path.chars().any(char::is_control) {
+        return true;
+    }
     let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
     name == ".DS_Store"
         || name.starts_with(".~")
@@ -509,6 +515,10 @@ mod tests {
             assert!(ignorable_path(p), "{p}");
         }
         assert!(!ignorable_path("/d/report.pdf"));
+        // One path per line is the env contract: a newline in a file name
+        // must never become a second path.
+        assert!(ignorable_path("/d/x\n/Users/me/important"));
+        assert!(ignorable_path("/d/a\rb"));
     }
 
     #[cfg(unix)]

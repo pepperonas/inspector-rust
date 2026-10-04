@@ -73,7 +73,7 @@ the current script. So:
 |---|---|---|
 | Intervall | every N minutes (1 min … 7 days), counted from the last run | the first run is one interval after approval, not immediately |
 | Uhrzeit / Wochentag | at HH:MM local time on chosen weekdays | missed while asleep/off → runs **once** when back, not once per missed slot; DST gap → first moment after |
-| Ordner ändert sich | when files appear or change directly in a folder (not recursive) | changes are collected until the folder is quiet for 2 s; `.DS_Store`, `.crdownload`, `.part`, `.tmp` are ignored; at most every 10 s, and a task's own writes right after its run don't restart it |
+| Ordner ändert sich | when files appear or change directly in a folder (not recursive) | changes are collected until the folder is quiet for 2 s; `.DS_Store`, `.crdownload`, `.part`, `.tmp` and any name containing a control character (a newline would forge a second line in `IR_TASK_PATHS`) are ignored; at most every 10 s, and a task's own writes right after its run don't restart it |
 | App-Start | once when Inspector Rust starts | |
 | Aufwachen | after the computer wakes | detected as a wall-clock jump > 60 s beyond monotonic time |
 | Nur von Hand | only via "Jetzt ausführen" | |

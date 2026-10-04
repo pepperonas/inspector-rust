@@ -109,6 +109,7 @@ mod timer;
 mod token_usage;
 mod claude_limits;
 mod agent_limits;
+mod retro;
 mod totp_import;
 mod totp_store;
 mod tracking;
@@ -1034,6 +1035,14 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::token_usage_fetch,
             commands::claude_limits_status,
             commands::set_claude_limits_poll,
+            commands::retro_palettes,
+            commands::retro_get_config,
+            commands::retro_set_config,
+            commands::retro_reset,
+            commands::retro_presets,
+            commands::retro_preset_save,
+            commands::retro_preset_delete,
+            commands::retro_preset_apply,
             commands::iris_start,
             commands::iris_stop,
             commands::iris_status,

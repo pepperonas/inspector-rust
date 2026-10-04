@@ -6350,6 +6350,85 @@ pub fn set_claude_limits_poll(db: State<'_, DbHandle>, minutes: u32) -> Result<u
     crate::claude_limits::set_poll_minutes(&db, minutes).map_err(|e| e.to_string())
 }
 
+// ── Retro overlay `8bit` / `16bit` — settings + presets (phase 1) ──────────
+
+/// All bundled palettes (8-bit fixed lists and 16-bit channel depths).
+#[tauri::command]
+pub fn retro_palettes() -> Vec<crate::retro::Palette> {
+    crate::retro::palettes().to_vec()
+}
+
+#[tauri::command]
+pub fn retro_get_config(db: State<'_, DbHandle>) -> crate::retro::config::RetroConfig {
+    crate::retro::config::load(&db)
+}
+
+/// Save (clamped per mode) and return what was stored.
+#[tauri::command]
+pub fn retro_set_config(
+    db: State<'_, DbHandle>,
+    config: crate::retro::config::RetroConfig,
+) -> Result<crate::retro::config::RetroConfig, String> {
+    crate::retro::config::save(&db, &config).map_err(|e| e.to_string())
+}
+
+/// Reset the ACTIVE mode to its defaults.
+#[tauri::command]
+pub fn retro_reset(db: State<'_, DbHandle>) -> Result<crate::retro::config::RetroConfig, String> {
+    let mut c = crate::retro::config::load(&db);
+    c.reset_active();
+    crate::retro::config::save(&db, &c).map_err(|e| e.to_string())
+}
+
+/// Built-in presets first, then the user's.
+#[tauri::command]
+pub fn retro_presets(db: State<'_, DbHandle>) -> Vec<crate::retro::config::Preset> {
+    crate::retro::config::all_presets(&db)
+}
+
+/// Save the active mode's current settings under `name`.
+#[tauri::command]
+pub fn retro_preset_save(
+    db: State<'_, DbHandle>,
+    name: String,
+) -> Result<Vec<crate::retro::config::Preset>, String> {
+    use crate::retro::config as rc;
+    let cfg = rc::load(&db);
+    let mut user = rc::user_presets(&db);
+    rc::upsert_preset(
+        &mut user,
+        rc::Preset { name, mode: cfg.mode, settings: cfg.active().clone(), builtin: false },
+    )?;
+    rc::save_user_presets(&db, &user).map_err(|e| e.to_string())?;
+    Ok(rc::all_presets(&db))
+}
+
+#[tauri::command]
+pub fn retro_preset_delete(
+    db: State<'_, DbHandle>,
+    name: String,
+) -> Result<Vec<crate::retro::config::Preset>, String> {
+    use crate::retro::config as rc;
+    let mut user = rc::user_presets(&db);
+    rc::remove_preset(&mut user, &name)?;
+    rc::save_user_presets(&db, &user).map_err(|e| e.to_string())?;
+    Ok(rc::all_presets(&db))
+}
+
+/// Load a preset into the config (switches the mode) and save it.
+#[tauri::command]
+pub fn retro_preset_apply(
+    db: State<'_, DbHandle>,
+    name: String,
+) -> Result<crate::retro::config::RetroConfig, String> {
+    use crate::retro::config as rc;
+    let all = rc::all_presets(&db);
+    let p = rc::find_preset(&all, &name).ok_or_else(|| format!("Kein Preset „{}“.", name.trim()))?;
+    let mut c = rc::load(&db);
+    c.apply_preset(p);
+    rc::save(&db, &c).map_err(|e| e.to_string())
+}
+
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────
 
 /// The current clipboard-history cap + its valid bounds (for the settings UI).

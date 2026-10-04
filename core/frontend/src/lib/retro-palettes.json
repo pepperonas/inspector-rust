@@ -1,0 +1,37 @@
+{
+  "_comment": "Retro overlay palettes. 8-bit = fixed colour lists (hex RRGGBB); 16-bit = per-channel bit depth. Add an entry to extend; ids are lowercase, aliases are what `8bit <name>` accepts.",
+  "fixed": [
+    {
+      "id": "nes", "name": "NES", "aliases": ["famicom"],
+      "colors": ["7C7C7C","0000FC","0000BC","4428BC","940084","A80020","A81000","881400","503000","007800","006800","005800","004058","000000",
+                 "BCBCBC","0078F8","0058F8","6844FC","D800CC","E40058","F83800","E45C10","AC7C00","00B800","00A800","00A844","008888",
+                 "F8F8F8","3CBCFC","6888FC","9878F8","F878F8","F85898","F87858","FCA044","F8B800","B8F818","58D854","58F898","00E8D8","787878",
+                 "FCFCFC","A4E4FC","B8B8F8","D8B8F8","F8B8F8","F8A4C0","F0D0B0","FCE0A8","F8D878","D8F878","B8F8B8","B8F8D8","00FCFC","D8D8D8"]
+    },
+    {
+      "id": "c64", "name": "C64", "aliases": ["commodore"],
+      "colors": ["000000","FFFFFF","68372B","70A4B2","6F3D86","588D43","352879","B8C76F","6F4F25","433900","9A6759","444444","6C6C6C","9AD284","6C5EB5","959595"]
+    },
+    {
+      "id": "pico8", "name": "PICO-8", "aliases": ["pico", "pico-8"],
+      "colors": ["000000","1D2B53","7E2553","008751","AB5236","5F574F","C2C3C7","FFF1E8","FF004D","FFA300","FFEC27","00E436","29ADFF","83769C","FF77A8","FFCCAA"]
+    },
+    {
+      "id": "gb", "name": "Game Boy", "aliases": ["gameboy", "dmg"],
+      "colors": ["0F380F","306230","8BAC0F","9BBC0F"]
+    },
+    {
+      "id": "cga", "name": "CGA", "aliases": [],
+      "colors": ["000000","0000AA","00AA00","00AAAA","AA0000","AA00AA","AA5500","AAAAAA","555555","5555FF","55FF55","55FFFF","FF5555","FF55FF","FFFF55","FFFFFF"]
+    },
+    {
+      "id": "gray", "name": "Graustufen", "aliases": ["grey", "grau", "graustufen", "mono"],
+      "colors": ["000000","555555","AAAAAA","FFFFFF"]
+    }
+  ],
+  "depth": [
+    { "id": "snes", "name": "SNES", "aliases": ["super-nintendo"], "bits": 5 },
+    { "id": "megadrive", "name": "Mega Drive", "aliases": ["md", "genesis", "mega-drive"], "bits": 3 },
+    { "id": "amiga", "name": "Amiga OCS", "aliases": ["ocs"], "bits": 4 }
+  ]
+}

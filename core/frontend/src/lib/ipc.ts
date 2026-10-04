@@ -2845,6 +2845,57 @@ export function setClaudeLimitsPoll(minutes: number): Promise<number> {
   return invoke("set_claude_limits_poll", { minutes });
 }
 
+// ── Retro overlay `8bit` / `16bit` (settings + presets) ────────────────────
+
+export type RetroDither = "off" | "bayer2" | "bayer4" | "bayer8";
+
+export interface RetroModeSettings {
+  palette: string;
+  pixel_pt: number;
+  dither: RetroDither;
+  dither_strength: number;
+  focus: boolean;
+  focus_pixel_pt: number;
+  focus_border: boolean;
+  lens: boolean;
+  lens_radius_pt: number;
+  lens_view: "original" | "focus";
+  scanlines: boolean;
+  scanline_intensity: number;
+  crt: boolean;
+  crt_strength: number;
+  opacity: number;
+  retro_frames: boolean;
+  sprite_cursor: boolean;
+}
+
+export interface RetroConfig {
+  mode: "8bit" | "16bit";
+  eight: RetroModeSettings;
+  sixteen: RetroModeSettings;
+  target: "current" | "all";
+  fps: number;
+}
+
+export interface RetroPreset {
+  name: string;
+  mode: "8bit" | "16bit";
+  settings: RetroModeSettings;
+  builtin: boolean;
+}
+
+export const retroGetConfig = (): Promise<RetroConfig> => invoke("retro_get_config");
+export const retroSetConfig = (config: RetroConfig): Promise<RetroConfig> =>
+  invoke("retro_set_config", { config });
+export const retroReset = (): Promise<RetroConfig> => invoke("retro_reset");
+export const retroPresets = (): Promise<RetroPreset[]> => invoke("retro_presets");
+export const retroPresetSave = (name: string): Promise<RetroPreset[]> =>
+  invoke("retro_preset_save", { name });
+export const retroPresetDelete = (name: string): Promise<RetroPreset[]> =>
+  invoke("retro_preset_delete", { name });
+export const retroPresetApply = (name: string): Promise<RetroConfig> =>
+  invoke("retro_preset_apply", { name });
+
 // ── Clipboard-history cap ───────────────────────────────────────────────────
 
 export interface HistoryLimit {

@@ -305,3 +305,22 @@ describe("PreviewPanel — transforms confirm the copy", () => {
     }
   });
 });
+
+describe("PreviewPanel — typed text", () => {
+  const typed = (text: string): ListEntry => ({ kind: "typed-text", data: { text } });
+
+  it("shows the transform chips straight away and commits without a source", async () => {
+    render(<PreviewPanel entry={typed("BRIDGE")} />);
+    // Open from the start — no "hold ⌘" hint to click first.
+    fireEvent.click(await screen.findByText("UPPERCASE"));
+    await waitFor(() => expect(commitTransformedText).toHaveBeenCalledTimes(1));
+    expect(commitTransformedText).toHaveBeenCalledWith("BRIDGE", undefined, "upper");
+    expect(screen.queryByTitle(/Copy this entry in another shape/)).toBeNull();
+  });
+
+  it("shows the typed text", async () => {
+    render(<PreviewPanel entry={typed("Hello Bridge")} />);
+    expect(screen.getByText("Hello Bridge")).toBeTruthy();
+    await screen.findByText("UPPERCASE");
+  });
+});

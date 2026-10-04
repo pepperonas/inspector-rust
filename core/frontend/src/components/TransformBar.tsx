@@ -23,11 +23,20 @@ import { IS_MAC } from "../lib/platform";
 /** How long the "copied" snackbar stays. */
 const FLASH_MS = 1800;
 
-export function TransformBar({ text, sourceId }: { text: string; sourceId?: number }) {
+export function TransformBar({
+  text,
+  sourceId,
+  initiallyOpen = false,
+}: {
+  text: string;
+  sourceId?: number;
+  /** Show the chips straight away (the typed-text row exists to transform). */
+  initiallyOpen?: boolean;
+}) {
   const modHeld = useModifierHeld();
   // Clicking the hint keeps the chips open without holding the modifier — the
   // options stay reachable for mouse users (and while reading a long label).
-  const [pinned, setPinned] = useState(false);
+  const [pinned, setPinned] = useState(initiallyOpen);
 
   // Short "copied" feedback. The digit shortcuts work without the chips
   // being visible, so without this a transform was a completely silent

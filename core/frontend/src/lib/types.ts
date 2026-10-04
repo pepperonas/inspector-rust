@@ -216,6 +216,8 @@ export type ListEntry =
   | { kind: "finder-file"; data: FinderFileView }
   | { kind: "bruno"; data: BrunoEntryView }
   | { kind: "app"; data: AppEntryView }
+  // The typed query as plain text (only below an app hit) — transformable.
+  | { kind: "typed-text"; data: { text: string } }
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
   | { kind: "xhype"; data: { label: string; mode: "features" | "news" } }

@@ -196,17 +196,20 @@ describe("HistoryList — color picker modal", () => {
   const modal = () => screen.queryByRole("heading", { name: "Color picker" });
   const openPicker = () => fireEvent.click(screen.getByTitle(/Open the color picker/));
 
-  it("opens from the toolbar", () => {
+  // The dialog is lazy-loaded on first open, so "open" is awaited once.
+  const openedModal = () => screen.findByRole("heading", { name: "Color picker" });
+
+  it("opens from the toolbar", async () => {
     setup();
     expect(modal()).toBeNull();
     openPicker();
-    expect(modal()).toBeTruthy();
+    expect(await openedModal()).toBeTruthy();
   });
 
-  it("closes itself when the popup is dismissed, so it never resurrects on re-open", () => {
+  it("closes itself when the popup is dismissed, so it never resurrects on re-open", async () => {
     setup();
     openPicker();
-    expect(modal()).toBeTruthy();
+    expect(await openedModal()).toBeTruthy();
 
     act(() => emit("popup-hidden"));
 

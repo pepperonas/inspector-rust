@@ -86,6 +86,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
     // 4.5 MB chunk still only loads once a TOTP surface actually renders.
     return <TotpBrandIcon issuer={entry.data.issuer} size={22} />;
   }
+  if (entry.kind === "typed-text") return <Type size={size} className={cls} />;
   if (entry.kind === "app") {
     return (
       <AppIcon
@@ -194,7 +195,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? `Repo analysieren · ${entry.data.owner}/${entry.data.repo}`
         : isSocial && entry.kind === "social"
           ? `Download from ${platformLabel(entry.data.platform)}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection || entry.kind === "typed-text"
             ? ""
             : isClown && entry.kind === "clown"
               ? truncateOneLine(entry.data.output, 80)
@@ -350,6 +351,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Launch app (Spotlight-like)"
     >
       app
+    </span>
+  ) : entry.kind === "typed-text" ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="The typed text — transform it in the preview"
+    >
+      text
     </span>
   ) : isPwgen ? (
     <span
@@ -755,6 +768,18 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               ⏎ Launch · {entry.data.path}
+            </span>
+          </span>
+        ) : entry.kind === "typed-text" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.text}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Paste · transform this text in the preview
             </span>
           </span>
         ) : isSettingsSection && entry.kind === "settings-section" ? (

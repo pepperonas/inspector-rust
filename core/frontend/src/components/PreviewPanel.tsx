@@ -1136,6 +1136,23 @@ export function PreviewPanel({
     );
   }
 
+  if (entry.kind === "typed-text") {
+    return (
+      <div className="flex h-full flex-col p-4">
+        <div className="mb-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Typed text
+        </div>
+        <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[13px] leading-5">
+          {entry.data.text}
+        </pre>
+        <div className="mt-2 text-[11px] text-[var(--color-muted)]">
+          ⏎ Enter pastes the text as typed · a transform copies the result and adds it to the history
+        </div>
+        <LazyTransformBar text={entry.data.text} initiallyOpen />
+      </div>
+    );
+  }
+
   if (entry.kind === "app") {
     return (
       <div className="flex h-full flex-col gap-3 p-4">
@@ -2210,7 +2227,7 @@ const TransformBarLazy = lazy(() => import("./TransformBar").then((m) => ({ defa
 
 /** The transform chips load on first use — they only exist for text entries,
  *  and this file is part of the start-up bundle. */
-function LazyTransformBar(props: { text: string; sourceId?: number }) {
+function LazyTransformBar(props: { text: string; sourceId?: number; initiallyOpen?: boolean }) {
   return (
     <Suspense fallback={null}>
       <TransformBarLazy {...props} />

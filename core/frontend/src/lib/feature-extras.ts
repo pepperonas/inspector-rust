@@ -126,6 +126,11 @@ export const IN_POPUP_ACTIONS: FeatureRow[] = [
     trigger: `hold ${IS_MAC ? "⌘" : "Ctrl"} in the preview`,
     note: "On a text/HTML/RTF clip, hold the modifier (or click the hint) to reveal the transform chips (UPPER / lower / base64 / url-encode …). Each makes a NEW entry; the original is untouched.",
   },
+  {
+    name: "Transform typed text",
+    trigger: "↓ below an app hit",
+    note: "When the search names an app (BRIDGE → Code Bridge), the row below the app is the typed text itself: its preview opens the transform chips straight away, Enter pastes it as typed.",
+  },
   { name: "Smart actions", trigger: "preview buttons", note: "On a text clip: Open link · Compose email · Call · Open in Maps · Make QR (auto-detected). The qr command preview also saves PNG and printable STL to Downloads." },
   { name: "Delete entry", trigger: "🗑 list action", note: "Remove a single clip from the history." },
   { name: "Cut out background", trigger: formatHotkey(`${MOD}+KeyB`), note: "On an image entry in the preview — U²-Net subject cut-out → Downloads." },

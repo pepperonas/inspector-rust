@@ -7,6 +7,7 @@ Clip-Notizen — gelbe Markierung, Notiz am Clip, prune-geschützt
 Suche — Substring über den Verlauf, live beim Tippen
 Smart-Actions — erkannte URL/E-Mail/Telefon/Koordinaten als 1-Klick-Buttons (Öffnen, mailto, tel, Maps, QR)
 Text-Transformationen — Cmd/Ctrl+1–9: Case-Varianten, base64, URL-encode/decode, Vokale entfernen; die Vorschau weist mit „Hold ⌘/Ctrl for formatting options“ darauf hin (Klick hält die Optionen offen)
+Getippten Text umwandeln — nennt die Suche eine App (BRIDGE → Code Bridge), steht direkt unter dem App-Treffer der getippte Text als eigene Zeile: App starten bleibt oben, die Vorschau des Textes zeigt die Umwandlungen sofort offen (⌘1–9 wie bei Clips), Enter fügt den Text unverändert ein
 Bild speichern — jeder Bild-Clip hat im Preview einen Save-to-Downloads-Button (Cmd/Ctrl+S); Command-Bilder bekommen sprechende Dateinamen aus dem History-Label (figlet-hello-….png)
 Bild-Recolor — einfarbige Logos/Silhouetten umfärben
 Freisteller (Cut-out) — ML-Hintergrundentfernung (U2Netp, offline) per Cmd/Ctrl+B

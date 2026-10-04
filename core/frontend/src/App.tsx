@@ -104,6 +104,7 @@ import { playCrtOn, playCrtOff, primeCrtHidden, crtOffMs, CRT_ON_MS } from "./li
 import { currentAnimationStage } from "./lib/motion-stage";
 import { detectSocial } from "./lib/social";
 import { repoUrlEntry } from "./lib/repo-url";
+import { typedTextEntry } from "./lib/typed-text";
 import { qrLinkEntry } from "./lib/qr-link";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
@@ -2712,6 +2713,9 @@ function App() {
     };
   }, [query, installedApps, parsedCommand]);
 
+  // The typed text below the app hit, so it can be transformed (lib/typed-text.ts).
+  const typedTextRow = useMemo(() => typedTextEntry(query, appEntry !== null), [query, appEntry]);
+
   // Combine: in kill mode, the process picker takes over the entire
   // list (no point mixing clipboard history with process rows — they
   // can't be activated the same way and would just confuse selection).
@@ -3040,6 +3044,8 @@ function App() {
       ...fakerCatalogEntries,
       ...secPresetEntries,
       ...(appEntry ? [appEntry] : []),
+      // Directly below the app: the typed text itself, transformable.
+      ...(typedTextRow ? [typedTextRow] : []),
       // Settings jumps sit right after the app-launcher hit: both are
       // NAVIGATION, and clips below stay the primary result set.
       ...settingsSectionEntries,
@@ -3072,6 +3078,7 @@ function App() {
     repoUrlRow,
     openerEntry,
     appEntry,
+    typedTextRow,
     brunoEntry,
     pwgenEntry,
     bpmEntry,
@@ -4704,6 +4711,9 @@ function App() {
         await pasteText(target.data.pasteValue);
       } else if (target.kind === "opener") {
         // Easter-egg paste — drop the German opener into the focused app.
+        await pasteText(target.data.text);
+      } else if (target.kind === "typed-text") {
+        // The typed text as-is (transforms go through the preview's bar).
         await pasteText(target.data.text);
       } else if (target.kind === "app") {
         // Spotlight-like launch. macOS Launch Services activates an

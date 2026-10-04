@@ -1,11 +1,16 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Palette, Pin, Trash2 } from "lucide-react";
-import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
 import { computeLineage, railGutterPx } from "../lib/lineage";
 import { isCustomCommandEntry, type ListEntry } from "../lib/types";
+
+// Loaded on first open — it was 7.5 KB of the start-up bundle for a dialog
+// most sessions never show (see scripts/check-bundle.mjs).
+const ColorPickerModal = lazy(() =>
+  import("./ColorPickerModal").then((m) => ({ default: m.ColorPickerModal })),
+);
 
 interface Props {
   entries: ListEntry[];
@@ -131,6 +136,10 @@ export function HistoryList({
   const selectedEntry =
     selectedIndex >= 0 && selectedIndex < entries.length ? entries[selectedIndex] : null;
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Mount the (lazy) dialog on first open and keep it mounted afterwards, so
+  // it behaves exactly as before (it resets itself on close).
+  const [pickerEverOpened, setPickerEverOpened] = useState(false);
+  if (pickerOpen && !pickerEverOpened) setPickerEverOpened(true);
   const [confirmClear, setConfirmClear] = useState(false);
 
   // Lineage rails, computed over the WHOLE list (not just the visible window)
@@ -331,6 +340,8 @@ export function HistoryList({
                                   ? `bruno-${entry.data.yearlyGross}-${entry.data.period}`
                                   : entry.kind === "app"
                                     ? `app-${entry.data.path}`
+                                    : entry.kind === "typed-text"
+                                    ? `typed-text`
                                     : entry.kind === "pwgen"
                                       ? `pwgen-${entry.data.length}-${entry.data.mode}`
                                       : entry.kind === "bpm"
@@ -384,7 +395,11 @@ export function HistoryList({
         </div>
       )}
 
-      <ColorPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} />
+      {pickerEverOpened && (
+        <Suspense fallback={null}>
+          <ColorPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }

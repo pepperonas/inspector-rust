@@ -1698,15 +1698,17 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Nutzungslimits von Claude, Codex und Antigravity, mit Rücksetzzeit.",
     synopsis: "limits",
     description:
-      "Shows the usage limits of your Claude subscription the way claude.ai → Settings → Usage does: the current session, the week across all models, per-model weekly limits, extra usage and the weekly split by surface (Claude Code, chats, …). Each limit has a bar, its percentage and when it resets (relative and absolute, Europe/Berlin). Reads Claude Code's own login read-only and asks api.anthropic.com every 5 minutes while the panel is open (configurable, minimum 2). Below it: Codex (5-hour window and week, read from its local session files — as fresh as your last Codex turn) and Antigravity (whether its quota is used up and when it frees again, from its logs; it exposes no percentages). R refreshes, Esc exits.",
+      "Shows the usage limits of your Claude subscription the way claude.ai → Settings → Usage does: the current session, the week across all models, per-model weekly limits, extra usage and the weekly split by surface (Claude Code, chats, …). Each limit has a bar, its percentage and when it resets (relative and absolute, Europe/Berlin). Since 0.196.0 each bar also shows whether you are on plan and where you will end up: a thin tick marks the even line through the window, a hatched stretch the projection to the reset (a red cap if it runs past 100 %), and a line underneath says e.g. „7 Punkte Reserve · voraussichtlich 78 % · Reset So 01:00“ or „leer Do ~14:20 (Mi 22 – Fr 9 Uhr)“. The projection comes from the Token Tracker when it runs (calibrated against your token history, with a fold-out chart of the week); otherwise it is a linear estimate from the current rate. Reads Claude Code's own login read-only and asks api.anthropic.com every 5 minutes while the panel is open (configurable, minimum 2). Below it: Codex (5-hour window and week, read from its local session files — as fresh as your last Codex turn) and Antigravity (whether its quota is used up and when it frees again, from its logs; it exposes no percentages). R refreshes, Esc exits.",
     arguments: [],
     flags: [],
     examples: [
       { input: "limits", result: "Session 6 % · week 2 % · resets in 2 h 31 min." },
       { input: "usage", result: "Same panel via the alias — also offered while typing (`us`, `usa` …)." },
       { input: "limits", result: "Press R to fetch now instead of waiting for the interval." },
+      { input: "limits", result: "Week: '8 Punkte voraus · voraussichtlich 96 %' — the chevron folds out the week chart (with Token Tracker)." },
     ],
     tips: [
+      "With Token Tracker running (≥ 0.8.0) the projection is calibrated against your own usage and previous weeks; the chart's open/closed state is remembered.",
       "Limit types this version doesn't know are still shown, under the API's raw name and marked 'unknown'.",
       "On a 429 the last values stay visible with their timestamp while the app backs off.",
     ],
@@ -1714,6 +1716,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Uses an undocumented endpoint (the one Claude Code's /usage uses) — it can change without notice.",
       "Needs a Claude Code login; the token is only read, never refreshed or written. If it has expired, start Claude Code once.",
       "Codex values are only as fresh as the last Codex turn; Antigravity only tells when a quota block was hit, not how much is left.",
+      "Without Token Tracker the projection is linear ('grobe Schätzung'): it assumes you keep today's pace. Anyone ahead of the even line then always runs out before the reset.",
     ],
     related: ["tokens", "stats"],
   },

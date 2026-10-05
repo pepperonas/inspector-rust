@@ -382,6 +382,63 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "list_apps": return [];
     case "get_sleep_status":
       return { supported: true, sleep_disabled: false, prevented: false, indefinite: false, max_timeout_secs: null, holders: [] };
+    case "get_limits_forecast_open": return ["weekly_all-1"];
+    case "set_limits_forecast_open": return null;
+    case "claude_limits_status": {
+      // Week Sat 23:00Z → Sat 23:00Z, "now" = Wed 11:00Z; a tracker-style
+      // forecast with series for the week, linear for the session.
+      const start = Date.parse("2026-10-03T23:00:00Z");
+      const H = 3_600_000;
+      const iso = (ms: number) => new Date(ms).toISOString();
+      const now = start + 84 * H;
+      const actual: [string, number][] = [];
+      for (let h = 0; h <= 84; h += 2) {
+        const hr = (h + 1) % 24; // Berlin-ish hour
+        const day = hr >= 9 && hr <= 23;
+        actual.push([iso(start + h * H), Math.min(58, (actual[actual.length - 1]?.[1] ?? 0) + (day ? 1.5 : 0.1))]);
+      }
+      const cur = actual[actual.length - 1][1];
+      const forecast: [string, number, number, number][] = [];
+      for (let h = 84; h <= 168; h += 3) {
+        const g = ((h - 84) / 84) * cur * 1.05;
+        forecast.push([iso(start + h * H), cur + g, cur + g * 0.75, cur + g * 1.3]);
+      }
+      const ghost = (k: number) => ({
+        start: iso(start - k * 168 * H),
+        points: Array.from({ length: 29 }, (_, i) => [i * 360, Math.min(100, i * (2.6 + k * 0.5))] as [number, number]),
+      });
+      const week = {
+        version: 1, basis: "calibrated", confidence: "good", status: "ahead",
+        window: { start: iso(start), end: iso(start + 168 * H) }, now: iso(now),
+        pace: { planPercent: 50, deltaPoints: cur - 50 },
+        atReset: { median: forecast[forecast.length - 1][1], low: forecast[forecast.length - 1][2], high: forecast[forecast.length - 1][3] },
+        exhaustsAt: { median: null, early: iso(start + 150 * H), late: null },
+        k: 0.012, notes: [], source: "tracker",
+        series: { actual, measured: actual.filter((_, i) => i % 6 === 3), forecast, ghosts: [ghost(1), ghost(2), ghost(3)] },
+      };
+      const session = {
+        version: 1, basis: "linear", confidence: "rough", status: "exhausts",
+        window: { start: iso(now - 3 * H), end: iso(now + 2 * H) }, now: iso(now),
+        pace: { planPercent: 60, deltaPoints: 18 }, atReset: { median: 130, low: 109, high: 151 },
+        exhaustsAt: { median: iso(now + 50 * 60_000), early: iso(now + 30 * 60_000), late: iso(now + 85 * 60_000) },
+        k: null, notes: [], series: null, source: "local",
+      };
+      const mk = (id: string, name: string, kind: string, percent: number, resets: number, f: unknown) => ({
+        id, name, kind, group: null, percent, resets_at: iso(resets), severity: null, active: true, known: true,
+        money: null, window_minutes: kind === "session" ? 300 : 10080, forecast: f,
+      });
+      return {
+        report: {
+          limits: [
+            mk("session-0", "Aktuelle Sitzung", "session", 78, now + 2 * H, session),
+            mk("weekly_all-1", "Woche · alle Modelle", "weekly_all", cur, start + 168 * H, week),
+            mk("weekly_scoped-2", "Woche · Fable", "weekly_scoped", 0, start + 168 * H, { ...session, status: "idle", source: "local", pace: { planPercent: 50, deltaPoints: -50 }, window: week.window, atReset: { median: 0, low: 0, high: 0 }, exhaustsAt: null }),
+          ],
+          extra: null, breakdown: [], legacy: false,
+        },
+        fetched_at_ms: now, error: null, error_detail: null, retry_at_ms: null, poll_minutes: 5, codex: null, antigravity: null,
+      };
+    }
     case "get_free_space":
       return { name: "Macintosh HD", mount: "/", available: 186_420_000_000, total: 494_384_795_648 };
     case "plugin:app|version": return "0.185.0";

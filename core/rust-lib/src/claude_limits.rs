@@ -72,6 +72,11 @@ pub struct Limit {
     pub known: bool,
     /// Money-denominated limits (some codename budgets carry dollars).
     pub money: Option<Money>,
+    /// Window length in minutes (Claude: from `kind`; Codex: reported).
+    pub window_minutes: Option<i64>,
+    /// Pace + projection (v0.196.0) — from the Token Tracker when it has one,
+    /// else linear from this report. Filled in by `status`.
+    pub forecast: Option<crate::limits_forecast::Forecast>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -172,6 +177,7 @@ fn parse_limit_entry(i: usize, entry: &Value) -> Option<Limit> {
     let kind = string(obj.get("kind")).unwrap_or_else(|| "unknown".into());
     let percent = num(obj.get("percent")).or_else(|| num(obj.get("utilization")))?;
     let (name, known) = limit_name(&kind, entry);
+    let window_minutes = crate::limits_forecast::claude_window_minutes(&kind);
     Some(Limit {
         id: format!("{kind}-{i}"),
         name,
@@ -183,6 +189,8 @@ fn parse_limit_entry(i: usize, entry: &Value) -> Option<Limit> {
         active: obj.get("is_active").and_then(Value::as_bool).unwrap_or(false),
         known,
         money: None,
+        window_minutes,
+        forecast: None,
     })
 }
 
@@ -205,6 +213,8 @@ fn parse_window(key: &str, v: &Value, name: &str, known: bool) -> Option<Limit> 
         active: false,
         known,
         money,
+        window_minutes: crate::limits_forecast::claude_window_minutes(key),
+        forecast: None,
     })
 }
 
@@ -418,6 +428,22 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Settings key: ids of limits whose window chart is open (JSON array).
+pub const FORECAST_OPEN_KEY: &str = "climits.forecast_open";
+
+/// Open window charts, as saved. Garbage → none open.
+pub fn forecast_open(db: &DbHandle) -> Vec<String> {
+    crate::settings::get(db, FORECAST_OPEN_KEY)
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+        .unwrap_or_default()
+}
+
+pub fn set_forecast_open(db: &DbHandle, ids: &[String]) -> anyhow::Result<()> {
+    crate::settings::set(db, FORECAST_OPEN_KEY, &serde_json::to_string(ids)?)
+}
+
 pub fn poll_minutes(db: &DbHandle) -> u32 {
     crate::settings::get(db, KEY_POLL_MIN)
         .ok()
@@ -517,11 +543,22 @@ pub fn status(db: &DbHandle, force: bool) -> LimitsStatus {
         }
     }
     // Local files — read before taking the lock.
-    let codex = crate::agent_limits::codex();
+    let mut codex = crate::agent_limits::codex();
     let antigravity = crate::agent_limits::antigravity();
+    // Pace + projection (v0.196.0): the tracker's when it has one, else
+    // linear. Tracker answers are cached 60 s; only asked while the panel
+    // asks us.
+    let trackers = crate::limits_forecast::tracker_limits(now);
+    if let Some(c) = codex.as_mut() {
+        crate::limits_forecast::attach(&mut c.limits, "codex", &trackers, now);
+    }
     let s = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut report = s.report.clone();
+    if let Some(r) = report.as_mut() {
+        crate::limits_forecast::attach(&mut r.limits, "claude", &trackers, now);
+    }
     LimitsStatus {
-        report: s.report.clone(),
+        report,
         fetched_at_ms: s.fetched_at_ms,
         error: s.error.clone(),
         error_detail: s.error_detail.clone(),

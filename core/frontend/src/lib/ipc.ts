@@ -3060,6 +3060,34 @@ export interface ClaudeLimit {
   /** false = a limit type this build doesn't know (shown under its raw name). */
   known: boolean;
   money: { used: number; limit: number; currency: string } | null;
+  /** Window length in minutes (null = unknown limit type). */
+  window_minutes: number | null;
+  /** Pace + projection (v0.196.0): Token Tracker's, else linear. */
+  forecast: LimitForecast | null;
+}
+
+/** Projection contract (Token Tracker `/api/usage-limits`, version 1) plus
+ *  `source`, which Inspector Rust sets. Times are ISO strings. */
+export interface LimitForecast {
+  version: number;
+  basis: "calibrated" | "snapshots" | "linear" | "none" | string;
+  confidence: "good" | "rough" | "none" | string;
+  status: "reserve" | "ahead" | "exhausts" | "idle" | "unknown" | string;
+  window: { start: string; end: string } | null;
+  now: string | null;
+  pace: { planPercent: number; deltaPoints: number } | null;
+  atReset: { median: number; low: number; high: number } | null;
+  exhaustsAt: { median: string | null; early: string | null; late: string | null } | null;
+  k: number | null;
+  notes: string[];
+  series: {
+    actual: [string, number][];
+    measured: [string, number][];
+    forecast: [string, number, number, number][];
+    ghosts: { start: string; points: [number, number][] }[];
+  } | null;
+  /** `tracker` | `local` */
+  source: string;
 }
 
 export interface ClaudeLimitsReport {
@@ -3092,6 +3120,15 @@ export interface ClaudeLimitsStatus {
 /** Cached-or-fresh Claude limits (Rust decides whether the network is due). */
 export function claudeLimitsStatus(force = false): Promise<ClaudeLimitsStatus> {
   return invoke("claude_limits_status", { force });
+}
+
+/** Ids of limits whose window chart is open (persisted, v0.196.0). */
+export function getLimitsForecastOpen(): Promise<string[]> {
+  return invoke("get_limits_forecast_open");
+}
+
+export function setLimitsForecastOpen(ids: string[]): Promise<void> {
+  return invoke("set_limits_forecast_open", { ids });
 }
 
 /** Set the poll interval (minutes, clamped 2..60); returns the applied value. */

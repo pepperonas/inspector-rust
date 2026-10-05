@@ -6550,6 +6550,17 @@ pub fn set_claude_limits_poll(db: State<'_, DbHandle>, minutes: u32) -> Result<u
     crate::claude_limits::set_poll_minutes(&db, minutes).map_err(|e| e.to_string())
 }
 
+/// Ids of limits whose window chart is open (v0.196.0).
+#[tauri::command]
+pub fn get_limits_forecast_open(db: State<'_, DbHandle>) -> Vec<String> {
+    crate::claude_limits::forecast_open(&db)
+}
+
+#[tauri::command]
+pub fn set_limits_forecast_open(db: State<'_, DbHandle>, ids: Vec<String>) -> Result<(), String> {
+    crate::claude_limits::set_forecast_open(&db, &ids).map_err(|e| e.to_string())
+}
+
 // ── Retro overlay `8bit` / `16bit` — settings + presets (phase 1) ──────────
 
 /// All bundled palettes (8-bit fixed lists and 16-bit channel depths).

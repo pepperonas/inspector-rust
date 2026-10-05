@@ -79,6 +79,8 @@ fn codex_window(key: &str, w: &Value, now_s: i64) -> Option<Limit> {
         active: false,
         known: true,
         money: None,
+        window_minutes: (minutes > 0).then_some(minutes),
+        forecast: None,
     })
 }
 

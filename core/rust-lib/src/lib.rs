@@ -54,6 +54,7 @@ mod input_lock;
 mod ip;
 mod free_space;
 mod fx_rates;
+mod limits_forecast;
 mod iris;
 mod keepalive;
 mod loc;
@@ -1077,6 +1078,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::token_usage_fetch,
             commands::claude_limits_status,
             commands::set_claude_limits_poll,
+            commands::get_limits_forecast_open,
+            commands::set_limits_forecast_open,
             commands::retro_palettes,
             commands::retro_get_config,
             commands::retro_set_config,

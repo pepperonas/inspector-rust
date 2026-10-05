@@ -76,12 +76,43 @@ Both are read from **local files only** — no network, no token.
   erschöpft, wieder frei …" or "Keine aktive Sperre bekannt". Hidden when
   Antigravity isn't installed.
 
+## Hochrechnung (v0.196.0)
+
+Each limit carries a `forecast` (design: `docs/superpowers/specs/2026-10-05-claude-limits-forecast-design.md`).
+
+- **Source:** the Token Tracker's `GET 127.0.0.1:5010/api/usage-limits`,
+  field `forecast` (contract `version: 1`). Inspector Rust does not recompute
+  it: calibration needs the full cost history per model, which only the
+  tracker has. Asked at most once a minute, and only while the panel asks.
+- **Matching:** Claude by `kind` + reset minute (+ the model for
+  `weekly_scoped`, via the tracker's `scopeLabel`); Codex by window length +
+  reset minute. No match, tracker unreachable, or a contract version other
+  than 1 → that limit falls back.
+- **Fallback (local, linear):** pace = usage − even line
+  (`100 × elapsed / window`); projection = current rate extrapolated to the
+  reset, band ±40 % of the growth; exhaustion time per end of the band.
+  Under 10 % of the window elapsed → pace only (`too_early`). Basis
+  `linear`, confidence `rough`; the panel says „grobe Schätzung" and points
+  at the Token Tracker. Consequence worth knowing: linear, anyone ahead of
+  the even line always runs out before the reset (`exhausts`); `ahead`
+  without running out only comes from the tracker.
+- **Display:** bar = fill + plan tick + hatched projection + red cap over
+  100 %; a status line below. Limits with a tracker `series` get a chevron
+  that folds out a hand-rolled SVG chart of the window (plan dashed, actual,
+  measured points, median + band, crossing marker, now, up to three ghost
+  weeks, nights 22–7 shaded, red zone over 100, hover readout). Which charts
+  are open is stored in `settings` (`climits.forecast_open`).
+- **Limits:** Antigravity has no percentages, so no projection. The 5-hour
+  window only ever gets the bar level.
+
 ## Code
 
 `core/rust-lib/src/claude_limits.rs` (parser, token read, cache/backoff —
 pure parts unit-tested) · IPC `claude_limits_status`, `set_claude_limits_poll`
 · `core/frontend/src/lib/claude-limits.ts` (formatting, phase) ·
-`components/ClaudeLimitsPanel.tsx` · `core/rust-lib/src/agent_limits.rs` (Codex / Antigravity).
+`components/ClaudeLimitsPanel.tsx` · `core/rust-lib/src/agent_limits.rs` (Codex / Antigravity) ·
+`core/rust-lib/src/limits_forecast.rs` (forecast contract, matching, linear fallback, tracker cache) ·
+IPC `get_/set_limits_forecast_open`.
 
 Live check (prints names and percentages only):
 `cargo test -p inspector-rust-core --lib claude_limits_live -- --ignored --nocapture`

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.196.0] - 2026-10-05
+
+### Added
+- **`limits`: pace and projection for every limit.** Each bar now answers „am I on plan?" and „when does it run out?": a thin tick marks the even line through the window, a hatched stretch shows where you'll be at the reset (with a red cap past 100 %), and a line underneath says „7 Punkte Reserve · voraussichtlich 78 % · Reset So 01:00", „leer Do ~14:20 (Mi 22 Uhr – Fr 9 Uhr)" or, for the session, „leer in ~1:40 h". When the Token Tracker runs and delivers a forecast (≥ 0.8.0), its calibrated projection is used and weekly limits get a fold-out chart of the window — plan, actual, measured points, projection with band, the 100 % crossing, previous weeks and nights shaded; which charts are open is remembered. Without it, each limit gets a linear estimate from the current rate, marked „grobe Schätzung". Codex limits get the same; Antigravity reports no percentages and stays without.
+
 ## [0.195.0] - 2026-10-05
 
 ### Added

@@ -2010,7 +2010,21 @@ pub fn get_status_toast(
 /// Hide the toast window — called by the toast's own auto-dismiss timer.
 #[tauri::command]
 pub fn hide_status_toast(app: AppHandle) {
+    crate::status_toast::set_hit_rect(&app, None);
     crate::status_toast::hide(&app);
+}
+
+/// The volume HUD's clickable card rect (window-local CSS px), or `None` when
+/// nothing in the toast should take the mouse (v0.197.0).
+#[tauri::command]
+pub fn status_toast_hit_rect(app: AppHandle, rect: Option<crate::status_toast::HitRect>) {
+    crate::status_toast::set_hit_rect(&app, rect);
+}
+
+/// The user finished a drag on the volume HUD — return key focus.
+#[tauri::command]
+pub fn status_toast_release_focus(app: AppHandle) {
+    crate::status_toast::release_focus(&app);
 }
 
 // ── Appearance / theme ────────────────────────────────────────────────

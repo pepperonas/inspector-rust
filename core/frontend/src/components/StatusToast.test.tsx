@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import type { StatusToast as Payload } from "../lib/ipc";
 
-const { getStatusToast, hideStatusToast, listen, live } = vi.hoisted(() => {
+const { getStatusToast, hideStatusToast, setSystemVolume, statusToastHitRect, statusToastReleaseFocus, listen, live } = vi.hoisted(() => {
   const live = new Set<{ event: string; handler: () => void }>();
   return {
     getStatusToast: vi.fn<() => Promise<Payload | null>>(async () => null),
     hideStatusToast: vi.fn(async () => undefined),
+    setSystemVolume: vi.fn(async (l: number) => l),
+    statusToastHitRect: vi.fn(async (_r: unknown) => undefined),
+    statusToastReleaseFocus: vi.fn(async () => undefined),
     listen: vi.fn(async (event: string, handler: () => void) => {
       const sub = { event, handler };
       live.add(sub);
@@ -20,6 +23,9 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/ipc")>()),
   getStatusToast,
   hideStatusToast,
+  setSystemVolume,
+  statusToastHitRect,
+  statusToastReleaseFocus,
 }));
 
 import { StatusToast } from "./StatusToast";
@@ -69,6 +75,9 @@ beforeEach(() => {
   getStatusToast.mockReset();
   getStatusToast.mockResolvedValue(null);
   hideStatusToast.mockClear();
+  setSystemVolume.mockClear();
+  statusToastHitRect.mockClear();
+  statusToastReleaseFocus.mockClear();
   listen.mockClear();
   live.clear();
 });
@@ -338,5 +347,87 @@ describe("StatusToast — the window is never hidden, only emptied (2026-09-28)"
 
     await retrigger({ kind: "mute", on: true, title: "Muted", subtitle: "Volume" });
     expect(document.querySelector(".vol-card")).toBeTruthy();
+  });
+});
+
+describe("StatusToast — volume HUD with the mouse (v0.197.0)", () => {
+  const vol = (level: number) => toast({ kind: "volume", on: true, title: `${level}%`, subtitle: "" });
+  // The track spans x 100..300 → 100 px = 50 %.
+  const rect = { x: 100, y: 50, left: 100, top: 50, width: 200, height: 6, right: 300, bottom: 56, toJSON: () => ({}) } as DOMRect;
+  let spy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    spy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+  });
+  afterEach(() => spy.mockRestore());
+
+  const hitEl = () => screen.getByTestId("vol-hit");
+  const press = async (type: string, clientX: number) => {
+    await act(async () => {
+      const ev = new MouseEvent(type, { bubbles: true, clientX, button: 0 });
+      Object.defineProperty(ev, "pointerId", { value: 1 });
+      hitEl().dispatchEvent(ev);
+      await Promise.resolve();
+    });
+  };
+
+  it("reports the card as the clickable rect once it has settled", async () => {
+    await mount(vol(40));
+    expect(statusToastHitRect).not.toHaveBeenCalled();
+    await advance(320);
+    expect(statusToastHitRect).toHaveBeenLastCalledWith({ x: 100, y: 50, width: 200, height: 6 });
+  });
+
+  it("a click on the track sets that volume and shows it", async () => {
+    await mount(vol(40));
+    await press("pointerdown", 250); // 75 %
+    await press("pointerup", 250);
+    expect(setSystemVolume).toHaveBeenLastCalledWith(75);
+    expect(volNumText()).toBe("75");
+    expect(statusToastReleaseFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("dragging follows the pointer; the whole window takes the mouse meanwhile", async () => {
+    await mount(vol(40));
+    await press("pointerdown", 120);
+    expect(statusToastHitRect).toHaveBeenLastCalledWith(expect.objectContaining({ x: 0, y: 0 }));
+    await advance(60);
+    await press("pointermove", 200);
+    expect(volNumText()).toBe("50");
+    await press("pointerup", 280);
+    expect(setSystemVolume).toHaveBeenLastCalledWith(90);
+    expect(statusToastHitRect).toHaveBeenLastCalledWith({ x: 100, y: 50, width: 200, height: 6 });
+  });
+
+  it("never fades while held, then stays 3 s after the mouse let go", async () => {
+    await mount(vol(40));
+    await press("pointerdown", 150);
+    await advance(10_000);
+    expect(hideStatusToast).not.toHaveBeenCalled();
+    expect(document.querySelector(".vol-overlay-out")).toBeNull(); // not even fading
+    await press("pointerup", 150);
+    await advance(2900);
+    expect(document.querySelector(".vol-overlay-in")).toBeTruthy();
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    await advance(200); // 3100 → fade-out started
+    expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
+  });
+
+  it("moving over the HUD restarts a 3 s hold (without the mouse it is the short one)", async () => {
+    await mount(vol(40));
+    await advance(1000);
+    await act(async () => {
+      document.querySelector(".vol-card")!.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }));
+    });
+    await advance(2900);
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    await advance(200);
+    expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
+  });
+
+  it("a mute HUD has no slider to grab", async () => {
+    await mount(toast({ kind: "mute", on: true, title: "Muted", subtitle: "" }));
+    await press("pointerdown", 200);
+    await press("pointerup", 200);
+    expect(setSystemVolume).not.toHaveBeenCalled();
   });
 });

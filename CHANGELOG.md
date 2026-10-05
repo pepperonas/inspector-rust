@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.197.0] - 2026-10-05
+
+### Added
+- **Control the volume with the mouse in the volume overlay.** Click the bar to jump to that level, or hold and drag to slide it. While you hold the mouse the overlay never fades; after any mouse contact (moving over it, clicking, letting go) it stays open for 3 seconds. The overlay only takes the mouse while the pointer is on its card — anywhere else it stays click-through as before, so it never swallows a click meant for the app underneath. After a drag, keyboard focus goes back to the app you were in.
+
 ## [0.196.1] - 2026-10-05
 
 ### Fixed

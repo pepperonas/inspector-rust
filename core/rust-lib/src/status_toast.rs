@@ -96,6 +96,10 @@ fn show_inner(app: &AppHandle, toast: StatusToast, focus: bool) {
                 .shadow(false)
                 .visible(false)
                 .focused(false)
+                // The volume HUD can be dragged (v0.197.0): the first click on
+                // this never-key window must reach the webview, not just
+                // activate the window.
+                .accept_first_mouse(true)
                 .build()
             {
                 Ok(w) => {
@@ -245,6 +249,154 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
+// ── Mouse gate for the volume HUD (v0.197.0) ────────────────────────────────
+//
+// The toast is click-through so it never eats a click meant for the app under
+// it. The volume HUD's slider must be clickable, though — so while the HUD
+// shows, the frontend reports its card rect and a ~30 Hz gate makes the window
+// accept the mouse ONLY while the pointer is inside that rect. Anywhere else
+// the window stays click-through, exactly as before.
+
+/// A rect in window-local logical px (CSS px, origin top-left).
+#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+pub struct HitRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Pure: is the window-local point inside the rect (half-open)?
+pub fn hit(px: f64, py: f64, r: &HitRect) -> bool {
+    px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height
+}
+
+/// Pure: a Cocoa global point (origin bottom-left) → window-local px with the
+/// origin at the window's TOP-left, given the window frame in Cocoa points.
+pub fn cocoa_to_local(mx: f64, my: f64, fx: f64, fy: f64, fh: f64) -> (f64, f64) {
+    (mx - fx, (fy + fh) - my)
+}
+
+static HIT_RECT: Mutex<Option<HitRect>> = Mutex::new(None);
+static GATE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+const GATE_TICK_MS: u64 = 33;
+
+/// Set (or clear with `None`) the clickable rect. Starts the gate when needed;
+/// clearing makes the window click-through again on the next tick.
+pub fn set_hit_rect(app: &AppHandle, rect: Option<HitRect>) {
+    *HIT_RECT.lock() = rect;
+    if rect.is_none() {
+        if let Some(w) = app.get_webview_window(TOAST_LABEL) {
+            let _ = w.set_ignore_cursor_events(true);
+        }
+        return;
+    }
+    if GATE_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return; // already polling — it reads the new rect
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut inside_last: Option<bool> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(GATE_TICK_MS));
+            let Some(rect) = *HIT_RECT.lock() else { break };
+            let (tx, rx) = std::sync::mpsc::channel();
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                let _ = tx.send(app2.get_webview_window(TOAST_LABEL).and_then(|w| pointer_local(&w)));
+            });
+            let Ok(Some((px, py))) = rx.recv_timeout(std::time::Duration::from_millis(500)) else { continue };
+            let inside = hit(px, py, &rect);
+            if inside_last != Some(inside) {
+                inside_last = Some(inside);
+                if let Some(w) = app.get_webview_window(TOAST_LABEL) {
+                    let _ = w.set_ignore_cursor_events(!inside);
+                }
+            }
+        }
+        if let Some(w) = app.get_webview_window(TOAST_LABEL) {
+            let _ = w.set_ignore_cursor_events(true);
+        }
+        GATE_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+        // A rect set while we were shutting down needs a fresh gate.
+        if HIT_RECT.lock().is_some() {
+            set_hit_rect(&app, *HIT_RECT.lock());
+        }
+    });
+}
+
+/// The pointer in window-local logical px. macOS reads AppKit directly
+/// (`NSEvent.mouseLocation` + the window frame, both Cocoa points — no DPI
+/// conversion to get wrong). Must run on the main thread.
+#[cfg(target_os = "macos")]
+fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct P {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct S {
+        w: f64,
+        h: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct R {
+        o: P,
+        s: S,
+    }
+    unsafe impl Encode for P {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for S {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for R {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[P::ENCODING, S::ENCODING]);
+    }
+    let ns = win.ns_window().ok()? as *mut AnyObject;
+    if ns.is_null() {
+        return None;
+    }
+    let cls = AnyClass::get(c"NSEvent")?;
+    unsafe {
+        let m: P = msg_send![cls, mouseLocation];
+        let f: R = msg_send![ns, frame];
+        Some(cocoa_to_local(m.x, m.y, f.o.x, f.o.y, f.s.h))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
+    let c = win.app_handle().cursor_position().ok()?;
+    let p = win.outer_position().ok()?;
+    let sf = win.scale_factor().ok()?;
+    Some(((c.x - p.x as f64) / sf, (c.y - p.y as f64) / sf))
+}
+
+/// After the user dragged the slider the app may have become active (the
+/// click activated it). Hand focus back unless the popup is open.
+pub fn release_focus(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let popup_visible = app
+            .get_webview_window(crate::hotkey::POPUP_LABEL)
+            .map(|w| w.is_visible().unwrap_or(false))
+            .unwrap_or(false);
+        if !popup_visible {
+            let _ = app.hide();
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 /// Centre the toast on the monitor **under the cursor**, resolved via the global
 /// cursor query (`pick_cursor_monitor_globally`) — NOT `win.current_monitor()`,
 /// which returns a *stale* association (e.g. an external display that was just
@@ -392,9 +544,24 @@ fn center_native_macos(win: &WebviewWindow) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// Regression 2026-09-28: an ordered-out toast webview came back blank, so
     /// gestures showed no HUD. The macOS toast must survive `app.hide()` and
     /// must never be ordered out by our own hide path.
+    #[test]
+    fn hit_is_half_open_and_cocoa_flips_y() {
+        let r = HitRect { x: 50.0, y: 60.0, width: 200.0, height: 80.0 };
+        assert!(hit(50.0, 60.0, &r));
+        assert!(hit(249.9, 139.9, &r));
+        assert!(!hit(250.0, 100.0, &r));
+        assert!(!hit(100.0, 140.0, &r));
+        assert!(!hit(49.9, 100.0, &r));
+        // Window frame origin (1000, 500) bottom-left, height 200: a pointer at
+        // Cocoa y 680 is 20 px below the window's top edge (700).
+        assert_eq!(cocoa_to_local(1100.0, 680.0, 1000.0, 500.0, 200.0), (100.0, 20.0));
+    }
+
     #[test]
     fn macos_toast_is_never_ordered_out() {
         let src = include_str!("status_toast.rs");

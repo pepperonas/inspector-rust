@@ -21,9 +21,19 @@ import { listen } from "@tauri-apps/api/event";
 import {
   getStatusToast,
   hideStatusToast,
+  setSystemVolume,
+  statusToastHitRect,
+  statusToastReleaseFocus,
   type StatusToast as Payload,
 } from "../lib/ipc";
-import { digitColumns, rollDirection, waveIntensity } from "../lib/volume-hud";
+import {
+  DRAG_SET_EVERY_MS,
+  digitColumns,
+  holdMs,
+  levelFromPointer,
+  rollDirection,
+  waveIntensity,
+} from "../lib/volume-hud";
 
 /**
  * `status-toast` window — a brief, click-through, centred-on-screen
@@ -55,6 +65,12 @@ export function StatusToast() {
   const [exiting, setExiting] = useState(false);
   const payloadRef = useRef<Payload | null>(null);
   const visibleRef = useRef(false);
+  // Mouse on the volume HUD (v0.197.0): while dragging nothing fades; after
+  // any mouse contact the HUD lingers HOLD_AFTER_MOUSE_MS. `holdKey` restarts
+  // the timer without replaying the trigger animations that hang on `tick`.
+  const [dragging, setDragging] = useState(false);
+  const [holdKey, setHoldKey] = useState(0);
+  const mouseRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -91,6 +107,7 @@ export function StatusToast() {
   // surface; `hideStatusToast` only hands focus back on the Rust side.
   const dismiss = () => {
     visibleRef.current = false;
+    mouseRef.current = false;
     payloadRef.current = null;
     setPayload(null);
     setExiting(false);
@@ -100,10 +117,10 @@ export function StatusToast() {
   // Auto-dismiss. Each (re)trigger (tick) resets the timer. Persistent toasts
   // play a fade-out first; one-shots hide directly (their pop already faded).
   useEffect(() => {
-    if (tick === 0) return;
+    if (tick === 0 || dragging) return;
     const persistent = isPersistent(payloadRef.current?.kind);
     const hold = persistent
-      ? HOLD_MS_PERSISTENT
+      ? holdMs(mouseRef.current, HOLD_MS_PERSISTENT)
       : payloadRef.current?.kind === "random"
         ? HOLD_MS_RANDOM
         : HOLD_MS;
@@ -115,7 +132,23 @@ export function StatusToast() {
       }
     }, hold);
     return () => window.clearTimeout(t);
-  }, [tick]);
+  }, [tick, holdKey, dragging]);
+
+  /** Any mouse contact with the HUD: keep it, restart the (now 3 s) timer. */
+  const touch = () => {
+    mouseRef.current = true;
+    setExiting(false);
+    setHoldKey((k) => k + 1);
+  };
+  /** The user set a level with the mouse: show it like a trigger. */
+  const setLevelLocally = (level: number) => {
+    const p = payloadRef.current;
+    if (!p || p.kind !== "volume") return;
+    const next = { ...p, title: `${level}%` };
+    payloadRef.current = next;
+    setPayload(next);
+    setTick((t) => t + 1);
+  };
 
   // Persistent fade-out → hide the window once the out animation has played.
   useEffect(() => {
@@ -130,7 +163,17 @@ export function StatusToast() {
   // glass, spring entrance, a velocity-preserving rAF spring bar, level-aware
   // speaker icons). Other kinds keep the original flourish below.
   if (payload.kind === "volume" || payload.kind === "mute") {
-    return <VolumeOverlay payload={payload} tick={tick} animKey={animKey} exiting={exiting} />;
+    return (
+      <VolumeOverlay
+        payload={payload}
+        tick={tick}
+        animKey={animKey}
+        exiting={exiting}
+        onTouch={touch}
+        onDragging={setDragging}
+        onLevel={setLevelLocally}
+      />
+    );
   }
 
   const on = payload.on;
@@ -269,11 +312,17 @@ function VolumeOverlay({
   tick,
   animKey,
   exiting,
+  onTouch,
+  onDragging,
+  onLevel,
 }: {
   payload: Payload;
   tick: number;
   animKey: number;
   exiting: boolean;
+  onTouch?: () => void;
+  onDragging?: (d: boolean) => void;
+  onLevel?: (level: number) => void;
 }) {
   const muted = payload.kind === "mute" && payload.on;
   const parsed = parseInt(payload.title, 10);
@@ -379,10 +428,74 @@ function VolumeOverlay({
 
   const showBar = hasLevel || muted;
 
+  // ── Mouse control (v0.197.0) ──
+  // The window is click-through; Rust makes it take the mouse only while the
+  // pointer is inside the rect reported here (the card). During a drag the
+  // rect is the whole window, so the release can't be lost when the pointer
+  // leaves the card mid-drag.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef(false);
+  const lastSetRef = useRef(0);
+  const pendingRef = useRef<number | null>(null);
+  const reportCard = () => {
+    const r = cardRef.current?.getBoundingClientRect();
+    void statusToastHitRect(r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null).catch(() => {});
+  };
+  useEffect(() => {
+    if (!hasLevel || exiting) {
+      void statusToastHitRect(null).catch(() => {});
+      return;
+    }
+    // After the entrance animation the card has its final size.
+    const t = window.setTimeout(reportCard, 320);
+    return () => window.clearTimeout(t);
+  }, [hasLevel, exiting, animKey]);
+
+  const apply = (clientX: number, final: boolean) => {
+    const tr = trackRef.current?.getBoundingClientRect();
+    if (!tr) return;
+    const lv = levelFromPointer(clientX, tr.left, tr.width);
+    onLevel?.(lv);
+    const now = performance.now();
+    if (final || now - lastSetRef.current >= DRAG_SET_EVERY_MS) {
+      lastSetRef.current = now;
+      pendingRef.current = null;
+      void setSystemVolume(lv).catch(() => {});
+    } else {
+      pendingRef.current = lv;
+    }
+  };
+  const onDown = (e: React.PointerEvent) => {
+    if (!hasLevel || e.button !== 0) return;
+    e.preventDefault();
+    dragRef.current = true;
+    onDragging?.(true);
+    onTouch?.();
+    void statusToastHitRect({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }).catch(() => {});
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    apply(e.clientX, false);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (dragRef.current) apply(e.clientX, false);
+    else onTouch?.();
+  };
+  const onUp = (e: React.PointerEvent) => {
+    if (!dragRef.current) return;
+    dragRef.current = false;
+    apply(e.clientX, true);
+    if (pendingRef.current != null) void setSystemVolume(pendingRef.current).catch(() => {});
+    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    onDragging?.(false);
+    onTouch?.();
+    reportCard();
+    void statusToastReleaseFocus().catch(() => {});
+  };
+
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent select-none">
       <div key={animKey} className={exiting ? "vol-overlay-out" : "vol-overlay-in"}>
-        <div className="vol-card">
+        <div ref={cardRef} className="vol-card" onPointerMove={onMove}>
           <span className="relative flex" style={{ color: accent }}>
             {/* Sonar waves — replayed per trigger; direction-aware; intensity
                 is the level (loud radiates, quiet whispers). Mute collapse /
@@ -433,6 +546,20 @@ function VolumeOverlay({
             )}
             {showBar && (
               <div
+                data-testid="vol-hit"
+                className={hasLevel ? "-my-2 cursor-pointer py-2" : undefined}
+                onPointerDown={onDown}
+                onPointerMove={onMove}
+                onPointerUp={onUp}
+                onPointerCancel={onUp}
+                role={hasLevel ? "slider" : undefined}
+                aria-label={hasLevel ? "Lautstärke" : undefined}
+                aria-valuemin={hasLevel ? 0 : undefined}
+                aria-valuemax={hasLevel ? 100 : undefined}
+                aria-valuenow={hasLevel ? level : undefined}
+              >
+              <div
+                ref={trackRef}
                 key={muteFlip ? `m-${tick}` : undefined}
                 className={
                   "vol-track relative" +
@@ -459,6 +586,7 @@ function VolumeOverlay({
                 {!reduce && dir === "up" && !muted && (
                   <div key={`s-${tick}`} aria-hidden className="vol-streak" />
                 )}
+              </div>
               </div>
             )}
           </div>

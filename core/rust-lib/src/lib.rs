@@ -959,6 +959,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::adb_wifi_disconnect,
             commands::get_status_toast,
             commands::hide_status_toast,
+            commands::status_toast_hit_rect,
+            commands::status_toast_release_focus,
             commands::cleaner_status,
             commands::cleaner_scan,
             commands::cleaner_execute,

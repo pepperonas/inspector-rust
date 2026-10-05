@@ -591,6 +591,19 @@ export function hideStatusToast(): Promise<void> {
   return invoke("hide_status_toast");
 }
 
+/** The volume HUD's clickable rect (window-local CSS px), or null for a fully
+ *  click-through toast (v0.197.0). */
+export function statusToastHitRect(
+  rect: { x: number; y: number; width: number; height: number } | null,
+): Promise<void> {
+  return invoke("status_toast_hit_rect", { rect });
+}
+
+/** After a drag on the volume HUD: hand key focus back (unless the popup is open). */
+export function statusToastReleaseFocus(): Promise<void> {
+  return invoke("status_toast_release_focus");
+}
+
 export function deleteEntry(id: number): Promise<void> {
   return invoke("delete_entry", { id });
 }

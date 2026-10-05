@@ -40,3 +40,22 @@ describe("waveIntensity", () => {
     expect(waveIntensity(NaN)).toBeCloseTo(0.35); // garbage whispers, never blinds
   });
 });
+
+describe("levelFromPointer / holdMs (v0.197.0)", () => {
+  it("maps the pointer across the track to 0..100, clamped outside", async () => {
+    const { levelFromPointer } = await import("./volume-hud");
+    expect(levelFromPointer(100, 100, 200)).toBe(0);
+    expect(levelFromPointer(200, 100, 200)).toBe(50);
+    expect(levelFromPointer(300, 100, 200)).toBe(100);
+    expect(levelFromPointer(151, 100, 200)).toBe(26); // rounds
+    expect(levelFromPointer(-50, 100, 200)).toBe(0);
+    expect(levelFromPointer(900, 100, 200)).toBe(100);
+    expect(levelFromPointer(150, 100, 0)).toBe(0);
+    expect(levelFromPointer(Number.NaN, 100, 200)).toBe(0);
+  });
+  it("a mouse-touched HUD lingers 3 s, otherwise the base hold", async () => {
+    const { holdMs } = await import("./volume-hud");
+    expect(holdMs(true, 1100)).toBe(3000);
+    expect(holdMs(false, 1100)).toBe(1100);
+  });
+});

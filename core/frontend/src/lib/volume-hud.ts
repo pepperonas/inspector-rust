@@ -31,3 +31,25 @@ export function waveIntensity(level: number): number {
   const v = Math.max(0, Math.min(100, Number.isFinite(level) ? level : 0));
   return 0.35 + (v / 100) * 0.65;
 }
+
+// ── Mouse control (v0.197.0) ────────────────────────────────────────────────
+
+/** After the mouse touched the HUD it stays this long before fading. */
+export const HOLD_AFTER_MOUSE_MS = 3000;
+/** While dragging, the system volume is set at most this often. */
+export const DRAG_SET_EVERY_MS = 50;
+
+/**
+ * Pointer x on the track → volume 0..100 (integer). Positions left of the
+ * track are 0, right of it 100; a zero-width track yields 0.
+ */
+export function levelFromPointer(clientX: number, trackLeft: number, trackWidth: number): number {
+  if (!(trackWidth > 0) || !Number.isFinite(clientX)) return 0;
+  const f = (clientX - trackLeft) / trackWidth;
+  return Math.round(Math.max(0, Math.min(1, f)) * 100);
+}
+
+/** How long the HUD lingers after the last trigger. */
+export function holdMs(touchedByMouse: boolean, base: number): number {
+  return touchedByMouse ? HOLD_AFTER_MOUSE_MS : base;
+}

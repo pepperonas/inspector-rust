@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.195.0] - 2026-10-05
+
+### Added
+- **Free disk space in the footer.** The popup footer now always shows how much space is left on the disk that holds your home folder (e.g. „8,3 GB frei"), read live from the operating system. On macOS it is the same figure System Settings shows under Storage — it includes space macOS can free on demand, so it is larger than `df`'s free column — and the tooltip uses the same wording („Macintosh HD — 8,3 GB verfügbar von 494,38 GB"). The number turns amber under 20 GB or 10 % of the disk, and red under 5 GB or 2 %. It refreshes every time the popup opens and every 30 seconds while it stays open; nothing is read while the popup is hidden.
+
 ## [0.194.0] - 2026-10-05
 
 ### Changed

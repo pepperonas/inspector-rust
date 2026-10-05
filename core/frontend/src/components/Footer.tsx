@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Moon } from "lucide-react";
+import { HardDrive, Moon } from "lucide-react";
 import { IS_MAC } from "../lib/platform";
 import { indicatorTicks, sleepIndicator, type SleepKind } from "../lib/sleep-indicator";
-import type { SleepStatus } from "../lib/ipc";
+import type { FreeSpace, SleepStatus } from "../lib/ipc";
+import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "../lib/free-space";
 
 interface Props {
   index: number;
@@ -36,6 +37,8 @@ interface Props {
    *  on purpose — they are two modes of one backend, never shown both. */
   darkWake?: boolean;
   onDarkWakeToggle?: () => void;
+  /** Free space on the home disk (v0.195.0) — always shown when known. */
+  freeSpace?: FreeSpace | null;
 }
 
 export function Footer({
@@ -49,6 +52,7 @@ export function Footer({
   sleepStatus,
   darkWake,
   onDarkWakeToggle,
+  freeSpace,
 }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
@@ -85,6 +89,7 @@ export function Footer({
       </div>
       {/* Version sits at the FAR right — the footer's fixed anchor. */}
       <div className="flex shrink-0 items-center gap-3">
+        {freeSpace && <FreeSpaceBadge space={freeSpace} />}
         <span>{label}</span>
         {version && (
           <span title="Inspector Rust version" className="font-[var(--font-mono)]">
@@ -93,6 +98,25 @@ export function Footer({
         )}
       </div>
     </div>
+  );
+}
+
+/** Free disk space (v0.195.0): neutral while there's room, amber under
+ *  20 GB / 10 %, red under 5 GB / 2 %. Tooltip uses System Settings' wording. */
+function FreeSpaceBadge({ space }: { space: FreeSpace }) {
+  const level = freeSpaceLevel(space.available, space.total);
+  const color =
+    level === "crit" ? "text-red-500" : level === "warn" ? "text-amber-500" : "";
+  return (
+    <span
+      data-testid="free-space"
+      data-level={level}
+      title={freeSpaceTitle(space.name, space.available, space.total)}
+      className={`flex items-center gap-1 font-[var(--font-mono)] ${color}`}
+    >
+      <HardDrive size={11} aria-hidden />
+      {formatBytesDecimal(space.available)} frei
+    </span>
   );
 }
 

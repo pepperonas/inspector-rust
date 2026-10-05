@@ -52,6 +52,7 @@ mod hue;
 mod image_ops;
 mod input_lock;
 mod ip;
+mod free_space;
 mod fx_rates;
 mod iris;
 mod keepalive;
@@ -904,6 +905,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_animation_stage,
             commands::set_animation_stage,
             commands::get_sleep_status,
+            commands::get_free_space,
             commands::loc_count,
             commands::loc_export,
             commands::bruno_export,

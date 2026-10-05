@@ -382,6 +382,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "list_apps": return [];
     case "get_sleep_status":
       return { supported: true, sleep_disabled: false, prevented: false, indefinite: false, max_timeout_secs: null, holders: [] };
+    case "get_free_space":
+      return { name: "Macintosh HD", mount: "/", available: 186_420_000_000, total: 494_384_795_648 };
     case "plugin:app|version": return "0.185.0";
     case "app_version": return "0.185.0";
     case "plugin:window|outer_size": return { width: 1680, height: 1200 };

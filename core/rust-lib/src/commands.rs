@@ -2343,6 +2343,16 @@ pub async fn get_sleep_status() -> Result<crate::sleep_status::SleepStatus, Stri
         .map_err(|e| format!("sleep-status task: {e}"))
 }
 
+/// Free space on the disk holding the home folder (footer, v0.195.0).
+/// `None` when no disk could be read. Off the main thread: refreshing the
+/// disk list touches every mount, and a sleeping network volume can stall.
+#[tauri::command]
+pub async fn get_free_space() -> Result<Option<crate::free_space::FreeSpace>, String> {
+    tauri::async_runtime::spawn_blocking(crate::free_space::current)
+        .await
+        .map_err(|e| format!("free-space task: {e}"))
+}
+
 /// Force-format paste — bypasses the `paste.plain_text_only` setting and
 /// always uses the entry's original content type. Wired to Shift+Enter
 /// in the popup as a one-shot override for users who normally paste as

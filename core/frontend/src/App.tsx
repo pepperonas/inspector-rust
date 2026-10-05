@@ -268,6 +268,7 @@ import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBr
 import { matchSettingsSection, suggestSettingsSections } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { useSleepStatus } from "./hooks/useSleepStatus";
+import { useFreeSpace } from "./hooks/useFreeSpace";
 import {
   describeSpec,
   isResizeQuery,
@@ -611,6 +612,7 @@ function App() {
   // polling — purely event-driven.
   // System sleep status for the footer (macOS; polls only while visible).
   const sleepStatus = useSleepStatus();
+  const freeSpace = useFreeSpace();
   const [wakelockActive, setWakelockActive] = useState(false);
   // Dark wake (v0.116.0): system awake, DISPLAY free to sleep — the footer's
   // clickable ☾ toggles it. Mutually exclusive with the full wakelock (both
@@ -6019,6 +6021,7 @@ function App() {
           trackingActive={trackStatusState.active}
           trackingPaused={trackStatusState.paused}
           sleepStatus={sleepStatus}
+          freeSpace={freeSpace}
           darkWake={darkWake}
           onDarkWakeToggle={() => {
             // Click semantics: off OR full → dark on (the user wants the

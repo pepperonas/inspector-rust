@@ -268,3 +268,25 @@ describe("Footer — dark-wake toggle", () => {
     expect(screen.queryByText("srv")).toBeNull();
   });
 });
+
+describe("Footer free space (v0.195.0)", () => {
+  const T = 494_384_795_648;
+  it("always shows the free space with System Settings' tooltip", () => {
+    render(<Footer index={0} total={1} freeSpace={{ name: "Macintosh HD", mount: "/", available: 186_000_000_000, total: T }} />);
+    const el = screen.getByTestId("free-space");
+    expect(el.textContent).toContain("186 GB frei");
+    expect(el.getAttribute("title")).toBe("Macintosh HD — 186,00 GB verfügbar von 494,38 GB");
+    expect(el.dataset.level).toBe("ok");
+  });
+  it("turns red when the disk is nearly full", () => {
+    render(<Footer index={0} total={1} freeSpace={{ name: "Macintosh HD", mount: "/", available: 3_900_000_000, total: T }} />);
+    const el = screen.getByTestId("free-space");
+    expect(el.textContent).toContain("3,9 GB frei");
+    expect(el.dataset.level).toBe("crit");
+    expect(el.className).toContain("text-red-500");
+  });
+  it("renders nothing until the first reading arrives", () => {
+    render(<Footer index={0} total={1} freeSpace={null} />);
+    expect(screen.queryByTestId("free-space")).toBeNull();
+  });
+});

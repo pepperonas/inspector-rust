@@ -3544,6 +3544,21 @@ export function getSleepStatus(): Promise<SleepStatus> {
   return invoke("get_sleep_status");
 }
 
+// ── Free disk space (footer, v0.195.0) ─────────────────────────────────────
+
+export interface FreeSpace {
+  /** Volume name as the OS shows it, e.g. "Macintosh HD". */
+  name: string;
+  mount: string;
+  /** Bytes available now (macOS: incl. purgeable, as in System Settings). */
+  available: number;
+  total: number;
+}
+
+export function getFreeSpace(): Promise<FreeSpace | null> {
+  return invoke("get_free_space");
+}
+
 // ── CRT popup animation duration (v0.113.0) ─────────────────────────────────
 
 export interface CrtAnimation {

@@ -84,16 +84,11 @@ export function ColorPickerModal({ open, onClose }: Props) {
       const hexUpper = hex.toUpperCase();
       setHexInput(hexUpper);
       setHexInputValid(true);
-      // Auto-copy the picked hex to the clipboard so the user can
-      // paste it immediately into wherever they were working —
-      // matches the macOS DigitalColorMeter / "screenshot to clipboard"
-      // muscle memory. setTimeout(0) defers the `setCopied(true)` past
-      // the same-tick HSV-changed effect that resets `copied` to false.
-      writeText(hexUpper)
-        .then(() => {
-          window.setTimeout(() => setCopied(true), 0);
-        })
-        .catch((err) => console.error("auto-copy on pick failed", err));
+      // The backend already put the hex on the clipboard (+ history) and
+      // hides the overlay — a pick ends the job, like the eyedropper hotkey
+      // (v0.197.0). setTimeout(0) defers `setCopied(true)` past the
+      // same-tick HSV-changed effect that resets `copied` to false.
+      window.setTimeout(() => setCopied(true), 0);
     }).then((u) => {
       if (cancelled) u();
       else unlisten = u;

@@ -3709,10 +3709,13 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
         ui.suppress_hide.store(true, Ordering::Relaxed);
     }
     if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
-        // Same multi-screen fix as run_eyedropper_pipeline — park the
-        // popup on the cursor's monitor before hiding so the
-        // NSColorSampler loupe appears on the right display in
-        // multi-monitor setups.
+        // Windows only: park the popup on the cursor's monitor before hiding.
+        // ⚠️ NOT on macOS (field report 2026-10-05: "nach dem Color Picker ist
+        // das Overlay verschoben"): the park MOVES the window, and a cancel
+        // re-shows it right there. The park existed for NSColorSampler, which
+        // drew its loupe on the app's last-active screen; the custom loupe
+        // finds the cursor's monitor itself.
+        #[cfg(not(target_os = "macos"))]
         crate::hotkey::park_on_cursor_monitor(&w);
         let _ = w.hide();
     }
@@ -3730,8 +3733,7 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
         let app_for_thread = app.clone();
         std::thread::spawn(move || {
             let result = crate::screen_picker::pick_color_blocking().ok();
-            let _ = app_for_thread.emit("color-picked", result);
-            clear_pick_suppress_hide(&app_for_thread);
+            finish_modal_pick(&app_for_thread, result);
         });
         Ok(())
     }
@@ -5005,6 +5007,27 @@ fn finish_loupe(app: &AppHandle) {
     }
 }
 
+/// End of a pick started from the colour modal's "pick from screen" button.
+///
+/// A picked colour ends the job, same as the global eyedropper hotkey: hex to
+/// clipboard + history (with the copy sound), and the overlay stays HIDDEN —
+/// re-showing it was what the user saw as "the overlay jumped" (2026-10-05).
+/// `color-picked` is still emitted so the modal records the colour; the
+/// `popup-hidden` that `hide_popup` emits closes it for the next open.
+/// A cancel brings the overlay back unchanged, so the user is back in the
+/// modal where they left it.
+fn finish_modal_pick(app: &AppHandle, hex: Option<String>) {
+    let _ = app.emit("color-picked", hex.clone());
+    match hex {
+        Some(h) => {
+            write_eyedropper_result(app, &h);
+            crate::hotkey::hide_popup(app);
+            clear_eyedropper_no_popup(app);
+        }
+        None => clear_pick_suppress_hide(app),
+    }
+}
+
 fn take_loupe_mode(app: &AppHandle) -> bool {
     app.try_state::<crate::color_loupe::LoupeState>()
         .and_then(|st| st.0.lock().take())
@@ -5016,8 +5039,7 @@ fn do_pick_loupe(app: &AppHandle, hex: String) {
     let event_mode = take_loupe_mode(app);
     finish_loupe(app);
     if event_mode {
-        let _ = app.emit("color-picked", hex);
-        clear_pick_suppress_hide(app);
+        finish_modal_pick(app, Some(hex));
     } else {
         write_eyedropper_result(app, &hex);
         clear_eyedropper_no_popup(app);
@@ -5028,8 +5050,7 @@ fn do_cancel_loupe(app: &AppHandle) {
     let event_mode = take_loupe_mode(app);
     finish_loupe(app);
     if event_mode {
-        let _ = app.emit("color-picked", Option::<String>::None);
-        clear_pick_suppress_hide(app);
+        finish_modal_pick(app, None);
     } else {
         clear_eyedropper_no_popup(app);
     }
@@ -8573,5 +8594,38 @@ mod main_thread_tests {
                 "{name} is a sync command again — it would block the main thread"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod color_pick_flow_tests {
+    const SRC: &str = include_str!("commands.rs");
+
+    fn body(name: &str) -> &'static str {
+        let start = SRC.find(&format!("fn {name}(")).expect("fn exists");
+        let rest = &SRC[start..];
+        &rest[..rest.find("\n}\n").expect("fn end")]
+    }
+
+    /// A pick from the modal ends the job: clipboard + hidden overlay. Only a
+    /// cancel brings the overlay back (field report 2026-10-05).
+    #[test]
+    fn a_modal_pick_hides_the_overlay_and_a_cancel_restores_it() {
+        let b = body("finish_modal_pick");
+        let some = &b[b.find("Some(h) =>").unwrap()..b.find("None =>").unwrap()];
+        assert!(some.contains("write_eyedropper_result"));
+        assert!(some.contains("hide_popup"));
+        assert!(!some.contains("clear_pick_suppress_hide"), "a pick must not re-show the overlay");
+        assert!(b[b.find("None =>").unwrap()..].contains("clear_pick_suppress_hide"));
+    }
+
+    /// macOS must not park (= move) the overlay before the pick, or a cancel
+    /// re-shows it somewhere else.
+    #[test]
+    fn the_macos_pick_never_moves_the_overlay() {
+        let b = body("pick_screen_color");
+        let park = b.find("park_on_cursor_monitor").expect("park still used off macOS");
+        let gate = b[..park].rfind("#[cfg(not(target_os = \"macos\"))]").expect("park is gated");
+        assert!(park - gate < 80, "the gate sits directly on the park call");
     }
 }

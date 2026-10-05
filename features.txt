@@ -50,7 +50,7 @@ OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, 
 Screenshot-Region — Ctrl+Shift+S: Bereich → Clipboard + schwebende Vorschau; auch Vollbild/Fenster/Timer (`shot`, `shotfull`, `shotwin`, `shotlast`)
 Screenshot-Editor — Pfeile, Text, Formen, Blur, Redact, Schritt-Badges; Pin-to-Screen-Fenster
 Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor
-Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard
+Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard; auch der „Vom Bildschirm“-Knopf im Farbwähler kopiert die gepickte Farbe und blendet das Overlay danach aus (Abbrechen bringt es unverschoben zurück) (v0.196.1)
 Finder-Auswahl — Ctrl+Shift+F: markierte Dateien im Popup; Bilder resizen/optimieren/freistellen
 Markdown→PDF — Ctrl+Shift+M oder `md2pdf [pfad]`: Finder-Auswahl oder Pfad, PDF gleichnamig im selben Ordner, überschreibt nie (belegt → `name 2.pdf` wie der Finder); mrxdown-Look mit echten A4-Seiten, Seitenzahlen, Syntax-Highlighting, KaTeX-Mathe, Mermaid, Callouts, eingebetteten Bildern und Titelseite aus dem Frontmatter
 Audio-Swap — Ctrl+Shift+Alt+M: Tonspur eines Videos ersetzen/mischen (Datei oder YouTube-Quelle)

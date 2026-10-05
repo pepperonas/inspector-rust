@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.196.1] - 2026-10-05
+
+### Fixed
+- **The overlay no longer moves after using the colour picker.** Picking from the colour modal's „pick from screen" button used to re-show the overlay somewhere else: before the pick it was moved to the screen under the cursor, a leftover from the old system sampler that the current loupe no longer needs.
+### Changed
+- **A picked colour now ends the job**, the same way as the eyedropper hotkey (Ctrl+Shift+C): the hex goes to the clipboard and history, and the overlay is hidden instead of coming back. Cancelling the pick (Esc) brings the overlay back where it was, with the modal still open.
+
 ## [0.196.0] - 2026-10-05
 
 ### Added

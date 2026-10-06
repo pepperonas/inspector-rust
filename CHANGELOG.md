@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.198.1] - 2026-10-06
+
+### Fixed
+- **Gestures and brightness survive the display going to sleep.** When only the screen slept (the Mac stayed awake), macOS reset the displays' colour tables — which is where the app's dimming lives — and the touchpad stopped sending touches; both stayed broken until the app was restarted. The app now listens for the screens waking, the system waking and display changes, and two seconds later re-applies the saved brightness and restarts the gesture capture.
+
 ## [0.198.0] - 2026-10-06
 
 ### Changed

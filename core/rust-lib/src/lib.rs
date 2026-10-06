@@ -4,6 +4,7 @@ mod adb;
 mod alarm;
 mod ambient_light;
 mod app_launcher;
+mod display_wake;
 mod audio;
 mod audio_swap;
 mod ai_tasks;
@@ -496,6 +497,9 @@ pub fn run(context: tauri::Context<Wry>) {
             // Re-apply the last-chosen brightness/EDR levels (gamma dies with
             // the process; without this every restart resets to 100 %).
             brightness::restore_saved(app.handle(), &db_handle);
+            // Display wake / system wake / display changes: macOS resets the
+            // gamma tables and can deafen the touchpad capture — re-apply both.
+            display_wake::install(app.handle());
 
             // Window palette (opt-in; off by default). macOS-only hover monitor.
             {

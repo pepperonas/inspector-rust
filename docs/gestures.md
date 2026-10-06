@@ -139,6 +139,7 @@ A volume or mute gesture shows the volume overlay. It stays **2.2 s** after the 
 
 The private MultitouchSupport registration can go deaf — after sleep, a display change, or with no visible cause. A watchdog thread (`ir-gestures-wake`, every 15 s) rebuilds the capture when:
 
+- **(v0.198.1)** macOS reports the screens waking, the system waking, or a display change (`display_wake.rs`, 2 s after the last notification of a burst) — a display-only sleep never moves the clocks, so the check below can't see it, or
 - the system slept (wall clock jumped past the monotonic clock), or
 - a **trackpad** scroll (non-zero scroll phase) produced no touch frames, or
 - **(v0.197.1)** the HID system saw a scroll that the app's own scroll tap missed while no touch frames arrive. Needed because the trackpad-scroll proof comes from that tap: when tap and touch registration die together, the proof never arrives. A wheel mouse can't trigger this — a working tap sees its scrolls too.

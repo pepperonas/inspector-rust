@@ -131,6 +131,20 @@ From each class the 10th and 90th percentile are taken (nearest rank). A thresho
 
 The proposal lists only the values that change (current → proposed) and the warnings. **Nothing is saved until you press *Übernehmen***; it is then applied onto the current thresholds, so a slider moved during the calibration keeps its value. The device that saw most of the calibration is the one measured; the classification thresholds apply to every device (only the edge zones are per profile). The recording behind a calibration stays in memory and is never written to disk. The calculation is pure (`gestures/calibrate.rs`) and tested on synthetic sessions, including that the proposal classifies the session it came from.
 
+## Volume overlay (v0.198.0)
+
+A volume or mute gesture shows the volume overlay. It stays **2.2 s** after the last gesture (was 1.1 s) and **never closes while the mouse pointer rests on it**; after the pointer leaves it stays 3 more seconds. Clicking or dragging the bar sets the volume (v0.197.0). The hover state comes from the Rust mouse gate (`status-toast-hover` event), not from DOM `pointerleave`, which the webview can miss once the window turns click-through again.
+
+## Self-healing capture (macOS)
+
+The private MultitouchSupport registration can go deaf — after sleep, a display change, or with no visible cause. A watchdog thread (`ir-gestures-wake`, every 15 s) rebuilds the capture when:
+
+- the system slept (wall clock jumped past the monotonic clock), or
+- a **trackpad** scroll (non-zero scroll phase) produced no touch frames, or
+- **(v0.197.1)** the HID system saw a scroll that the app's own scroll tap missed while no touch frames arrive. Needed because the trackpad-scroll proof comes from that tap: when tap and touch registration die together, the proof never arrives. A wheel mouse can't trigger this — a working tap sees its scrolls too.
+
+Rebuilds back off from 60 s to 15 min while frames stay away; every rebuild logs one line (`rebuilding the touch capture`).
+
 ## What existed before the pipeline (macOS)
 
 | Filter | What it does |

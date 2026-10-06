@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.198.0] - 2026-10-06
+
+### Changed
+- **The volume overlay stays twice as long after a touchpad gesture** — 2.2 s instead of 1.1 s after the last swipe or tap, so the level can actually be read.
+
+### Added
+- **The volume overlay doesn't close while the mouse is on it.** It stays as long as the pointer rests on the card and lingers 3 more seconds after the pointer leaves; moving onto it also stops a fade that already started.
+
 ## [0.197.1] - 2026-10-06
 
 ### Fixed

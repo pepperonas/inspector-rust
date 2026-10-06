@@ -3,14 +3,14 @@ import { render, screen, cleanup, act } from "@testing-library/react";
 import type { StatusToast as Payload } from "../lib/ipc";
 
 const { getStatusToast, hideStatusToast, setSystemVolume, statusToastHitRect, statusToastReleaseFocus, listen, live } = vi.hoisted(() => {
-  const live = new Set<{ event: string; handler: () => void }>();
+  const live = new Set<{ event: string; handler: (e?: unknown) => void }>();
   return {
     getStatusToast: vi.fn<() => Promise<Payload | null>>(async () => null),
     hideStatusToast: vi.fn(async () => undefined),
     setSystemVolume: vi.fn(async (l: number) => l),
     statusToastHitRect: vi.fn(async (_r: unknown) => undefined),
     statusToastReleaseFocus: vi.fn(async () => undefined),
-    listen: vi.fn(async (event: string, handler: () => void) => {
+    listen: vi.fn(async (event: string, handler: (e?: unknown) => void) => {
       const sub = { event, handler };
       live.add(sub);
       return () => void live.delete(sub);
@@ -29,6 +29,7 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
 }));
 
 import { StatusToast } from "./StatusToast";
+import { HOLD_MS_GESTURE, HOLD_AFTER_MOUSE_MS, HOVER_EVENT } from "../lib/volume-hud";
 
 const toast = (over: Partial<Payload> = {}): Payload => ({
   kind: "timer",
@@ -168,7 +169,7 @@ describe("StatusToast — persistent volume / mute HUD", () => {
     await mount(vol("45"));
     expect(document.querySelector(".vol-overlay-in")).toBeTruthy();
 
-    await advance(1100); // the shorter persistent hold
+    await advance(HOLD_MS_GESTURE); // the gesture hold
     expect(hideStatusToast).not.toHaveBeenCalled(); // fade first …
     expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
 
@@ -197,8 +198,9 @@ describe("StatusToast — persistent volume / mute HUD", () => {
     await advance(1000);
     await retrigger(vol("40"));
 
-    await advance(1000); // 2000 total, 1000 since the last trigger
+    await advance(HOLD_MS_GESTURE - 100); // well past the hold from the FIRST trigger
     expect(hideStatusToast).not.toHaveBeenCalled();
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
 
     await advance(100); // remainder of the hold, measured from the re-trigger
     expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
@@ -218,7 +220,7 @@ describe("StatusToast — persistent volume / mute HUD", () => {
 
   it("cancels a pending fade-out when a new trigger arrives mid-exit", async () => {
     await mount(vol("30"));
-    await advance(1100);
+    await advance(HOLD_MS_GESTURE);
     expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
 
     await retrigger(vol("60"));
@@ -227,6 +229,60 @@ describe("StatusToast — persistent volume / mute HUD", () => {
 
     await advance(259);
     expect(hideStatusToast).not.toHaveBeenCalled(); // the old fade did NOT hide us
+  });
+});
+
+/** The Rust mouse gate reported the pointer entering / leaving the card. */
+async function hover(inside: boolean) {
+  await act(async () => {
+    for (const sub of [...live]) if (sub.event === HOVER_EVENT) sub.handler({ payload: inside });
+    await Promise.resolve();
+  });
+}
+
+describe("StatusToast — gesture hold + hover (2026-10-06)", () => {
+  const vol = (title: string) => toast({ kind: "volume", title, subtitle: "" });
+
+  it("a gesture HUD stays twice as long as before (2.2 s)", async () => {
+    expect(HOLD_MS_GESTURE).toBe(2200);
+    await mount(vol("45"));
+    await advance(HOLD_MS_GESTURE - 1);
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    await advance(1);
+    expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
+  });
+
+  it("never closes while the pointer rests on it, then lingers after leaving", async () => {
+    await mount(vol("45"));
+    await hover(true);
+    await advance(60_000);
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    expect(hideStatusToast).not.toHaveBeenCalled();
+
+    await hover(false);
+    await advance(HOLD_AFTER_MOUSE_MS - 1);
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    await advance(1);
+    expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
+  });
+
+  it("hovering cancels a fade that already started", async () => {
+    await mount(vol("45"));
+    await advance(HOLD_MS_GESTURE);
+    expect(document.querySelector(".vol-overlay-out")).toBeTruthy();
+    await hover(true);
+    expect(document.querySelector(".vol-overlay-out")).toBeNull();
+    await advance(10_000);
+    expect(hideStatusToast).not.toHaveBeenCalled();
+  });
+
+  it("the event name matches the Rust gate", async () => {
+    const { readFileSync } = (await import("node:" + "fs")) as unknown as {
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const cwd = (globalThis as unknown as { process: { cwd(): string } }).process.cwd();
+    const rs = readFileSync(cwd + "/../rust-lib/src/status_toast.rs", "utf8");
+    expect(rs).toContain(`pub const HOVER_EVENT: &str = "${HOVER_EVENT}";`);
   });
 });
 
@@ -249,9 +305,9 @@ describe("StatusToast — resilience", () => {
     expect(screen.getByText("TIMER SET")).toBeTruthy();
   });
 
-  it("detaches its listener on unmount", async () => {
+  it("detaches its listeners on unmount", async () => {
     const { unmount } = await mount(toast());
-    expect(live.size).toBe(1);
+    expect(live.size).toBe(2); // status-toast-changed + the hover event
     unmount();
     await act(async () => {});
     expect(live.size).toBe(0);
@@ -321,7 +377,7 @@ describe("StatusToast — the window is never hidden, only emptied (2026-09-28)"
   const bodyText = () => document.body.textContent ?? "";
   it("a dismissed volume HUD leaves no visible content behind", async () => {
     await mount(vol("45"));
-    await advance(1100);
+    await advance(HOLD_MS_GESTURE);
     await advance(260);
     expect(hideStatusToast).toHaveBeenCalledTimes(1);
     expect(document.querySelector(".vol-card")).toBeNull();
@@ -337,7 +393,7 @@ describe("StatusToast — the window is never hidden, only emptied (2026-09-28)"
 
   it("the next gesture after a dismiss draws a fresh HUD in the same window", async () => {
     await mount(vol("30"));
-    await advance(1100);
+    await advance(HOLD_MS_GESTURE);
     await advance(260);
     expect(document.querySelector(".vol-card")).toBeNull();
 

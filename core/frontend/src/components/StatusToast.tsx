@@ -29,6 +29,8 @@ import {
 import {
   DRAG_SET_EVERY_MS,
   digitColumns,
+  HOLD_MS_GESTURE,
+  HOVER_EVENT,
   holdMs,
   levelFromPointer,
   rollDirection,
@@ -51,8 +53,6 @@ import {
 
 const HOLD_MS = 1600;
 const HOLD_MS_RANDOM = 3600;
-/** Persistent toasts linger this long after the LAST re-trigger, then fade. */
-const HOLD_MS_PERSISTENT = 1100;
 /** Must match `statusToastOut` in styles.css. */
 const OUT_MS = 260;
 
@@ -71,6 +71,11 @@ export function StatusToast() {
   const [dragging, setDragging] = useState(false);
   const [holdKey, setHoldKey] = useState(0);
   const mouseRef = useRef(false);
+  // Pointer over the card (2026-10-06): the HUD never fades while hovered.
+  // The truth comes from the Rust mouse gate, which already polls the pointer
+  // against the card — DOM pointerleave can be lost, because the gate turns
+  // the window click-through again the moment the pointer leaves the card.
+  const [hovering, setHovering] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -93,9 +98,24 @@ export function StatusToast() {
     };
     refresh();
     const un = listen("status-toast-changed", refresh);
+    const unHover = listen<boolean>(HOVER_EVENT, (e) => {
+      if (!alive) return;
+      const inside = e?.payload === true;
+      setHovering(inside);
+      // Hovering catches a fade that already started.
+      if (inside && visibleRef.current) setExiting(false);
+      // Leaving restarts the after-mouse hold, so it never vanishes the
+      // instant the pointer slips off.
+      if (!inside && visibleRef.current) {
+        mouseRef.current = true;
+        setExiting(false);
+        setHoldKey((k) => k + 1);
+      }
+    });
     return () => {
       alive = false;
       void un.then((f) => f());
+      void unHover.then((f) => f());
     };
   }, []);
 
@@ -108,6 +128,7 @@ export function StatusToast() {
   const dismiss = () => {
     visibleRef.current = false;
     mouseRef.current = false;
+    setHovering(false);
     payloadRef.current = null;
     setPayload(null);
     setExiting(false);
@@ -119,8 +140,9 @@ export function StatusToast() {
   useEffect(() => {
     if (tick === 0 || dragging) return;
     const persistent = isPersistent(payloadRef.current?.kind);
+    if (persistent && hovering) return; // the pointer rests on it — stay
     const hold = persistent
-      ? holdMs(mouseRef.current, HOLD_MS_PERSISTENT)
+      ? holdMs(mouseRef.current, HOLD_MS_GESTURE)
       : payloadRef.current?.kind === "random"
         ? HOLD_MS_RANDOM
         : HOLD_MS;
@@ -132,7 +154,7 @@ export function StatusToast() {
       }
     }, hold);
     return () => window.clearTimeout(t);
-  }, [tick, holdKey, dragging]);
+  }, [tick, holdKey, dragging, hovering]);
 
   /** Any mouse contact with the HUD: keep it, restart the (now 3 s) timer. */
   const touch = () => {

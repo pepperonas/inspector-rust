@@ -280,6 +280,9 @@ pub fn cocoa_to_local(mx: f64, my: f64, fx: f64, fy: f64, fh: f64) -> (f64, f64)
 static HIT_RECT: Mutex<Option<HitRect>> = Mutex::new(None);
 static GATE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 const GATE_TICK_MS: u64 = 33;
+/// Emitted on every enter/leave of the card; mirrors `HOVER_EVENT` in
+/// `lib/volume-hud.ts`.
+pub const HOVER_EVENT: &str = "status-toast-hover";
 
 /// Set (or clear with `None`) the clickable rect. Starts the gate when needed;
 /// clearing makes the window click-through again on the next tick.
@@ -312,10 +315,17 @@ pub fn set_hit_rect(app: &AppHandle, rect: Option<HitRect>) {
                 if let Some(w) = app.get_webview_window(TOAST_LABEL) {
                     let _ = w.set_ignore_cursor_events(!inside);
                 }
+                // The HUD stays while hovered (2026-10-06). The frontend can't
+                // rely on DOM pointerleave: this gate makes the window
+                // click-through the moment the pointer leaves the card.
+                let _ = app.emit(HOVER_EVENT, inside);
             }
         }
         if let Some(w) = app.get_webview_window(TOAST_LABEL) {
             let _ = w.set_ignore_cursor_events(true);
+        }
+        if inside_last == Some(true) {
+            let _ = app.emit(HOVER_EVENT, false);
         }
         GATE_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
         // A rect set while we were shutting down needs a fresh gate.

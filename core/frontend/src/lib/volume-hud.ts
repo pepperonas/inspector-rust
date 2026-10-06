@@ -34,6 +34,14 @@ export function waveIntensity(level: number): number {
 
 // ── Mouse control (v0.197.0) ────────────────────────────────────────────────
 
+/**
+ * How long the volume/mute HUD lingers after the last gesture (2026-10-06:
+ * doubled from 1100 on request — the readout vanished before it was read).
+ * Only touchpad gestures raise this HUD, so this IS the gesture hold.
+ */
+export const HOLD_MS_GESTURE = 2200;
+/** The hover event the Rust mouse gate emits on every enter/leave of the card. */
+export const HOVER_EVENT = "status-toast-hover";
 /** After the mouse touched the HUD it stays this long before fading. */
 export const HOLD_AFTER_MOUSE_MS = 3000;
 /** While dragging, the system volume is set at most this often. */

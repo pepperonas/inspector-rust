@@ -88,7 +88,7 @@
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~215k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~216k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2014 Rust + 3170 Frontend, alle grün">
@@ -245,7 +245,7 @@
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
   [![Rust LoC](https://img.shields.io/badge/Rust-~113k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~103k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-202-0ea5e9?style=flat-square)](./features.txt)
+  [![Features](https://img.shields.io/badge/features-203-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
   [![Audio presets](https://img.shields.io/badge/boom-20%20EQ%20presets-1DB954?style=flat-square)](#)
   [![Material colours](https://img.shields.io/badge/snippets-255%20colours-blueviolet?style=flat-square)](#)
@@ -413,7 +413,7 @@
   [![Espresso-betrieben](https://img.shields.io/badge/angetrieben%20von-Espresso-6F4E37?style=flat-square)](#)
   [![Zero Config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
   [![Kein Account](https://img.shields.io/badge/account-nicht%20nötig-brightgreen?style=flat-square)](#)
-  [![100+ Features](https://img.shields.io/badge/features-202%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-203%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](https://img.shields.io/badge/versteckt-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
   [![Auf LinkedIn teilen](https://img.shields.io/badge/teilen%20auf-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 

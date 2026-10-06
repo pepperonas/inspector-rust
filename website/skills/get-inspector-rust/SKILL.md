@@ -6,7 +6,7 @@ license: MIT
 
 # Get Inspector Rust
 
-Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 72 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
+Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 73 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
 
 ## 1. Find the newest release
 

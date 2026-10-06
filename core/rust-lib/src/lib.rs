@@ -101,6 +101,7 @@ mod snippet_template;
 mod snippets;
 #[cfg(target_os = "macos")]
 mod snitch;
+mod pulse;
 mod speedtest;
 mod social_dl;
 mod sound;
@@ -487,6 +488,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // System-stats history: always-on lightweight background sampler so
             // the Stats panel can show a "last hours / days" view.
             stats_history::start_collector(db_handle.clone());
+            pulse::sampler::start(db_handle.clone());
 
             // Cloud sync with cue (snippets, opt-in via Settings).
             sync::start(app.handle().clone(), db_handle.clone());
@@ -1069,6 +1071,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::speedtest_running,
             commands::speedtest_history,
             commands::speedtest_clear_history,
+            commands::pulse_live,
+            commands::pulse_history,
+            commands::get_pulse_config,
+            commands::set_pulse_config,
             commands::fx_rates,
             commands::mailcheck_run,
             commands::btsniff_open_file,

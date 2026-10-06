@@ -72,6 +72,9 @@ const SpeedtestPanel = lazy(() =>
 );
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
 const TasksPanel = lazy(() => import("./components/TasksPanel").then((m) => ({ default: m.TasksPanel })));
+const PulsePanel = lazy(() =>
+  import("./components/PulsePanel").then((m) => ({ default: m.PulsePanel })),
+);
 const ClaudeLimitsPanel = lazy(() =>
   import("./components/ClaudeLimitsPanel").then((m) => ({ default: m.ClaudeLimitsPanel })),
 );
@@ -94,7 +97,6 @@ import {
   type FigletDefaults,
   type FigletOpts,
 } from "./lib/figlet";
-import { bannerPngBase64, themePngColors } from "./lib/figlet-png";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -513,6 +515,8 @@ function App() {
   const [aliasMode, setAliasMode] = useState(false);
   const [aliasFocus, setAliasFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
+  const [pulseMode, setPulseMode] = useState(false);
+  const [pulseFocus, setPulseFocus] = useState(false);
   const [limitsMode, setLimitsMode] = useState(false);
   const [limitsFocus, setLimitsFocus] = useState(false);
   // task / ki (AI tasks) — show-while-typed; Enter hands focus to the panel.
@@ -1567,6 +1571,17 @@ function App() {
     }
   }, [isTaskCmd, taskMode]);
 
+  const isPulseCmd = parsedCommand?.spec.kind === "pulse";
+  useEffect(() => {
+    // Show-while-typed: the panel only reads the sampler's RAM ring.
+    if (isPulseCmd && !pulseMode) {
+      setPulseMode(true);
+    } else if (!isPulseCmd && pulseMode) {
+      setPulseMode(false);
+      setPulseFocus(false);
+    }
+  }, [isPulseCmd, pulseMode]);
+
   const isLimitsCmd = parsedCommand?.spec.kind === "limits";
   useEffect(() => {
     // Show-while-typed: the panel only reads a cache unless the poll is due.
@@ -2248,6 +2263,10 @@ function App() {
         hint = arg
           ? "Enter → Editor mit dieser Beschreibung; die KI schreibt das Skript"
           : "Enter → Tasks verwalten: KI schreibt Skripte, du gibst frei, sie laufen automatisch";
+        break;
+      case "pulse":
+        label = "Speicherdruck & SSD-Schreiblast";
+        hint = "Live-Status und Historie — Enter: ←/→ Ansicht, Esc zurück";
         break;
       case "limits":
         label = "Claude-Limits";
@@ -3810,6 +3829,8 @@ function App() {
     setDiskFocus(false);
     setSpeedtestMode(false);
     setSpeedtestFocus(false);
+    setPulseMode(false);
+    setPulseFocus(false);
     setBtsniffMode(false);
     setBtsniffFocus(false);
     setMailcheckMode(false);
@@ -3958,7 +3979,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4609,6 +4630,10 @@ function App() {
         setTaskMode(true);
         setTaskFocus(true);
         return true;
+      } else if (commandKind === "pulse") {
+        setPulseMode(true);
+        setPulseFocus(true);
+        return true;
       } else if (commandKind === "limits") {
         setLimitsMode(true);
         setLimitsFocus(true);
@@ -4895,6 +4920,9 @@ function App() {
           const banner = await figletRender(figletParsed.text, target.data.name, figletOpts);
           if (!banner.text.trim()) return; // nothing to render (empty/all-unsupported)
           if (shiftKey) {
+            // Loaded on demand: only the PNG export needs it, and the
+            // start-up chunk has a size budget (scripts/check-bundle.mjs).
+            const { bannerPngBase64, themePngColors } = await import("./lib/figlet-png");
             const png = bannerPngBase64(banner.text, themePngColors(metaKey));
             if (!png) return;
             if (metaKey) {
@@ -5064,6 +5092,7 @@ function App() {
       !benchFocus &&
       !tokensFocus &&
       !limitsFocus &&
+      !pulseFocus &&
       !taskFocus &&
       !retroFocus &&
       !calendarFocus &&
@@ -5779,6 +5808,21 @@ function App() {
                         setQuery("");
                         setSettingsJump({ id: "ai", nonce: Date.now() });
                         setActiveTab("settings");
+                      }}
+                    />
+                  </div>
+                ) : pulseMode ? (
+                  <div className="md3-pop-in h-full">
+                    <PulsePanel
+                      focused={pulseFocus}
+                      onOpenSettings={() => {
+                        setSettingsJump({ id: "pulse", nonce: Date.now() });
+                        setActiveTab("settings");
+                      }}
+                      onExit={() => {
+                        setPulseMode(false);
+                        setPulseFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />
                   </div>

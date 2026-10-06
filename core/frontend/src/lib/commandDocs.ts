@@ -1937,6 +1937,35 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["ip", "snitch"],
   },
   {
+    command: "pulse",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.200.0",
+    tagline: "Memory pressure, swap and SSD writes — live and as history, with causers and an endurance forecast (macOS).",
+    tagline_de: "Speicherdruck, Swap und SSD-Schreiblast — live und als Verlauf, mit Verursachern und Lebensdauer-Prognose (macOS).",
+    synopsis: "pulse",
+    description:
+      "A background sampler (on by default, starts with the app) reads memory pressure, swap, the VM counters (swap-outs/ins, compressions) and the internal SSD's write/read counters every 5 s, and the processes' memory footprint and disk writes every 30 s — directly from the kernel, no shell commands. The panel shows the live pressure level, swap used/total, the current rates, 15-minute sparklines and the five biggest consumers grouped by app (Gradle/Kotlin daemons, Docker and browser helpers fold together). The history (1 h · 24 h · 7 d · 30 d · 90 d) shows the pressure as a coloured band, SSD writes per hour/day with the estimated swap share, day cards and an endurance forecast against the drive's TBW rating. Raw samples stay in RAM for an hour; minute aggregates are kept 7 days, 15-minute ones 90 days, days forever, in a separate pulse.db written once a minute.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "pulse", result: "Live: pressure level, swap, swap-out and SSD write rates, top consumers." },
+      { input: "pulse", note: "then Enter and →", result: "Switches to the history; keys 1–5 pick 1 h … 90 d." },
+      { input: "pulse", note: "Settings → Pulse", result: "Turn sampling off, enable the red-pressure notification, set your drive's TBW." },
+    ],
+    tips: [
+      "The swap share of the SSD writes is the number to watch: a large share means RAM is short, not that an app writes a lot.",
+      "Install smartmontools (brew install smartmontools) to see the drive's own wear percentage and lifetime writes; the forecast then counts down from them.",
+    ],
+    caveats: [
+      "Swap is written by the kernel and can't be attributed to a process; per-process write rates exclude it.",
+      "Without admin rights, processes of other users (root daemons, kernel_task) can't be read.",
+      "The forecast is an estimate from your 30-day average and the rated TBW (default 600 TB per TB of capacity) — real drives often outlast their rating.",
+    ],
+    related: ["stats", "disk", "clean"],
+    see_also: "docs/pulse.md",
+  },
+  {
     command: "track",
     aliases: [],
     category: CAT_PROD,

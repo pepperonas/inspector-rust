@@ -4483,3 +4483,144 @@ export function aiTaskRunNow(id: number): Promise<AiTaskRun | null> {
 export function aiTaskRuns(id: number, limit?: number): Promise<AiTaskRun[]> {
   return invoke("ai_task_runs", { id, limit: limit ?? null });
 }
+
+// ── pulse (backend pulse/) ─────────────────────────────────────────────────
+
+/** One 5-s sample from the pulse sampler. Rates per second. */
+export interface PulseSample {
+  ts: number;
+  dur: number;
+  /** 1 normal, 2 warn, 4 critical (0 unknown). */
+  pressure: number;
+  swap_used: number;
+  swap_total: number;
+  swapout_bps: number;
+  swapin_bps: number;
+  pageout_bps: number;
+  compress_ps: number;
+  decompress_ps: number;
+  ssd_write_bps: number;
+  ssd_read_bps: number;
+  /** Estimated swap share of the SSD writes. */
+  swap_write_bps: number;
+  cpu_pct: number | null;
+  thermal: number;
+  wired: number;
+  active: number;
+  inactive: number;
+  free: number;
+  compressor: number;
+}
+
+export interface PulseGroup {
+  name: string;
+  footprint: number;
+  write_bps: number;
+  procs: number;
+}
+
+export interface PulseOverhead {
+  samples: number;
+  sample_avg_ms: number;
+  sample_max_ms: number;
+  scans: number;
+  scan_avg_ms: number;
+  scan_max_ms: number;
+  rows_written: number;
+  cpu_secs: number;
+  cpu_pct: number;
+  running_secs: number;
+}
+
+export interface PulseSmart {
+  percentage_used: number | null;
+  data_written_bytes: number | null;
+  model: string | null;
+  at: number;
+}
+
+export interface PulseLive {
+  supported: boolean;
+  enabled: boolean;
+  latest: PulseSample | null;
+  recent: PulseSample[];
+  groups: PulseGroup[];
+  groups_at: number;
+  unreadable: number;
+  disk_found: boolean;
+  capacity: number | null;
+  overhead: PulseOverhead;
+  db_bytes: number;
+  smart: PulseSmart | null;
+  smartctl_present: boolean | null;
+  last_error: string | null;
+}
+
+export interface PulseCauser {
+  name: string;
+  written: number;
+  peak_footprint: number;
+}
+
+/** One aggregate bucket (1 min, 15 min, hour or day). */
+export interface PulseAgg {
+  ts: number;
+  secs: number;
+  p_normal: number;
+  p_warn: number;
+  p_crit: number;
+  swap_min: number;
+  swap_avg: number;
+  swap_max: number;
+  swap_total: number;
+  written: number;
+  read: number;
+  swap_written: number;
+  swapped_in: number;
+  compressions: number;
+  cpu_avg: number | null;
+  causers: PulseCauser[];
+}
+
+export interface PulseForecast {
+  tbw_bytes: number;
+  per_day: number;
+  days: number;
+  lifetime_written: number | null;
+  years: number | null;
+}
+
+export type PulseRange = "1h" | "24h" | "7d" | "30d" | "90d";
+
+export interface PulseHistory {
+  range: PulseRange;
+  bucket_secs: number;
+  buckets: PulseAgg[];
+  total: PulseAgg;
+  days: PulseAgg[];
+  forecast: PulseForecast | null;
+}
+
+export interface PulseConfig {
+  enabled: boolean;
+  notify: boolean;
+  notify_minutes: number;
+  /** 0 = automatic (600 TB per TB of capacity). */
+  tbw_tb: number;
+}
+
+export function pulseLive(): Promise<PulseLive> {
+  return invoke("pulse_live");
+}
+
+export function pulseHistory(range: PulseRange): Promise<PulseHistory> {
+  return invoke("pulse_history", { range });
+}
+
+export function getPulseConfig(): Promise<PulseConfig> {
+  return invoke("get_pulse_config");
+}
+
+export function setPulseConfig(config: PulseConfig): Promise<PulseConfig> {
+  return invoke("set_pulse_config", { config });
+}

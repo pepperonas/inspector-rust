@@ -103,6 +103,7 @@ export type CommandKind =
   | "ip"
   | "speedtest"
   | "tokens"
+  | "pulse"
   | "limits"
   | "task"
   | "track"
@@ -976,6 +977,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "ip",
     description: "Show your public IP, approximate location, network and map",
     requiresArg: false,
+  },
+  {
+    kind: "pulse",
+    keyword: "pulse",
+    syntax: "pulse",
+    description: "Memory pressure, swap and SSD writes — live, with history, causers and an endurance forecast",
+    requiresArg: false,
+    platform: ["mac"],
   },
   {
     kind: "speedtest",

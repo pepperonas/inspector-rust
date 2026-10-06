@@ -8328,6 +8328,37 @@ pub fn speedtest_clear_history(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::speedtest::history_clear(&db).map_err(|e| e.to_string())
 }
 
+/// `pulse`: live memory-pressure / swap / SSD-write state from the RAM ring.
+#[tauri::command]
+pub fn pulse_live() -> crate::pulse::sampler::PulseLive {
+    crate::pulse::sampler::live()
+}
+
+/// `pulse`: aggregated history for "1h" | "24h" | "7d" | "30d" | "90d".
+#[tauri::command]
+pub async fn pulse_history(range: String) -> Result<crate::pulse::sampler::PulseHistory, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::pulse::sampler::history(&range))
+        .await
+        .map_err(|e| format!("pulse task: {e}"))?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+pub fn get_pulse_config() -> crate::pulse::sampler::PulseConfig {
+    crate::pulse::sampler::config()
+}
+
+#[tauri::command]
+pub fn set_pulse_config(
+    db: State<'_, DbHandle>,
+    config: crate::pulse::sampler::PulseConfig,
+) -> Result<crate::pulse::sampler::PulseConfig, String> {
+    let cfg = config.normalized();
+    cfg.save(&db).map_err(|e| e.to_string())?;
+    crate::pulse::sampler::apply_config(cfg.clone());
+    Ok(cfg)
+}
+
 /// Fetch the caller's public IP and approximate ISP geolocation.
 #[tauri::command]
 pub async fn ip_fetch() -> Result<crate::ip::IpReport, String> {

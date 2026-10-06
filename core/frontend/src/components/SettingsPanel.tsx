@@ -1,11 +1,12 @@
 import { CellCountField } from "./CellCountField";
 import { AiProvidersSection } from "./AiProvidersSection";
-import { appVersion as fetchAppVersion } from "../lib/ipc";
+import { appVersion as fetchAppVersion, getPulseConfig, setPulseConfig, type PulseConfig } from "../lib/ipc";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
+  Activity,
   AlertTriangle,
   Archive,
   Cloud,
@@ -2882,6 +2883,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         )
     ),
         /* Bruno defaults — German income-tax calculator personal params */
+    "pulse": (
+        IS_MAC && (
+          <div className="mb-6">
+            <PulseSettingsSection />
+          </div>
+        )
+    ),
+        /* Bruno defaults — German income-tax calculator personal params */
     "bruno": (
         <div className="mb-6">
           <BrunoSection />
@@ -3652,6 +3661,108 @@ function CategoryRulesList() {
 
 /** Popup behavior — top of the panel: does clicking outside close the
  *  overlay? (Persisted `popup.close_on_blur`, live effect via UiState.) */
+/** Settings → Pulse (memory pressure / SSD writes sampler). Saved live. */
+function PulseSettingsSection() {
+  const [cfg, setCfg] = useState<PulseConfig | null>(null);
+  const [tbw, setTbw] = useState("");
+
+  useEffect(() => {
+    void getPulseConfig()
+      .then((c) => {
+        setCfg(c);
+        setTbw(c.tbw_tb > 0 ? String(c.tbw_tb) : "");
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!cfg) return null;
+
+  const save = async (next: PulseConfig) => {
+    setCfg(next); // optimistic
+    try {
+      setCfg(await setPulseConfig(next));
+    } catch {
+      setCfg(cfg);
+    }
+  };
+
+  const box = "mt-0.5 accent-[var(--color-accent)]";
+  const field =
+    "w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-[var(--font-mono)] text-[12px]";
+
+  return (
+    <Section
+      icon={<Activity size={16} className="text-[var(--color-accent)]" />}
+      id="pulse"
+      title="Pulse"
+      subtitle="Background monitoring of memory pressure, swap and SSD writes (`pulse` command). Raw samples stay in RAM; one aggregate row a minute goes to a separate pulse.db."
+    >
+      <label className="flex cursor-pointer items-start gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          checked={cfg.enabled}
+          onChange={(e) => void save({ ...cfg, enabled: e.target.checked })}
+          className={box}
+        />
+        <span>
+          <span className="font-medium">Measure in the background</span>
+          <span className="mt-0.5 block text-[var(--color-muted)]">
+            Every 5 s system counters, every 30 s the processes. Off → nothing is read or written.
+          </span>
+        </span>
+      </label>
+      <label className="mt-3 flex cursor-pointer items-start gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          checked={cfg.notify}
+          disabled={!cfg.enabled}
+          onChange={(e) => void save({ ...cfg, notify: e.target.checked })}
+          className={box}
+        />
+        <span>
+          <span className="font-medium">Notify when memory pressure stays red</span>
+          <span className="mt-0.5 block text-[var(--color-muted)]">
+            After{" "}
+            <input
+              type="number"
+              min={1}
+              max={240}
+              value={cfg.notify_minutes}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n >= 1) void save({ ...cfg, notify_minutes: Math.round(n) });
+              }}
+              className={field}
+              aria-label="Minuten bis zur Benachrichtigung"
+            />{" "}
+            minutes, naming the biggest consumer — at most once an hour.
+          </span>
+        </span>
+      </label>
+      <div className="mt-3 text-[12px]">
+        <span className="font-medium">SSD endurance (TBW)</span>
+        <div className="mt-1 flex items-center gap-2 text-[var(--color-muted)]">
+          <input
+            type="number"
+            min={0}
+            step={50}
+            value={tbw}
+            placeholder="auto"
+            onChange={(e) => setTbw(e.target.value)}
+            onBlur={() => {
+              const n = Number(tbw);
+              void save({ ...cfg, tbw_tb: Number.isFinite(n) && n > 0 ? n : 0 });
+            }}
+            className={field}
+            aria-label="TBW in Terabyte"
+          />
+          <span>TB · empty = automatic (600 TB per TB of capacity). Only used for the forecast.</span>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function PopupBehaviorSection() {
   const [closeOnBlur, setCloseOnBlurState] = useState<boolean | null>(null);
 

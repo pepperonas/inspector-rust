@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.200.0] - 2026-10-07
+
+### Added
+- **`pulse` — memory pressure, swap and SSD writes, measured in the background (macOS).** A sampler starts with the app and reads the memory pressure, swap, the kernel's swap and compression counters and the internal SSD's write counter every 5 seconds, and every process's memory footprint and disk writes every 30 seconds — directly from the system, without running any commands. Type `pulse` to see it: the live view shows the pressure (green, yellow, red), how much swap is in use, how fast the Mac is swapping and writing to the SSD (with the estimated swap share), a 15-minute history and the five biggest memory consumers, grouped by app (Gradle and Kotlin daemons, Docker and browser helpers are folded together; processes started in a terminal are shown by their own name). The history covers 1 hour to 90 days: the pressure as a coloured band, SSD writes per hour or day with the swap share highlighted, day cards (written, of which swap, minutes in the red, main consumer) and an estimate of the SSD's remaining life against its rated endurance. Raw samples stay in memory for an hour; the app writes one summary row a minute to a separate database (minutes kept 7 days, quarter hours 90 days, days forever). Optional notification when the pressure stays red. Settings → Pulse. Measured cost: 0.09 % of one CPU core for the sampler, about 12 KB of database writes a minute. Details: [docs/pulse.md](./docs/pulse.md).
+
 ## [0.199.1] - 2026-10-06
 
 ### Fixed

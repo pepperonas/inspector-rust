@@ -359,6 +359,80 @@ function stopMic() {
 const SPEED_DAY = 86_400_000;
 const SPEED_BASE = Date.UTC(2026, 8, 30, 8, 15);
 /** Invented speed-test history, newest first. */
+
+// ── pulse (invented: a 16-GB Mac under memory pressure) ─────────────────────
+const PULSE_NOW = Math.floor(Date.UTC(2026, 9, 6, 14, 0) / 1000);
+function pulseSample(i: number) {
+  const wave = Math.sin(i / 9) * 0.5 + 0.5;
+  const pressure = wave > 0.72 ? 4 : wave > 0.45 ? 2 : 1;
+  const ssd = (4 + wave * 26) * 1e6;
+  return {
+    ts: PULSE_NOW - (179 - i) * 5,
+    dur: 5,
+    pressure,
+    swap_used: (17.5 + wave * 3.2) * 1e9,
+    swap_total: 22.5e9,
+    swapout_bps: wave * 9e6,
+    swapin_bps: wave * 3e6,
+    pageout_bps: 0,
+    compress_ps: 400 + wave * 2600,
+    decompress_ps: 300 + wave * 1800,
+    ssd_write_bps: ssd,
+    ssd_read_bps: ssd * 0.6,
+    swap_write_bps: Math.min(ssd, wave * 9e6),
+    cpu_pct: 25 + wave * 40,
+    thermal: 0,
+    wired: 3.1e9,
+    active: 6.8e9,
+    inactive: 3.9e9,
+    free: 0.15e9,
+    compressor: 5.9e9,
+  };
+}
+const PULSE_RECENT = Array.from({ length: 180 }, (_, i) => pulseSample(i));
+const PULSE_GROUPS = [
+  { name: "Gradle-Daemon", footprint: 5.8e9, write_bps: 2.4e6, procs: 2 },
+  { name: "Google Chrome", footprint: 4.1e9, write_bps: 0.6e6, procs: 38 },
+  { name: "Docker", footprint: 3.2e9, write_bps: 1.1e6, procs: 6 },
+  { name: "Kotlin-Daemon", footprint: 1.9e9, write_bps: 0.3e6, procs: 1 },
+  { name: "Android Studio", footprint: 1.6e9, write_bps: 0.2e6, procs: 4 },
+];
+function pulseAgg(ts: number, secs: number, i: number) {
+  const w = Math.sin(i / 3) * 0.5 + 0.5;
+  const crit = secs * Math.max(0, w - 0.45);
+  const warn = secs * 0.2 * w;
+  return {
+    ts, secs,
+    p_normal: secs - crit - warn, p_warn: warn, p_crit: crit,
+    swap_min: 15e9, swap_avg: (16 + w * 4) * 1e9, swap_max: 21e9, swap_total: 22.5e9,
+    written: secs * (6 + w * 20) * 1e6, read: secs * 8e6,
+    swap_written: secs * w * 7e6, swapped_in: secs * w * 2e6,
+    compressions: secs * 1500, cpu_avg: 30 + w * 30,
+    causers: [
+      { name: "Gradle-Daemon", written: secs * 2e6, peak_footprint: 6.1e9 },
+      { name: "Google Chrome", written: secs * 0.5e6, peak_footprint: 4.4e9 },
+      { name: "Docker", written: secs * 1e6, peak_footprint: 3.3e9 },
+    ],
+  };
+}
+function pulseHistoryMock(range: string) {
+  const plan: Record<string, [number, number]> = {
+    "1h": [60, 60], "24h": [900, 96], "7d": [3600, 168], "30d": [86400, 30], "90d": [86400, 90],
+  };
+  const [bucket, n] = plan[range] ?? plan["24h"];
+  const buckets = Array.from({ length: n }, (_, i) => pulseAgg(PULSE_NOW - (n - i) * bucket, bucket, i));
+  const sum = (k: "written" | "swap_written" | "p_crit" | "p_warn" | "p_normal" | "secs") =>
+    buckets.reduce((a, b) => a + b[k], 0);
+  const total = { ...pulseAgg(PULSE_NOW - n * bucket, 0, 0), written: sum("written"), swap_written: sum("swap_written"),
+    p_crit: sum("p_crit"), p_warn: sum("p_warn"), p_normal: sum("p_normal"), secs: sum("secs"),
+    causers: pulseAgg(0, sum("secs"), 2).causers };
+  const days = Array.from({ length: 8 }, (_, i) => pulseAgg(PULSE_NOW - (i + 1) * 86400, 86400, i * 2));
+  return {
+    range, bucket_secs: bucket, buckets, total, days,
+    forecast: { tbw_bytes: 300e12, per_day: 62e9, days: 30, lifetime_written: 41e12, years: 11.4 },
+  };
+}
+
 const SPEED_RUNS = [
   [0, 388, 20.4, 14.0, 3.6, 31, 11],
   [0.3, 362, 19.1, 15.2, 4.1, 44, 18],
@@ -594,6 +668,20 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "ai_tasks_state": return { tasks: [], running: [], paused: false, languages: [], next_due: {} };
     case "track_category_rules": return [];
     // ── speedtest (invented runs) ─────────────────────────────────────────
+    case "pulse_live":
+      return {
+        supported: true, enabled: true,
+        latest: PULSE_RECENT[PULSE_RECENT.length - 1], recent: PULSE_RECENT,
+        groups: PULSE_GROUPS, groups_at: PULSE_NOW - 12, unreadable: 187,
+        disk_found: true, capacity: 500e9,
+        overhead: { samples: 720, sample_avg_ms: 0.4, sample_max_ms: 1.1, scans: 120, scan_avg_ms: 3.1, scan_max_ms: 5.2, rows_written: 180, cpu_secs: 1.4, cpu_pct: 0.04, running_secs: 3600 },
+        db_bytes: 2_400_000,
+        smart: { percentage_used: 6, data_written_bytes: 41e12, model: "APPLE SSD AP0512Z", at: PULSE_NOW },
+        smartctl_present: true, last_error: null,
+      };
+    case "pulse_history": return pulseHistoryMock(String((args as { range?: string })?.range ?? "24h"));
+    case "get_pulse_config": return { enabled: true, notify: false, notify_minutes: 10, tbw_tb: 0 };
+    case "set_pulse_config": return (args as { config: unknown }).config;
     case "speedtest_running": return false;
     case "speedtest_run": return SPEED_RUNS[0];
     case "speedtest_history": return SPEED_RUNS;

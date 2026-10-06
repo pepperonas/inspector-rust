@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.197.1] - 2026-10-06
+
+### Fixed
+- **Trackpad gestures recover again when the touch capture goes deaf together with its scroll tap.** The self-healing watchdog only rebuilt the capture after it saw a trackpad scroll that produced no touch frames — but that proof comes from the app's own scroll tap. When the tap stopped receiving events at the same moment as the touch registration, the proof never arrived and gestures stayed dead for hours until a restart. The watchdog now also compares the tap against the system's own scroll clock: if the system saw a scroll that the tap missed while no touch frames arrive, it rebuilds the capture (same backoff as before). A wheel mouse can't trigger this, since a working tap sees its scrolls too.
+
 ## [0.197.0] - 2026-10-05
 
 ### Added

@@ -2774,6 +2774,28 @@ pub fn liveness_should_rebuild(
         && since_rebuild_s >= cooldown_s
 }
 
+/// Pure: has the scroll tap gone deaf? The HID system saw a scroll recently
+/// (`hid_scroll_ms`, any device) but the tap's own last scroll of ANY kind is
+/// at least `LIVENESS_GAP_MS` older (or it never saw one). A working tap sees
+/// every scroll — wheel mice included — so this cannot misfire for an
+/// external-mouse user the way the old pointer heuristic did.
+///
+/// Needed because the trackpad-scroll proof in [`liveness_should_rebuild`]
+/// comes FROM that tap: when tap and multitouch registration die together
+/// (field case 2026-10-06), the proof never arrives and nothing heals.
+pub fn scroll_tap_deaf(hid_scroll_ms: Option<u64>, tap_scroll_ms: Option<u64>) -> bool {
+    let Some(hid) = hid_scroll_ms else {
+        return false;
+    };
+    if hid > LIVENESS_TRACKPAD_ACTIVE_MS {
+        return false;
+    }
+    match tap_scroll_ms {
+        None => true,
+        Some(tap) => tap >= hid.saturating_add(LIVENESS_GAP_MS),
+    }
+}
+
 /// Backoff step after an attempt that didn't restore frames.
 pub fn next_liveness_cooldown_s(current: u64) -> u64 {
     current.saturating_mul(2).min(LIVENESS_MAX_COOLDOWN_S)
@@ -2849,6 +2871,24 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                     let since_rebuild_s = last_rebuild
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(u64::MAX);
+                    let hid_scroll = seconds_since_hid_event(22); // kCGEventScrollWheel
+                    let hid_scroll_ms = hid_scroll
+                        .is_finite()
+                        .then_some((hid_scroll * 1000.0) as u64);
+                    if macos::scroll_tap_installed()
+                        && scroll_tap_deaf(hid_scroll_ms, macos::ms_since_any_tapped_scroll())
+                        && since_rebuild_s >= cooldown_s
+                    {
+                        let secs = since_frame.map(|ms| ms / 1000);
+                        if rebuild(&format!(
+                            "scroll tap deaf (HID scrolled {}ms ago, tap saw nothing) and no touch frames for {secs:?}s (next check in {cooldown_s}s)",
+                            hid_scroll_ms.unwrap_or(0)
+                        )) {
+                            last_rebuild = Some(std::time::Instant::now());
+                            cooldown_s = next_liveness_cooldown_s(cooldown_s);
+                        }
+                        continue;
+                    }
                     if liveness_should_rebuild(since_frame, since_scroll, since_rebuild_s, cooldown_s) {
                         let secs = since_frame.unwrap_or(0) / 1000;
                         let ago = since_scroll.unwrap_or(0) / 1000;
@@ -2886,6 +2926,19 @@ mod tests {
     }
 
     // ── Liveness watchdog (v0.113.1; trackpad-scroll proof 2026-09-27) ───
+
+    #[test]
+    fn a_deaf_scroll_tap_is_detected_from_the_hid_clock() {
+        // HID scrolled 2 s ago, the tap never saw a scroll → deaf.
+        assert!(scroll_tap_deaf(Some(2_000), None));
+        // HID scrolled 2 s ago, tap's last scroll 60 s ago → deaf.
+        assert!(scroll_tap_deaf(Some(2_000), Some(60_000)));
+        // Tap saw the same scroll (wheel mouse included) → healthy.
+        assert!(!scroll_tap_deaf(Some(2_000), Some(2_050)));
+        // No recent HID scroll → nothing to judge.
+        assert!(!scroll_tap_deaf(Some(LIVENESS_TRACKPAD_ACTIVE_MS + 1), None));
+        assert!(!scroll_tap_deaf(None, None));
+    }
 
     #[test]
     fn liveness_rebuilds_only_when_a_trackpad_scroll_got_no_frames() {

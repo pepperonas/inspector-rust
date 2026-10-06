@@ -362,6 +362,13 @@ static LAST_FRAME_MS: AtomicU64 = AtomicU64::new(0);
 /// mouse produces all day (the false positive behind ~100 needless capture
 /// rebuilds a day, 2026-09-27).
 static LAST_TRACKPAD_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
+/// Time (ms since `START`) of the last scroll of ANY kind (wheel mouse
+/// included) the scroll tap saw; `0` = none. Compared against the HID
+/// system's own scroll clock it proves whether the tap itself still receives
+/// events — the trackpad-scroll proof above is blind when the tap dies along
+/// with the multitouch registration (field case 2026-10-06: both went deaf at
+/// once, the watchdog never fired, gestures stayed dead for hours).
+static LAST_ANY_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
 
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// The scroll tap swallows scroll-wheel events until this timestamp (ms since
@@ -424,6 +431,24 @@ pub(crate) fn ms_since_trackpad_scroll() -> Option<u64> {
     }
     let now = START.get()?.elapsed().as_millis() as u64;
     Some(now.saturating_sub(last))
+}
+
+/// Milliseconds since the scroll tap last saw ANY scroll, `None` = none yet.
+pub(crate) fn ms_since_any_tapped_scroll() -> Option<u64> {
+    let last = LAST_ANY_SCROLL_MS.load(Ordering::Relaxed);
+    if last == 0 {
+        return None;
+    }
+    let now = START.get()?.elapsed().as_millis() as u64;
+    Some(now.saturating_sub(last))
+}
+
+/// Whether a scroll tap is installed at all (no Accessibility → none, and then
+/// its silence proves nothing). Only a null check — the port is never
+/// dereferenced here, so a concurrent `stop()` can't turn this into a
+/// use-after-free.
+pub(crate) fn scroll_tap_installed() -> bool {
+    SCROLL_TAP_PORT.load(Ordering::Relaxed) != 0
 }
 
 pub(crate) fn is_running() -> bool {
@@ -600,6 +625,9 @@ extern "C" fn scroll_tap_callback(
         }
         CG_EVT_SCROLL_WHEEL => {
             let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+            if now > 0 {
+                LAST_ANY_SCROLL_MS.store(now, Ordering::Relaxed);
+            }
             if now > 0 && unsafe { CGEventGetIntegerValueField(event, CG_FIELD_SCROLL_PHASE) } != 0 {
                 LAST_TRACKPAD_SCROLL_MS.store(now, Ordering::Relaxed);
             }

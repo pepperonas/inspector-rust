@@ -4253,6 +4253,54 @@ export function ipFetch(): Promise<IpReport> {
   return invoke("ip_fetch");
 }
 
+/** Result of one speed test (`speedtest`; backend speedtest.rs). Rates in
+ *  bits/s; a phase that failed is `null`, never 0. */
+export interface SpeedtestResult {
+  at: number;
+  download_bps: number | null;
+  upload_bps: number | null;
+  latency_ms: number | null;
+  jitter_ms: number | null;
+  /** Cloudflare data centre (IATA code, e.g. "TXL"). */
+  colo: string | null;
+  country: string | null;
+  ip: string | null;
+}
+
+export interface SpeedtestHistoryEntry {
+  id: number;
+  at: number;
+  download_bps: number | null;
+  upload_bps: number | null;
+  latency_ms: number | null;
+  jitter_ms: number | null;
+  colo: string | null;
+}
+
+/** `speedtest-progress` payload. `value`: ms for latency, bits/s otherwise. */
+export interface SpeedtestProgress {
+  phase: "meta" | "latency" | "download" | "upload";
+  fraction: number;
+  value: number | null;
+}
+
+/** Run a speed test (10–20 s). Rejects with `speedtest.busy` while one runs. */
+export function speedtestRun(): Promise<SpeedtestResult> {
+  return invoke("speedtest_run");
+}
+
+export function speedtestRunning(): Promise<boolean> {
+  return invoke("speedtest_running");
+}
+
+export function speedtestHistory(limit?: number): Promise<SpeedtestHistoryEntry[]> {
+  return invoke("speedtest_history", { limit });
+}
+
+export function speedtestClearHistory(): Promise<void> {
+  return invoke("speedtest_clear_history");
+}
+
 /** Exchange rates for `convert` / `cv`: every rate as the EUR value of ONE
  *  unit (`EUR: 1`, `USD: 0.85…`, `BTC: 73319`). Backend: `fx_rates.rs`. */
 export interface FxRates {

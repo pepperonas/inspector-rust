@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.199.0] - 2026-10-06
+
+### Added
+- **`speedtest` — measure your internet connection in the preview.** Press Enter on `speedtest` and the preview measures latency, jitter, download and upload against Cloudflare's speed-test servers, with live progress. The result shows Mbit/s, a plain-language verdict (what the line is good for), the server location and the change against your earlier runs. Slow lines stop early instead of sitting through the biggest transfers, so a run takes about 10–20 seconds. Every result is kept locally (last 200), shown as a small history with bars. The run keeps going if you close the panel; reopening it shows the result. Details: [docs/speedtest.md](./docs/speedtest.md).
+
 ## [0.198.1] - 2026-10-06
 
 ### Fixed

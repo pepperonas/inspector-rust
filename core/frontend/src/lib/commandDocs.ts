@@ -1910,6 +1910,33 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["weather", "snitch"],
   },
   {
+    command: "speedtest",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.199.0",
+    tagline: "Measure download, upload, latency and jitter — with a local history.",
+    tagline_de: "Download, Upload, Latenz und Jitter messen — mit lokalem Verlauf.",
+    synopsis: "speedtest",
+    description:
+      "Measures your internet connection against Cloudflare's public speed-test servers: latency and jitter from 20 small requests, then download and upload with growing transfers (100 kB up to 25 MB); the result is the 90th percentile of the transfers, as in Cloudflare's own test. A slow line stops early instead of sitting through the biggest transfers. Live progress shows while it runs; the result shows Mbit/s, a plain-language verdict, the server location and the change against your earlier runs. Every run is kept locally (last 200).",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "speedtest", result: "Runs the test (10–20 s) and shows download, upload, latency and jitter." },
+      { input: "speedtest", note: "then R", result: "Measures again; the history below compares the runs." },
+      { input: "speedtest", note: "close with Esc mid-run", result: "The run keeps going; reopening the panel shows the result." },
+    ],
+    tips: [
+      "Run it on cable and on Wi-Fi to see what the Wi-Fi costs you.",
+      "Results are compared with the median of your earlier runs, so one odd run doesn't skew the comparison.",
+    ],
+    caveats: [
+      "Cloudflare receives your public IP. A run transfers up to ~200 MB on a fast line — mind metered connections.",
+      "Sequential single-connection transfers: on gigabit lines the result can stay below what parallel tests report.",
+    ],
+    related: ["ip", "snitch"],
+  },
+  {
     command: "track",
     aliases: [],
     category: CAT_PROD,

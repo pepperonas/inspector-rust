@@ -101,6 +101,7 @@ mod snippet_template;
 mod snippets;
 #[cfg(target_os = "macos")]
 mod snitch;
+mod speedtest;
 mod social_dl;
 mod sound;
 mod stats_history;
@@ -1064,6 +1065,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_all,
             commands::weather_fetch,
             commands::ip_fetch,
+            commands::speedtest_run,
+            commands::speedtest_running,
+            commands::speedtest_history,
+            commands::speedtest_clear_history,
             commands::fx_rates,
             commands::mailcheck_run,
             commands::btsniff_open_file,

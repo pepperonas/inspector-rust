@@ -101,6 +101,7 @@ export type CommandKind =
   | "uptime"
   | "weather"
   | "ip"
+  | "speedtest"
   | "tokens"
   | "limits"
   | "task"
@@ -974,6 +975,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "ip",
     syntax: "ip",
     description: "Show your public IP, approximate location, network and map",
+    requiresArg: false,
+  },
+  {
+    kind: "speedtest",
+    keyword: "speedtest",
+    syntax: "speedtest",
+    description: "Measure download, upload and latency (Cloudflare) — results and history in the preview",
     requiresArg: false,
   },
   {

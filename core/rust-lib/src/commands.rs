@@ -8273,6 +8273,61 @@ pub async fn qr_save(
         .map_err(|e| e.to_string())?
 }
 
+/// Run an internet speed test (Cloudflare). Emits `speedtest-progress` while it
+/// runs and `speedtest-done` when it ends; the result is stored in the history.
+/// Network + seconds of work → off the main thread. The run lives in the
+/// backend, so closing the panel doesn't abort it.
+#[tauri::command]
+pub async fn speedtest_run(
+    app: tauri::AppHandle,
+    db: State<'_, DbHandle>,
+) -> Result<crate::speedtest::SpeedtestResult, String> {
+    use tauri::Emitter as _;
+    let db = db.inner().clone();
+    let app2 = app.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let r = crate::speedtest::run(|p| {
+            // ≤ ~12 events/s, but every phase end gets through.
+            if p.fraction >= 1.0 || last.elapsed() >= std::time::Duration::from_millis(80) {
+                last = std::time::Instant::now();
+                let _ = app2.emit("speedtest-progress", p);
+            }
+        });
+        if let Ok(result) = &r {
+            if let Err(e) = crate::speedtest::history_insert(&db, result) {
+                tracing::warn!("speedtest: history insert failed: {e}");
+            }
+        }
+        r
+    })
+    .await
+    .map_err(|e| format!("speedtest task: {e}"))?;
+    if !matches!(&res, Err(e) if e == crate::speedtest::ERR_BUSY) {
+        let _ = app.emit("speedtest-done", res.as_ref().err().cloned());
+    }
+    res
+}
+
+/// Whether a speed test is currently running (a reopened panel reconnects).
+#[tauri::command]
+pub fn speedtest_running() -> bool {
+    crate::speedtest::is_running()
+}
+
+#[tauri::command]
+pub fn speedtest_history(
+    db: State<'_, DbHandle>,
+    limit: Option<u32>,
+) -> Result<Vec<crate::speedtest::SpeedtestHistoryEntry>, String> {
+    crate::speedtest::history_list(&db, limit.unwrap_or(20).min(200)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn speedtest_clear_history(db: State<'_, DbHandle>) -> Result<(), String> {
+    crate::speedtest::history_clear(&db).map_err(|e| e.to_string())
+}
+
 /// Fetch the caller's public IP and approximate ISP geolocation.
 #[tauri::command]
 pub async fn ip_fetch() -> Result<crate::ip::IpReport, String> {

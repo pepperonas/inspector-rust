@@ -67,6 +67,9 @@ import {
 import { findRetroPalette, parseRetroArg } from "./lib/retro";
 import { feedbackPreview } from "./lib/copy-feedback";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
+const SpeedtestPanel = lazy(() =>
+  import("./components/SpeedtestPanel").then((m) => ({ default: m.SpeedtestPanel })),
+);
 const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
 const TasksPanel = lazy(() => import("./components/TasksPanel").then((m) => ({ default: m.TasksPanel })));
 const ClaudeLimitsPanel = lazy(() =>
@@ -478,6 +481,8 @@ function App() {
   const [adbView, setAdbView] = useState<AdbView>("info");
   // disk/daisy mode (v0.120.0) — DaisyDisk-style usage sunburst. The arg is a
   // path override; bare `disk` scans the home dir.
+  const [speedtestMode, setSpeedtestMode] = useState(false);
+  const [speedtestFocus, setSpeedtestFocus] = useState(false);
   const [diskMode, setDiskMode] = useState(false);
   const [diskFocus, setDiskFocus] = useState(false);
   // btsniff mode — Bluetooth capture analyzer. Show-while-typed (like adb);
@@ -1494,6 +1499,13 @@ function App() {
       setClockFocus(false);
     }
   }, [isClockCmd, clockMode]);
+  const isSpeedtestCmd = parsedCommand?.spec.kind === "speedtest";
+  useEffect(() => {
+    if (!isSpeedtestCmd && speedtestMode) {
+      setSpeedtestMode(false);
+      setSpeedtestFocus(false);
+    }
+  }, [isSpeedtestCmd, speedtestMode]);
   const isDiskCmd = parsedCommand?.spec.kind === "disk";
   useEffect(() => {
     if (!isDiskCmd && diskMode) {
@@ -2186,6 +2198,10 @@ function App() {
       case "clock":
         label = "Weltzeituhr";
         hint = "Enter → Live-Zeiten; Städte per Autocomplete hinzufügen/entfernen";
+        break;
+      case "speedtest":
+        label = "Internet-Speedtest";
+        hint = "Enter → Download, Upload, Latenz messen (Cloudflare, ~10–20 s) · Verlauf";
         break;
       case "disk":
         label = arg ? `Speicher: ${arg}` : "Speicher analysieren (DaisyDisk-Stil)";
@@ -3792,6 +3808,8 @@ function App() {
     setAdbFocus(false);
     setDiskMode(false);
     setDiskFocus(false);
+    setSpeedtestMode(false);
+    setSpeedtestFocus(false);
     setBtsniffMode(false);
     setBtsniffFocus(false);
     setMailcheckMode(false);
@@ -3940,7 +3958,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4541,6 +4559,10 @@ function App() {
         setDiskMode(true);
         setDiskFocus(true);
         return true;
+      } else if (commandKind === "speedtest") {
+        setSpeedtestMode(true);
+        setSpeedtestFocus(true);
+        return true;
       } else if (commandKind === "btsniff") {
         setBtsniffMode(true);
         setBtsniffFocus(true);
@@ -5031,6 +5053,7 @@ function App() {
       !pagespeedFocus &&
       !adbFocus &&
       !diskFocus &&
+      !speedtestFocus &&
       !btsniffFocus &&
       !mailcheckFocus &&
       !clockFocus &&
@@ -5630,6 +5653,17 @@ function App() {
                       onExit={() => {
                         setClockMode(false);
                         setClockFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : speedtestMode ? (
+                  <div className="md3-pop-in h-full">
+                    <SpeedtestPanel
+                      focused={speedtestFocus}
+                      onExit={() => {
+                        setSpeedtestMode(false);
+                        setSpeedtestFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

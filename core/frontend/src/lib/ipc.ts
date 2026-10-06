@@ -4259,8 +4259,12 @@ export interface SpeedtestResult {
   at: number;
   download_bps: number | null;
   upload_bps: number | null;
+  /** Idle latency: network round trip, Cloudflare's server time removed. */
   latency_ms: number | null;
   jitter_ms: number | null;
+  /** Latency while the download / upload runs (one loaded connection). */
+  loaded_down_ms: number | null;
+  loaded_up_ms: number | null;
   /** Cloudflare data centre (IATA code, e.g. "TXL"). */
   colo: string | null;
   country: string | null;
@@ -4274,7 +4278,10 @@ export interface SpeedtestHistoryEntry {
   upload_bps: number | null;
   latency_ms: number | null;
   jitter_ms: number | null;
+  loaded_down_ms: number | null;
+  loaded_up_ms: number | null;
   colo: string | null;
+  country: string | null;
 }
 
 /** `speedtest-progress` payload. `value`: ms for latency, bits/s otherwise. */

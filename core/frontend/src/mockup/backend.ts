@@ -356,6 +356,31 @@ function stopMic() {
   micTimer = null;
 }
 
+const SPEED_DAY = 86_400_000;
+const SPEED_BASE = Date.UTC(2026, 8, 30, 8, 15);
+/** Invented speed-test history, newest first. */
+const SPEED_RUNS = [
+  [0, 388, 20.4, 14.0, 3.6, 31, 11],
+  [0.3, 362, 19.1, 15.2, 4.1, 44, 18],
+  [1.1, 401, 21.0, 13.1, 2.9, 29, 12],
+  [2.2, 214, 17.8, 22.6, 9.8, 96, 35],
+  [3.4, 379, 20.2, 14.4, 3.2, 33, 14],
+  [5.0, 356, null, 16.0, 4.4, 40, null],
+  [6.3, 392, 20.8, 13.6, 3.0, 30, 12],
+].map(([d, down, up, ping, jit, ld, lu], i) => ({
+  id: 7 - i,
+  at: SPEED_BASE - (d as number) * SPEED_DAY,
+  download_bps: (down as number) * 1e6,
+  upload_bps: up == null ? null : (up as number) * 1e6,
+  latency_ms: ping,
+  jitter_ms: jit,
+  loaded_down_ms: ld,
+  loaded_up_ms: lu,
+  colo: "LIS",
+  country: "PT",
+  ip: null,
+}));
+
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     // ── boot ──────────────────────────────────────────────────────────────
@@ -568,6 +593,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     };
     case "ai_tasks_state": return { tasks: [], running: [], paused: false, languages: [], next_due: {} };
     case "track_category_rules": return [];
+    // ── speedtest (invented runs) ─────────────────────────────────────────
+    case "speedtest_running": return false;
+    case "speedtest_run": return SPEED_RUNS[0];
+    case "speedtest_history": return SPEED_RUNS;
+    case "speedtest_clear_history": return null;
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

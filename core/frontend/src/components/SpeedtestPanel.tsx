@@ -12,8 +12,10 @@ import {
 } from "../lib/ipc";
 import {
   PHASE_LABELS,
-  barShare,
   deltaPercent,
+  metricStats,
+  trendRange,
+  trendSegments,
   downloadMeaning,
   formatMbps,
   formatMs,
@@ -23,7 +25,7 @@ import {
 
 type Status = "running" | "done" | "error";
 
-const HISTORY_SHOWN = 8;
+const HISTORY_SHOWN = 30;
 
 /**
  * `speedtest` — internet speed in the preview (v0.199.0). Mounting the panel
@@ -230,8 +232,20 @@ function Result({
         />
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <Small icon={<Timer size={12} />} label="Latenz" value={formatMs(r.latency_ms)} />
+        <Small icon={<Timer size={12} />} label="Ping (Leerlauf)" value={formatMs(r.latency_ms)} />
         <Small label="Jitter" value={formatMs(r.jitter_ms)} />
+        <Small
+          icon={<ArrowDown size={12} />}
+          label="Ping unter Last"
+          value={formatMs(r.loaded_down_ms)}
+          title="Ping, während der Download läuft (eine Verbindung). Tests mit vielen parallelen Verbindungen füllen den Router-Puffer stärker und zeigen höhere Werte."
+        />
+        <Small
+          icon={<ArrowUp size={12} />}
+          label="Ping unter Last"
+          value={formatMs(r.loaded_up_ms)}
+          title="Ping, während der Upload läuft (eine Verbindung)."
+        />
       </div>
       {rating && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
@@ -280,9 +294,19 @@ function Big({
   );
 }
 
-function Small({ icon, label, value }: { icon?: React.ReactNode; label: string; value: string }) {
+function Small({
+  icon,
+  label,
+  value,
+  title,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  value: string;
+  title?: string;
+}) {
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" title={title}>
       <div className="flex items-center gap-1 text-[var(--color-muted)]">
         {icon}
         {label}
@@ -293,12 +317,16 @@ function Small({ icon, label, value }: { icon?: React.ReactNode; label: string; 
 }
 
 function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear: () => void }) {
-  const max = Math.max(0, ...rows.map((r) => r.download_bps ?? 0), ...rows.map((r) => r.upload_bps ?? 0));
-  const fmt = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const down = metricStats(rows.map((r) => r.download_bps));
+  const up = metricStats(rows.map((r) => r.upload_bps));
+  const ping = metricStats(rows.map((r) => r.latency_ms));
+  const loaded = metricStats(rows.map((r) => r.loaded_down_ms));
+  const day = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-2">
-      <div className="mb-1 flex items-center text-xs text-[var(--color-muted)]">
-        Verlauf
+    <div className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] p-2">
+      <div className="flex items-center text-xs text-[var(--color-muted)]">
+        Verlauf · {rows.length} {rows.length === 1 ? "Messung" : "Messungen"}
         <button
           onClick={onClear}
           className="ml-auto rounded p-1 hover:bg-[var(--color-surface)]"
@@ -308,18 +336,124 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
           <Trash2 size={12} />
         </button>
       </div>
-      <ul className="flex flex-col gap-1">
+
+      <table className="w-full text-[11px] tabular-nums">
+        <thead className="text-[var(--color-muted)]">
+          <tr>
+            <th className="text-left font-normal" />
+            <th className="text-right font-normal">Median</th>
+            <th className="text-right font-normal">Min</th>
+            <th className="text-right font-normal">Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          <StatRow label="↓ Mbit/s" s={down} fmt={formatMbps} />
+          <StatRow label="↑ Mbit/s" s={up} fmt={formatMbps} />
+          <StatRow label="Ping" s={ping} fmt={formatMs} />
+          <StatRow label="Ping unter Last" s={loaded} fmt={formatMs} />
+        </tbody>
+      </table>
+
+      {rows.length >= 2 && <Trend rows={rows} />}
+
+      <ul className="flex flex-col" aria-label="Messungen">
         {rows.map((h) => (
-          <li key={h.id} className="grid grid-cols-[5.5rem_1fr_3.5rem] items-center gap-2 text-[11px] tabular-nums">
-            <span className="text-[var(--color-muted)]">{fmt.format(new Date(h.at))}</span>
-            <span className="flex flex-col gap-0.5" title={`↓ ${formatMbps(h.download_bps)} · ↑ ${formatMbps(h.upload_bps)} Mbit/s`}>
-              <span className="h-1 rounded-full bg-[var(--color-accent)]" style={{ width: `${barShare(h.download_bps, max) * 100}%` }} />
-              <span className="h-1 rounded-full bg-[var(--color-muted)]" style={{ width: `${barShare(h.upload_bps, max) * 100}%` }} />
-            </span>
-            <span className="text-right">{formatMbps(h.download_bps)}</span>
+          <li key={h.id} className="border-t border-[var(--color-border)] py-1.5 first:border-t-0">
+            <div className="flex items-baseline gap-2 text-[11px] tabular-nums">
+              <span className="w-24 shrink-0 text-[var(--color-muted)]">
+                {day.format(new Date(h.at))} {time.format(new Date(h.at))}
+              </span>
+              <span className="flex items-center gap-0.5">
+                <ArrowDown size={10} className="text-[var(--color-accent)]" />
+                {formatMbps(h.download_bps)}
+              </span>
+              <span className="flex items-center gap-0.5">
+                <ArrowUp size={10} className="text-[var(--color-muted)]" />
+                {formatMbps(h.upload_bps)}
+              </span>
+              <span className="ml-auto">{formatMs(h.latency_ms)}</span>
+            </div>
+            <div className="pl-[6.5rem] text-[10px] text-[var(--color-muted)] tabular-nums">
+              Jitter {formatMs(h.jitter_ms)} · unter Last ↓ {formatMs(h.loaded_down_ms)} / ↑{" "}
+              {formatMs(h.loaded_up_ms)}
+              {h.colo ? ` · ${h.colo}` : ""}
+              {h.country ? ` ${h.country}` : ""}
+            </div>
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function StatRow({
+  label,
+  s,
+  fmt,
+}: {
+  label: string;
+  s: ReturnType<typeof metricStats>;
+  fmt: (v: number) => string;
+}) {
+  if (!s) return null;
+  return (
+    <tr>
+      <td className="text-[var(--color-muted)]">{label}</td>
+      <td className="text-right font-medium">{fmt(s.median)}</td>
+      <td className="text-right">{fmt(s.min)}</td>
+      <td className="text-right">{fmt(s.max)}</td>
+    </tr>
+  );
+}
+
+/** One small chart per metric (own scale), oldest left → newest right. */
+function Trend({ rows }: { rows: SpeedtestHistoryEntry[] }) {
+  const ordered = [...rows].reverse();
+  const day = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+  return (
+    <figure className="flex flex-col gap-1.5" aria-label="Verlauf als Diagramm">
+      <Spark label="Download" unit="Mbit/s" color="var(--color-accent)" values={ordered.map((r) => r.download_bps)} fmt={formatMbps} />
+      <Spark label="Upload" unit="Mbit/s" color="#a78bfa" values={ordered.map((r) => r.upload_bps)} fmt={formatMbps} />
+      <Spark label="Ping" unit="" color="#f59e0b" values={ordered.map((r) => r.latency_ms)} fmt={formatMs} />
+      <figcaption className="flex justify-between pl-16 pr-12 text-[10px] text-[var(--color-muted)]">
+        <span>{day.format(new Date(ordered[0].at))}</span>
+        <span>{day.format(new Date(ordered[ordered.length - 1].at))}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+function Spark({
+  label,
+  unit,
+  color,
+  values,
+  fmt,
+}: {
+  label: string;
+  unit: string;
+  color: string;
+  values: (number | null)[];
+  fmt: (v: number) => string;
+}) {
+  const range = trendRange(values);
+  if (!range) return null;
+  const W = 200;
+  const H = 28;
+  const segs = trendSegments(values, range.max, W, H, range.min);
+  const s = metricStats(values)!;
+  return (
+    <div className="flex items-center gap-2 text-[10px] tabular-nums">
+      <span className="w-14 shrink-0 text-[var(--color-muted)]">{label}</span>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-7 min-w-0 flex-1 overflow-visible" preserveAspectRatio="none" role="img" aria-label={`${label}-Verlauf`}>
+        {segs.map((pts, i) => (
+          <polyline key={i} points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        ))}
+      </svg>
+      <span className="flex w-10 shrink-0 flex-col items-end leading-tight text-[var(--color-muted)]" title={unit ? `${unit}, Min–Max` : "Min–Max"}>
+        <span>{fmt(s.max)}</span>
+        <span>{fmt(s.min)}</span>
+      </span>
     </div>
   );
 }

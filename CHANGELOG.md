@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.199.1] - 2026-10-06
+
+### Fixed
+- **`speedtest` latency now matches speedtest.net.** The ping included the time Cloudflare's server spends answering the request (17–25 ms), so it read 39 ms where speedtest.net said 14. The app now subtracts the server time Cloudflare reports with every answer, the same way Cloudflare's own test page does — the measured value is now 14 ms.
+
+### Added
+- **Ping under load.** While the download and the upload run, a second connection keeps pinging; the panel shows both values next to the idle ping, like speedtest.net. Because the app loads the line with a single connection, these values stay lower than tests that use many connections at once.
+- **A more detailed speed-test history.** Median, minimum and maximum of download, upload, ping and ping under load across all stored runs; one small chart per metric with its own scale (so a 20-Mbit/s upload shows its movement next to a 400-Mbit/s download); and every run with date, time, download, upload, ping, jitter, ping under load and server. A missing value shows as a dash and as a gap in the chart, never as 0.
+
 ## [0.199.0] - 2026-10-06
 
 ### Added

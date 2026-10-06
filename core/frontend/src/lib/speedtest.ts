@@ -80,3 +80,69 @@ export function barShare(v: number | null | undefined, max: number): number {
   if (v == null || !Number.isFinite(v) || !(max > 0)) return 0;
   return Math.min(1, Math.max(0, v / max));
 }
+
+// ── History detail (v0.199.1) ───────────────────────────────────────────────
+
+export interface MetricStats {
+  median: number;
+  min: number;
+  max: number;
+  /** How many runs had a value for this metric. */
+  n: number;
+}
+
+/** Median / min / max of one metric over the runs that have a value. `null`
+ *  when none has (a missing phase never counts as 0). */
+export function metricStats(values: (number | null | undefined)[]): MetricStats | null {
+  const v = values.filter((x): x is number => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+  if (v.length === 0) return null;
+  const mid = v.length / 2;
+  const median = v.length % 2 ? v[Math.floor(mid)] : (v[mid - 1] + v[mid]) / 2;
+  return { median, min: v[0], max: v[v.length - 1], n: v.length };
+}
+
+/**
+ * SVG polyline segments for a series drawn oldest → newest across `width`,
+ * mapped from [`min`, `max`] onto `height` (y grows downwards). A missing value
+ * BREAKS the line — a gap must not read as a drop. One point → a zero-length
+ * segment so it stays visible. `max == min` draws a flat line in the middle.
+ */
+export function trendSegments(
+  values: (number | null | undefined)[],
+  max: number,
+  width: number,
+  height: number,
+  min = 0,
+): string[] {
+  if (!Number.isFinite(max) || !Number.isFinite(min) || max < min || values.length === 0) return [];
+  if (max === min && max === 0) return [];
+  const span = max - min;
+  const step = values.length > 1 ? width / (values.length - 1) : 0;
+  const segs: string[] = [];
+  let cur: string[] = [];
+  values.forEach((v, i) => {
+    if (v == null || !Number.isFinite(v)) {
+      if (cur.length) segs.push(cur.join(" "));
+      cur = [];
+      return;
+    }
+    const x = values.length > 1 ? i * step : width / 2;
+    const f = span > 0 ? Math.min(1, Math.max(0, (v - min) / span)) : 0.5;
+    const y = height - f * height;
+    cur.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  if (cur.length) segs.push(cur.join(" "));
+  return segs.map((s) => (s.includes(" ") ? s : `${s} ${s}`));
+}
+
+/**
+ * Y range for one trend: the data's own min..max, widened by 10 % of the span
+ * on both sides so the line never sits on the frame — each metric gets its own
+ * scale (upload at 20 Mbit/s is invisible on a 400-Mbit/s download axis).
+ */
+export function trendRange(values: (number | null | undefined)[]): { min: number; max: number } | null {
+  const s = metricStats(values);
+  if (!s) return null;
+  const pad = (s.max - s.min) * 0.1;
+  return { min: Math.max(0, s.min - pad), max: s.max + pad };
+}

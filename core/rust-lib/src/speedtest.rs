@@ -48,6 +48,10 @@ pub const MIN_SAMPLE_MS: f64 = 10.0;
 pub const HISTORY_KEEP: i64 = 200;
 
 pub const ERR_BUSY: &str = "speedtest.busy";
+/// Pause between pings while a transfer runs.
+pub const LOADED_PING_EVERY: Duration = Duration::from_millis(150);
+/// Fewer loaded pings than this say nothing (the phase was too short).
+pub const LOADED_MIN_SAMPLES: usize = 3;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -105,6 +109,12 @@ pub fn bandwidth_result(transfers: &[(u64, f64)]) -> Option<f64> {
     percentile(&all, 90.0)
 }
 
+/// Latency under load from the pings taken during a transfer: their median,
+/// or `None` if too few arrived to mean anything.
+pub fn loaded_latency(samples: &[f64]) -> Option<f64> {
+    (samples.len() >= LOADED_MIN_SAMPLES).then(|| median(samples)).flatten()
+}
+
 /// Should the plan stop after a stage of `bytes`-sized transfers that took
 /// `stage_ms`, given that the next stage would move `next_bytes` each? The
 /// next stage's duration is predicted linearly from this one's median.
@@ -114,6 +124,41 @@ pub fn stop_after_stage(stage_ms: &[f64], bytes: u64, next_bytes: u64) -> bool {
         return true;
     }
     m * (next_bytes as f64 / bytes as f64) > NEXT_STAGE_MAX_MS
+}
+
+/// Server-side processing time (ms) from the `Server-Timing` header values:
+/// the sum of every `dur=` (Cloudflare sends `cfSpeedEdge;dur=2,
+/// cfSpeedWorker;dur=15` plus a `cfL4` entry without one). `None` if no value
+/// carries a duration.
+///
+/// ⚠️ Without subtracting this, "latency" is an HTTP round trip including the
+/// worker that serves the request — measured 39 ms where speedtest.net said
+/// 14 (2026-10-06). Network round trip = request time − server time, the
+/// method Cloudflare's own test page uses.
+pub fn server_time_ms(header_values: &[&str]) -> Option<f64> {
+    let mut sum = 0.0;
+    let mut any = false;
+    for value in header_values {
+        for entry in value.split(',') {
+            for part in entry.split(';') {
+                if let Some(v) = part.trim().strip_prefix("dur=") {
+                    if let Ok(d) = v.trim().parse::<f64>() {
+                        if d.is_finite() && d >= 0.0 {
+                            sum += d;
+                            any = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    any.then_some(sum)
+}
+
+/// Network round trip from a request's total time and the server's own share;
+/// floored at 0.1 ms (clock granularity can make the difference negative).
+pub fn net_rtt_ms(total_ms: f64, server_ms: Option<f64>) -> f64 {
+    (total_ms - server_ms.unwrap_or(0.0)).max(0.1)
 }
 
 /// One field of Cloudflare's `/cdn-cgi/trace` (`key=value` per line).
@@ -132,8 +177,13 @@ pub struct SpeedtestResult {
     pub at: i64,
     pub download_bps: Option<f64>,
     pub upload_bps: Option<f64>,
+    /// Idle latency (network round trip, server time removed).
     pub latency_ms: Option<f64>,
     pub jitter_ms: Option<f64>,
+    /// Latency while the download / upload saturates the line ("loaded
+    /// latency", what speedtest.net shows next to the idle ping).
+    pub loaded_down_ms: Option<f64>,
+    pub loaded_up_ms: Option<f64>,
     /// Cloudflare data centre (IATA code, e.g. "TXL").
     pub colo: Option<String>,
     /// Country the caller was located in (ISO code).
@@ -149,7 +199,10 @@ pub struct SpeedtestHistoryEntry {
     pub upload_bps: Option<f64>,
     pub latency_ms: Option<f64>,
     pub jitter_ms: Option<f64>,
+    pub loaded_down_ms: Option<f64>,
+    pub loaded_up_ms: Option<f64>,
     pub colo: Option<String>,
+    pub country: Option<String>,
 }
 
 /// Live progress, emitted as `speedtest-progress`.
@@ -219,8 +272,39 @@ fn latency_once(agent: &ureq::Agent) -> Result<f64, String> {
         .get(&format!("{BASE}/__down?bytes=0"))
         .call()
         .map_err(|e| format!("latency: {e}"))?;
+    let total = started.elapsed().as_secs_f64() * 1000.0;
+    let timing: Vec<&str> = resp.all("server-timing");
+    let server = server_time_ms(&timing);
     let _ = resp.into_reader().read_to_end(&mut Vec::new());
-    Ok(started.elapsed().as_secs_f64() * 1000.0)
+    Ok(net_rtt_ms(total, server))
+}
+
+/// Run `work` while a second connection pings every `LOADED_PING_EVERY`;
+/// returns `work`'s result and the median of those pings — the latency under
+/// load. The pings use their own agent (own connection), as a real-world
+/// call would during a big download.
+fn with_loaded_pings<T>(work: impl FnOnce() -> T) -> (T, Option<f64>) {
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    let pinger = std::thread::Builder::new()
+        .name("ir-speedtest-ping".into())
+        .spawn(move || {
+            let agent = agent();
+            let _ = latency_once(&agent); // open the connection outside the samples
+            let mut samples = Vec::new();
+            while !flag.load(Ordering::SeqCst) {
+                if let Ok(ms) = latency_once(&agent) {
+                    samples.push(ms);
+                }
+                std::thread::sleep(LOADED_PING_EVERY);
+            }
+            samples
+        })
+        .ok();
+    let out = work();
+    stop.store(true, Ordering::SeqCst);
+    let samples = pinger.and_then(|h| h.join().ok()).unwrap_or_default();
+    (out, loaded_latency(&samples))
 }
 
 /// Run the whole test. `progress` is called after every request. Fails only
@@ -263,15 +347,19 @@ pub fn run(mut progress: impl FnMut(Progress)) -> Result<SpeedtestResult, String
     }
     let latency = median(&pings);
 
-    let down = run_plan(DOWNLOAD_PLAN, "download", &mut progress, &mut last_err, |b| {
-        download_once(&agent, b)
+    let (down, loaded_down) = with_loaded_pings(|| {
+        run_plan(DOWNLOAD_PLAN, "download", &mut progress, &mut last_err, |b| {
+            download_once(&agent, b)
+        })
     });
 
     let up_latency = latency.unwrap_or(0.0);
     let biggest = UPLOAD_PLAN.iter().map(|&(b, _)| b).max().unwrap_or(0) as usize;
     let payload = vec![0u8; biggest];
-    let up = run_plan(UPLOAD_PLAN, "upload", &mut progress, &mut last_err, |b| {
-        upload_once(&agent, &payload[..b as usize], up_latency)
+    let (up, loaded_up) = with_loaded_pings(|| {
+        run_plan(UPLOAD_PLAN, "upload", &mut progress, &mut last_err, |b| {
+            upload_once(&agent, &payload[..b as usize], up_latency)
+        })
     });
 
     let result = SpeedtestResult {
@@ -280,6 +368,8 @@ pub fn run(mut progress: impl FnMut(Progress)) -> Result<SpeedtestResult, String
         upload_bps: bandwidth_result(&up),
         latency_ms: latency,
         jitter_ms: jitter(&pings),
+        loaded_down_ms: loaded_down,
+        loaded_up_ms: loaded_up,
         colo: trace_field(&trace, "colo"),
         country: trace_field(&trace, "loc"),
         ip: trace_field(&trace, "ip"),
@@ -342,15 +432,25 @@ pub fn init_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
             colo TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_speedtest_at ON speedtest_history(at DESC);",
-    )
+    )?;
+    // v0.199.1: loaded latency + country. Lazy migration — ADD COLUMN on a
+    // table that already has the column fails, which is the "done" signal.
+    for col in ["loaded_down_ms REAL", "loaded_up_ms REAL", "country TEXT"] {
+        let _ = conn.execute(&format!("ALTER TABLE speedtest_history ADD COLUMN {col}"), []);
+    }
+    Ok(())
 }
 
 pub fn history_insert(db: &DbHandle, r: &SpeedtestResult) -> rusqlite::Result<i64> {
     let conn = db.lock();
     conn.execute(
-        "INSERT INTO speedtest_history (at, download_bps, upload_bps, latency_ms, jitter_ms, colo)
-         VALUES (?1,?2,?3,?4,?5,?6)",
-        rusqlite::params![r.at, r.download_bps, r.upload_bps, r.latency_ms, r.jitter_ms, r.colo],
+        "INSERT INTO speedtest_history
+            (at, download_bps, upload_bps, latency_ms, jitter_ms, colo, loaded_down_ms, loaded_up_ms, country)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        rusqlite::params![
+            r.at, r.download_bps, r.upload_bps, r.latency_ms, r.jitter_ms, r.colo,
+            r.loaded_down_ms, r.loaded_up_ms, r.country
+        ],
     )?;
     let id = conn.last_insert_rowid();
     conn.execute(
@@ -364,7 +464,8 @@ pub fn history_insert(db: &DbHandle, r: &SpeedtestResult) -> rusqlite::Result<i6
 pub fn history_list(db: &DbHandle, limit: u32) -> rusqlite::Result<Vec<SpeedtestHistoryEntry>> {
     let conn = db.lock();
     let mut stmt = conn.prepare(
-        "SELECT id, at, download_bps, upload_bps, latency_ms, jitter_ms, colo
+        "SELECT id, at, download_bps, upload_bps, latency_ms, jitter_ms, colo,
+                loaded_down_ms, loaded_up_ms, country
          FROM speedtest_history ORDER BY at DESC, id DESC LIMIT ?1",
     )?;
     let rows = stmt.query_map([limit], |r| {
@@ -376,6 +477,9 @@ pub fn history_list(db: &DbHandle, limit: u32) -> rusqlite::Result<Vec<Speedtest
             latency_ms: r.get(4)?,
             jitter_ms: r.get(5)?,
             colo: r.get(6)?,
+            loaded_down_ms: r.get(7)?,
+            loaded_up_ms: r.get(8)?,
+            country: r.get(9)?,
         })
     })?;
     rows.collect()
@@ -492,6 +596,52 @@ mod tests {
     }
 
     #[test]
+    fn server_time_is_the_sum_of_every_duration() {
+        // Real Cloudflare headers (2026-10-06): edge 2 + worker 15; cfL4 has no dur.
+        let h = [
+            "cfSpeedEdge;dur=2, cfSpeedWorker;dur=15",
+            "cfL4;desc=\"?proto=TCP&rtt=16611&min_rtt=13854\"",
+        ];
+        assert_eq!(server_time_ms(&h), Some(17.0));
+        assert_eq!(server_time_ms(&["cfL4;desc=\"x\""]), None);
+        assert_eq!(server_time_ms(&[]), None);
+        assert_eq!(server_time_ms(&["a;dur=1.5", "b;dur=abc"]), Some(1.5));
+    }
+
+    #[test]
+    fn network_rtt_removes_the_server_share() {
+        // 31 ms request, 17 ms server → 14 ms, what speedtest.net reported.
+        assert_eq!(net_rtt_ms(31.0, Some(17.0)), 14.0);
+        // No header → the raw time, never a guess.
+        assert_eq!(net_rtt_ms(31.0, None), 31.0);
+        // Clock granularity can overshoot; never negative.
+        assert_eq!(net_rtt_ms(5.0, Some(9.0)), 0.1);
+    }
+
+    #[test]
+    fn loaded_latency_needs_enough_pings() {
+        assert_eq!(loaded_latency(&[100.0, 200.0]), None);
+        assert_eq!(loaded_latency(&[100.0, 300.0, 200.0]), Some(200.0));
+    }
+
+    #[test]
+    fn migration_adds_the_new_columns_to_an_old_table() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE speedtest_history (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL,
+             download_bps REAL, upload_bps REAL, latency_ms REAL, jitter_ms REAL, colo TEXT);
+             INSERT INTO speedtest_history (at, download_bps) VALUES (1, 5.0);",
+        )
+        .unwrap();
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap(); // idempotent
+        let db: DbHandle = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        let rows = history_list(&db, 10).unwrap();
+        assert_eq!(rows.len(), 1, "old rows survive");
+        assert_eq!(rows[0].loaded_down_ms, None);
+    }
+
+    #[test]
     fn trace_fields_are_read_by_key() {
         let body = "fl=67f194\nip=203.0.113.9\ncolo=TXL\nloc=DE\nempty=\n";
         assert_eq!(trace_field(body, "colo").as_deref(), Some("TXL"));
@@ -512,6 +662,8 @@ mod tests {
                     upload_bps: None,
                     latency_ms: Some(10.0),
                     jitter_ms: None,
+                    loaded_down_ms: Some(120.0),
+                    loaded_up_ms: None,
                     colo: Some("TXL".into()),
                     country: None,
                     ip: None,
@@ -523,6 +675,8 @@ mod tests {
         assert_eq!(all.len() as i64, HISTORY_KEEP);
         assert_eq!(all[0].at, HISTORY_KEEP + 4, "newest first");
         assert_eq!(all[0].upload_bps, None, "a missing phase stays missing, not 0");
+        assert_eq!(all[0].loaded_down_ms, Some(120.0));
+        assert_eq!(all[0].loaded_up_ms, None);
         history_clear(&db).unwrap();
         assert!(history_list(&db, 10).unwrap().is_empty());
     }

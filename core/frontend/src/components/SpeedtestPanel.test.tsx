@@ -33,6 +33,8 @@ const result = {
   upload_bps: 44_196_779,
   latency_ms: 38.87,
   jitter_ms: 6.49,
+  loaded_down_ms: 31.4,
+  loaded_up_ms: 11.2,
   colo: "TXL",
   country: "DE",
   ip: "203.0.113.9",
@@ -107,5 +109,37 @@ describe("SpeedtestPanel", () => {
     // median(400, 500) = 450 → +1 %
     expect(screen.getAllByText(/ggü\. früher/).length).toBe(2);
     expect(screen.getByText(/Median der 2 früheren/)).toBeTruthy();
+  });
+
+  it("shows loaded latency in the result", async () => {
+    speedtestRun.mockResolvedValue(result);
+    render(<SpeedtestPanel focused onExit={() => {}} />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(screen.getAllByText("Ping unter Last").length).toBe(2);
+    expect(screen.getByText("31 ms")).toBeTruthy();
+    expect(screen.getByText("11 ms")).toBeTruthy();
+  });
+
+  it("history shows median/min/max, a trend and every value per run", async () => {
+    speedtestRun.mockResolvedValue(result);
+    speedtestHistory.mockResolvedValue([
+      { id: 3, ...result },
+      { id: 2, ...result, at: 2, download_bps: 300e6, latency_ms: 20, loaded_down_ms: null },
+      { id: 1, ...result, at: 1, download_bps: 500e6, latency_ms: 10 },
+    ]);
+    render(<SpeedtestPanel focused onExit={() => {}} />);
+    await act(async () => {});
+    await act(async () => {});
+    expect(screen.getByText(/3 Messungen/)).toBeTruthy();
+    // ↓ row: median 452, min 300, max 500
+    const row = screen.getByText("↓ Mbit/s").closest("tr")!;
+    expect(row.textContent).toBe("↓ Mbit/s452300500");
+    expect(screen.getByLabelText("Verlauf als Diagramm")).toBeTruthy();
+    const runs = screen.getByLabelText("Messungen").querySelectorAll("li");
+    expect(runs.length).toBe(3);
+    // A missing loaded value shows as a dash, never 0.
+    expect(runs[1].textContent).toMatch(/unter Last ↓ — \//);
+    expect(runs[0].textContent).toMatch(/TXL DE/);
   });
 });

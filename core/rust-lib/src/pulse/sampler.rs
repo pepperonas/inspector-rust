@@ -359,22 +359,31 @@ fn flush(agg: &Agg) {
 fn notify_critical(minutes: u32) {
     let top = STATE.lock().groups.first().cloned();
     let detail = match top {
-        Some(g) => format!(
-            "Größter Verbraucher: {} ({:.1} GB)",
-            g.name.replace(['"', '\\'], "'"),
-            g.footprint as f64 / 1e9
-        ),
+        Some(g) => format!("Größter Verbraucher: {} ({:.1} GB)", g.name, g.footprint as f64 / 1e9),
         None => "Verursacher unbekannt".into(),
     };
-    let script = format!(
-        r#"display notification "{detail}" with title "Speicherdruck kritisch" subtitle "seit über {minutes} Minuten""#
-    );
+    let subtitle = format!("seit über {minutes} Minuten");
     let _ = std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(&script)
+        .args(notify_script_args())
+        .arg(&detail)
+        .arg(&subtitle)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+}
+
+/// The notification script. The texts arrive as `argv` items, never spliced
+/// into the script: the group name is a process/app name any program can
+/// choose, and text inside AppleScript source is code.
+pub fn notify_script_args() -> [&'static str; 6] {
+    [
+        "-e",
+        "on run argv",
+        "-e",
+        "display notification (item 1 of argv) with title \"Speicherdruck kritisch\" subtitle (item 2 of argv)",
+        "-e",
+        "end run",
+    ]
 }
 
 // ── smartctl (daily, outside the sampling loop) ────────────────────────────
@@ -532,6 +541,19 @@ mod tests {
         assert!(should_notify(Some(1000), 1000 + 600, 10, None));
         assert!(!should_notify(Some(1000), 5000, 10, Some(5000 - 3599)));
         assert!(should_notify(Some(1000), 5000, 10, Some(5000 - 3600)));
+    }
+
+    #[test]
+    fn notification_texts_never_enter_the_script() {
+        // The only quotes in the script are its own fixed title; user-visible
+        // texts come in through argv.
+        let script = notify_script_args().join(" ");
+        assert!(script.contains("item 1 of argv") && script.contains("item 2 of argv"));
+        assert_eq!(script.matches('"').count(), 2);
+        let src = include_str!("sampler.rs");
+        let body = &src[src.find("fn notify_critical").unwrap()..src.find("pub fn notify_script_args").unwrap()];
+        assert!(!body.contains("format!(\n        r#\""), "no script assembled with format!");
+        assert!(body.contains(".arg(&detail)"));
     }
 
     #[test]

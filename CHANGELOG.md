@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.200.1] - 2026-10-07
+
+### Security
+- **The `pulse` notification no longer builds AppleScript from text.** The notification names the biggest memory consumer — a process or app name that any program can choose. The name was escaped, but it was still placed inside the script's source; it is now handed to the script as an argument, so no name can turn into code. A name built to break out of the string is shown as plain text (checked).
+
 ## [0.200.0] - 2026-10-07
 
 ### Added

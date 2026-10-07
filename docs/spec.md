@@ -106,7 +106,8 @@ Inspired by Alfred but clean, minimal, modern. Dark theme default with light-mod
 │  • …         │   └──────────────────────┘   │
 │              │                              │
 ├──────────────┴──────────────────────────────┤
-│  ⏎ Paste   ↑↓ Navigate   Esc Close   [1/42] │  ← 32px footer
+│  ☾ SLEEP REC  ⌃⇧O OCR ⌃⇧S Shot   186 GB frei │  ← footer, 2 rows
+│  📁 …/website/docs · notiz.md      v0.203.0 │    (since v0.203.0)
 └─────────────────────────────────────────────┘
 ```
 

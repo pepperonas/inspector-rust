@@ -6109,16 +6109,6 @@ function App() {
         </div>
 
         <Footer
-          index={selected}
-          total={
-            activeTab === "history"
-              ? combined.length
-              : activeTab === "snippets"
-                ? snippets.length
-                : activeTab === "notes"
-                  ? notes.length
-                  : 0
-          }
           version={version}
           finderContext={finderCtx}
           onRevealFolder={(dir) => void revealPath(dir).catch(() => undefined)}

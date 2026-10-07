@@ -7,8 +7,6 @@ import { contextTitle, selectionLabel, shortDir } from "../lib/finder-context";
 import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "../lib/free-space";
 
 interface Props {
-  index: number;
-  total: number;
   /** App version, e.g. "0.2.6". Rendered as `v0.2.6` next to the counter
    *  when provided. Optional so unit tests don't need a Tauri context. */
   version?: string;
@@ -47,8 +45,6 @@ interface Props {
 }
 
 export function Footer({
-  index,
-  total,
   version,
   wakelockActive,
   activeTimerCount,
@@ -61,7 +57,6 @@ export function Footer({
   finderContext,
   onRevealFolder,
 }: Props) {
-  const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
   // Surfaced in the footer so users discover them without having to dig
@@ -70,38 +65,38 @@ export function Footer({
   const screenshotKey = IS_MAC ? "⌃⇧S" : "Ctrl+⇧+S";
   const colorKey = IS_MAC ? "⌃⇧C" : "Ctrl+⇧+C";
   return (
-    // `min-h-8` (not fixed `h-8`) + `flex-wrap` so a cramped footer — e.g.
-    // Windows, where `Ctrl+⇧+O` hints are wider than the macOS glyphs —
-    // wraps onto a second line instead of clipping. Nothing is ever cut
-    // off; the row just grows a little taller when it has to. The credit
-    // (♥ Martin Pfeffer) moved to the inline About to keep this lean.
-    <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {/* ⚠️ The toggle comes FIRST. Before v0.152.0 the always-visible badge
-            sat after it, so with the wakelock off this was the footer's
-            leftmost item; merging the indicators moved it behind a labelled,
-            coloured badge and it stopped being findable (field report). */}
-        {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
-        <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
-        {trackingActive && <TrackingLed paused={!!trackingPaused} />}
-        {activeTimerCount != null && activeTimerCount > 0 && (
-          <TimerBadge count={activeTimerCount} />
-        )}
-        <Hint k="⏎" label="Paste" />
-        {/* The ↑↓ Navigate hint is gone (v0.202.0) — the arrows still work;
-            its place shows WHERE the file commands will act. */}
-        {finderContext && <FinderChip ctx={finderContext} onReveal={onRevealFolder} />}
-        <Hint k="Esc" label="Close" />
-        <Hint k={ocrKey} label="OCR" />
-        <Hint k={screenshotKey} label="Shot" />
-        <Hint k={colorKey} label="Color" />
-      </div>
-      {/* Version sits at the FAR right — the footer's fixed anchor. */}
-      <div className="flex shrink-0 items-center gap-3">
+    // Two fixed rows (v0.203.0). Top: status + global shortcuts, free space
+    // on the right. Bottom: the Finder working folder on the left, the
+    // version on the right. The ⏎ Paste / Esc Close hints and the 1/N
+    // counter are gone — Enter, Esc and the arrows work as before.
+    <div className="flex flex-col gap-y-0.5 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
+      <div data-testid="footer-row-top" className="flex min-h-6 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* ⚠️ The toggle comes FIRST. Before v0.152.0 the always-visible badge
+              sat after it, so with the wakelock off this was the footer's
+              leftmost item; merging the indicators moved it behind a labelled,
+              coloured badge and it stopped being findable (field report). */}
+          {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
+          <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
+          {trackingActive && <TrackingLed paused={!!trackingPaused} />}
+          {activeTimerCount != null && activeTimerCount > 0 && (
+            <TimerBadge count={activeTimerCount} />
+          )}
+          <Hint k={ocrKey} label="OCR" />
+          <Hint k={screenshotKey} label="Shot" />
+          <Hint k={colorKey} label="Color" />
+        </div>
         {freeSpace && <FreeSpaceBadge space={freeSpace} />}
-        <span>{label}</span>
+      </div>
+      <div data-testid="footer-row-bottom" className="flex min-h-5 items-center justify-between gap-x-3">
+        {/* flex-1: the path may use all the room up to the version; it only
+            truncates when the row is actually too narrow. */}
+        <div className="flex min-w-0 flex-1">
+          {finderContext && <FinderChip ctx={finderContext} onReveal={onRevealFolder} />}
+        </div>
+        {/* Version sits at the FAR right of the bottom row — the fixed anchor. */}
         {version && (
-          <span title="Inspector Rust version" className="font-[var(--font-mono)]">
+          <span title="Inspector Rust version" className="shrink-0 font-[var(--font-mono)]">
             v{version}
           </span>
         )}
@@ -138,7 +133,7 @@ function FinderChip({ ctx, onReveal }: { ctx: FinderContext; onReveal?: (dir: st
       data-testid="finder-context"
       title={contextTitle(ctx)}
       onClick={() => onReveal?.(ctx.dir)}
-      className="flex min-w-0 max-w-[260px] items-center gap-1 rounded px-1 hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+      className="flex min-w-0 max-w-full items-center gap-1 rounded px-1 -ml-1 hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
     >
       <Folder size={11} aria-hidden className="shrink-0" />
       <span className="truncate font-[var(--font-mono)]">{shortDir(ctx.dir)}</span>

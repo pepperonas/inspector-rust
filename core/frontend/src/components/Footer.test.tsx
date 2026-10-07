@@ -22,43 +22,38 @@ function sleep(over: Partial<SleepStatus>): SleepStatus {
 }
 
 describe("Footer", () => {
-  it("shows 1-based counter label", () => {
-    render(<Footer index={0} total={5} />);
-    expect(screen.getByText("1/5")).toBeTruthy();
+  it("has no item counter and no Paste/Close/Navigate hints (v0.203.0)", () => {
+    render(<Footer version="1.0.0" />);
+    for (const gone of ["Paste", "Close", "Navigate", "⏎", "Esc", "↑↓"]) {
+      expect(screen.queryByText(gone)).toBeNull();
+    }
+    expect(screen.queryByText(/^\d+\/\d+$/)).toBeNull();
+    expect(screen.getByText("OCR")).toBeTruthy();
   });
 
-  it('shows "0/0" when there are no entries', () => {
-    render(<Footer index={0} total={0} />);
-    expect(screen.getByText("0/0")).toBeTruthy();
-  });
-
-  it("shows the correct counter for the last entry", () => {
-    render(<Footer index={9} total={10} />);
-    expect(screen.getByText("10/10")).toBeTruthy();
-  });
-
-  it("renders all keyboard hint labels", () => {
-    render(<Footer index={0} total={1} />);
-    expect(screen.getByText("Paste")).toBeTruthy();
-    expect(screen.getByText("Close")).toBeTruthy();
-    // v0.202.0: the arrow-key hint is gone (the arrows still work).
-    expect(screen.queryByText("Navigate")).toBeNull();
-  });
-
-  it("renders keyboard shortcut keys", () => {
-    render(<Footer index={0} total={1} />);
-    expect(screen.getByText("⏎")).toBeTruthy();
-    expect(screen.queryByText("↑↓")).toBeNull();
-    expect(screen.getByText("Esc")).toBeTruthy();
+  it("top row: free space on the right; bottom row: folder left, version right", () => {
+    render(
+      <Footer
+        version="0.203.0"
+        freeSpace={{ available: 16e9, total: 500e9, name: "Macintosh HD", mount: "/" }}
+        finderContext={{ dir: "/Users/m/Downloads", selected: [], selected_count: 0, from_selection: false }}
+      />,
+    );
+    const top = screen.getByTestId("footer-row-top");
+    const bottom = screen.getByTestId("footer-row-bottom");
+    expect(top.lastElementChild).toBe(screen.getByTestId("free-space"));
+    expect(bottom.firstElementChild?.contains(screen.getByTestId("finder-context"))).toBe(true);
+    expect(bottom.lastElementChild?.textContent).toBe("v0.203.0");
+    expect(top.textContent).not.toContain("v0.203.0");
   });
 
   it("renders the version chip when version is provided", () => {
-    render(<Footer index={0} total={1} version="0.2.6" />);
+    render(<Footer version="0.2.6" />);
     expect(screen.getByText("v0.2.6")).toBeTruthy();
   });
 
   it("shows the version as the LAST element — bottom right of the footer", () => {
-    const { container } = render(<Footer index={2} total={9} version="0.185.0" />);
+    const { container } = render(<Footer version="0.185.0" />);
     const chip = screen.getByText("v0.185.0");
     // Every text-bearing leaf of the footer, in document order.
     const leaves = [...container.querySelectorAll("span")].filter(
@@ -68,27 +63,27 @@ describe("Footer", () => {
   });
 
   it("omits the version chip when version is undefined", () => {
-    render(<Footer index={0} total={1} />);
+    render(<Footer />);
     expect(screen.queryByText(/^v\d/)).toBeNull();
   });
 
   it("does not render the author credit (moved to the inline About)", () => {
-    render(<Footer index={0} total={1} />);
+    render(<Footer />);
     expect(screen.queryByText(/Martin Pfeffer/)).toBeNull();
   });
 
   it("hides the wakelock LED by default (wakelockActive omitted)", () => {
-    render(<Footer index={0} total={1} />);
+    render(<Footer />);
     expect(screen.queryByText("wake")).toBeNull();
   });
 
   it("hides the wakelock LED when wakelockActive=false", () => {
-    render(<Footer index={0} total={1} wakelockActive={false} />);
+    render(<Footer wakelockActive={false} />);
     expect(screen.queryByText("wake")).toBeNull();
   });
 
   it("shows the wakelock LED + label when wakelockActive=true", () => {
-    render(<Footer index={0} total={1} wakelockActive={true} />);
+    render(<Footer wakelockActive={true} />);
     // The LED label is `wake` next to the red dot — easy text probe.
     expect(screen.getByText("wake")).toBeTruthy();
   });
@@ -98,15 +93,15 @@ describe("Footer — system sleep indicator", () => {
   it("is hidden only where there is nothing truthful to say", () => {
     const probe = () => screen.queryByText(/no-sleep|wach|^wake$|^sleep$/);
     // No status yet + no wakelock -> nothing is known.
-    render(<Footer index={0} total={1} />);
+    render(<Footer />);
     expect(probe()).toBeNull();
     cleanup();
     // Unsupported platform -> nothing to report.
-    render(<Footer index={0} total={1} sleepStatus={sleep({ supported: false, prevented: true, indefinite: true })} />);
+    render(<Footer sleepStatus={sleep({ supported: false, prevented: true, indefinite: true })} />);
     expect(probe()).toBeNull();
     cleanup();
     // ⚠️ But an unsupported status must not swallow the user's OWN wakelock.
-    render(<Footer index={0} total={1} wakelockActive={true} sleepStatus={sleep({ supported: false })} />);
+    render(<Footer wakelockActive={true} sleepStatus={sleep({ supported: false })} />);
     expect(screen.getByText("wake")).toBeTruthy();
   });
 
@@ -114,8 +109,6 @@ describe("Footer — system sleep indicator", () => {
     // sleep 0 makes the countdown a lie (sleep never happens), so it wins.
     render(
       <Footer
-        index={0}
-        total={1}
         sleepStatus={sleep({ sleep_disabled: true, prevented: true, max_timeout_secs: 300, holders: ["caffeinate ×4"] })}
       />,
     );
@@ -127,8 +120,6 @@ describe("Footer — system sleep indicator", () => {
     vi.useFakeTimers();
     render(
       <Footer
-        index={0}
-        total={1}
         sleepStatus={sleep({ prevented: true, max_timeout_secs: 252, holders: ["caffeinate ×4", "sharingd"] })}
       />,
     );
@@ -148,7 +139,7 @@ describe("Footer — system sleep indicator", () => {
 
   it("shows ∞ for an indefinite prevention", () => {
     render(
-      <Footer index={0} total={1} sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["sharingd"] })} />,
+      <Footer sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["sharingd"] })} />,
     );
     expect(screen.getByText("wach ∞")).toBeTruthy();
     expect(screen.getByTitle(/sharingd/)).toBeTruthy();
@@ -161,8 +152,6 @@ describe("Footer — system sleep indicator", () => {
     // react to the wakelock at all, so toggling it appeared to do nothing.
     render(
       <Footer
-        index={0}
-        total={1}
         wakelockActive={true}
         sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["caffeinate"] })}
       />,
@@ -175,11 +164,11 @@ describe("Footer — system sleep indicator", () => {
     // THE reported defect: with a stored AC profile of `sleep 0` the old amber
     // branch returned before assertions were considered.
     const st = sleep({ sleep_disabled: true, prevented: true, holders: ["caffeinate ×4"] });
-    render(<Footer index={0} total={1} wakelockActive={true} sleepStatus={st} />);
+    render(<Footer wakelockActive={true} sleepStatus={st} />);
     expect(screen.getByText("wake")).toBeTruthy();
     expect(screen.queryByText("no-sleep")).toBeNull();
     cleanup();
-    render(<Footer index={0} total={1} wakelockActive={false} sleepStatus={st} />);
+    render(<Footer wakelockActive={false} sleepStatus={st} />);
     expect(screen.getByText("no-sleep")).toBeTruthy();
     expect(screen.queryByText("wake")).toBeNull();
   });
@@ -187,21 +176,21 @@ describe("Footer — system sleep indicator", () => {
   it("says 'sleep' out loud instead of vanishing when nothing holds the Mac", () => {
     // The old wake LED rendered only while ON, so "off" was indistinguishable
     // from a broken indicator.
-    render(<Footer index={0} total={1} wakelockActive={false} sleepStatus={sleep({})} />);
+    render(<Footer wakelockActive={false} sleepStatus={sleep({})} />);
     expect(screen.getByText("sleep")).toBeTruthy();
   });
 });
 
 describe("Footer — dark-wake toggle", () => {
   it("is hidden without a handler (cold mounts stay clean)", () => {
-    const { container } = render(<Footer index={0} total={1} />);
+    const { container } = render(<Footer />);
     expect(container.querySelector("button")).toBeNull();
   });
 
   it("renders muted without the srv label while off, and toggles on click", () => {
     const onToggle = vi.fn();
     const { container } = render(
-      <Footer index={0} total={1} darkWake={false} onDarkWakeToggle={onToggle} />,
+      <Footer darkWake={false} onDarkWakeToggle={onToggle} />,
     );
     const btn = container.querySelector("button")!;
     expect(btn).toBeTruthy();
@@ -211,7 +200,7 @@ describe("Footer — dark-wake toggle", () => {
   });
 
   it("shows the violet srv badge while dark wake is on", () => {
-    render(<Footer index={0} total={1} darkWake={true} onDarkWakeToggle={() => {}} />);
+    render(<Footer darkWake={true} onDarkWakeToggle={() => {}} />);
     expect(screen.getByText("srv")).toBeTruthy();
   });
 
@@ -219,10 +208,10 @@ describe("Footer — dark-wake toggle", () => {
     // ⚠️ Regression pin (v0.155.0). While off this was a bare 11 px moon with
     // no text, next to labelled glowing indicators; the user reported it as
     // simply gone. Every other footer item is glyph + uppercase mono label.
-    render(<Footer index={0} total={1} darkWake={false} onDarkWakeToggle={() => {}} />);
+    render(<Footer darkWake={false} onDarkWakeToggle={() => {}} />);
     expect(screen.getByText("dark")).toBeTruthy();
     cleanup();
-    render(<Footer index={0} total={1} darkWake={true} onDarkWakeToggle={() => {}} />);
+    render(<Footer darkWake={true} onDarkWakeToggle={() => {}} />);
     expect(screen.getByText("srv")).toBeTruthy();
   });
 
@@ -230,7 +219,7 @@ describe("Footer — dark-wake toggle", () => {
     // ⚠️ `opacity-60` on an already-muted 11 px glyph is what made it
     // invisible. It is a control and must read as one.
     const { container } = render(
-      <Footer index={0} total={1} darkWake={false} onDarkWakeToggle={() => {}} />,
+      <Footer darkWake={false} onDarkWakeToggle={() => {}} />,
     );
     const btn = container.querySelector("button")!;
     expect(btn.className).not.toContain("opacity-60");
@@ -241,8 +230,6 @@ describe("Footer — dark-wake toggle", () => {
     // this button; with the wakelock off it used to be the leftmost item.
     const { container } = render(
       <Footer
-        index={0}
-        total={1}
         darkWake={false}
         onDarkWakeToggle={() => {}}
         sleepStatus={sleep({ sleep_disabled: true })}
@@ -258,8 +245,6 @@ describe("Footer — dark-wake toggle", () => {
     // App never sets both, but the footer must not couple them structurally.
     render(
       <Footer
-        index={0}
-        total={1}
         wakelockActive={true}
         darkWake={false}
         onDarkWakeToggle={() => {}}
@@ -273,21 +258,21 @@ describe("Footer — dark-wake toggle", () => {
 describe("Footer free space (v0.195.0)", () => {
   const T = 494_384_795_648;
   it("always shows the free space with System Settings' tooltip", () => {
-    render(<Footer index={0} total={1} freeSpace={{ name: "Macintosh HD", mount: "/", available: 186_000_000_000, total: T }} />);
+    render(<Footer freeSpace={{ name: "Macintosh HD", mount: "/", available: 186_000_000_000, total: T }} />);
     const el = screen.getByTestId("free-space");
     expect(el.textContent).toContain("186 GB frei");
     expect(el.getAttribute("title")).toBe("Macintosh HD — 186,00 GB verfügbar von 494,38 GB");
     expect(el.dataset.level).toBe("ok");
   });
   it("turns red when the disk is nearly full", () => {
-    render(<Footer index={0} total={1} freeSpace={{ name: "Macintosh HD", mount: "/", available: 3_900_000_000, total: T }} />);
+    render(<Footer freeSpace={{ name: "Macintosh HD", mount: "/", available: 3_900_000_000, total: T }} />);
     const el = screen.getByTestId("free-space");
     expect(el.textContent).toContain("3,9 GB frei");
     expect(el.dataset.level).toBe("crit");
     expect(el.className).toContain("text-red-500");
   });
   it("renders nothing until the first reading arrives", () => {
-    render(<Footer index={0} total={1} freeSpace={null} />);
+    render(<Footer freeSpace={null} />);
     expect(screen.queryByTestId("free-space")).toBeNull();
   });
 
@@ -301,7 +286,7 @@ describe("Footer free space (v0.195.0)", () => {
 
     it("shows the short folder and the selected file; click reveals the folder", () => {
       const onReveal = vi.fn();
-      render(<Footer index={0} total={1} finderContext={ctx} onRevealFolder={onReveal} />);
+      render(<Footer finderContext={ctx} onRevealFolder={onReveal} />);
       const chip = screen.getByTestId("finder-context");
       expect(chip.textContent).toContain("…/inspector-rust/docs");
       expect(chip.textContent).toContain("notiz.md");
@@ -311,7 +296,7 @@ describe("Footer free space (v0.195.0)", () => {
     });
 
     it("is hidden without a context", () => {
-      render(<Footer index={0} total={1} />);
+      render(<Footer />);
       expect(screen.queryByTestId("finder-context")).toBeNull();
     });
   });

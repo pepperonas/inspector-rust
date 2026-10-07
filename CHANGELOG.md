@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.203.0] - 2026-10-07
+
+### Changed
+- **The footer has two fixed rows.** Top: the status indicators and the OCR / Shot / Color shortcuts, with the free disk space on the right. Bottom: the Finder working folder and selection on the left (using the whole row), the version on the right.
+
+### Removed
+- **The `⏎ Paste` and `Esc Close` hints and the `1/1000` item counter.** Enter, Esc and the arrow keys work as before.
+
 ## [0.202.1] - 2026-10-07
 
 ### Security

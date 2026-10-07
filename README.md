@@ -806,7 +806,7 @@ Each banner:
 `scripts/install-macos.sh` signs every build with a stable self-signed certificate so grants survive rebuilds. `scripts/grant-permissions-macos.sh` provides a one-pass guided setup for all four permissions. Full details: [`macos/README.md`](./macos/README.md#macos-permissions).
 
 ### Discoverability (v0.10.7)
-- **Footer** — two rows. Top: the sleep/wake and recording indicators plus the global shortcuts `⌃⇧O OCR` · `⌃⇧S Shot` · `⌃⇧C Color`, with the free disk space on the right. Bottom: the Finder folder the file commands (`touch`, `echo`, `mkdir`, `terminal`, `daisy`) work in, plus the current selection — click to show it in Finder — and the version on the right.
+- **Footer** — two rows. Top: the audio switch (where the sound comes out — speakers, Bluetooth, headphones — or `boom → <device>` while boom runs; click to pick another output or toggle boom), the sleep/wake and recording indicators plus the global shortcuts `⌃⇧O OCR` · `⌃⇧S Shot` · `⌃⇧C Color`, with the free disk space on the right. Bottom: the Finder folder the file commands (`touch`, `echo`, `mkdir`, `terminal`, `daisy`) work in, plus the current selection — click to show it in Finder — and the version on the right.
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 

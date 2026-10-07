@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.204.0] - 2026-10-08
+
+### Added
+- **Audio switch in the footer.** The first item of the top row shows where the sound comes out right now — MacBook speakers, a Bluetooth device, headphones — and with boom active `boom → <device>`, because the system output is then boom's virtual device, which says nothing. Clicking opens a small menu upward: pick another output, or switch boom on and off. Picking a device while boom runs moves boom's bridge onto it.
+
 ## [0.203.0] - 2026-10-07
 
 ### Changed

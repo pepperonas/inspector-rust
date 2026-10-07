@@ -1016,6 +1016,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_ambient_light,
             commands::list_audio_outputs,
             commands::set_audio_output,
+            commands::audio_route,
             commands::get_system_stats,
             commands::get_stats_history,
             commands::get_uptime_secs,

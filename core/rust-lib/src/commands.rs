@@ -6339,6 +6339,44 @@ pub fn list_audio_outputs() -> Result<Vec<crate::audio::AudioDevice>, String> {
     crate::audio::list_outputs()
 }
 
+/// Everything the footer's audio menu shows in one read: the outputs, whether
+/// boom is on, its virtual device and the real device the bridge plays on.
+#[derive(Serialize)]
+pub struct AudioRoute {
+    pub devices: Vec<crate::audio::AudioDevice>,
+    pub boom_enabled: bool,
+    pub boom_installed: bool,
+    /// Id of the "boom Audio" device (hidden from the list).
+    pub boom_device: Option<String>,
+    /// Real device behind the bridge while boom plays (else `None`).
+    pub boom_target: Option<String>,
+}
+
+#[tauri::command]
+pub async fn audio_route(db: State<'_, DbHandle>) -> Result<AudioRoute, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let devices = crate::audio::list_outputs()?;
+        let boom_enabled = crate::boom::BoomConfig::load(&db).enabled;
+        #[cfg(target_os = "macos")]
+        let (boom_device, boom_target) = (
+            crate::boom::macos::boom_device().map(|d| d.to_string()),
+            crate::boom::macos::bridge_target().map(|d| d.to_string()),
+        );
+        #[cfg(not(target_os = "macos"))]
+        let (boom_device, boom_target): (Option<String>, Option<String>) = (None, None);
+        Ok(AudioRoute {
+            devices,
+            boom_enabled,
+            boom_installed: boom_device.is_some(),
+            boom_device,
+            boom_target,
+        })
+    })
+    .await
+    .map_err(|e| format!("audio route task: {e}"))?
+}
+
 /// Set the default audio output device by its opaque per-platform id.
 #[tauri::command]
 pub fn set_audio_output(id: String) -> Result<(), String> {

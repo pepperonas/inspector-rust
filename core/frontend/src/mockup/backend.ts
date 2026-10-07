@@ -582,6 +582,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "list_brightness_monitors": return MONITORS;
     case "get_monitor_brightness": return MONITORS.find((m) => m.id === args.id)?.brightness ?? 70;
     case "list_audio_outputs": return AUDIO;
+    case "audio_route":
+      return {
+        devices: AUDIO.map((d) => ({ ...d, transport: /AirPods/.test(d.name) ? "bluetooth" : /MacBook/.test(d.name) ? "builtin" : "" })),
+        boom_enabled: false, boom_installed: false, boom_device: null, boom_target: null,
+      };
     case "get_system_volume": return 62;
     case "alias_list": return ALIASES;
     case "ip_fetch": return IP;

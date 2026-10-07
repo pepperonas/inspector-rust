@@ -1017,6 +1017,20 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
 }
 
 /// Whether the "boom Audio" driver is installed + loaded (the device exists).
+/// The real output the bridge plays on right now (`None` = no bridge). The
+/// footer's audio menu shows it behind "boom →" — the system default is boom
+/// Audio while bridging, which says nothing about where the sound goes.
+pub(crate) fn bridge_target() -> Option<u32> {
+    let dev = LEVELS_REAL_DEV.load(Ordering::Relaxed);
+    (dev != 0).then_some(dev)
+}
+
+/// The "boom Audio" device id (`None` = driver not loaded).
+pub(crate) fn boom_device() -> Option<u32> {
+    let dev = unsafe { find_device_by_uid("BoomAudio_UID") };
+    (dev != 0).then_some(dev)
+}
+
 pub(crate) fn driver_present() -> bool {
     unsafe { find_device_by_uid("BoomAudio_UID") != 0 }
 }

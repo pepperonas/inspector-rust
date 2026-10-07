@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Folder, HardDrive, Moon } from "lucide-react";
 import { IS_MAC } from "../lib/platform";
 import { indicatorTicks, sleepIndicator, type SleepKind } from "../lib/sleep-indicator";
 import type { FinderContext, FreeSpace, SleepStatus } from "../lib/ipc";
+import type { AudioRouteView } from "../lib/audio-route";
 import { contextTitle, selectionLabel, shortDir } from "../lib/finder-context";
+// Lazy (v0.204.0): the App chunk sits at its 400-KB start-up budget; the
+// menu loads from the local asset protocol in a few ms after mount.
+const AudioMenu = lazy(() => import("./AudioMenu").then((m) => ({ default: m.AudioMenu })));
 import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "../lib/free-space";
 
 interface Props {
@@ -42,6 +46,14 @@ interface Props {
    *  what touch/echo/mkdir/terminal/daisy act on. Click reveals it. */
   finderContext?: FinderContext | null;
   onRevealFolder?: (dir: string) => void;
+  /** Audio output switch (v0.204.0) — first item of the top row, before
+   *  the dark toggle. Rendered only with a view + handlers. */
+  audio?: {
+    view: AudioRouteView;
+    onSelect: (id: string) => void;
+    onToggleBoom: () => void;
+    onOpen?: () => void;
+  } | null;
 }
 
 export function Footer({
@@ -56,6 +68,7 @@ export function Footer({
   freeSpace,
   finderContext,
   onRevealFolder,
+  audio,
 }: Props) {
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
@@ -76,6 +89,16 @@ export function Footer({
               sat after it, so with the wakelock off this was the footer's
               leftmost item; merging the indicators moved it behind a labelled,
               coloured badge and it stopped being findable (field report). */}
+          {audio && (
+            <Suspense fallback={null}>
+              <AudioMenu
+                view={audio.view}
+                onSelect={audio.onSelect}
+                onToggleBoom={audio.onToggleBoom}
+                onOpen={audio.onOpen}
+              />
+            </Suspense>
+          )}
           {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
           <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
           {trackingActive && <TrackingLed paused={!!trackingPaused} />}

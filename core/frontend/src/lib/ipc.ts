@@ -2333,6 +2333,20 @@ export interface AudioDevice {
   id: string;
   name: string;
   is_default: boolean;
+  /** Coarse connection kind (`builtin`, `bluetooth`, `usb`, `hdmi`, …; `""`
+   *  when unknown). macOS only. */
+  transport?: string;
+}
+/** Footer audio menu: outputs + boom state + where the bridge actually plays. */
+export interface AudioRoute {
+  devices: AudioDevice[];
+  boom_enabled: boolean;
+  boom_installed: boolean;
+  boom_device: string | null;
+  boom_target: string | null;
+}
+export function audioRoute(): Promise<AudioRoute> {
+  return invoke("audio_route");
 }
 /** List the system audio output devices, marking the current default. */
 export function listAudioOutputs(): Promise<AudioDevice[]> {

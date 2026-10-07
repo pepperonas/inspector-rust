@@ -29,6 +29,27 @@ pub struct AudioDevice {
     pub name: String,
     /// Whether this is the current default output device.
     pub is_default: bool,
+    /// Coarse connection kind (`builtin`, `bluetooth`, `usb`, `hdmi`,
+    /// `airplay`, `virtual`, `aggregate`, … or `""` when unknown) — lets the
+    /// footer's audio menu show a speaker vs. headphones vs. Bluetooth glyph.
+    /// Only macOS reports it (CoreAudio transport type); elsewhere `""`.
+    pub transport: String,
+}
+
+/// CoreAudio `kAudioDevicePropertyTransportType` four-char code → the coarse
+/// kind the UI understands. Pure + tested; unknown codes map to `""`.
+pub fn transport_kind(code: u32) -> &'static str {
+    match &code.to_be_bytes() {
+        b"bltn" => "builtin",
+        b"blue" | b"blea" => "bluetooth",
+        b"usb " => "usb",
+        b"hdmi" | b"dprt" => "hdmi",
+        b"airp" => "airplay",
+        b"virt" => "virtual",
+        b"grup" | b"agg " => "aggregate",
+        b"thun" | b"pci " | b"1394" | b"eavb" => "wired",
+        _ => "",
+    }
 }
 
 /// List the system audio **output** devices, marking the current default.
@@ -162,6 +183,7 @@ mod linux {
                 is_default: name == default,
                 id: name,
                 name: description,
+                transport: String::new(),
             })
             .collect())
     }
@@ -383,6 +405,7 @@ mod macos {
     const PROP_DEFAULT_OUTPUT: u32 = u32_fourcc(b"dOut"); // kAudioHardwarePropertyDefaultOutputDevice
     const PROP_NAME: u32 = u32_fourcc(b"lnam"); // kAudioObjectPropertyName
     const PROP_STREAM_CONFIG: u32 = u32_fourcc(b"slay"); // kAudioDevicePropertyStreamConfiguration
+    const PROP_TRANSPORT: u32 = u32_fourcc(b"tran"); // kAudioDevicePropertyTransportType
     const CF_UTF8: u32 = 0x0800_0100; // kCFStringEncodingUTF8
 
     const fn u32_fourcc(s: &[u8; 4]) -> u32 {
@@ -509,6 +532,26 @@ mod macos {
         channels > 0
     }
 
+    fn transport(dev: AudioObjectID) -> String {
+        let a = addr(PROP_TRANSPORT, SCOPE_GLOBAL);
+        let mut code: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                dev,
+                &a,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut code as *mut u32 as *mut c_void,
+            )
+        };
+        if st != 0 {
+            return String::new();
+        }
+        super::transport_kind(code).to_string()
+    }
+
     fn default_output() -> AudioObjectID {
         let a = addr(PROP_DEFAULT_OUTPUT, SCOPE_GLOBAL);
         let mut dev: AudioObjectID = 0;
@@ -560,6 +603,7 @@ mod macos {
                 id: dev.to_string(),
                 name,
                 is_default: dev == def,
+                transport: transport(dev),
             });
         }
         Ok(out)
@@ -873,7 +917,7 @@ mod win {
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| "Audio device".to_string());
                 let is_default = !id.is_empty() && id == default_id;
-                out.push(AudioDevice { id, name, is_default });
+                out.push(AudioDevice { id, name, is_default, transport: String::new() });
             }
             Ok(out)
         }
@@ -909,5 +953,33 @@ mod win {
             release(raw);
             result
         }
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::transport_kind;
+
+    fn code(s: &[u8; 4]) -> u32 {
+        u32::from_be_bytes(*s)
+    }
+
+    #[test]
+    fn maps_the_transports_the_footer_draws() {
+        assert_eq!(transport_kind(code(b"bltn")), "builtin");
+        assert_eq!(transport_kind(code(b"blue")), "bluetooth");
+        assert_eq!(transport_kind(code(b"blea")), "bluetooth");
+        assert_eq!(transport_kind(code(b"usb ")), "usb");
+        assert_eq!(transport_kind(code(b"hdmi")), "hdmi");
+        assert_eq!(transport_kind(code(b"dprt")), "hdmi");
+        assert_eq!(transport_kind(code(b"airp")), "airplay");
+        assert_eq!(transport_kind(code(b"virt")), "virtual");
+        assert_eq!(transport_kind(code(b"grup")), "aggregate");
+    }
+
+    #[test]
+    fn unknown_codes_are_empty_not_guessed() {
+        assert_eq!(transport_kind(0), "");
+        assert_eq!(transport_kind(code(b"zzzz")), "");
     }
 }

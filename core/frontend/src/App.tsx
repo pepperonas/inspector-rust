@@ -1,4 +1,6 @@
-import { appVersion, revealPath } from "./lib/ipc";
+import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { useAudioRoute } from "./hooks/useAudioRoute";
+import { audioRouteView } from "./lib/audio-route";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -623,6 +625,18 @@ function App() {
   const sleepStatus = useSleepStatus();
   const freeSpace = useFreeSpace();
   const finderCtx = useFinderContext();
+  const { route: audioRouteState, refresh: refreshAudioRoute } = useAudioRoute();
+  const audioView = useMemo(
+    () => (audioRouteState ? audioRouteView(audioRouteState) : null),
+    [audioRouteState],
+  );
+  // boom's bridge (re)starts a beat after the switch — read twice so the
+  // label lands on the real target instead of "startet…".
+  const refreshAudioSoon = useCallback(() => {
+    refreshAudioRoute();
+    window.setTimeout(refreshAudioRoute, 450);
+    window.setTimeout(refreshAudioRoute, 1500);
+  }, [refreshAudioRoute]);
   const [wakelockActive, setWakelockActive] = useState(false);
   // Dark wake (v0.116.0): system awake, DISPLAY free to sleep — the footer's
   // clickable ☾ toggles it. Mutually exclusive with the full wakelock (both
@@ -6111,6 +6125,18 @@ function App() {
         <Footer
           version={version}
           finderContext={finderCtx}
+          audio={
+            audioView && {
+              view: audioView,
+              onOpen: refreshAudioRoute,
+              onSelect: (id) => void setAudioOutput(id).catch(() => undefined).finally(refreshAudioSoon),
+              onToggleBoom: () =>
+                void getBoomConfig()
+                  .then((c) => setBoomConfig({ ...c, enabled: !c.enabled }))
+                  .catch(() => undefined)
+                  .finally(refreshAudioSoon),
+            }
+          }
           onRevealFolder={(dir) => void revealPath(dir).catch(() => undefined)}
           wakelockActive={wakelockActive}
           activeTimerCount={activeTimerCount}

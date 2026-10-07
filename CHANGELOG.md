@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.202.1] - 2026-10-07
+
+### Security
+- **A crafted file or folder name can no longer redirect where `touch`/`echo` write.** The Finder query separated paths with line breaks, but a macOS file name may itself contain a line break: a prepared name (for example from a downloaded archive) could split into a fake second path and point the working folder somewhere else, such as `~/Library/LaunchAgents`. Paths are now separated by the one character a path can never contain, and only paths that actually exist are used. The same fix applies to the Finder selection that `md2pdf`, `rz` and `optim` read.
+
+### Fixed
+- **Virtual Finder windows (Computer, Recents, a search) no longer make the file commands fail.** They have no real folder; the Desktop is used instead.
+
 ## [0.202.0] - 2026-10-07
 
 ### Added

@@ -45,14 +45,16 @@ pub fn read() -> Result<Vec<PathBuf>, String> {
     // The script iterates Finder's selection, coerces each item to an
     // `alias` (works for both files and folders, fails silently for
     // weird items like network mount placeholders), and emits the
-    // POSIX path one per line. `linefeed` over a manual `\n` so the
-    // newline survives any AppleScript string-escaping quirks.
-    const SCRIPT: &str = r#"tell application "Finder"
+    // POSIX path, each followed by NUL. ⚠️ NOT a newline: a macOS file name
+    // may itself contain a line break, and a crafted name would split into a
+    // fake second path. NUL is the one byte a path can never contain.
+    const SCRIPT: &str = r#"set z to (character id 0)
+tell application "Finder"
     set sel to selection
     set out to ""
     repeat with x in sel
         try
-            set out to out & POSIX path of (x as alias) & linefeed
+            set out to out & POSIX path of (x as alias) & z
         end try
     end repeat
     return out
@@ -91,13 +93,7 @@ end tell"#;
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let paths: Vec<PathBuf> = stdout
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(PathBuf::from)
-        .collect();
-    Ok(paths)
+    Ok(split_nul_paths(&stdout).into_iter().filter(|p| p.symlink_metadata().is_ok()).collect())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -144,13 +140,27 @@ pub fn work_dir(
     (insertion.to_path_buf(), false)
 }
 
-/// Parse the context script's output: line 1 the insertion location, line 2
-/// the selection count, then up to `CONTEXT_MAX_SELECTED` paths.
+/// Split NUL-terminated paths (osascript appends one `\n` to the output).
+/// Each field is taken verbatim — no trimming, a path may end in a space.
+pub fn split_nul_paths(out: &str) -> Vec<PathBuf> {
+    out.strip_suffix('\n')
+        .unwrap_or(out)
+        .split('\0')
+        .filter(|f| !f.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+/// Parse the context script's output, NUL-separated (see `read` for why not
+/// newlines): the insertion location, the selection count, then up to
+/// `CONTEXT_MAX_SELECTED` paths. A count that doesn't parse means the output
+/// isn't what the script writes → reject it rather than guess.
 pub fn parse_context_output(out: &str) -> Option<(PathBuf, usize, Vec<PathBuf>)> {
-    let mut lines = out.lines().map(str::trim);
-    let insertion = lines.next().filter(|l| !l.is_empty())?;
-    let count = lines.next().and_then(|l| l.parse().ok()).unwrap_or(0);
-    let sel = lines.filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+    let body = out.strip_suffix('\n').unwrap_or(out);
+    let mut fields = body.split('\0');
+    let insertion = fields.next().filter(|f| !f.is_empty())?;
+    let count = fields.next()?.parse().ok()?;
+    let sel = fields.filter(|f| !f.is_empty()).map(PathBuf::from).collect();
     Some((PathBuf::from(insertion), count, sel))
 }
 
@@ -160,16 +170,24 @@ pub fn context() -> Result<FinderContext, String> {
     use crate::osascript_util::{run_osascript, OsaResult};
     use std::time::Duration;
     let script = format!(
-        r#"tell application "Finder"
-    set out to POSIX path of (insertion location as alias) & linefeed
+        r#"set z to (character id 0)
+tell application "Finder"
+    -- Virtual windows (Computer, Recents, a search) have no real folder:
+    -- the insertion location can't become an alias there → the Desktop.
+    try
+        set ins to POSIX path of (insertion location as alias)
+    on error
+        set ins to POSIX path of (path to desktop folder)
+    end try
+    set out to ins & z
     set sel to selection
     set n to count of sel
-    set out to out & n & linefeed
+    set out to out & n & z
     set m to n
     if m > {max} then set m to {max}
     repeat with i from 1 to m
         try
-            set out to out & POSIX path of ((item i of sel) as alias) & linefeed
+            set out to out & POSIX path of ((item i of sel) as alias) & z
         end try
     end repeat
     return out
@@ -190,7 +208,13 @@ end tell"#,
     }
     let text = String::from_utf8_lossy(&output.stdout);
     let (insertion, count, sel) =
-        parse_context_output(&text).ok_or("finder context: no insertion location")?;
+        parse_context_output(&text).ok_or("finder context: unexpected Finder output")?;
+    // Only paths that really exist count — never a folder that a parse quirk
+    // made up. The insertion location must be an existing folder.
+    if !insertion.is_dir() {
+        return Err(format!("finder context: not a folder: {}", insertion.display()));
+    }
+    let sel: Vec<PathBuf> = sel.into_iter().filter(|p| p.symlink_metadata().is_ok()).collect();
     let (dir, from_selection) = work_dir(&sel, &insertion, |p| p.is_dir());
     Ok(FinderContext {
         dir: dir.display().to_string(),
@@ -999,13 +1023,35 @@ mod context_tests {
 
     #[test]
     fn the_script_output_is_parsed() {
-        let out = "/Users/m/docs/\n3\n/Users/m/docs/a.md\n/Users/m/docs/b.md\n\n";
+        let out = "/Users/m/docs/\x003\0/Users/m/docs/a.md\0/Users/m/docs/b.md\0\n";
         let (ins, n, sel) = parse_context_output(out).unwrap();
         assert_eq!(ins, PathBuf::from("/Users/m/docs/"));
         assert_eq!(n, 3);
-        assert_eq!(sel.len(), 2);
-        assert_eq!(parse_context_output("/Desktop/\n0\n").unwrap().2.len(), 0);
+        assert_eq!(sel, vec![PathBuf::from("/Users/m/docs/a.md"), PathBuf::from("/Users/m/docs/b.md")]);
+        assert_eq!(parse_context_output("/Desktop/\x000\0\n").unwrap().2.len(), 0);
         assert!(parse_context_output("").is_none());
+    }
+
+    #[test]
+    fn a_line_break_in_a_name_cannot_forge_a_second_path() {
+        // A crafted file name "x\n/Users/m/Library/LaunchAgents" must stay
+        // ONE path — with newline separators it became two, and the forged
+        // one could redirect touch/echo.
+        let evil = "/Users/m/docs/x\n/Users/m/Library/LaunchAgents";
+        let out = format!("/Users/m/docs/\x001\0{evil}\0\n");
+        let (_, _, sel) = parse_context_output(&out).unwrap();
+        assert_eq!(sel, vec![PathBuf::from(evil)]);
+        // The same for a crafted FOLDER name in the window path.
+        let out = "/tmp/a\n/Users/m/Library/LaunchAgents/\x000\0\n";
+        let (ins, n, _) = parse_context_output(out).unwrap();
+        assert_eq!(ins, PathBuf::from("/tmp/a\n/Users/m/Library/LaunchAgents/"));
+        assert_eq!(n, 0);
+        assert_eq!(super::split_nul_paths(&format!("{evil}\0/a b \0\n")).len(), 2);
+    }
+
+    #[test]
+    fn output_in_the_old_newline_shape_is_rejected() {
+        assert!(parse_context_output("/Users/m/docs/\n3\n/Users/m/docs/a.md\n").is_none());
     }
 }
 

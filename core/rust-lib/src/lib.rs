@@ -889,6 +889,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::clipboard_image_size,
             commands::optimize_file,
             commands::finder_touch,
+            commands::finder_context,
             commands::finder_mkdir,
             commands::finder_open_terminal,
             commands::md_to_pdf_run,

@@ -1577,14 +1577,11 @@ pub fn set_clock_zones(db: State<'_, DbHandle>, zones_json: String) -> Result<()
 /// isn't granted (the caller then falls back to home).
 #[cfg(target_os = "macos")]
 fn finder_folder() -> Option<std::path::PathBuf> {
-    let sel = crate::finder_selection::read().ok()?;
-    sel.into_iter().find_map(|p| {
-        if p.is_dir() {
-            Some(p)
-        } else {
-            p.parent().filter(|d| d.is_dir()).map(|d| d.to_path_buf())
-        }
-    })
+    // The same working folder the footer shows and touch/echo use — but
+    // only when it comes from the SELECTION: without one, daisy keeps
+    // scanning the home folder instead of the front window.
+    let c = crate::finder_selection::context().ok()?;
+    c.from_selection.then(|| std::path::PathBuf::from(c.dir))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -5230,6 +5227,22 @@ fn finder_touch_blocking(name: String, content: Option<String>, append: bool) ->
     {
         let _ = (name, content, append);
         Err("touch needs Finder (macOS) or Explorer (Windows)".into())
+    }
+}
+
+/// The working folder + selection of the front Finder/Explorer window, for the
+/// popup footer (one osascript round trip → off the main thread).
+#[tauri::command]
+pub async fn finder_context() -> Result<crate::finder_selection::FinderContext, String> {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        tauri::async_runtime::spawn_blocking(crate::finder_selection::context)
+            .await
+            .map_err(|e| format!("finder context task: {e}"))?
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("finder context: macOS/Windows only".into())
     }
 }
 

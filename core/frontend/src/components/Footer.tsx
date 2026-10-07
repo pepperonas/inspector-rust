@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { HardDrive, Moon } from "lucide-react";
+import { Folder, HardDrive, Moon } from "lucide-react";
 import { IS_MAC } from "../lib/platform";
 import { indicatorTicks, sleepIndicator, type SleepKind } from "../lib/sleep-indicator";
-import type { FreeSpace, SleepStatus } from "../lib/ipc";
+import type { FinderContext, FreeSpace, SleepStatus } from "../lib/ipc";
+import { contextTitle, selectionLabel, shortDir } from "../lib/finder-context";
 import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "../lib/free-space";
 
 interface Props {
@@ -39,6 +40,10 @@ interface Props {
   onDarkWakeToggle?: () => void;
   /** Free space on the home disk (v0.195.0) — always shown when known. */
   freeSpace?: FreeSpace | null;
+  /** Working folder + selection of the front Finder window (v0.202.0) —
+   *  what touch/echo/mkdir/terminal/daisy act on. Click reveals it. */
+  finderContext?: FinderContext | null;
+  onRevealFolder?: (dir: string) => void;
 }
 
 export function Footer({
@@ -53,6 +58,8 @@ export function Footer({
   darkWake,
   onDarkWakeToggle,
   freeSpace,
+  finderContext,
+  onRevealFolder,
 }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
@@ -81,7 +88,9 @@ export function Footer({
           <TimerBadge count={activeTimerCount} />
         )}
         <Hint k="⏎" label="Paste" />
-        <Hint k="↑↓" label="Navigate" />
+        {/* The ↑↓ Navigate hint is gone (v0.202.0) — the arrows still work;
+            its place shows WHERE the file commands will act. */}
+        {finderContext && <FinderChip ctx={finderContext} onReveal={onRevealFolder} />}
         <Hint k="Esc" label="Close" />
         <Hint k={ocrKey} label="OCR" />
         <Hint k={screenshotKey} label="Shot" />
@@ -117,6 +126,24 @@ function FreeSpaceBadge({ space }: { space: FreeSpace }) {
       <HardDrive size={11} aria-hidden />
       {formatBytesDecimal(space.available)} frei
     </span>
+  );
+}
+
+/** The working folder of touch/echo/mkdir/terminal/daisy + the selection. */
+function FinderChip({ ctx, onReveal }: { ctx: FinderContext; onReveal?: (dir: string) => void }) {
+  const sel = selectionLabel(ctx);
+  return (
+    <button
+      type="button"
+      data-testid="finder-context"
+      title={contextTitle(ctx)}
+      onClick={() => onReveal?.(ctx.dir)}
+      className="flex min-w-0 max-w-[260px] items-center gap-1 rounded px-1 hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+    >
+      <Folder size={11} aria-hidden className="shrink-0" />
+      <span className="truncate font-[var(--font-mono)]">{shortDir(ctx.dir)}</span>
+      {sel && <span className="truncate text-[var(--color-fg)]">· {sel}</span>}
+    </button>
   );
 }
 

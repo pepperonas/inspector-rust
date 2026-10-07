@@ -668,6 +668,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "ai_tasks_state": return { tasks: [], running: [], paused: false, languages: [], next_due: {} };
     case "track_category_rules": return [];
     // ── speedtest (invented runs) ─────────────────────────────────────────
+    case "finder_context":
+      return { dir: "/Users/ana/Projekte/website/docs", selected: ["/Users/ana/Projekte/website/docs/notiz.md"], selected_count: 1, from_selection: true };
     case "pulse_live":
       return {
         supported: true, enabled: true,

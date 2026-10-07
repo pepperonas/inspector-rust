@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.202.0] - 2026-10-07
+
+### Added
+- **The footer shows the Finder folder the file commands work in, and what is selected** — for example `…/website/docs · notiz.md`, or `3 ausgewählt`. The tooltip shows the full path and the selected names; a click shows the folder in Finder. It is read when the popup opens and after `touch`/`echo`/`mkdir` (one Finder query, never in the background).
+
+### Changed
+- **`touch`, `echo`, `mkdir`, `terminal` and `daisy` all work in the same folder — the one the footer shows.** A selected file means the folder it sits in, so with a Markdown file selected, `touch` creates the new file next to it; a selected folder is the working folder itself; with nothing selected, the front Finder window (or the Desktop). Before, `touch` used Finder's insertion point, which differs from the selected file's folder in list view with expanded subfolders and in search windows.
+
+### Removed
+- **The `↑↓ Navigate` hint in the footer.** The arrow keys work as before.
+
 ## [0.201.0] - 2026-10-07
 
 ### Added

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 import { Footer } from "./Footer";
 import type { SleepStatus } from "../lib/ipc";
 
@@ -40,14 +40,15 @@ describe("Footer", () => {
   it("renders all keyboard hint labels", () => {
     render(<Footer index={0} total={1} />);
     expect(screen.getByText("Paste")).toBeTruthy();
-    expect(screen.getByText("Navigate")).toBeTruthy();
     expect(screen.getByText("Close")).toBeTruthy();
+    // v0.202.0: the arrow-key hint is gone (the arrows still work).
+    expect(screen.queryByText("Navigate")).toBeNull();
   });
 
   it("renders keyboard shortcut keys", () => {
     render(<Footer index={0} total={1} />);
     expect(screen.getByText("⏎")).toBeTruthy();
-    expect(screen.getByText("↑↓")).toBeTruthy();
+    expect(screen.queryByText("↑↓")).toBeNull();
     expect(screen.getByText("Esc")).toBeTruthy();
   });
 
@@ -288,5 +289,30 @@ describe("Footer free space (v0.195.0)", () => {
   it("renders nothing until the first reading arrives", () => {
     render(<Footer index={0} total={1} freeSpace={null} />);
     expect(screen.queryByTestId("free-space")).toBeNull();
+  });
+
+  describe("finder working folder", () => {
+    const ctx = {
+      dir: "/Users/martin/claude/inspector-rust/docs",
+      selected: ["/Users/martin/claude/inspector-rust/docs/notiz.md"],
+      selected_count: 1,
+      from_selection: true,
+    };
+
+    it("shows the short folder and the selected file; click reveals the folder", () => {
+      const onReveal = vi.fn();
+      render(<Footer index={0} total={1} finderContext={ctx} onRevealFolder={onReveal} />);
+      const chip = screen.getByTestId("finder-context");
+      expect(chip.textContent).toContain("…/inspector-rust/docs");
+      expect(chip.textContent).toContain("notiz.md");
+      expect(chip.getAttribute("title")).toContain("~/claude/inspector-rust/docs");
+      fireEvent.click(chip);
+      expect(onReveal).toHaveBeenCalledWith(ctx.dir);
+    });
+
+    it("is hidden without a context", () => {
+      render(<Footer index={0} total={1} />);
+      expect(screen.queryByTestId("finder-context")).toBeNull();
+    });
   });
 });

@@ -4624,3 +4624,16 @@ export function getPulseConfig(): Promise<PulseConfig> {
 export function setPulseConfig(config: PulseConfig): Promise<PulseConfig> {
   return invoke("set_pulse_config", { config });
 }
+
+/** Working folder + selection of the front Finder/Explorer window — the
+ *  folder touch/echo/mkdir/terminal/daisy act on (footer chip). */
+export interface FinderContext {
+  dir: string;
+  selected: string[];
+  selected_count: number;
+  from_selection: boolean;
+}
+
+export function finderContext(): Promise<FinderContext> {
+  return invoke("finder_context");
+}

@@ -1,4 +1,4 @@
-import { appVersion } from "./lib/ipc";
+import { appVersion, revealPath } from "./lib/ipc";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -273,6 +273,7 @@ import { matchSettingsSection, suggestSettingsSections } from "./lib/settings-se
 import { IS_MAC } from "./lib/platform";
 import { useSleepStatus } from "./hooks/useSleepStatus";
 import { useFreeSpace } from "./hooks/useFreeSpace";
+import { useFinderContext, FINDER_CONTEXT_REFRESH } from "./hooks/useFinderContext";
 import {
   describeSpec,
   isResizeQuery,
@@ -621,6 +622,7 @@ function App() {
   // System sleep status for the footer (macOS; polls only while visible).
   const sleepStatus = useSleepStatus();
   const freeSpace = useFreeSpace();
+  const finderCtx = useFinderContext();
   const [wakelockActive, setWakelockActive] = useState(false);
   // Dark wake (v0.116.0): system awake, DISPLAY free to sleep — the footer's
   // clickable ☾ toggles it. Mutually exclusive with the full wakelock (both
@@ -4381,6 +4383,7 @@ function App() {
             path = await finderMkdir(arg);
           }
           console.info("created", path);
+          window.dispatchEvent(new Event(FINDER_CONTEXT_REFRESH));
         } catch (e) {
           const msg = String(e);
           if (msg.startsWith("touch.exists:")) {
@@ -6117,6 +6120,8 @@ function App() {
                   : 0
           }
           version={version}
+          finderContext={finderCtx}
+          onRevealFolder={(dir) => void revealPath(dir).catch(() => undefined)}
           wakelockActive={wakelockActive}
           activeTimerCount={activeTimerCount}
           trackingActive={trackStatusState.active}

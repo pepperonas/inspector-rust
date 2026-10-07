@@ -192,7 +192,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "touch namen.txt > (paste a list)", result: "namen.txt with one list entry per line — the line breaks survive the single-line search bar as ↵." },
     ],
     tips: [
-      "Falls back to the Desktop when no Finder/Explorer window is open.",
+      "Works in the folder shown in the footer: a selected folder, the folder of a selected file, else the front Finder window (Desktop when none is open).",
       "Paste multi-line text after `>` (or the whole `touch x.txt > …` command): line breaks show as ↵ and are written as real newlines; indentation is kept.",
       "For an exact copy of formatted text use the quoted form `touch \"…\" > file` (or `echo`): nothing inside the quotes is trimmed.",
     ],
@@ -223,6 +223,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "Type `echo \"`, paste the text, then type `\" > datei.md` — or paste the whole command at once.",
       "If the file already exists, nothing is overwritten and a message suggests `>>`.",
+      "The target folder is the one shown in the footer — select a file in Finder and the new file lands next to it.",
     ],
     caveats: [
       "Only `\\\"` is unescaped; `\\n` stays a backslash and an n (as in the shell without -e) — paste real line breaks instead.",

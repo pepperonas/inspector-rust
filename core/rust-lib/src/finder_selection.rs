@@ -105,6 +105,112 @@ pub fn read() -> Result<Vec<PathBuf>, String> {
     Err("finder selection: only supported on macOS".into())
 }
 
+// ── Working folder: one source for touch/echo/mkdir/terminal/daisy + footer ──
+
+/// What the file-manager commands will act on, shown in the popup footer.
+/// `dir` is the working folder; `selected` the first few selected items;
+/// `selected_count` how many are selected in total.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct FinderContext {
+    pub dir: String,
+    pub selected: Vec<String>,
+    pub selected_count: usize,
+    /// The folder comes from the selection (not from the window/Desktop).
+    pub from_selection: bool,
+}
+
+/// How many selected paths the context reads (a 5 000-item selection must
+/// not turn the footer probe into a slow AppleScript loop).
+#[cfg(target_os = "macos")]
+const CONTEXT_MAX_SELECTED: usize = 20;
+
+/// The working folder. The FIRST selected item decides: a folder is the
+/// working folder itself, a file means the folder it sits in. Nothing usable
+/// selected → Finder's insertion location (front window, else Desktop). Pure:
+/// `is_dir` is injected so the rule is testable without a filesystem.
+pub fn work_dir(
+    selection: &[PathBuf],
+    insertion: &std::path::Path,
+    is_dir: impl Fn(&std::path::Path) -> bool,
+) -> (PathBuf, bool) {
+    for p in selection {
+        if is_dir(p) {
+            return (p.clone(), true);
+        }
+        if let Some(parent) = p.parent().filter(|d| !d.as_os_str().is_empty() && is_dir(d)) {
+            return (parent.to_path_buf(), true);
+        }
+    }
+    (insertion.to_path_buf(), false)
+}
+
+/// Parse the context script's output: line 1 the insertion location, line 2
+/// the selection count, then up to `CONTEXT_MAX_SELECTED` paths.
+pub fn parse_context_output(out: &str) -> Option<(PathBuf, usize, Vec<PathBuf>)> {
+    let mut lines = out.lines().map(str::trim);
+    let insertion = lines.next().filter(|l| !l.is_empty())?;
+    let count = lines.next().and_then(|l| l.parse().ok()).unwrap_or(0);
+    let sel = lines.filter(|l| !l.is_empty()).map(PathBuf::from).collect();
+    Some((PathBuf::from(insertion), count, sel))
+}
+
+/// One Finder round trip: insertion location + selection → `FinderContext`.
+#[cfg(target_os = "macos")]
+pub fn context() -> Result<FinderContext, String> {
+    use crate::osascript_util::{run_osascript, OsaResult};
+    use std::time::Duration;
+    let script = format!(
+        r#"tell application "Finder"
+    set out to POSIX path of (insertion location as alias) & linefeed
+    set sel to selection
+    set n to count of sel
+    set out to out & n & linefeed
+    set m to n
+    if m > {max} then set m to {max}
+    repeat with i from 1 to m
+        try
+            set out to out & POSIX path of ((item i of sel) as alias) & linefeed
+        end try
+    end repeat
+    return out
+end tell"#,
+        max = CONTEXT_MAX_SELECTED
+    );
+    let output = match run_osascript(&script, Duration::from_secs(2)) {
+        OsaResult::Done(o) => o,
+        OsaResult::TimedOut => return Err("finder context: osascript timed out (Finder hung?)".into()),
+        OsaResult::SpawnFailed(e) => return Err(format!("osascript spawn failed: {e}")),
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("-1743") || stderr.contains("not allowed") || stderr.contains("not authorized") {
+            return Err(ERR_AUTOMATION_DENIED.into());
+        }
+        return Err(format!("osascript: {}", stderr.trim()));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (insertion, count, sel) =
+        parse_context_output(&text).ok_or("finder context: no insertion location")?;
+    let (dir, from_selection) = work_dir(&sel, &insertion, |p| p.is_dir());
+    Ok(FinderContext {
+        dir: dir.display().to_string(),
+        selected: sel.iter().map(|p| p.display().to_string()).collect(),
+        selected_count: count,
+        from_selection,
+    })
+}
+
+/// Windows: the front Explorer folder (no selection read yet).
+#[cfg(target_os = "windows")]
+pub fn context() -> Result<FinderContext, String> {
+    Ok(FinderContext {
+        dir: front_dir()?.display().to_string(),
+        selected: Vec::new(),
+        selected_count: 0,
+        from_selection: false,
+    })
+}
+
 // ── touch / mkdir in the front Finder window's folder ────────────────────────
 
 /// Validate a user-supplied **relative path** for file/folder creation and
@@ -153,30 +259,12 @@ fn sanitize_relpath(name: &str) -> Result<std::path::PathBuf, String> {
 /// POSIX path of the folder where Finder would create a new item — the
 /// frontmost window's target, or the Desktop if no window is open
 /// (`insertion location`). Needs the Automation→Finder TCC grant.
+/// The working folder for touch/echo/mkdir/terminal: the selected folder, the
+/// folder of a selected file, else Finder's insertion location (see
+/// `work_dir`). The same source the popup footer shows.
 #[cfg(target_os = "macos")]
 fn front_dir() -> Result<PathBuf, String> {
-    use crate::osascript_util::{run_osascript, OsaResult};
-    use std::time::Duration;
-
-    const SCRIPT: &str =
-        r#"tell application "Finder" to return POSIX path of (insertion location as alias)"#;
-    let output = match run_osascript(SCRIPT, Duration::from_secs(2)) {
-        OsaResult::Done(o) => o,
-        OsaResult::TimedOut => return Err("finder dir: osascript timed out (Finder hung?)".into()),
-        OsaResult::SpawnFailed(e) => return Err(format!("osascript spawn failed: {e}")),
-    };
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("-1743") || stderr.contains("not allowed") || stderr.contains("not authorized") {
-            return Err(ERR_AUTOMATION_DENIED.into());
-        }
-        return Err(format!("osascript: {}", stderr.trim()));
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        return Err("finder dir: no insertion location (no open window + no Desktop?)".into());
-    }
-    Ok(PathBuf::from(path))
+    context().map(|c| PathBuf::from(c.dir))
 }
 
 /// Best-effort: select the freshly-created item in Finder so the user
@@ -870,5 +958,66 @@ mod write_tests {
         write_or_append(&q, "a\n", true).unwrap();
         assert_eq!(std::fs::read_to_string(&q).unwrap(), "a\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::{parse_context_output, work_dir};
+    use std::path::{Path, PathBuf};
+
+    fn dirs(list: &'static [&'static str]) -> impl Fn(&Path) -> bool {
+        move |p: &Path| list.iter().any(|d| Path::new(d) == p)
+    }
+    const DIRS: &[&str] = &["/Users/m/docs", "/Users/m/docs/sub", "/Users/m/Desktop"];
+
+    #[test]
+    fn a_selected_file_means_its_folder() {
+        let sel = [PathBuf::from("/Users/m/docs/sub/notiz.md")];
+        assert_eq!(work_dir(&sel, Path::new("/Users/m/docs"), dirs(DIRS)), (PathBuf::from("/Users/m/docs/sub"), true));
+    }
+
+    #[test]
+    fn a_selected_folder_is_the_working_folder_itself() {
+        let sel = [PathBuf::from("/Users/m/docs/sub")];
+        assert_eq!(work_dir(&sel, Path::new("/Users/m/docs"), dirs(DIRS)), (PathBuf::from("/Users/m/docs/sub"), true));
+    }
+
+    #[test]
+    fn no_selection_falls_back_to_the_insertion_location() {
+        assert_eq!(work_dir(&[], Path::new("/Users/m/Desktop"), dirs(DIRS)), (PathBuf::from("/Users/m/Desktop"), false));
+        // A selected item whose folder doesn't exist (gone, unmounted) is skipped.
+        let sel = [PathBuf::from("/Volumes/weg/a.md")];
+        assert!(!work_dir(&sel, Path::new("/Users/m/docs"), dirs(DIRS)).1);
+    }
+
+    #[test]
+    fn the_first_selected_item_decides() {
+        let sel = [PathBuf::from("/Users/m/docs/a.md"), PathBuf::from("/Users/m/docs/sub")];
+        assert_eq!(work_dir(&sel, Path::new("/x"), dirs(DIRS)).0, PathBuf::from("/Users/m/docs"));
+    }
+
+    #[test]
+    fn the_script_output_is_parsed() {
+        let out = "/Users/m/docs/\n3\n/Users/m/docs/a.md\n/Users/m/docs/b.md\n\n";
+        let (ins, n, sel) = parse_context_output(out).unwrap();
+        assert_eq!(ins, PathBuf::from("/Users/m/docs/"));
+        assert_eq!(n, 3);
+        assert_eq!(sel.len(), 2);
+        assert_eq!(parse_context_output("/Desktop/\n0\n").unwrap().2.len(), 0);
+        assert!(parse_context_output("").is_none());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod context_live {
+    /// `cargo test -p inspector-rust-core --lib finder_context_live -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn finder_context_live() {
+        let t = std::time::Instant::now();
+        let c = super::context();
+        println!("{c:?} in {:?}", t.elapsed());
+        assert!(c.is_ok());
     }
 }

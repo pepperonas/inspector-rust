@@ -324,3 +324,26 @@ describe("PreviewPanel — typed text", () => {
     await screen.findByText("UPPERCASE");
   });
 });
+
+describe("touch / echo file preview", () => {
+  const cmd = (commandKind: "echo" | "touch", arg: string): ListEntry => ({
+    kind: "command",
+    data: { commandKind, rawInput: `${commandKind} ${arg}`, arg, label: "x", hint: "" },
+  });
+  afterEach(cleanup);
+
+  it("shows the file content exactly as it will be written", () => {
+    render(<PreviewPanel entry={cmd("echo", '"# Titel ↵ ↵     eingerückt  zwei" > a.md')} />);
+    const pre = screen.getByTestId("file-write-preview");
+    expect(pre.textContent).toBe("# Titel\n\n    eingerückt  zwei\n");
+    expect(screen.getByText(/Dateiinhalt · a\.md/)).toBeTruthy();
+  });
+
+  it("says when the text is appended, and shows nothing for an empty touch", () => {
+    render(<PreviewPanel entry={cmd("echo", '"x" >> log.txt')} />);
+    expect(screen.getByText(/Wird angehängt · log\.txt/)).toBeTruthy();
+    cleanup();
+    render(<PreviewPanel entry={cmd("touch", "notes.md")} />);
+    expect(screen.queryByTestId("file-write-preview")).toBeNull();
+  });
+});

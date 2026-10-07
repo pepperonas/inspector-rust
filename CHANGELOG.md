@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.201.0] - 2026-10-07
+
+### Added
+- **`echo "text" > file` — write text into a file the Unix way.** The text comes first, the file after `>`, as in the shell; `>>` appends to the end. Everything between the quotes is written exactly as it is — spaces, indentation, tabs, and when you paste a multi-line text, its line breaks (the single-line search bar shows them as ↵). Quotes and `>` inside the text need no escaping, so Markdown quotes and HTML go through unchanged. Like the shell's echo, the file ends with a newline. The preview shows the file's content exactly as it will be written before you press Enter.
+- **`touch "text" > file` works the same way.** The short `touch name > text` keeps working.
+
+### Changed
+- **`>` never overwrites an existing file.** Instead of a generic error, a message says the file already exists and suggests `>>`.
+
 ## [0.200.1] - 2026-10-07
 
 ### Security

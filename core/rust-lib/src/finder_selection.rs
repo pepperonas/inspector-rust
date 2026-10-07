@@ -196,15 +196,37 @@ fn reveal_in_finder(path: &std::path::Path) {
     let _ = run_osascript(&script, Duration::from_secs(2));
 }
 
+/// Prefix of the error for a `>` onto an existing file (the frontend shows a
+/// hint to use `>>`).
+pub const ERR_EXISTS: &str = "touch.exists:";
+
+/// Write `content` to `path`, or add it to the end with `append` (`>>`).
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn write_or_append(path: &std::path::Path, content: &str, append: bool) -> Result<(), String> {
+    use std::io::Write;
+    if append {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| format!("open for append failed: {e}"))?;
+        f.write_all(content.as_bytes()).map_err(|e| format!("append failed: {e}"))
+    } else {
+        std::fs::write(path, content).map_err(|e| format!("create file failed: {e}"))
+    }
+}
+
 /// Create a file at relative path `name` in the front Finder folder, creating
 /// any intermediate directories (`touch a/b/c.txt`). Errors if the file already
 /// exists. Returns the absolute path created.
 #[cfg(target_os = "macos")]
-pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
+pub fn create_file(name: &str, content: &str, append: bool) -> Result<PathBuf, String> {
     let rel = sanitize_relpath(name)?;
     let path = front_dir()?.join(&rel);
-    if path.exists() {
-        return Err(format!("already exists: {}", path.display()));
+    // `>` never overwrites an existing file (that would silently destroy it);
+    // `>>` adds to it, like the shell.
+    if path.exists() && !append {
+        return Err(format!("{ERR_EXISTS}{}", path.display()));
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -212,7 +234,7 @@ pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     }
     // `content` is empty for a plain `touch <name>`; non-empty when the user
     // wrote `touch <name> > <text>`.
-    std::fs::write(&path, content).map_err(|e| format!("create file failed: {e}"))?;
+    write_or_append(&path, content, append)?;
     reveal_in_finder(&path);
     Ok(path)
 }
@@ -512,11 +534,13 @@ fn reveal_in_explorer(path: &std::path::Path) {
 /// any intermediate directories (`touch a\b\c.txt`). Errors if the file already
 /// exists. Returns the absolute path created.
 #[cfg(target_os = "windows")]
-pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
+pub fn create_file(name: &str, content: &str, append: bool) -> Result<PathBuf, String> {
     let rel = sanitize_relpath(name)?;
     let path = front_dir()?.join(&rel);
-    if path.exists() {
-        return Err(format!("already exists: {}", path.display()));
+    // `>` never overwrites an existing file (that would silently destroy it);
+    // `>>` adds to it, like the shell.
+    if path.exists() && !append {
+        return Err(format!("{ERR_EXISTS}{}", path.display()));
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -524,7 +548,7 @@ pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     }
     // `content` is empty for a plain `touch <name>`; non-empty when the user
     // wrote `touch <name> > <text>`.
-    std::fs::write(&path, content).map_err(|e| format!("create file failed: {e}"))?;
+    write_or_append(&path, content, append)?;
     reveal_in_explorer(&path);
     Ok(path)
 }
@@ -824,5 +848,27 @@ mod title_parse_tests {
     fn returns_none_for_unparseable() {
         assert_eq!(active_tab_name_from_title(""), None);
         assert_eq!(active_tab_name_from_title("Some Random Window"), None);
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::write_or_append;
+
+    #[test]
+    fn create_writes_exactly_and_append_adds_to_the_end() {
+        let dir = std::env::temp_dir().join(format!("ir-touch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("notiz.md");
+        let md = "# Titel\n\n> Zitat mit \"Quotes\"\n    Code\tTab\n";
+        write_or_append(&p, md, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), md);
+        write_or_append(&p, "noch eine Zeile\n", true).unwrap();
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), format!("{md}noch eine Zeile\n"));
+        // `>>` onto a missing file creates it.
+        let q = dir.join("neu.txt");
+        write_or_append(&q, "a\n", true).unwrap();
+        assert_eq!(std::fs::read_to_string(&q).unwrap(), "a\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

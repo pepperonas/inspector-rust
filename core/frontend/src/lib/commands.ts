@@ -71,6 +71,7 @@ export type CommandKind =
   | "timer"
   | "pwgen"
   | "touch"
+  | "echo"
   | "mkdir"
   | "terminal"
   | "alarm"
@@ -718,11 +719,20 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "touch",
     keyword: "touch",
-    syntax: "touch <name> [> text]",
+    syntax: 'touch <name> | touch "text" > <file>',
     description:
-      "Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch hallo.txt > das ist ein test` writes that content",
+      'Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch "text" > notiz.md` writes the text exactly as typed or pasted',
     requiresArg: true,
     // File-manager integration exists on macOS (Finder) + Windows (Explorer).
+    platform: ["mac", "win"],
+  },
+  {
+    kind: "echo",
+    keyword: "echo",
+    syntax: 'echo "text" > <file>  ·  >> appends',
+    description:
+      "Write text into a file in the active folder, Unix-style — formatting, indentation and pasted line breaks are kept exactly",
+    requiresArg: true,
     platform: ["mac", "win"],
   },
   {

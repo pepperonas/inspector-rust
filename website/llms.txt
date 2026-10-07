@@ -1,6 +1,6 @@
 # Inspector Rust
 
-> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 73 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
+> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 74 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
 
 Everything below is also available without JavaScript: the page's HTML carries the current version and checksums, and `/` returns Markdown for `Accept: text/markdown`.
 
@@ -37,7 +37,7 @@ Everything below is also available without JavaScript: the page's HTML carries t
 
 - Clipboard history: Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.
 - Text expander: Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.
-- 73 commands in the search bar: Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add `?` to any command for its help. Or describe a task in your own words: an AI (Claude, Gemini or ChatGPT) writes the script, you approve it, and it runs on its own — on a schedule or when something happens.
+- 74 commands in the search bar: Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add `?` to any command for its help. Or describe a task in your own words: an AI (Claude, Gemini or ChatGPT) writes the script, you approve it, and it runs on its own — on a schedule or when something happens.
 - Screen tools: Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.
 - System at your fingertips: Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - Private by design: Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.

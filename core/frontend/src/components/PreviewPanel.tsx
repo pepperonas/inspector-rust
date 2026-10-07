@@ -31,6 +31,7 @@ import { TotpSecondsLeft } from "./TotpSecondsLeft";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
+import { resolveFileWrite } from "../lib/touch";
 import { readableForeground, tryParseColor } from "../lib/colors";
 import { IS_MAC } from "../lib/platform";
 import { TRANSLATE_LANGS, isTranslateKind } from "../lib/commands";
@@ -659,6 +660,10 @@ export function PreviewPanel({
       );
     }
     const isQr = entry.data.commandKind === "qr" && entry.data.arg.trim().length > 0;
+    const fileWrite =
+      entry.data.commandKind === "touch" || entry.data.commandKind === "echo"
+        ? resolveFileWrite(entry.data.commandKind, entry.data.arg)
+        : null;
     return (
       <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -674,6 +679,20 @@ export function PreviewPanel({
           </div>
         </div>
         {isQr && <QrPreview key={entry.data.arg} text={entry.data.arg} />}
+        {fileWrite?.content && (
+          <div className="flex min-h-0 flex-col gap-1.5">
+            <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+              {fileWrite.append ? "Wird angehängt" : "Dateiinhalt"} · {fileWrite.name}
+            </div>
+            <pre
+              data-testid="file-write-preview"
+              className="overflow-auto whitespace-pre rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-[var(--font-mono)] text-[12px] leading-relaxed"
+              style={{ tabSize: 4 }}
+            >
+              {fileWrite.content}
+            </pre>
+          </div>
+        )}
       </div>
     );
   }

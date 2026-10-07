@@ -176,9 +176,9 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.53.0",
     tagline: "Create a file in the front Finder/Explorer folder (optional content).",
     tagline_de: "Datei im vordersten Finder/Explorer-Ordner anlegen (opt. Inhalt).",
-    synopsis: "touch <name> [> text]",
+    synopsis: 'touch <name> [> text]  ·  touch "text" >[>] <file>',
     description:
-      "Creates an empty file named `<name>` in the folder of the frontmost Finder window (macOS) / Explorer window (Windows), then reveals it. Inline content after `>` is written into the file. Nested relative paths create intermediate directories; absolute paths and `..` traversal are rejected so it can't escape the folder.",
+      "Creates an empty file named `<name>` in the folder of the frontmost Finder window (macOS) / Explorer window (Windows), then reveals it. Two ways to give it content: the Unix way, `touch \"text\" > file` (same as `echo`), which writes the quoted text exactly — spaces, indentation, tabs and pasted line breaks; or the short way, `touch name > text`. `>` never overwrites an existing file; `>>` appends. Nested relative paths create intermediate directories; absolute paths and `..` traversal are rejected so it can't escape the folder.",
     arguments: [
       { name: "name", required: true, description: "File name; may be a nested relative path (`a/b/c.txt`).", default: undefined },
       { name: "> text", required: false, description: "Everything after the first `>` becomes the file's content. A pasted multi-line text keeps its line breaks (shown as ↵ in the search bar).", default: "(empty file)" },
@@ -186,6 +186,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     flags: [],
     examples: [
       { input: "touch notes.md", result: "Empty notes.md in the front Finder folder, selected." },
+      { input: 'touch "# Notizen" > notiz.md', result: "notiz.md containing '# Notizen' and a newline, like echo." },
       { input: "touch hello.txt > das ist ein test", result: "hello.txt containing 'das ist ein test'." },
       { input: "touch src/app/index.ts", result: "Creates src/app/ then index.ts (intermediate dirs made)." },
       { input: "touch namen.txt > (paste a list)", result: "namen.txt with one list entry per line — the line breaks survive the single-line search bar as ↵." },
@@ -193,9 +194,41 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "Falls back to the Desktop when no Finder/Explorer window is open.",
       "Paste multi-line text after `>` (or the whole `touch x.txt > …` command): line breaks show as ↵ and are written as real newlines; indentation is kept.",
+      "For an exact copy of formatted text use the quoted form `touch \"…\" > file` (or `echo`): nothing inside the quotes is trimmed.",
     ],
     caveats: ["macOS needs the Finder Automation grant. Windows paths are runtime-unverified."],
-    related: ["mkdir", "terminal"],
+    related: ["echo", "mkdir", "terminal"],
+  },
+  {
+    command: "echo",
+    aliases: [],
+    category: CAT_IMG,
+    version_added: "0.201.0",
+    tagline: "Write text into a file, Unix-style, keeping its formatting exactly.",
+    tagline_de: "Text in eine Datei schreiben, wie in der Shell — Formatierung bleibt exakt.",
+    synopsis: 'echo "text" > <file>  ·  echo "text" >> <file>',
+    description:
+      "Writes the text into `<file>` in the folder of the frontmost Finder window (macOS) / Explorer window (Windows) and reveals it. Everything between the quotes is kept exactly: spaces, indentation, tabs, and — when you paste a multi-line text — its line breaks (shown as ↵ in the single-line search bar). Quotes and `>` inside the text need no escaping: the text ends at the last quote that is followed by `> file`, so Markdown quotes and HTML work as they are. Like the shell's echo, the file ends with a newline. `>` creates a new file and never overwrites an existing one; `>>` appends.",
+    arguments: [
+      { name: '"text"', required: true, description: "Double or single quotes; `\\\"` inside double quotes is a quote. Without quotes the text runs up to the last `>`.", default: undefined },
+      { name: "> file / >> file", required: true, description: "`>` new file, `>>` append. Nested paths like `docs/a.md` create the folders; a name with spaces goes in quotes.", default: undefined },
+    ],
+    flags: [],
+    examples: [
+      { input: 'echo "hallo welt" > hallo.txt', result: "hallo.txt containing 'hallo welt' and a newline." },
+      { input: 'echo "(paste Markdown)" > notiz.md', result: "notiz.md with the pasted text, headings, quotes, indentation and line breaks unchanged." },
+      { input: 'echo "noch ein Eintrag" >> log.txt', result: "Adds the line to the end of log.txt (creates it if missing)." },
+      { input: 'echo "x" > "meine notiz.md"', result: "A file name with spaces." },
+    ],
+    tips: [
+      "Type `echo \"`, paste the text, then type `\" > datei.md` — or paste the whole command at once.",
+      "If the file already exists, nothing is overwritten and a message suggests `>>`.",
+    ],
+    caveats: [
+      "Only `\\\"` is unescaped; `\\n` stays a backslash and an n (as in the shell without -e) — paste real line breaks instead.",
+      "macOS needs the Finder Automation grant. Windows paths are runtime-unverified.",
+    ],
+    related: ["touch", "mkdir"],
   },
   {
     command: "mkdir",

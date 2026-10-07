@@ -114,7 +114,7 @@ import { typedTextEntry } from "./lib/typed-text";
 import { qrLinkEntry } from "./lib/qr-link";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
-import { parseTouchArg, touchLineCount } from "./lib/touch";
+import { resolveFileWrite, touchLineCount } from "./lib/touch";
 import { tryConvert } from "./lib/convert";
 import {
   parseConvertArg,
@@ -171,7 +171,6 @@ import { lookupDoc } from "./lib/commandDocs";
 import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { qrPngBase64 } from "./lib/qr";
-import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 const PongGame = lazy(() => import("./components/PongGame").then((m) => ({ default: m.PongGame })));
 const SnakeGame = lazy(() => import("./components/SnakeGame").then((m) => ({ default: m.SnakeGame })));
 const FlappyGame = lazy(() => import("./components/FlappyGame").then((m) => ({ default: m.FlappyGame })));
@@ -2033,16 +2032,23 @@ function App() {
         }
         break;
       }
-      case "touch": {
-        const { name: tname, content: tcontent } = parseTouchArg(arg);
-        const tlines = touchLineCount(tcontent);
-        label = tcontent
-          ? tlines > 1
-            ? `Create "${tname}" with ${tlines} lines in the open folder`
-            : `Create "${tname}" with content in the open folder`
-          : `Create file "${tname}" in the open folder`;
+      case "touch":
+      case "echo": {
+        const w = resolveFileWrite(spec.kind, arg);
+        if (!w) {
+          label = `${spec.kind} "Text" > Datei — Ziel-Datei fehlt noch`;
+          hint = 'Text in Anführungszeichen, dann > datei.md (neu) oder >> datei.md (anhängen)';
+          break;
+        }
+        const tlines = touchLineCount(w.content);
+        const lines = tlines > 1 ? `${tlines} Zeilen` : tlines === 1 ? "1 Zeile" : "";
+        label = w.append
+          ? `An "${w.name}" anhängen${lines ? ` (${lines})` : ""}`
+          : w.content
+            ? `"${w.name}" mit ${lines || "Inhalt"} anlegen`
+            : `Datei "${w.name}" anlegen`;
         hint =
-          "Frontmost Explorer (Windows) / Finder (macOS) folder · `touch name > text` writes content";
+          'Im vordersten Finder/Explorer-Ordner · Formatierung bleibt erhalten · eingefügte Zeilenumbrüche erscheinen als ↵';
         break;
       }
       case "mkdir":
@@ -2394,11 +2400,19 @@ function App() {
   // Last ←/→ switch direction, fed into the preview's directional slide-in.
   const [openerDir, setOpenerDir] = useState<1 | -1>(1);
   const openerActiveRef = useRef(false);
+  // The list is loaded on first use: a hidden easter egg shouldn't cost every
+  // popup open its 7 KB (the start-up chunk has a budget, check-bundle.mjs).
+  const [openers, setOpeners] = useState<readonly string[] | null>(null);
   useEffect(() => {
     const isActive = isOpenerTrigger(query);
     if (isActive && !openerActiveRef.current) {
-      const seeded = pickOpenerIndex(query);
-      setOpenerIndex(seeded >= 0 ? seeded : 0);
+      void import("./lib/openers").then((m) => {
+        setOpeners(m.TOP_OPENERS);
+        // Still in the trigger when the module arrives? Then seed the pick.
+        if (!openerActiveRef.current) return;
+        const seeded = m.pickOpenerIndex(query);
+        setOpenerIndex(seeded >= 0 ? seeded : 0);
+      });
     } else if (!isActive && openerActiveRef.current) {
       setOpenerIndex(null);
     }
@@ -2406,9 +2420,9 @@ function App() {
   }, [query]);
 
   const openerEntry: ListEntry | null = useMemo(() => {
-    if (openerIndex === null) return null;
-    return { kind: "opener", data: { text: TOP_OPENERS[openerIndex], dir: openerDir } };
-  }, [openerIndex, openerDir]);
+    if (openerIndex === null || !openers) return null;
+    return { kind: "opener", data: { text: openers[openerIndex], dir: openerDir } };
+  }, [openerIndex, openerDir, openers]);
 
   const suggestionEntries: ListEntry[] = useMemo(
     () =>
@@ -3225,13 +3239,14 @@ function App() {
       e.preventDefault();
       e.stopPropagation();
       const delta = e.key === "ArrowRight" ? 1 : -1;
-      const n = TOP_OPENERS.length;
+      const n = openers?.length ?? 0;
+      if (n === 0) return;
       setOpenerDir(delta);
       setOpenerIndex((cur) => (cur === null ? 0 : (((cur + delta) % n) + n) % n));
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [selectedIsOpener]);
+  }, [selectedIsOpener, openers]);
 
   // Cmd+1…4 (macOS) / Ctrl+1…4 (Win/Linux) while a `pwgen` entry is
   // selected → switch mode + regenerate (no copy, no popup-hide). The
@@ -4350,22 +4365,30 @@ function App() {
         // `wakelock dark` (no on/off) toggles against the CURRENT dark state.
         const on = req.on ?? !darkWakeRef.current;
         await wakelockSet(on, source, req.dark ? "dark" : "full");
-      } else if (commandKind === "touch" || commandKind === "mkdir") {
+      } else if (commandKind === "touch" || commandKind === "echo" || commandKind === "mkdir") {
         // Create a file / folder in the active file-manager window's folder
         // (Finder on macOS, Explorer on Windows). For `touch`, an optional
         // `> <text>` writes that content into the new file:
         //   touch hallo.txt > das ist ein test
         try {
           let path: string;
-          if (commandKind === "touch") {
+          if (commandKind === "touch" || commandKind === "echo") {
             // Line breaks come back from their ↵ markers (lib/touch.ts).
-            const { name, content } = parseTouchArg(arg);
-            path = await finderTouch(name, content);
+            const w = resolveFileWrite(commandKind, arg);
+            if (!w) return true; // incomplete — the row says what's missing
+            path = await finderTouch(w.name, w.content, w.append);
           } else {
             path = await finderMkdir(arg);
           }
           console.info("created", path);
         } catch (e) {
+          const msg = String(e);
+          if (msg.startsWith("touch.exists:")) {
+            // `>` never overwrites; say so instead of a generic error.
+            const file = msg.slice("touch.exists:".length).split(/[\\/]/).pop() ?? "";
+            await showStatusToast("file", false, `„${file}“ gibt es schon`, "Nicht überschrieben — mit >> anhängen");
+            return true;
+          }
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
           return true;

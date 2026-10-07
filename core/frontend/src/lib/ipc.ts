@@ -507,8 +507,8 @@ export function optimizeFile(
  *  (or the Desktop if no window is open), optionally with `content` written into
  *  it (`touch <name> > <text>`). Returns the absolute path created. Needs the
  *  Automation→Finder TCC grant on macOS. Backend: `commands::finder_touch`. */
-export function finderTouch(name: string, content = ""): Promise<string> {
-  return invoke("finder_touch", { name, content });
+export function finderTouch(name: string, content = "", append = false): Promise<string> {
+  return invoke("finder_touch", { name, content, append });
 }
 
 /** Create a folder named `name` in the frontmost Finder window's folder.

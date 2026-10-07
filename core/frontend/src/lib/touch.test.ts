@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LINE_BREAK, parseTouchArg, touchLineCount, touchPaste } from "./touch";
+import { LINE_BREAK, isUnixTouch, parseFileWrite, parseTouchArg, touchLineCount, touchPaste } from "./touch";
 
 const LIST = "Mister Midge\nLittle Buddy\nMister Fluffy\nTiny Tim\nBumble\nPip";
 
@@ -65,5 +65,70 @@ describe("parseTouchArg", () => {
     expect(touchLineCount("")).toBe(0);
     expect(touchLineCount("x")).toBe(1);
     expect(touchLineCount(LIST + "\n")).toBe(6);
+  });
+});
+
+describe("parseFileWrite (Unix form)", () => {
+  const MD = "# Titel\n\n> ein Zitat mit \"Anführungszeichen\"\n\n    eingerückter Code\n- Liste  mit  Leerzeichen";
+
+  it("echo and touch take the text first and the file after `>`", () => {
+    expect(parseFileWrite("echo", '"hallo welt" > datei.md')).toEqual({ name: "datei.md", content: "hallo welt\n", append: false });
+    expect(parseFileWrite("touch", '"hallo welt" > datei.md')).toEqual({ name: "datei.md", content: "hallo welt\n", append: false });
+    expect(parseFileWrite("echo", "'single quotes' > a.txt")?.content).toBe("single quotes\n");
+  });
+
+  it("keeps every space inside the quotes", () => {
+    expect(parseFileWrite("echo", '"  zwei  Leerzeichen\tTab  " > a.txt')?.content).toBe("  zwei  Leerzeichen\tTab  \n");
+  });
+
+  it("a pasted Markdown text survives exactly — quotes and > inside it included", () => {
+    const r = pasted('echo "', MD);
+    const arg = (r.value + '" > notiz.md').replace(/^\s*echo\s+/i, "");
+    expect(parseFileWrite("echo", arg)).toEqual({ name: "notiz.md", content: MD + "\n", append: false });
+    const t = pasted('touch "', MD);
+    expect(parseFileWrite("touch", argOf(t.value + '" > notiz.md'))?.content).toBe(MD + "\n");
+  });
+
+  it("the whole command pasted at once works too", () => {
+    const r = pasted("", `echo "${MD}" > notiz.md`);
+    expect(parseFileWrite("echo", r.value.replace(/^\s*echo\s+/i, ""))?.content).toBe(MD + "\n");
+  });
+
+  it("an inner quote right before > (HTML) does not end the text", () => {
+    const html = '<a href="https://x.de">Link</a> > weiter';
+    expect(parseFileWrite("echo", `"${html}" > seite.html`)).toEqual({ name: "seite.html", content: html + "\n", append: false });
+  });
+
+  it(">> appends", () => {
+    expect(parseFileWrite("echo", '"noch eine Zeile" >> log.txt')).toEqual({ name: "log.txt", content: "noch eine Zeile\n", append: true });
+  });
+
+  it('\\" is a quote, other backslashes stay', () => {
+    expect(parseFileWrite("echo", '"sag \\"hi\\" C:\\\\pfad\\n" > a.txt')?.content).toBe('sag "hi" C:\\\\pfad\\n\n');
+  });
+
+  it("quoted file names and nested paths", () => {
+    expect(parseFileWrite("echo", '"x" > "meine notiz.md"')?.name).toBe("meine notiz.md");
+    expect(parseFileWrite("echo", '"x" > docs/a.md')?.name).toBe("docs/a.md");
+  });
+
+  it("echo also takes unquoted text", () => {
+    expect(parseFileWrite("echo", "hallo welt > a.txt")).toEqual({ name: "a.txt", content: "hallo welt\n", append: false });
+    expect(parseFileWrite("echo", "eins >> a.txt")?.append).toBe(true);
+  });
+
+  it("incomplete input is not a write", () => {
+    expect(parseFileWrite("echo", '"nur text"')).toBeNull();
+    expect(parseFileWrite("echo", '"text" > ')).toBeNull();
+    expect(parseFileWrite("echo", "ohne pfeil")).toBeNull();
+    // touch without quotes is the legacy form, never the Unix one.
+    expect(parseFileWrite("touch", "notes.md > hallo")).toBeNull();
+    expect(isUnixTouch("notes.md > hallo")).toBe(false);
+    expect(isUnixTouch('"hallo" > notes.md')).toBe(true);
+  });
+
+  it("a paste into the file name of a plain touch is still left alone", () => {
+    expect(touchPaste("touch a.txt", 11, 11, "A\nB")).toBeNull();
+    expect(touchPaste("", 0, 0, LIST)).toBeNull();
   });
 });

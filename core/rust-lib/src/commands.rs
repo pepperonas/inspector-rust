@@ -5207,23 +5207,28 @@ fn optimize_file_blocking(path: String) -> Result<crate::image_ops::OptimResult,
 /// the Automation→Finder TCC grant (returns the `finder.automation_denied`
 /// sentinel on a miss).
 #[tauri::command]
-pub async fn finder_touch(name: String, content: Option<String>) -> Result<String, String> {
+pub async fn finder_touch(
+    name: String,
+    content: Option<String>,
+    append: Option<bool>,
+) -> Result<String, String> {
     // Two osascript round trips (front dir + reveal) — off the main thread,
     // like its sibling `finder_open_terminal`.
-    tauri::async_runtime::spawn_blocking(move || finder_touch_blocking(name, content))
+    let append = append.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || finder_touch_blocking(name, content, append))
         .await
         .map_err(|e| format!("touch task: {e}"))?
 }
 
-fn finder_touch_blocking(name: String, content: Option<String>) -> Result<String, String> {
+fn finder_touch_blocking(name: String, content: Option<String>, append: bool) -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        crate::finder_selection::create_file(&name, content.as_deref().unwrap_or(""))
+        crate::finder_selection::create_file(&name, content.as_deref().unwrap_or(""), append)
             .map(|p| p.display().to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (name, content);
+        let _ = (name, content, append);
         Err("touch needs Finder (macOS) or Explorer (Windows)".into())
     }
 }

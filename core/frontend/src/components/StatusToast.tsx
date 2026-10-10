@@ -217,7 +217,7 @@ export function StatusToast() {
         ? AlarmClock
         : payload.kind === "clean"
           ? Sparkles
-          : payload.kind === "md2pdf" || payload.kind === "file"
+          : payload.kind === "md2pdf" || payload.kind === "transcribe" || payload.kind === "file"
             ? FileText
           : payload.kind === "random"
             ? Dices

@@ -166,6 +166,23 @@ Gemessen mit `scripts/perf-probe.sh` (eine JSON-Zeile: Startzeit, Idle-CPU, RSS,
 
 The headline **lines-of-code** + **unit-test-count** badges in `README.md` / `README.de.md` are recomputed from the real sources by a Node-ESM script — never hand-edited. LOC counts all written code INCLUDING tests (policy change v0.126.1 — tests are maintained code; the old source-only rule understated the repo by ~40k lines): all workspace Rust incl. the file-final `#[cfg(test)]` modules + all frontend `src/**/*.ts(x)` incl. `*.test.ts(x)`, minus only the generated `openers-data.ts`; `node_modules`/`target`/`dist` are never scanned. (Test modules stay file-final by repo convention regardless.) Test counts come from the **actual runner output** — the summed `test result: ok. N passed` of `cargo test --workspace` + the `Tests N passed` of a direct `vitest run` — not by grepping `it(`/`#[test]` (which would miscount skips/todos). It **aborts if either suite is red** (a badge must never advertise a passing suite that isn't) and is **idempotent** (re-running is a no-op). Wired as both `pnpm update-badges` and the `posttest` hook; the runners are invoked **directly** (`cargo test`, `vitest run`), never via `npm test`, so the hook can't recurse. **Runner output is ANSI-stripped before parsing** (v0.84.262) — vitest colourises even into a pipe, and the escape codes land *between* the words the summary regex matches (`Tests \e[1m\e[32m907 passed`), which silently broke the parse ("Could not parse vitest output — badges NOT updated") and left the badges stale. `IR_SKIP_BADGES=1` turns the hook into a fast no-op for a tight local `pnpm test` loop. **It also writes `.github/repo-stats.json`** (LOC split + test split + catalogue counts, stable key order, no timestamp → idempotent) for the product page — in the same two phases as the README (file counts incl. LOC before the suites, test counts after); see *Product page* above.
 
+### Local media transcription (`transcribe`)
+
+`transcribe [path] [--language de]` follows md2pdf's explicit-path-over-Finder-selection
+workflow. Shared `transcribe.rs` parses language flags and preserves path spaces,
+quotes, Unicode and Windows backslashes. The async IPC resolves inputs and checks
+Python/Whisper/ffmpeg off the main thread, then launches a background worker. Embedded
+`assets/transcribe/runner.py` receives JSON over stdin, validates Whisper languages,
+loads the multilingual small CPU model once per batch and exclusively creates sibling
+TXT files (`name 2.txt` on collisions). Each file gets fresh automatic language detection;
+file failures do not abort the batch. Completion/errors use the existing status toast plus a native macOS notification.
+The frontend shares the file-command preview/dispatch with md2pdf; popup hiding keeps the existing CRT lifecycle.
+`scripts/setup-transcribe.py` installs Whisper in the per-user local-data
+`InspectorRust/transcribe/venv`; `IR_WHISPER_PYTHON` overrides the interpreter and
+`IR_WHISPER_MODEL` the default small model. No automatic package installs; only model
+weights download on first use. Windows/Linux need an explicit path (runtime-unverified).
+See [transcribe.md](./docs/transcribe.md) for setup and usage.
+
 ### Adding a new search-bar (custom) command — REQUIRED checklist
 
 Custom commands must **always** outrank clipboard history (spliced above fuzzy clips) **and** render with the red (`rose`) accent, **and** be discoverable in the docs + the app's Features tab. When adding one, do **all** of:

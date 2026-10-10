@@ -47,7 +47,7 @@ describe("COMMANDS catalogue", () => {
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
     // +4 for `btsniff` and its `btcap`/`btcapture`/`blecap` aliases.
     // +4 for `mailcheck` and its `emailcheck`/`mailverify`/`mxcheck` aliases.
-    expect(COMMANDS.length).toBe(127);
+    expect(COMMANDS.length).toBe(128);
   });
 
   it("every keyword is unique", () => {
@@ -56,6 +56,14 @@ describe("COMMANDS catalogue", () => {
       expect(seen.has(c.keyword)).toBe(false);
       seen.add(c.keyword);
     }
+  });
+
+  it("transcribe accepts a selection or preserves its path and language arguments", () => {
+    expect(parseCommand("transcribe")?.spec.kind).toBe("transcribe");
+    const arg = '"~/Videos/Grüße  heute.mp4" --language de';
+    expect(parseCommand(`transcribe ${arg}`)?.arg).toBe(arg);
+    expect(parseCommand("transcribe -l en")?.arg).toBe("-l en");
+    expect(commandSuggestions("transcr").some((c) => c.keyword === "transcribe")).toBe(true);
   });
 
   it("gates platform-limited commands by OS via isCommandAvailable", () => {

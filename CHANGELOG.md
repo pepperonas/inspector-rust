@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+- **`transcribe [path] [--language de]` — local audio/video transcription.** Like `md2pdf`, uses the Finder selection on macOS or an explicit path. Whisper detects the language per file unless specified (`--language` / `-l`), runs in the background and writes a sibling TXT without overwriting existing files. Includes a setup script for the local Whisper environment; requires ffmpeg. No media upload.
+
 ## [0.204.0] - 2026-10-08
 
 ### Added

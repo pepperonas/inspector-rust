@@ -5362,6 +5362,57 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
     Ok(())
 }
 
+/// Local media → TXT, with the same selection/path workflow as md2pdf.
+#[tauri::command]
+pub async fn transcribe_run(app: AppHandle, arg: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let args = crate::transcribe::parse_args(&arg)?;
+        let path = args
+            .path
+            .as_deref()
+            .map(|p| crate::path_arg::expand_user(p, dirs::home_dir().as_deref()));
+        let selection = if path.is_some() {
+            Ok(Vec::new())
+        } else {
+            #[cfg(target_os = "macos")]
+            {
+                crate::finder_selection::read()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err("transcribe: Dateipfad angeben (Finder-Auswahl nur unter macOS)".into())
+            }
+        };
+        let paths = crate::transcribe::choose_inputs(path, selection, |p| p.is_file())?;
+        let worker = crate::transcribe::Worker::prepare(&paths, args.language.as_deref())?;
+        std::thread::spawn(move || {
+            let (ok, message) = match worker.run() {
+                Ok(summary) => {
+                    for (path, reason) in &summary.failed {
+                        tracing::warn!("transcribe: {}: {reason}", path.display());
+                    }
+                    (summary.failed.is_empty(), summary.message())
+                }
+                Err(error) => {
+                    tracing::warn!("transcribe: {error}");
+                    (false, crate::transcribe::user_error(&error))
+                }
+            };
+            crate::transcribe::notify_completion(&message);
+            show_status_toast(
+                app,
+                "transcribe".into(),
+                ok,
+                "Audio/Video → Text".into(),
+                message,
+            );
+        });
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("transcribe task: {e}"))?
+}
+
 /// Runs the hotkey-driven Finder-selection pipeline: read the
 /// selection, open the popup, emit the `finder-selection-loaded`
 /// event with the items. Mirrors the pattern of the OCR / eyedropper

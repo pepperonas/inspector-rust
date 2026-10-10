@@ -76,6 +76,7 @@ export type CommandKind =
   | "terminal"
   | "alarm"
   | "md2pdf"
+  | "transcribe"
   | "shot-region"
   | "shot-full"
   | "shot-window"
@@ -757,6 +758,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trim",
     syntax: "trim",
     description: "Trim a local audio/video file — pick a file, set start/end, save",
+    requiresArg: false,
+  },
+  {
+    kind: "transcribe",
+    keyword: "transcribe",
+    syntax: "transcribe [pfad] [--language de]",
+    description: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --language de / auto",
     requiresArg: false,
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────

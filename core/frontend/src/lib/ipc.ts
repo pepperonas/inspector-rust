@@ -222,6 +222,11 @@ export function mdToPdfRun(path?: string): Promise<void> {
   return invoke("md_to_pdf_run", { path: path ?? null });
 }
 
+/** Start local Whisper transcription; completion is reported by the backend. */
+export function transcribeRun(arg: string): Promise<void> {
+  return invoke("transcribe_run", { arg });
+}
+
 /** Show an on-screen status toast (hide popup + animated flourish). Used for
  *  timer / alarm confirmations. Backend: `commands::show_status_toast`. */
 export function showStatusToast(

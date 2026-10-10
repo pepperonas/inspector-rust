@@ -63,6 +63,7 @@ mod loc_export;
 mod logging;
 mod mailcheck;
 mod md_to_pdf;
+mod transcribe;
 mod media_name;
 mod media_trim;
 mod meme;
@@ -893,6 +894,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::finder_mkdir,
             commands::finder_open_terminal,
             commands::md_to_pdf_run,
+            commands::transcribe_run,
             commands::show_status_toast,
             commands::get_finder_automation_status,
             commands::open_finder_automation_settings,

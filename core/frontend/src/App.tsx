@@ -170,9 +170,9 @@ import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { clownAll, parseClownArg } from "./lib/clown";
 import { lookupDoc } from "./lib/commandDocs";
+import { qrPngBase64 } from "./lib/qr";
 import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
-import { qrPngBase64 } from "./lib/qr";
 const PongGame = lazy(() => import("./components/PongGame").then((m) => ({ default: m.PongGame })));
 const SnakeGame = lazy(() => import("./components/SnakeGame").then((m) => ({ default: m.SnakeGame })));
 const FlappyGame = lazy(() => import("./components/FlappyGame").then((m) => ({ default: m.FlappyGame })));
@@ -225,6 +225,7 @@ import {
   finderMkdir,
   finderOpenTerminal,
   mdToPdfRun,
+  transcribeRun,
   screenshotCapture,
   screenshotRepeatLast,
   listMemes,
@@ -2098,11 +2099,10 @@ function App() {
         }
         break;
       }
+      case "transcribe":
       case "md2pdf":
-        label = arg
-          ? `Markdown → PDF: "${arg}"`
-          : "Markdown → PDF (Finder-Auswahl)";
-        hint = "A4 im mrxdown-Stil · gleicher Name im selben Ordner · belegt → „Name 2.pdf“";
+        label = `${spec.keyword}: ${arg || "Finder-Auswahl"}`;
+        hint = spec.description;
         break;
       case "shot-region": {
         const delay = parseShotDelay(arg);
@@ -4483,15 +4483,11 @@ function App() {
         }
         await startTimer(a.seconds, `Alarm ${a.label}`);
         await showStatusToast("alarm", true, "Alarm set", a.label);
-      } else if (commandKind === "md2pdf") {
-        // Same action as Ctrl+Shift+M; arg = optional path (else selection).
+      } else if (commandKind === "transcribe" || commandKind === "md2pdf") {
         try {
-          await mdToPdfRun(arg || undefined);
+          await (commandKind === "transcribe" ? transcribeRun(arg) : mdToPdfRun(arg || undefined));
         } catch (e) {
-          // Name the reason ("no Markdown selected", "file not found") — a
-          // generic error left the user guessing what to do next.
-          console.error("md2pdf failed", e);
-          await showStatusToast("md2pdf", false, "Markdown → PDF", String(e));
+          await showStatusToast(commandKind, false, commandKind, String(e));
           return true;
         }
         await hidePopup();

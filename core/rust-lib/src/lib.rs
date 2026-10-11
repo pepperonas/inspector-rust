@@ -104,6 +104,7 @@ mod snippets;
 mod snitch;
 mod pulse;
 mod speedtest;
+mod github;
 mod spotify;
 mod social_dl;
 mod sound;
@@ -473,6 +474,9 @@ pub fn run(context: tauri::Context<Wry>) {
                 gestures::apply(app.handle(), &db_handle, g_state.inner());
                 gestures::spawn_wake_watchdog(app.handle());
             }
+
+            // GitHub analytics: background refresher (gated, opt-out in Settings).
+            github::service::start(app.handle(), &db_handle);
 
             // Spotify play history: notification observer + recorder thread.
             #[cfg(target_os = "macos")]
@@ -951,6 +955,16 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_repo_config,
             commands::set_repo_clone_dir,
             commands::set_github_token,
+            commands::github_status,
+            commands::github_device_start,
+            commands::github_device_cancel,
+            commands::github_disconnect,
+            commands::github_refresh,
+            commands::github_dashboard,
+            commands::github_repo,
+            commands::github_export,
+            commands::get_github_config,
+            commands::set_github_config,
             commands::nosleep_status,
             commands::nosleep_set,
             commands::alias_create,

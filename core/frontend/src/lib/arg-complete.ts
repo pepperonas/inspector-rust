@@ -42,6 +42,8 @@ export type ArgNode = readonly ArgOption[] | (() => readonly ArgOption[]) | ArgS
 
 /** Source key: most played artists of the Spotify history. */
 export const SOURCE_SPOTIFY_ARTISTS = "spotify-artists";
+/** Source key: the user's GitHub repositories (local cache), most stars first. */
+export const SOURCE_GITHUB_REPOS = "github-repos";
 
 const ON_OFF: readonly ArgOption[] = [
   { value: "on", hint: "einschalten" },
@@ -90,6 +92,34 @@ const SPOTIFY: readonly ArgOption[] = [
   { value: "seek", hint: "zu Sekunde springen" },
 ];
 
+const GITHUB_EXPORT: readonly ArgOption[] = [
+  { value: "json", hint: "everything, structured", next: [{ value: "private", hint: "include private repositories" }] },
+  { value: "csv", hint: "repository snapshots", next: [{ value: "private", hint: "include private repositories" }] },
+];
+
+const GITHUB: readonly ArgOption[] = [
+  { value: "stats", hint: "dashboard" },
+  {
+    value: "repos",
+    hint: "repository ranking",
+    next: [
+      { value: "stars", hint: "most stars" },
+      { value: "forks", hint: "most forks" },
+      { value: "updated", hint: "recently updated" },
+      { value: "name", hint: "A–Z" },
+      { value: "growth7d", hint: "growth, 7 days" },
+      { value: "growth30d", hint: "growth, 30 days" },
+    ],
+  },
+  { value: "repo", hint: "one repository", next: { source: SOURCE_GITHUB_REPOS, hint: "your repositories" } },
+  { value: "followers", hint: "follower history" },
+  { value: "stars", hint: "star history" },
+  { value: "trending", hint: "fastest growing" },
+  { value: "refresh", hint: "ask GitHub now" },
+  { value: "export", hint: "JSON / CSV to Downloads", next: GITHUB_EXPORT },
+  { value: "connect", hint: "sign in with GitHub" },
+];
+
 const WAKELOCK: readonly ArgOption[] = [
   ...ON_OFF,
   { value: "dark", hint: "wach, Bildschirm darf aus" },
@@ -129,6 +159,7 @@ const SETTINGS: ArgNode = () =>
 /** Fixed argument words per command kind. */
 export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
   spotify: SPOTIFY,
+  github: GITHUB,
   wakelock: WAKELOCK,
   nosleep: ON_OFF,
   track: [

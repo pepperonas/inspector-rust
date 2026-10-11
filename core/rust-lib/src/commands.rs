@@ -8966,3 +8966,119 @@ pub fn spotify_open_automation_settings() -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| e.to_string())
 }
+
+// ── GitHub analytics (`github` command; reference docs/github.md) ───────────
+
+async fn gh_blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("github: {e}"))?
+}
+
+/// Connection, cache age, rate limit, login state. Never a token.
+#[tauri::command]
+pub async fn github_status(db: State<'_, DbHandle>) -> Result<crate::github::service::Status, String> {
+    let db = db.inner().clone();
+    gh_blocking(move || Ok(crate::github::service::status(&db))).await
+}
+
+/// Start the browser login (device flow): returns the code to type.
+#[tauri::command]
+pub async fn github_device_start(db: State<'_, DbHandle>) -> Result<crate::github::service::DeviceView, String> {
+    let db = db.inner().clone();
+    gh_blocking(move || crate::github::service::device_start(&db)).await
+}
+
+#[tauri::command]
+pub fn github_device_cancel() {
+    crate::github::service::device_cancel();
+}
+
+#[tauri::command]
+pub async fn github_disconnect(db: State<'_, DbHandle>) -> Result<(), String> {
+    let db = db.inner().clone();
+    gh_blocking(move || {
+        crate::github::service::disconnect(&db);
+        Ok(())
+    })
+    .await
+}
+
+/// Refresh if due (`force` = the user asked; still gated by the rate limit).
+#[tauri::command]
+pub async fn github_refresh(
+    db: State<'_, DbHandle>,
+    force: bool,
+) -> Result<crate::github::service::RefreshResult, String> {
+    let db = db.inner().clone();
+    gh_blocking(move || crate::github::service::refresh(&db, force)).await
+}
+
+/// The dashboard from the local history (None = nothing fetched yet).
+#[tauri::command]
+pub async fn github_dashboard(
+    db: State<'_, DbHandle>,
+    range: String,
+    sort: crate::github::SortKey,
+) -> Result<Option<crate::github::service::Dashboard>, String> {
+    use crate::github::service as s;
+    let db = db.inner().clone();
+    gh_blocking(move || {
+        let Some(user) = s::user_id(&db) else { return Ok(None) };
+        let conn = db.lock();
+        s::build_dashboard(&conn, user, s::now_ms(), s::range_ms(&range), sort).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn github_repo(
+    db: State<'_, DbHandle>,
+    query: String,
+    range: String,
+) -> Result<crate::github::service::RepoDetail, String> {
+    use crate::github::service as s;
+    let db = db.inner().clone();
+    gh_blocking(move || s::repo_detail(&db, &query, s::range_ms(&range))).await
+}
+
+/// Write `github-<login>-<date>.json|csv` to Downloads and reveal it.
+#[tauri::command]
+pub async fn github_export(
+    db: State<'_, DbHandle>,
+    format: String,
+    include_private: bool,
+) -> Result<String, String> {
+    use crate::github::service as s;
+    let db = db.inner().clone();
+    gh_blocking(move || {
+        let user = s::user_id(&db).ok_or_else(|| crate::github::ERR_NOT_CONNECTED.to_string())?;
+        let login = crate::settings::get(&db, "github.login").ok().flatten().unwrap_or_else(|| "github".into());
+        let (text, ext) = {
+            let conn = db.lock();
+            s::export_text(&conn, user, &login, &format, include_private, s::now_ms())?
+        };
+        let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+        let stem = format!("github-{}-{}", login, chrono::Local::now().format("%Y-%m-%d"));
+        let name = crate::spotify::export::free_name(&stem, ext, |n| dir.join(n).exists());
+        let out = dir.join(name);
+        std::fs::write(&out, text).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
+        reveal_in_file_manager(&out);
+        Ok(out.display().to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn get_github_config(db: State<'_, DbHandle>) -> crate::github::service::GithubConfig {
+    crate::github::service::GithubConfig::load(&db)
+}
+
+#[tauri::command]
+pub fn set_github_config(
+    db: State<'_, DbHandle>,
+    config: crate::github::service::GithubConfig,
+) -> Result<crate::github::service::GithubConfig, String> {
+    config.save(&db)?;
+    Ok(crate::github::service::GithubConfig::load(&db))
+}

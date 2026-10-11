@@ -435,14 +435,18 @@ pub fn gh_available() -> bool {
 /// `gh auth token` first (the user is already logged in there), else the
 /// keychain entry from Settings. Never logged.
 pub fn github_token() -> Option<String> {
-    if let Some(gh) = gh_path() {
-        if let Ok(out) = std::process::Command::new(gh).args(["auth", "token"]).output() {
-            let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if out.status.success() && !t.is_empty() {
-                return Some(t);
-            }
-        }
-    }
+    gh_token().or_else(stored_token)
+}
+
+/// The GitHub CLI's token, if `gh` is installed and logged in.
+pub fn gh_token() -> Option<String> {
+    let out = std::process::Command::new(gh_path()?).args(["auth", "token"]).output().ok()?;
+    let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !t.is_empty()).then_some(t)
+}
+
+/// The personal access token from Settings (keychain).
+pub fn stored_token() -> Option<String> {
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
         .ok()?
         .get_password()

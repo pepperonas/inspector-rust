@@ -29,7 +29,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "adb", label: "Android (adb)", names: ["adb", "android", "handy", "smartphone", "adboss", "phone"] },
   { id: "clipboard-history", label: "Clipboard history", names: ["history", "clipboard history", "max entries", "limit", "cap", "verlauf"] },
   { id: "pagespeed", label: "PageSpeed", names: ["pagespeed", "lighthouse", "api key", "google", "seite", "performance"] },
-  { id: "repos", label: "Repositories", names: ["repos", "repositories", "repository", "klonen", "clone", "github", "git", "github token"] },
+  { id: "repos", label: "Repositories", names: ["repos", "repositories", "repository", "klonen", "clone", "git"] },
   { id: "device-sync", label: "Device sync", names: ["device sync", "geraete-sync", "geräte-sync", "geraetesync", "macs", "icloud", "abgleich"] },
   { id: "auto-backup", label: "Auto-backup", names: ["auto-backup", "auto backup", "automatisch", "sicherung", "geplant", "schedule", "google drive", "backup ordner", "backup-ordner", "intervall"] },
   { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear", "privatsphäre", "datenschutz"] },
@@ -63,6 +63,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "about", label: "About", names: ["about", "version", "über", "info", "lizenz", "license"] },
   { id: "pulse", label: "Pulse (Speicherdruck & SSD)", names: ["pulse", "speicherdruck", "swap", "ssd", "tbw", "memory pressure"] },
   { id: "spotify", label: "Spotify", names: ["spotify", "musik", "music", "verlauf", "history", "scrobble"] },
+  { id: "github", label: "GitHub", names: ["github", "github token", "integrations", "integration", "oauth", "followers", "stars", "sterne"] },
 ] as const;
 
 export interface SettingsCategory {
@@ -98,7 +99,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     label: "Befehle",
     sections: ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"],
   },
-  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "spotify", "pagespeed", "repos"] },
+  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "spotify", "pagespeed", "github", "repos"] },
   { id: "sync", label: "Sync & Sicherung", sections: ["cloud-sync", "device-sync", "auto-backup", "backup"] },
   { id: "about", label: "Info", sections: ["about"] },
 ];

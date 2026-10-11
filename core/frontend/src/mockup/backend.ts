@@ -433,6 +433,50 @@ function pulseHistoryMock(range: string) {
   };
 }
 
+// GitHub analytics — an invented account (nothing real), 60 days of history.
+const GH_NOW = Date.now();
+const GH_DAY = 86_400_000;
+const ghSeries = (start: number, perDay: number, days = 60): [number, number][] =>
+  Array.from({ length: days }, (_, i) => [GH_NOW - (days - 1 - i) * GH_DAY, Math.round(start + perDay * i + Math.sin(i / 3) * 2)]);
+const GH_FOLLOWERS = ghSeries(118, 0.42);
+const GH_STARS = ghSeries(301, 1.4);
+const GH_REPO = (id: number, name: string, stars: number, forks: number, lang: string, extra: Record<string, unknown> = {}) => ({
+  id, name, full_name: `northwind-ana/${name}`, private: false, archived: false, fork: false, language: lang,
+  html_url: "", description: null, license: "MIT", stars, forks, watchers: null, open_issues: id % 4,
+  updated_at_ms: GH_NOW - id * 3 * GH_DAY, pushed_at_ms: GH_NOW - id * 2 * GH_DAY, ...extra,
+});
+const GH_ROWS = [
+  { ...GH_REPO(1, "harbor-cli", 214, 31, "Rust"), growth_7d: 9, growth_30d: 38 },
+  { ...GH_REPO(2, "tidepool", 96, 12, "TypeScript"), growth_7d: 4, growth_30d: 17 },
+  { ...GH_REPO(3, "lantern-ui", 41, 6, "TypeScript"), growth_7d: 1, growth_30d: 5 },
+  { ...GH_REPO(4, "saltmarsh", 22, 3, "Go"), growth_7d: 0, growth_30d: 2 },
+  { ...GH_REPO(5, "dotfiles", 8, 1, "Shell", { private: true }), growth_7d: null, growth_30d: null },
+  { ...GH_REPO(6, "old-blog", 3, 0, "HTML", { archived: true }), growth_7d: 0, growth_30d: 0 },
+];
+const ghDeltas = (s: [number, number][]) => ({
+  d24h: s[59][1] - s[58][1], d7d: s[59][1] - s[52][1], d30d: s[59][1] - s[29][1], d90d: null,
+});
+function githubDashboardMock(range: string) {
+  const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }[range] ?? 9999;
+  const cut = (s: [number, number][]) => s.filter(([t]) => t >= GH_NOW - days * GH_DAY);
+  return {
+    user_id: 1,
+    kpis: [
+      { key: "followers", value: GH_FOLLOWERS[59][1], deltas: ghDeltas(GH_FOLLOWERS) },
+      { key: "stars", value: GH_STARS[59][1], deltas: ghDeltas(GH_STARS) },
+      { key: "repos", value: GH_ROWS.length, deltas: { d24h: 0, d7d: 0, d30d: 1, d90d: null } },
+      { key: "forks", value: 53, deltas: { d24h: 0, d7d: 2, d30d: 6, d90d: null } },
+    ],
+    followers: cut(GH_FOLLOWERS),
+    stars: cut(GH_STARS),
+    rows: GH_ROWS,
+    growth: GH_ROWS.slice(0, 5).map((r, i) => ({ id: r.id, name: r.name, points: cut(ghSeries(r.stars - 30 / (i + 1), 0.5 / (i + 1))) })),
+    history_since_ms: GH_FOLLOWERS[0][0],
+    snapshot_count: 60,
+    private_count: 1,
+  };
+}
+
 const SPEED_RUNS = [
   [0, 388, 20.4, 14.0, 3.6, 31, 11],
   [0.3, 362, 19.1, 15.2, 4.1, 44, 18],
@@ -696,6 +740,18 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "pulse_history": return pulseHistoryMock(String((args as { range?: string })?.range ?? "24h"));
     case "get_pulse_config": return { enabled: true, notify: false, notify_minutes: 10, tbw_tb: 0 };
     case "set_pulse_config": return (args as { config: unknown }).config;
+    case "github_status":
+      return {
+        connected: true, source: "oauth", client_id_configured: true, pat_stored: false, gh_available: false,
+        user_id: 1, login: "northwind-ana", name: "Ana Lima", avatar_url: null, html_url: "https://github.com/northwind-ana",
+        last_ok_ms: GH_NOW - 12 * 60_000, last_checked_ms: GH_NOW - 12 * 60_000, last_error: null,
+        rate: { limit: 5000, remaining: 4987, reset_at_ms: GH_NOW + 40 * 60_000 }, scopes: "",
+        next_refresh_ms: GH_NOW + 48 * 60_000, rate_limited_until: null, refreshing: false,
+        device: { state: "idle" }, config: { auto_refresh: true, interval_h: 1, private_repos: false },
+      };
+    case "github_refresh": return { gate: { kind: "too_soon", next_at_ms: GH_NOW + 48 * 60_000 }, fetched: false, account_snapshot: false, repo_snapshots: 0 };
+    case "github_dashboard": return githubDashboardMock(String((args as { range?: string })?.range ?? "30d"));
+    case "get_github_config": return { auto_refresh: true, interval_h: 1, private_repos: false };
     case "speedtest_running": return false;
     case "speedtest_run": return SPEED_RUNS[0];
     case "speedtest_history": return SPEED_RUNS;

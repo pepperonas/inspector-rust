@@ -100,6 +100,7 @@ export type CommandKind =
   | "snitch"
   | "shazam"
   | "spotify"
+  | "github"
   | "boom"
   | "uptime"
   | "weather"
@@ -975,6 +976,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Spotify desktop app: what's playing, your local play history (recorded on this Mac), export, and playback control",
     requiresArg: false,
     platform: ["mac"],
+  },
+  {
+    kind: "github",
+    keyword: "github",
+    syntax: "github [stats | repos [sort] | repo <name> | followers | stars | trending | refresh | export json|csv [private] | connect]",
+    description:
+      "Your GitHub statistics: followers, stars, repository ranking and their growth over time, from local snapshots",
+    requiresArg: false,
   },
   {
     kind: "iris",

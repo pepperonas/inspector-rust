@@ -1142,6 +1142,45 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["shazam", "sound"],
     see_also: "docs/spotify.md",
   },
+  {
+    command: "github",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.209.0",
+    tagline: "GitHub analytics: followers, stars, repository ranking and growth over time.",
+    tagline_de: "GitHub-Statistik: Follower, Sterne, Repository-Ranking und Wachstum über die Zeit.",
+    synopsis: "github [stats | repos [stars|forks|updated|name|growth7d|growth30d] | repo <name> | followers | stars | trending | refresh | export json|csv [private] | connect]",
+    description:
+      "Your own GitHub account at a glance: followers, total stars, repositories and forks with 24h / 7d / 30d / 90d changes, a ranking of your repositories, and charts of how they grew. Inspector keeps local snapshots in history.db (at most one per refresh interval, plus one when a number changes), so the history starts the day you connect — nothing is invented before that. Sign in through the browser (read-only, public data by default), with a personal access token, or reuse a `gh` login. Shows while you type, from the local cache; refresh, export and connect run on Enter.",
+    arguments: [
+      { name: "stats", required: false, description: "Dashboard: KPI cards, follower and star charts, top repositories.", default: "(stats)" },
+      { name: "repos [sort]", required: false, description: "Every repository: stars, forks, watchers, open issues, language, updated. Sort by stars, forks, updated, name, growth7d, growth30d." },
+      { name: "repo <name>", required: false, description: "One repository with its star, fork and issue history (renames keep their history)." },
+      { name: "followers | stars | trending", required: false, description: "Follower history; stars by repository and the top 5 over time; repositories that gained stars this week." },
+      { name: "refresh", required: false, description: "Ask GitHub now (at most once a minute; waits out an exhausted rate limit)." },
+      { name: "export json|csv [private]", required: false, description: "Account, repositories and history to ~/Downloads. Private repositories only with `private`." },
+      { name: "connect", required: false, description: "Sign in through the browser (device flow)." },
+    ],
+    flags: [],
+    examples: [
+      { input: "github", result: "Followers, total stars, repos and forks with their 30-day change — or “History collecting…” on day one." },
+      { input: "github repos growth7d", result: "Your repositories, fastest-growing this week first." },
+      { input: "github repo inspector-rust", result: "Stars, forks and issues of that repository over time." },
+      { input: "github export csv", result: "timestamp,repository,stars,forks,watchers,open_issues — public repositories only." },
+      { input: "github refresh", result: "Enter fetches fresh numbers; the panel says when it last did." },
+    ],
+    tips: [
+      "With the panel focused, ←/→ switch the chart range (7D · 30D · 90D · 1Y · ALL).",
+      "Tab completes subcommands, sort keys and your repository names.",
+      "A change shows as “—” until the history reaches back that far — never as a fake 0.",
+    ],
+    caveats: [
+      "Watchers come from a per-repository call and appear once you open a repository.",
+      "Private repositories need the `repo` scope (OAuth apps have no read-only one) or a fine-grained token with Metadata: read.",
+    ],
+    related: ["repo", "settings"],
+    see_also: "docs/github.md",
+  },
 
   // ── Cleanup / Display / Info ──────────────────────────────────────────
   {

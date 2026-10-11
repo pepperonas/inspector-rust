@@ -58,6 +58,7 @@ const ConvertPanel = lazy(() => import("./components/ConvertPanel").then((m) => 
 const CalendarPanel = lazy(() => import("./components/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
 const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ default: m.CleanPanel })));
 const SpotifyPanel = lazy(() => import("./components/SpotifyPanel").then((m) => ({ default: m.SpotifyPanel })));
+const GithubPanel = lazy(() => import("./components/GithubPanel").then((m) => ({ default: m.GithubPanel })));
 const TranscribePanel = lazy(() => import("./components/TranscribePanel").then((m) => ({ default: m.TranscribePanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
 const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
@@ -237,6 +238,7 @@ import {
   transcribeRun,
   transcribeStatus,
   spotifyTopArtists,
+  githubDashboard,
   TRANSCRIBE_BUSY,
   type TranscribeJob,
   type TranscribeDone,
@@ -564,6 +566,10 @@ function App() {
   // focuses it and bumps `spotifyRun`, which runs a control / export.
   const [spotifyFocus, setSpotifyFocus] = useState(false);
   const [spotifyRun, setSpotifyRun] = useState(0);
+  // GitHub — same model: shown while typed (local cache), Enter focuses it
+  // and bumps `githubRun` (refresh / export / connect).
+  const [githubFocus, setGithubFocus] = useState(false);
+  const [githubRun, setGithubRun] = useState(0);
   const [transcribeMode, setTranscribeMode] = useState(false);
   const [transcribeFocus, setTranscribeFocus] = useState(false);
   const [transcribeJob, setTranscribeJob] = useState<TranscribeJob | null>(null);
@@ -1794,6 +1800,20 @@ function App() {
   useEffect(() => {
     if (!isSpotifyCmd) setSpotifyFocus(false);
   }, [isSpotifyCmd]);
+  const isGithubCmd = parsedCommand?.spec.kind === "github";
+  // The grammar loads with the first `github` — not in the start-up chunk
+  // (check-bundle.mjs budget).
+  const [githubMod, setGithubMod] = useState<typeof import("./lib/github") | null>(null);
+  useEffect(() => {
+    if (isGithubCmd && !githubMod) void import("./lib/github").then(setGithubMod);
+  }, [isGithubCmd, githubMod]);
+  const githubCmd = useMemo(
+    () => (isGithubCmd && githubMod ? githubMod.parseGithubArg(parsedCommand?.arg ?? "") : null),
+    [isGithubCmd, githubMod, parsedCommand?.arg],
+  );
+  useEffect(() => {
+    if (!isGithubCmd) setGithubFocus(false);
+  }, [isGithubCmd]);
   const isTranscribeCmd = parsedCommand?.spec.kind === "transcribe";
   useEffect(() => {
     if (!isTranscribeCmd) {
@@ -2155,6 +2175,10 @@ function App() {
         label = spotifyLabel(parseSpotifyArg(arg));
         hint = spec.description;
         break;
+      case "github":
+        label = githubCmd && githubMod ? githubMod.commandLabel(githubCmd) : "GitHub";
+        hint = spec.description;
+        break;
       case "transcribe":
       case "md2pdf":
         label = `${spec.keyword}: ${arg || "Finder-Auswahl"}`;
@@ -2457,7 +2481,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames, githubCmd, githubMod]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -3515,19 +3539,21 @@ function App() {
   const neededSource =
     argMod && argSpec && argRowSelected ? argMod.missingSource(argSpec.kind, query, argCtx) : null;
   useEffect(() => {
-    if (!argMod || neededSource !== argMod.SOURCE_SPOTIFY_ARTISTS) return;
-    const key = argMod.SOURCE_SPOTIFY_ARTISTS;
+    if (!argMod || !neededSource) return;
+    const key = neededSource;
+    const load: Promise<readonly ArgOption[]> | null =
+      key === argMod.SOURCE_SPOTIFY_ARTISTS
+        ? spotifyTopArtists(300).then((list) => list.map((a) => ({ value: a.artist, hint: `${a.plays}× gehört` })))
+        : key === argMod.SOURCE_GITHUB_REPOS
+          ? githubDashboard("all", "stars").then((d) =>
+              (d?.rows ?? []).map((r) => ({ value: r.name, hint: `★ ${r.stars}${r.private ? " · private" : ""}` })),
+            )
+          : null;
+    if (!load) return;
     let cancelled = false;
-    void spotifyTopArtists(300)
+    void load
       .then((list) => {
-        if (cancelled) return;
-        setArgSources((s) => ({
-          ...s,
-          [key]: list.map((a) => ({
-            value: a.artist,
-            hint: `${a.plays}× gehört`,
-          })),
-        }));
+        if (!cancelled) setArgSources((s) => ({ ...s, [key]: list }));
       })
       .catch(() => undefined);
     return () => {
@@ -4097,6 +4123,7 @@ function App() {
     setAliasMode(false);
     setAliasFocus(false);
     setSpotifyFocus(false);
+    setGithubFocus(false);
     // The transcription itself keeps running — only the view closes.
     setTranscribeMode(false);
     setTranscribeFocus(false);
@@ -4249,7 +4276,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4273,6 +4300,7 @@ function App() {
           commandKind === "task" ||
           commandKind === "transcribe" ||
           commandKind === "spotify" ||
+          commandKind === "github" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
@@ -4724,6 +4752,11 @@ function App() {
         }
         await startTimer(a.seconds, `Alarm ${a.label}`);
         await showStatusToast("alarm", true, "Alarm set", a.label);
+      } else if (commandKind === "github") {
+        // Shown already; Enter hands it the keys and runs refresh / export /
+        // connect (a view needs no action).
+        setGithubFocus(true);
+        setGithubRun((n) => n + 1);
       } else if (commandKind === "spotify") {
         // The panel is already showing; Enter hands it the keys and runs the
         // command's action (control / export) — reads need no Enter.
@@ -5390,6 +5423,7 @@ function App() {
       !cleanFocus &&
       !transcribeFocus &&
       !spotifyFocus &&
+      !githubFocus &&
       !snitchFocus &&
       !shazamFocus,
   });
@@ -6240,6 +6274,19 @@ function App() {
                       onQuery={(q) => setQuery(q)}
                       onExit={() => {
                         setSpotifyFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : githubCmd ? (
+                  <div className="md3-pop-in h-full">
+                    <GithubPanel
+                      cmd={githubCmd}
+                      focused={githubFocus}
+                      runSignal={githubRun}
+                      onQuery={(q) => setQuery(q)}
+                      onExit={() => {
+                        setGithubFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

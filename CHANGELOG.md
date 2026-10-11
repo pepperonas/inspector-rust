@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.209.0] - 2026-10-11
+
+### Added
+- **GitHub analytics — `github`.** Followers, total stars, repositories and forks with their 24h / 7d / 30d / 90d changes; a ranking of your repositories (stars, forks, watchers, open issues, language, updated; 🔒 private, archived marked; sort by stars, forks, recently updated, name, growth 7d / 30d); `github repo <name>` with star, fork and issue history; follower and star charts with 7D · 30D · 90D · 1Y · ALL; stars by repository and the top 5 over time; `github trending`. A missing history shows as `—` / "History collecting…", never as 0.
+- **Local history** in `history.db`: one account snapshot per refresh interval (1 / 3 / 6 / 24 h) plus one when a number changes; repository snapshots only on change. Repositories are keyed by GitHub's stable id — a rename keeps its history, a deleted repository keeps its past.
+- **Sign in with GitHub** (device flow, read-only, public data by default), or a personal access token, or the `gh` login. Tokens only in the keychain — never logged, exported or shown. Private repositories are opt-in.
+- **Refresh that respects GitHub:** background check every 5 minutes, GitHub asked at most once per interval, `github refresh` at most once a minute, nothing sent while the rate limit is used up ("Next refresh available: 14:05"); offline the cached data stays ("Showing cached GitHub data · Last updated 4h ago").
+- **Export:** `github export json|csv` to ~/Downloads; private repositories only with `private`.
+- Settings → GitHub (connection, Disconnect, auto refresh, snapshot interval, private repositories, token under Advanced, rate limit). Tab completes subcommands, sort keys and your repository names. `docs/github.md`.
+
+### Changed
+- `settings github` now opens the GitHub section; the clone folder stays under Repositories (`settings clone`).
+
 ## [0.208.0] - 2026-10-11
 
 ### Added

@@ -4820,3 +4820,148 @@ export function setSpotifyConfig(config: SpotifyConfig): Promise<void> {
 export function spotifyOpenAutomationSettings(): Promise<void> {
   return invoke("spotify_open_automation_settings");
 }
+
+// ── GitHub analytics (v0.209.0) ───────────────────────────────────────────
+// Backend: core/rust-lib/src/github/. Reference: docs/github.md. No token
+// ever crosses this boundary.
+
+export type GithubSortKey = "stars" | "forks" | "updated" | "name" | "growth7d" | "growth30d";
+export type GithubTokenSource = "oauth" | "pat" | "gh";
+export type GithubPoint = [number, number];
+
+export interface GithubRateLimit {
+  limit: number;
+  remaining: number;
+  reset_at_ms: number;
+}
+
+export type GithubDeviceView =
+  | { state: "idle" }
+  | { state: "waiting"; user_code: string; verification_uri: string; expires_at_ms: number }
+  | { state: "failed"; message: string };
+
+export interface GithubConfig {
+  auto_refresh: boolean;
+  interval_h: number;
+  private_repos: boolean;
+}
+
+export interface GithubStatus {
+  connected: boolean;
+  source: GithubTokenSource | null;
+  client_id_configured: boolean;
+  pat_stored: boolean;
+  gh_available: boolean;
+  user_id: number | null;
+  login: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  html_url: string | null;
+  last_ok_ms: number | null;
+  last_checked_ms: number | null;
+  last_error: string | null;
+  rate: GithubRateLimit | null;
+  scopes: string | null;
+  next_refresh_ms: number | null;
+  rate_limited_until: number | null;
+  refreshing: boolean;
+  device: GithubDeviceView;
+  config: GithubConfig;
+}
+
+export interface GithubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  archived: boolean;
+  fork: boolean;
+  language: string | null;
+  html_url: string;
+  description: string | null;
+  license: string | null;
+  stars: number;
+  forks: number;
+  watchers: number | null;
+  open_issues: number;
+  updated_at_ms: number | null;
+  pushed_at_ms: number | null;
+}
+
+export interface GithubRepoRow extends GithubRepo {
+  growth_7d: number | null;
+  growth_30d: number | null;
+}
+
+export interface GithubDeltas {
+  d24h: number | null;
+  d7d: number | null;
+  d30d: number | null;
+  d90d: number | null;
+}
+
+export interface GithubKpi {
+  key: "followers" | "stars" | "repos" | "forks";
+  value: number;
+  deltas: GithubDeltas;
+}
+
+export interface GithubDashboard {
+  user_id: number;
+  kpis: GithubKpi[];
+  followers: GithubPoint[];
+  stars: GithubPoint[];
+  rows: GithubRepoRow[];
+  growth: { id: number; name: string; points: GithubPoint[] }[];
+  history_since_ms: number | null;
+  snapshot_count: number;
+  private_count: number;
+}
+
+export interface GithubRepoDetail {
+  repo: GithubRepo;
+  stars: GithubPoint[];
+  forks: GithubPoint[];
+  open_issues: GithubPoint[];
+  star_deltas: GithubDeltas;
+  fork_deltas: GithubDeltas;
+  first_seen_ms: number | null;
+}
+
+export interface GithubRefreshResult {
+  gate: { kind: "go" } | { kind: "too_soon"; next_at_ms: number } | { kind: "rate_limited"; reset_at_ms: number };
+  fetched: boolean;
+  account_snapshot: boolean;
+  repo_snapshots: number;
+}
+
+export function githubStatus(): Promise<GithubStatus> {
+  return invoke("github_status");
+}
+export function githubDeviceStart(): Promise<GithubDeviceView> {
+  return invoke("github_device_start");
+}
+export function githubDeviceCancel(): Promise<void> {
+  return invoke("github_device_cancel");
+}
+export function githubDisconnect(): Promise<void> {
+  return invoke("github_disconnect");
+}
+export function githubRefresh(force: boolean): Promise<GithubRefreshResult> {
+  return invoke("github_refresh", { force });
+}
+export function githubDashboard(range: string, sort: GithubSortKey): Promise<GithubDashboard | null> {
+  return invoke("github_dashboard", { range, sort });
+}
+export function githubRepo(query: string, range: string): Promise<GithubRepoDetail> {
+  return invoke("github_repo", { query, range });
+}
+export function githubExport(format: "json" | "csv", includePrivate: boolean): Promise<string> {
+  return invoke("github_export", { format, includePrivate });
+}
+export function getGithubConfig(): Promise<GithubConfig> {
+  return invoke("get_github_config");
+}
+export function setGithubConfig(config: GithubConfig): Promise<GithubConfig> {
+  return invoke("set_github_config", { config });
+}

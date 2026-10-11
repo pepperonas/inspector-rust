@@ -176,6 +176,16 @@ import {
 } from "../lib/ipc";
 import type { DbSpace } from "../lib/ipc";
 import {
+  githubDeviceCancel,
+  githubDeviceStart,
+  githubDisconnect,
+  githubRefresh,
+  githubStatus,
+  setGithubConfig,
+  type GithubConfig,
+  type GithubStatus,
+} from "../lib/ipc";
+import {
   getSyncConfig,
   getPagespeedKey,
   getRepoConfig,
@@ -3162,6 +3172,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <RepositoriesSection />
         </div>
     ),
+    "github": (
+        <div className="mb-6">
+          <GithubSettingsSection />
+        </div>
+    ),
     "device-sync": (
         <div className="mb-6">
           <DeviceSyncSection />
@@ -3959,6 +3974,188 @@ function RepositoriesSection() {
     </Section>
   );
 }
+
+/** Settings → GitHub: connection, refresh policy, private repositories and
+ *  (under "Advanced") a personal access token. No token is ever shown. */
+function GithubSettingsSection() {
+  const [st, setSt] = useState<GithubStatus | null>(null);
+  const [pat, setPat] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(false);
+  const load = () => {
+    void githubStatus().then(setSt).catch(() => {});
+  };
+  useEffect(() => {
+    load();
+    let un: UnlistenFn | undefined;
+    let cancelled = false;
+    void listen("github-changed", load).then((u) => (cancelled ? u() : (un = u)));
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
+  if (!st) return null;
+  const cfg = st.config;
+  const save = (next: GithubConfig) => {
+    void setGithubConfig(next)
+      .then(load)
+      .catch((e) => setNote(String(e)));
+  };
+  const dev = st.device;
+  return (
+    <Section
+      icon={<GitBranch size={16} className="text-[var(--color-accent)]" />}
+      title="GitHub"
+      subtitle="Statistiken deines GitHub-Kontos für den `github`-Befehl. Nur lesend; die Verlaufsdaten bleiben lokal in history.db."
+      id="github"
+    >
+      <Row
+        label="Verbindung"
+        help={
+          st.connected
+            ? `${GITHUB_SOURCE_LABEL[st.source ?? "oauth"] ?? ""}${st.last_ok_ms ? ` · zuletzt aktualisiert ${new Date(st.last_ok_ms).toLocaleString()}` : ""}`
+            : st.client_id_configured
+              ? "Öffnet github.com im Browser und bittet um einen Code — kein Passwort geht durch Inspector."
+              : "Die Browser-Anmeldung ist in diesem Build noch nicht eingerichtet — nutze einen Token unter „Erweitert“ oder `gh auth login`."
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <span data-testid="gh-settings-state">
+            {st.connected ? `Connected as @${st.login ?? "…"}` : "Nicht verbunden"}
+          </span>
+          {st.connected && st.source === "oauth" && (
+            <button
+              type="button"
+              className="rounded border border-[var(--color-border)] px-2 py-1"
+              onClick={() => void githubDisconnect().then(load)}
+            >
+              Disconnect
+            </button>
+          )}
+          {!st.connected && st.client_id_configured && dev.state !== "waiting" && (
+            <button
+              type="button"
+              className="rounded bg-[var(--color-accent)] px-2 py-1 text-[var(--color-accent-fg)]"
+              onClick={() => void githubDeviceStart().then(load).catch((e) => setNote(String(e)))}
+            >
+              Connect GitHub
+            </button>
+          )}
+          {dev.state === "waiting" && (
+            <span className="flex items-center gap-2">
+              Code <span className="font-mono text-[14px] tracking-widest">{dev.user_code}</span>
+              <button
+                type="button"
+                className="rounded border border-[var(--color-border)] px-2 py-1"
+                onClick={() => void openUrl(dev.verification_uri)}
+              >
+                github.com öffnen
+              </button>
+              <button type="button" className="text-[var(--color-muted)]" onClick={() => void githubDeviceCancel()}>
+                Abbrechen
+              </button>
+            </span>
+          )}
+          {st.connected && st.source === "gh" && (
+            <span className="text-[var(--color-muted)]">abmelden mit `gh auth logout`</span>
+          )}
+        </div>
+      </Row>
+      <Row label="Automatisch aktualisieren" help="Beim Start und danach höchstens einmal pro Intervall; nie schneller, als das Rate-Limit erlaubt.">
+        <div className="flex flex-wrap items-center gap-3 text-[12px]">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={cfg.auto_refresh}
+              onChange={(e) => save({ ...cfg, auto_refresh: e.target.checked })}
+              className="accent-[var(--color-accent)]"
+            />
+            an
+          </label>
+          <label className="flex items-center gap-2">
+            Snapshot-Intervall
+            <select
+              value={cfg.interval_h}
+              onChange={(e) => save({ ...cfg, interval_h: Number(e.target.value) })}
+              className="rounded border border-[var(--color-border)] bg-transparent px-1 py-0.5"
+            >
+              {[1, 3, 6, 24].map((h) => (
+                <option key={h} value={h}>
+                  {h === 24 ? "täglich" : `${h} h`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </Row>
+      <Row
+        label="Private Repositories"
+        help="OAuth-Apps kennen keinen Nur-Lese-Zugriff auf private Repos — dafür fragt die Anmeldung nach `repo` (Lesen UND Schreiben; Inspector schreibt nie). Sparsamer: ein Fine-grained Token mit „Metadata: read“ unter „Erweitert“. Wirkt bei der nächsten Anmeldung."
+      >
+        <label className="flex items-center gap-2 text-[12px]">
+          <input
+            type="checkbox"
+            checked={cfg.private_repos}
+            onChange={(e) => save({ ...cfg, private_repos: e.target.checked })}
+            className="accent-[var(--color-accent)]"
+          />
+          bei der Anmeldung anfragen
+        </label>
+      </Row>
+      {st.rate && (
+        <p className="mb-3 text-[11px] text-[var(--color-muted)]">
+          API: {st.rate.remaining}/{st.rate.limit} Anfragen frei · Reset {new Date(st.rate.reset_at_ms).toLocaleTimeString()}
+          {st.scopes != null && ` · Berechtigungen: ${st.scopes || "nur öffentliche Daten"}`}
+        </p>
+      )}
+      <button type="button" className="text-[11px] text-[var(--color-accent)]" onClick={() => setAdvanced((a) => !a)}>
+        {advanced ? "Erweitert ausblenden" : "Erweitert…"}
+      </button>
+      {advanced && (
+        <Row
+          label="Personal Access Token"
+          help="Fallback, wenn du dich nicht im Browser anmelden willst. Liegt im Schlüsselbund (gemeinsam mit dem `repo`-Befehl) und wird nie angezeigt."
+        >
+          <div className="flex gap-2">
+            <input
+              type="password"
+              className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+              placeholder={st.pat_stored ? "gespeichert" : "kein Token hinterlegt"}
+              value={pat}
+              onChange={(e) => setPat(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+              onClick={() => {
+                void setGithubToken(pat)
+                  .then(() => {
+                    setNote(pat.trim() ? "Token gespeichert." : "Token entfernt.");
+                    setPat("");
+                    load();
+                    if (pat.trim()) void githubRefresh(true).catch(() => {});
+                  })
+                  .catch((e) => setNote(String(e)));
+              }}
+            >
+              Speichern
+            </button>
+          </div>
+        </Row>
+      )}
+      {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
+    </Section>
+  );
+}
+
+const GITHUB_SOURCE_LABEL: Record<string, string> = {
+  oauth: "Im Browser angemeldet",
+  pat: "Personal Access Token",
+  gh: "Login der GitHub CLI",
+};
 
 function DeviceSyncSection() {
   const [cfg, setCfg] = useState<DeviceSyncConfig | null>(null);

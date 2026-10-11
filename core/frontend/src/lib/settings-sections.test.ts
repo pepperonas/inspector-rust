@@ -128,7 +128,10 @@ describe("Repositories section (v0.183.0)", () => {
   it("is found by German and English names", () => {
     expect(matchSettingsSection("klonen")?.id).toBe("repos");
     expect(matchSettingsSection("repositories")?.id).toBe("repos");
-    expect(matchSettingsSection("github")?.id).toBe("repos");
+    // Since v0.209.0 `github` opens the GitHub section (statistics + login);
+    // the clone folder stays under Repositories.
+    expect(matchSettingsSection("github")?.id).toBe("github");
+    expect(matchSettingsSection("clone")?.id).toBe("repos");
   });
 });
 

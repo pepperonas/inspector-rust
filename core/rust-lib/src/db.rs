@@ -96,6 +96,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // AI tasks + their run log (the `task` / `ki` command).
     crate::ai_tasks::store::init_schema(&conn)
         .with_context(|| "failed to create ai_tasks tables")?;
+    // GitHub analytics: account + repository snapshots (the `github` command).
+    crate::github::store::init_schema(&conn)
+        .with_context(|| "failed to create github tables")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 

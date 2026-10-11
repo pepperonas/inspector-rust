@@ -1,7 +1,7 @@
 <!--# block name="none" --><!--# endblock -->
 # Inspector Rust — Clipboard Manager & Command Palette
 
-> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 74 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
+> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 77 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools — plus AI tasks: describe what should happen and Claude, Gemini or ChatGPT writes a script that runs on a schedule or on events once you approve it. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
 
 This is the Markdown version of https://inspector-rust.celox.io/ for agents and text tools. A short summary with every link lives at https://inspector-rust.celox.io/llms.txt.
 
@@ -20,7 +20,7 @@ Files in the current release:
 
 - **Clipboard history** — Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.
 - **Text expander** — Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.
-- **74 commands in the search bar** — Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add `?` to any command for its help. Or describe a task in your own words: an AI (Claude, Gemini or ChatGPT) writes the script, you approve it, and it runs on its own — on a schedule or when something happens.
+- **77 commands in the search bar** — Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add `?` to any command for its help. Or describe a task in your own words: an AI (Claude, Gemini or ChatGPT) writes the script, you approve it, and it runs on its own — on a schedule or when something happens.
 - **Screen tools** — Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
@@ -51,7 +51,9 @@ Counted from the source code, updated with every change:
 - **Gross to net** — German net pay from gross, with every contribution itemised — employees and self-employed. ([image](https://inspector-rust.celox.io/assets/gallery/bruno.jpg))
 - **BPM detector** — Listens through the microphone and shows the tempo, the level and the beat as it happens. ([image](https://inspector-rust.celox.io/assets/gallery/bpm.jpg))
 - **Song recognition** — Identify the song that's playing; every match is kept, with links to Spotify and YouTube. ([image](https://inspector-rust.celox.io/assets/gallery/shazam.jpg))
+- **Spotify history** — Every track you play, kept locally. An icon shows at a glance what was played to the end, played partly or skipped. Export as JSON, CSV or Markdown. ([image](https://inspector-rust.celox.io/assets/gallery/spotify.jpg))
 - **Lines of code** — Count a project's code, comments and blank lines per language — and export it as HTML, PDF or PNG. ([image](https://inspector-rust.celox.io/assets/gallery/loc.jpg))
+- **GitHub statistics** — Followers, stars, repositories and forks with their changes, a language donut and growth charts from local snapshots. Sign in through the browser, read-only. ([image](https://inspector-rust.celox.io/assets/gallery/github.jpg))
 - **Password generator** — Strong passwords in four styles — random, alphanumeric, words or leetspeak — straight from the search field. ([image](https://inspector-rust.celox.io/assets/gallery/pwgen.jpg))
 - **Fun text styles** — Mock case, leetspeak, vaporwave, upside down and more — pick a style by looking at it. ([image](https://inspector-rust.celox.io/assets/gallery/clown.jpg))
 - **Random numbers** — A fair roll in any range, from a dice to a raffle — Enter pastes the number. ([image](https://inspector-rust.celox.io/assets/gallery/random.jpg))

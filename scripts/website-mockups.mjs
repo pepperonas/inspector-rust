@@ -78,6 +78,8 @@ const GALLERY = [
   { id: "dezibel", query: "db", keys: ["Enter"], wait: 3500 },
   { id: "benchmark", query: "benchmark", keys: ["Enter"], click: "text=Benchmark starten", wait: 2200 },
   { id: "pagespeed", query: "pagespeed northwind.example", keys: ["Enter"], wait: 2200 },
+  { id: "github", query: "github", wait: 2600 },
+  { id: "spotify", query: "spotify history", wait: 2000 },
 ];
 
 // Games resume a suspended run from localStorage — seeding one gives an attractive, repeatable state.

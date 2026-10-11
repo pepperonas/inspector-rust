@@ -24,6 +24,9 @@ pnpm lint
 echo "▶ gen-docs --check (README command matrix in sync with the CommandDoc registry)"
 node scripts/gen-docs.mjs --check
 
+echo "▶ vendor-badges --check (static README badges live in .github/badges, not on shields.io)"
+node scripts/vendor-badges.mjs --check
+
 echo "▶ frontend bundle budget (PERFORMANCE-PLAN D3b: eager App chunk must stay lazy-split)"
 pnpm --filter inspector-rust-frontend build >/dev/null
 node scripts/check-bundle.mjs

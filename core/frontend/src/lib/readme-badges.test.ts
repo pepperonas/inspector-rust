@@ -251,3 +251,31 @@ describe("badge parity and manifest agreement", () => {
     expect(top).toBe(v);
   });
 });
+
+// Static badges are stored in the repo (scripts/vendor-badges.mjs): GitHub's
+// image proxy timed out on ~40 % of ~300 shields.io images loaded at once.
+const vendoredBadges = new Set(
+  Object.keys(import.meta.glob("../../../../.github/badges/*.svg")).map((f) => f.split("/").pop()!),
+);
+
+describe("vendored README badges", () => {
+  const referenced = new Set<string>();
+  for (const readme of [readmeEn, readmeDe]) {
+    for (const m of readme.matchAll(/\.github\/badges\/([^\s"')]+\.svg)/g)) referenced.add(m[1]);
+  }
+
+  it("the glob finds the badge directory", () => {
+    // Without this an empty glob would make the checks below true-by-emptiness.
+    expect(vendoredBadges.size).toBeGreaterThan(100);
+  });
+
+  it("every badge a README references exists", () => {
+    const missing = [...referenced].filter((f) => !vendoredBadges.has(f));
+    expect(missing).toEqual([]);
+  });
+
+  it("no badge file is left unreferenced", () => {
+    const orphans = [...vendoredBadges].filter((f) => !referenced.has(f));
+    expect(orphans).toEqual([]);
+  });
+});

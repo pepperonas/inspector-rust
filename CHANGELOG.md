@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+- **README badges load reliably on GitHub.** The ~300 static badges are now SVG files in `.github/badges/` (`scripts/vendor-badges.mjs`) instead of shields.io links. GitHub's image proxy gave up after ~4 s on about 40 % of them when the page loaded, showing broken images. Only computed and live badges (lines of code, tests, CI, release, stars …) still come from shields.io; `scripts/check.sh` fails if a static badge is linked remotely again.
+
 ## [0.210.2] - 2026-10-11
 
 ### Fixed

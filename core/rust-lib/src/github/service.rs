@@ -31,9 +31,9 @@ const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const OAUTH_USER: &str = "github-oauth-v1";
 
 /// Public client id of the Inspector Rust OAuth app (device flow enabled).
-/// Public by design — the device flow has no client secret. Empty until the
-/// app is registered; `IR_GITHUB_CLIENT_ID` overrides it for development.
-const BUILTIN_CLIENT_ID: &str = "";
+/// Public by design — the device flow uses no client secret, so none is
+/// stored anywhere. `IR_GITHUB_CLIENT_ID` overrides it for development.
+const BUILTIN_CLIENT_ID: &str = "Ov23liC708D0C6jc8iH4";
 
 /// Emitted whenever status or data changed (login, refresh, disconnect).
 pub const EVENT: &str = "github-changed";

@@ -39,9 +39,12 @@ the source). **Disconnect** removes the browser login. A token or `gh` login
 still connects, and the status says so. The local history stays: it is your
 data. `gh auth logout` ends a CLI login.
 
-The browser login needs the public client id of the Inspector Rust OAuth app.
-As long as a build has none, "Connect GitHub" is disabled and the panel points
-to the token. For development, `IR_GITHUB_CLIENT_ID` sets one.
+The browser login uses the public client id of the Inspector Rust OAuth app
+(`Ov23liC708D0C6jc8iH4`, device flow enabled), built into the app since
+0.210.1. A client id is not a secret, and the device flow needs no client
+secret, so none is stored anywhere. For development, `IR_GITHUB_CLIENT_ID`
+overrides it; a build without an id disables "Connect GitHub" and points to
+the token.
 
 ## Permissions
 

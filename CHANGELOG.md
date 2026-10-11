@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.210.1] - 2026-10-11
+
+### Added
+- **Sign in with GitHub works.** The build now carries the public client id of the Inspector Rust OAuth app, so "Connect GitHub" is enabled: Inspector shows a code, opens `github.com/login/device`, and you confirm there. No client secret is involved.
+
 ## [0.210.0] - 2026-10-11
 
 ### Added

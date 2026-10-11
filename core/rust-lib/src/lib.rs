@@ -5,6 +5,7 @@ mod alarm;
 mod ambient_light;
 mod app_launcher;
 mod display_wake;
+pub mod i18n;
 mod audio;
 mod audio_swap;
 mod ai_tasks;
@@ -220,6 +221,12 @@ pub fn run(context: tauri::Context<Wry>) {
             snippets::init_table(&db_handle)?;
             notes::init_table(&db_handle)?;
             settings::init_table(&db_handle)?;
+            // Language first: everything Rust shows from here on (tray,
+            // toasts, dialogs) is built in it.
+            i18n::set_current(i18n::resolve(
+                &settings::get_or(&db_handle, i18n::KEY_LANGUAGE, "system").unwrap_or_default(),
+                i18n::system_lang(),
+            ));
             totp_store::init_table(&db_handle)?;
             // Measured marker for scripts/perf-probe.sh (`db_ready_ms`): the
             // "db at" line above fires BEFORE crypto init + open, so it only
@@ -913,6 +920,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::force_reset_finder_automation_grant,
             commands::commit_transformed_text,
             commands::get_theme_preference,
+            commands::get_language,
+            commands::set_language,
             commands::set_theme_preference,
             commands::get_sound_enabled,
             commands::set_sound_enabled,
@@ -1240,59 +1249,84 @@ pub fn run(context: tauri::Context<Wry>) {
 /// Tray handle for "Retro-Overlay beenden" (enabled while the overlay runs).
 pub struct RetroTrayItem(pub tauri::menu::MenuItem<tauri::Wry>);
 
+/// The tray items whose text follows the app language, with their catalogue
+/// key and an optional hotkey suffix. Rebuilt text is applied in place via
+/// `set_text` ([`retranslate_tray`]), so the menu, its handler and the
+/// managed item handles survive a language switch.
+pub struct TrayTexts {
+    items: Vec<(tauri::menu::MenuItem<tauri::Wry>, &'static str, Option<&'static str>)>,
+    autostart: tauri::menu::CheckMenuItem<tauri::Wry>,
+}
+
+fn tray_hotkey(mac: &'static str, other: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") {
+        mac
+    } else {
+        other
+    }
+}
+
+fn tray_text(key: &str, hotkey: Option<&str>) -> String {
+    match hotkey {
+        Some(h) => i18n::tf(key, &[("hotkey", h)]),
+        None => i18n::t(key),
+    }
+}
+
+fn autostart_key() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "tray.autostart_windows"
+    } else {
+        "tray.autostart_login"
+    }
+}
+
+/// Re-apply every tray label in the current language.
+pub fn retranslate_tray(app: &tauri::AppHandle) {
+    if let Some(texts) = app.try_state::<TrayTexts>() {
+        for (item, key, hotkey) in &texts.items {
+            let _ = item.set_text(tray_text(key, *hotkey));
+        }
+        let _ = texts.autostart.set_text(i18n::t(autostart_key()));
+    }
+}
+
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let open_item = MenuItemBuilder::with_id("open", "Open (Ctrl+Space)").build(app)?;
-    let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
-    let snippets_item = MenuItemBuilder::with_id("snippets", "Manage Snippets").build(app)?;
-    let notes_item = MenuItemBuilder::with_id("notes", "Manage Notes").build(app)?;
-    let timesheet_item = MenuItemBuilder::with_id("timesheet", "Timesheet").build(app)?;
     // Both global shortcuts use literal Control on every OS since
     // v0.14.1 — the macOS glyph for Control is ⌃ (not ⌘).
-    let ocr_label = if cfg!(target_os = "macos") {
-        "OCR Region (⌃⇧O)"
-    } else {
-        "OCR Region (Ctrl+Shift+O)"
+    let mut texts: Vec<(tauri::menu::MenuItem<tauri::Wry>, &'static str, Option<&'static str>)> = Vec::new();
+    let mut item = |id: &str, key: &'static str, hotkey: Option<&'static str>| -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+        let it = MenuItemBuilder::with_id(id, tray_text(key, hotkey)).build(app)?;
+        texts.push((it.clone(), key, hotkey));
+        Ok(it)
     };
-    let ocr_item = MenuItemBuilder::with_id("ocr", ocr_label).build(app)?;
-    let screenshot_label = if cfg!(target_os = "macos") {
-        "Screenshot Region (⌃⇧S)"
-    } else {
-        "Screenshot Region (Ctrl+Shift+S)"
-    };
-    let screenshot_item = MenuItemBuilder::with_id("screenshot", screenshot_label).build(app)?;
-    let color_label = if cfg!(target_os = "macos") {
-        "Pick Color (⌃⇧C)"
-    } else {
-        "Pick Color (Ctrl+Shift+C)"
-    };
-    let color_item = MenuItemBuilder::with_id("color", color_label).build(app)?;
-    let record_label = if cfg!(target_os = "macos") {
-        "Screen Recording (⌃⇧⌥S)"
-    } else {
-        "Screen Recording (Ctrl+Shift+Alt+S)"
-    };
-    let record_item = MenuItemBuilder::with_id("record", record_label).build(app)?;
+    let open_item = item("open", "tray.open", Some("Ctrl+Space"))?;
+    let settings_item = item("settings", "tray.settings", None)?;
+    let snippets_item = item("snippets", "tray.snippets", None)?;
+    let notes_item = item("notes", "tray.notes", None)?;
+    let timesheet_item = item("timesheet", "tray.timesheet", None)?;
+    let ocr_item = item("ocr", "tray.ocr", Some(tray_hotkey("⌃⇧O", "Ctrl+Shift+O")))?;
+    let screenshot_item = item("screenshot", "tray.screenshot", Some(tray_hotkey("⌃⇧S", "Ctrl+Shift+S")))?;
+    let color_item = item("color", "tray.color", Some(tray_hotkey("⌃⇧C", "Ctrl+Shift+C")))?;
+    let record_item = item("record", "tray.record", Some(tray_hotkey("⌃⇧⌥S", "Ctrl+Shift+Alt+S")))?;
     // Finder/Explorer selection actions — macOS only (Automation-backed).
     #[cfg(target_os = "macos")]
-    let finder_item = MenuItemBuilder::with_id("finder", "Finder Selection (⌃⇧F)").build(app)?;
-    let pause_item = MenuItemBuilder::with_id("pause", "Pause Capture").build(app)?;
+    let finder_item = item("finder", "tray.finder", Some("⌃⇧F"))?;
+    let pause_item = item("pause", "tray.pause", None)?;
     // Retro overlay emergency exit — only enabled while the overlay runs
     // (`retro::macos::emit_state` toggles it through the managed handle).
-    let retro_item = MenuItemBuilder::with_id("retro_stop", "Retro-Overlay beenden")
+    let retro_item = MenuItemBuilder::with_id("retro_stop", i18n::t("tray.retro_stop"))
         .enabled(false)
         .build(app)?;
+    texts.push((retro_item.clone(), "tray.retro_stop", None));
     app.manage(RetroTrayItem(retro_item.clone()));
-    let clear_item = MenuItemBuilder::with_id("clear", "Clear History…").build(app)?;
-    let autostart_label = if cfg!(target_os = "windows") {
-        "Start with Windows"
-    } else {
-        "Start at Login"
-    };
+    let clear_item = MenuItemBuilder::with_id("clear", i18n::t("tray.clear")).build(app)?;
+    texts.push((clear_item.clone(), "tray.clear", None));
     // Probe the current state on tray build so the checkmark reflects
     // reality at launch — including the case where the plist / registry
     // entry was created outside the app.
     let autostart_state = app.autolaunch().is_enabled().unwrap_or(false);
-    let autostart_item = CheckMenuItemBuilder::with_id("autostart", autostart_label)
+    let autostart_item = CheckMenuItemBuilder::with_id("autostart", i18n::t(autostart_key()))
         .checked(autostart_state)
         .build(app)?;
     // The click handler needs to update the checkmark after toggling, so
@@ -1302,7 +1336,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let sep_ocr = PredefinedMenuItem::separator(app)?;
     let sep_manage = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit Inspector Rust").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", i18n::t("tray.quit")).build(app)?;
+    texts.push((quit_item.clone(), "tray.quit", None));
+    app.manage(TrayTexts { items: texts, autostart: autostart_item.clone() });
 
     let menu = MenuBuilder::new(app);
     // Top: open + navigate to tabs.
@@ -1379,12 +1415,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 // "Yes" on Windows.
                 let app2 = app.clone();
                 app.dialog()
-                    .message("Delete all clipboard history? This cannot be undone.")
+                    .message(i18n::t("tray.clear_confirm"))
                     .title("Inspector Rust")
                     .kind(MessageDialogKind::Warning)
                     .buttons(MessageDialogButtons::OkCancelCustom(
-                        "Delete".to_string(),
-                        "Cancel".to_string(),
+                        i18n::t("tray.clear_confirm_ok"),
+                        i18n::t("tray.clear_confirm_cancel"),
                     ))
                     .show(move |confirmed| {
                         if !confirmed {

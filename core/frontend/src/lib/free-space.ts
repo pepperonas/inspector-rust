@@ -1,3 +1,4 @@
+import { locale, t } from "./i18n";
 /** Free disk space for the popup footer (v0.195.0). Pure helpers. */
 
 export type FreeSpaceLevel = "ok" | "warn" | "crit";
@@ -35,7 +36,7 @@ export function formatBytesDecimal(bytes: number, digits?: number): string {
     if (b >= size) {
       const v = b / size;
       const d = digits ?? (v < 10 ? 1 : 0);
-      return `${v.toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d })} ${unit}`;
+      return `${v.toLocaleString(locale(), { minimumFractionDigits: d, maximumFractionDigits: d })} ${unit}`;
     }
   }
   return `${Math.round(b)} B`;
@@ -43,6 +44,9 @@ export function formatBytesDecimal(bytes: number, digits?: number): string {
 
 /** Tooltip in System Settings' wording: "8,3 GB verfügbar von 494,38 GB". */
 export function freeSpaceTitle(name: string, available: number, total: number): string {
-  const head = `${formatBytesDecimal(available, available < 10 * GB ? 1 : 2)} verfügbar von ${formatBytesDecimal(total, 2)}`;
+  const head = t("freespace.title", {
+    available: formatBytesDecimal(available, available < 10 * GB ? 1 : 2),
+    total: formatBytesDecimal(total, 2),
+  });
   return name ? `${name} — ${head}` : head;
 }

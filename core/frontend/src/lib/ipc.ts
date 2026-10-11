@@ -583,6 +583,18 @@ export function setThemePreference(theme: string): Promise<void> {
   return invoke("set_theme_preference", { theme });
 }
 
+/** App language: stored preference (system/en/de), the language the app
+ *  shows, and the OS language. Backend: `commands::get_language`. */
+export function getLanguage(): Promise<import("./i18n").LanguageInfo> {
+  return invoke("get_language");
+}
+
+/** Persist the language preference; every window switches live via the
+ *  `language-changed` event. Backend: `commands::set_language`. */
+export function setLanguage(setting: import("./i18n").LangSetting): Promise<import("./i18n").LanguageInfo> {
+  return invoke("set_language", { setting });
+}
+
 /** Master toggle for UI feedback sounds (expand click, OCR, screenshot,
  *  record start/stop, copy). Defaults to `true`. Backend:
  *  `commands::get_sound_enabled`. */

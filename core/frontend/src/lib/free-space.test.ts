@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "./free-space";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// Written against the German text (the original language of this UI).
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 describe("formatBytesDecimal", () => {
   it("uses decimal units like System Settings", () => {

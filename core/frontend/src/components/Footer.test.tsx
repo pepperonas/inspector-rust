@@ -91,7 +91,7 @@ describe("Footer", () => {
 
 describe("Footer — system sleep indicator", () => {
   it("is hidden only where there is nothing truthful to say", () => {
-    const probe = () => screen.queryByText(/no-sleep|wach|^wake$|^sleep$/);
+    const probe = () => screen.queryByText(/no-sleep|awake|^wake$|^sleep$/);
     // No status yet + no wakelock -> nothing is known.
     render(<Footer />);
     expect(probe()).toBeNull();
@@ -113,7 +113,7 @@ describe("Footer — system sleep indicator", () => {
       />,
     );
     expect(screen.getByText("no-sleep")).toBeTruthy();
-    expect(screen.queryByText(/^wach/)).toBeNull();
+    expect(screen.queryByText(/^awake/)).toBeNull();
   });
 
   it("shows a ticking countdown for a timed prevention and parks at 0:00", () => {
@@ -123,25 +123,25 @@ describe("Footer — system sleep indicator", () => {
         sleepStatus={sleep({ prevented: true, max_timeout_secs: 252, holders: ["caffeinate ×4", "sharingd"] })}
       />,
     );
-    expect(screen.getByText("wach 4:12")).toBeTruthy();
+    expect(screen.getByText("awake 4:12")).toBeTruthy();
     // The tooltip names the holders.
     expect(screen.getByTitle(/caffeinate ×4, sharingd/)).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(2000);
     });
-    expect(screen.getByText("wach 4:10")).toBeTruthy();
+    expect(screen.getByText("awake 4:10")).toBeTruthy();
     // Long past expiry: parked at 0:00, never negative (next poll corrects).
     act(() => {
       vi.advanceTimersByTime(600_000);
     });
-    expect(screen.getByText("wach 0:00")).toBeTruthy();
+    expect(screen.getByText("awake 0:00")).toBeTruthy();
   });
 
   it("shows ∞ for an indefinite prevention", () => {
     render(
       <Footer sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["sharingd"] })} />,
     );
-    expect(screen.getByText("wach ∞")).toBeTruthy();
+    expect(screen.getByText("awake ∞")).toBeTruthy();
     expect(screen.getByTitle(/sharingd/)).toBeTruthy();
   });
 
@@ -157,7 +157,7 @@ describe("Footer — system sleep indicator", () => {
       />,
     );
     expect(screen.getByText("wake")).toBeTruthy();
-    expect(screen.queryByText("wach ∞")).toBeNull();
+    expect(screen.queryByText("awake ∞")).toBeNull();
   });
 
   it("lets the wakelock outrank a sleep-disabled profile, and falls back when it is off", () => {
@@ -260,14 +260,14 @@ describe("Footer free space (v0.195.0)", () => {
   it("always shows the free space with System Settings' tooltip", () => {
     render(<Footer freeSpace={{ name: "Macintosh HD", mount: "/", available: 186_000_000_000, total: T }} />);
     const el = screen.getByTestId("free-space");
-    expect(el.textContent).toContain("186 GB frei");
-    expect(el.getAttribute("title")).toBe("Macintosh HD — 186,00 GB verfügbar von 494,38 GB");
+    expect(el.textContent).toContain("186 GB free");
+    expect(el.getAttribute("title")).toBe("Macintosh HD — 186.00 GB available of 494.38 GB");
     expect(el.dataset.level).toBe("ok");
   });
   it("turns red when the disk is nearly full", () => {
     render(<Footer freeSpace={{ name: "Macintosh HD", mount: "/", available: 3_900_000_000, total: T }} />);
     const el = screen.getByTestId("free-space");
-    expect(el.textContent).toContain("3,9 GB frei");
+    expect(el.textContent).toContain("3.9 GB free");
     expect(el.dataset.level).toBe("crit");
     expect(el.className).toContain("text-red-500");
   });

@@ -8,63 +8,86 @@
  * (the shared command `fuzzyScore`), best score wins. Pure + unit-tested.
  */
 import { fuzzyScore } from "./commands";
+import { t, type MessageKey } from "./i18n";
 
 export interface SettingsSection {
   /** Stable DOM anchor id (`settings-<id>`) the panel scrolls to. */
   id: string;
-  /** Display label for the command row. */
-  label: string;
+  /** Display label (follows the app language — a getter over the catalogue). */
+  readonly label: string;
   /** All names/synonyms the fuzzy matcher considers (lowercase). */
   names: string[];
 }
 
+/** A section entry whose label follows the app language (read at use time). */
+function sec(id: string, names: string[]): SettingsSection {
+  return {
+    id,
+    names,
+    get label() {
+      return t(`settings.section.${id}` as MessageKey);
+    },
+  };
+}
+
+function cat(id: string, sections: readonly string[]): SettingsCategory {
+  return {
+    id,
+    sections,
+    get label() {
+      return t(`settings.category.${id}` as MessageKey);
+    },
+  };
+}
+
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  { id: "behavior", label: "Popup behavior", names: ["behavior", "overlay", "click outside", "verhalten", "schließen", "blur"] },
-  { id: "sounds", label: "Sounds", names: ["sounds", "sound", "audio cues", "töne"] },
-  { id: "popup-hotkey", label: "Popup hotkey", names: ["popup", "hotkey", "popup hotkey"] },
-  { id: "global-shortcuts", label: "Global shortcuts", names: ["shortcuts", "global shortcuts", "hotkeys", "tastatur", "keyboard"] },
-  { id: "expander", label: "Text expander", names: ["expander", "text expander", "snippets expander", "abbreviation"] },
-  { id: "snippets", label: "Snippets", names: ["snippets", "snippet", "storage", "speicher", "count"] },
-  { id: "appearance", label: "Appearance", names: ["appearance", "theme", "darstellung", "dark", "light", "size", "crt", "animation", "animations", "animationen", "motion", "bewegung", "popup animation", "animationsdauer"] },
-  { id: "adb", label: "Android (adb)", names: ["adb", "android", "handy", "smartphone", "adboss", "phone"] },
-  { id: "clipboard-history", label: "Clipboard history", names: ["history", "clipboard history", "max entries", "limit", "cap", "verlauf"] },
-  { id: "pagespeed", label: "PageSpeed", names: ["pagespeed", "lighthouse", "api key", "google", "seite", "performance"] },
-  { id: "repos", label: "Repositories", names: ["repos", "repositories", "repository", "klonen", "clone", "git"] },
-  { id: "device-sync", label: "Device sync", names: ["device sync", "geraete-sync", "geräte-sync", "geraetesync", "macs", "icloud", "abgleich"] },
-  { id: "auto-backup", label: "Auto-backup", names: ["auto-backup", "auto backup", "automatisch", "sicherung", "geplant", "schedule", "google drive", "backup ordner", "backup-ordner", "intervall"] },
-  { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear", "privatsphäre", "datenschutz"] },
-  { id: "cleaning", label: "Cleaning", names: ["cleaning", "clean", "cleaner", "aufräumen"] },
-  { id: "timesheet", label: "Timesheet", names: ["timesheet", "tracking", "zeiterfassung", "track"] },
-  { id: "bruno", label: "Bruno (Brutto/Netto)", names: ["bruno", "steuer", "netto", "brutto", "tax"] },
-  { id: "faker", label: "Faker", names: ["faker", "fake data", "testdaten"] },
-  { id: "figlet", label: "Figlet", names: ["figlet", "banner", "ascii"] },
-  { id: "security", label: "Security builder", names: ["security", "sec", "nmap", "pentest"] },
-  { id: "meme", label: "Meme library", names: ["meme", "memes", "gif"] },
-  { id: "ai", label: "KI-Anbieter", names: ["ki", "ki-anbieter", "ai", "ai providers", "api key", "api-schlüssel", "claude", "gemini", "chatgpt", "openai", "anthropic", "modell", "model"] },
-  { id: "weather", label: "Weather", names: ["weather", "wetter", "openweather", "forecast"] },
-  { id: "timer-alarm", label: "Timer alarm", names: ["timer", "alarm", "wecker"] },
-  { id: "input-lock", label: "Input lock", names: ["input lock", "freeze", "lock chord"] },
-  { id: "gestures", label: "Touchpad gestures", names: ["gestures", "gesten", "touchpad", "trackpad", "tip-tap"] },
-  { id: "window", label: "Window snapping & palette", names: ["window", "snapping", "palette", "fenster", "snap"] },
-  { id: "window-palette", label: "Window palette trigger", names: ["trigger", "tiling", "kachel", "titelleiste", "ausloeser"] },
-  { id: "cursor-wrap", label: "Cursor wrap-around", names: ["cursor", "wrap", "wrap-around", "wraparound", "infinity monitor", "infinity", "mauszeiger", "zeiger", "rand", "edge", "pac-man", "pacman", "hot corners"] },
-  { id: "cloud-sync", label: "Cloud-Sync (cue)", names: ["cue", "sync", "cloud", "cloud-sync", "cue-sync", "token"] },
-  { id: "backup", label: "Backup & restore", names: ["backup", "restore", "export", "import", "sicherung"] },
-  { id: "startup", label: "Startup", names: ["startup", "autostart", "login", "keep running", "keepalive"] },
+  sec("behavior", ["behavior", "overlay", "click outside", "verhalten", "schließen", "blur"]),
+  sec("sounds", ["sounds", "sound", "audio cues", "töne"]),
+  sec("popup-hotkey", ["popup", "hotkey", "popup hotkey"]),
+  sec("global-shortcuts", ["shortcuts", "global shortcuts", "hotkeys", "tastatur", "keyboard"]),
+  sec("expander", ["expander", "text expander", "snippets expander", "abbreviation"]),
+  sec("snippets", ["snippets", "snippet", "storage", "speicher", "count"]),
+  sec("appearance", ["appearance", "theme", "darstellung", "dark", "light", "size", "crt", "animation", "animations", "animationen", "motion", "bewegung", "popup animation", "animationsdauer"]),
+  sec("adb", ["adb", "android", "handy", "smartphone", "adboss", "phone"]),
+  sec("clipboard-history", ["history", "clipboard history", "max entries", "limit", "cap", "verlauf"]),
+  sec("pagespeed", ["pagespeed", "lighthouse", "api key", "google", "seite", "performance"]),
+  sec("repos", ["repos", "repositories", "repository", "klonen", "clone", "git"]),
+  sec("device-sync", ["device sync", "geraete-sync", "geräte-sync", "geraetesync", "macs", "icloud", "abgleich"]),
+  sec("auto-backup", ["auto-backup", "auto backup", "automatisch", "sicherung", "geplant", "schedule", "google drive", "backup ordner", "backup-ordner", "intervall"]),
+  sec("clipboard-privacy", ["privacy", "clipboard privacy", "exclude", "auto-clear", "privatsphäre", "datenschutz"]),
+  sec("cleaning", ["cleaning", "clean", "cleaner", "aufräumen"]),
+  sec("timesheet", ["timesheet", "tracking", "zeiterfassung", "track"]),
+  sec("bruno", ["bruno", "steuer", "netto", "brutto", "tax"]),
+  sec("faker", ["faker", "fake data", "testdaten"]),
+  sec("figlet", ["figlet", "banner", "ascii"]),
+  sec("security", ["security", "sec", "nmap", "pentest"]),
+  sec("meme", ["meme", "memes", "gif"]),
+  sec("ai", ["ki", "ki-anbieter", "ai", "ai providers", "api key", "api-schlüssel", "claude", "gemini", "chatgpt", "openai", "anthropic", "modell", "model"]),
+  sec("weather", ["weather", "wetter", "openweather", "forecast"]),
+  sec("timer-alarm", ["timer", "alarm", "wecker"]),
+  sec("input-lock", ["input lock", "freeze", "lock chord"]),
+  sec("gestures", ["gestures", "gesten", "touchpad", "trackpad", "tip-tap"]),
+  sec("window", ["window", "snapping", "palette", "fenster", "snap"]),
+  sec("window-palette", ["trigger", "tiling", "kachel", "titelleiste", "ausloeser"]),
+  sec("cursor-wrap", ["cursor", "wrap", "wrap-around", "wraparound", "infinity monitor", "infinity", "mauszeiger", "zeiger", "rand", "edge", "pac-man", "pacman", "hot corners"]),
+  sec("cloud-sync", ["cue", "sync", "cloud", "cloud-sync", "cue-sync", "token"]),
+  sec("backup", ["backup", "restore", "export", "import", "sicherung"]),
+  sec("startup", ["startup", "autostart", "login", "keep running", "keepalive"]),
   // Appended (v0.194.0) — new entries go LAST: ties keep registry order, so
   // inserting in the middle could change what an existing query resolves to.
-  { id: "history-hotkey", label: "Clipboard-history hotkey", names: ["history hotkey", "clipboard hotkey", "verlauf hotkey", "ctrl+shift+v"] },
-  { id: "paste", label: "Paste", names: ["paste", "einfügen", "plain text", "formatierung"] },
-  { id: "capture", label: "Capture (OCR / screenshot)", names: ["capture", "ocr", "screenshot", "bildschirmfoto", "texterkennung"] },
-  { id: "keyboard-shortcuts", label: "Keyboard shortcuts overview", names: ["cheat sheet", "shortcut list", "kurzbefehle übersicht", "tastenübersicht"] },
-  { id: "auto-expand", label: "Auto-Expansion", names: ["auto-expansion", "autoexpand", "atext", "automatisch erweitern"] },
-  { id: "direct-slots", label: "Direct hotkey → snippet", names: ["direct hotkey", "snippet hotkey", "direkt"] },
-  { id: "linux-shortcuts", label: "Linux desktop shortcuts", names: ["linux", "gnome", "desktop shortcuts"] },
-  { id: "about", label: "About", names: ["about", "version", "über", "info", "lizenz", "license"] },
-  { id: "pulse", label: "Pulse (Speicherdruck & SSD)", names: ["pulse", "speicherdruck", "swap", "ssd", "tbw", "memory pressure"] },
-  { id: "spotify", label: "Spotify", names: ["spotify", "musik", "music", "verlauf", "history", "scrobble"] },
-  { id: "github", label: "GitHub", names: ["github", "github token", "integrations", "integration", "oauth", "followers", "stars", "sterne"] },
-] as const;
+  sec("history-hotkey", ["history hotkey", "clipboard hotkey", "verlauf hotkey", "ctrl+shift+v"]),
+  sec("paste", ["paste", "einfügen", "plain text", "formatierung"]),
+  sec("capture", ["capture", "ocr", "screenshot", "bildschirmfoto", "texterkennung"]),
+  sec("keyboard-shortcuts", ["cheat sheet", "shortcut list", "kurzbefehle übersicht", "tastenübersicht"]),
+  sec("auto-expand", ["auto-expansion", "autoexpand", "atext", "automatisch erweitern"]),
+  sec("direct-slots", ["direct hotkey", "snippet hotkey", "direkt"]),
+  sec("linux-shortcuts", ["linux", "gnome", "desktop shortcuts"]),
+  sec("about", ["about", "version", "über", "info", "lizenz", "license"]),
+  sec("pulse", ["pulse", "speicherdruck", "swap", "ssd", "tbw", "memory pressure"]),
+  sec("spotify", ["spotify", "musik", "music", "verlauf", "history", "scrobble"]),
+  sec("github", ["github", "github token", "integrations", "integration", "oauth", "followers", "stars", "sterne"]),
+  sec("language", ["language", "sprache", "english", "englisch", "deutsch", "german", "locale"]),
+];
 
 export interface SettingsCategory {
   /** DOM anchor `settings-cat-<id>`. */
@@ -81,27 +104,15 @@ export interface SettingsCategory {
  * most basic first; credentials, sync and backup towards the end; About last.
  */
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
-  { id: "general", label: "Allgemein", sections: ["behavior", "appearance", "sounds", "startup"] },
-  {
-    id: "keyboard",
-    label: "Tastatur & Kurzbefehle",
-    sections: ["popup-hotkey", "history-hotkey", "global-shortcuts", "input-lock", "linux-shortcuts", "keyboard-shortcuts"],
-  },
-  {
-    id: "clipboard",
-    label: "Zwischenablage & Aufnahme",
-    sections: ["clipboard-history", "clipboard-privacy", "paste", "capture"],
-  },
-  { id: "snippets", label: "Snippets & Textersetzung", sections: ["snippets", "expander", "auto-expand", "direct-slots"] },
-  { id: "desktop", label: "Trackpad & Fenster", sections: ["gestures", "window", "window-palette", "cursor-wrap"] },
-  {
-    id: "commands",
-    label: "Befehle",
-    sections: ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"],
-  },
-  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "spotify", "pagespeed", "github", "repos"] },
-  { id: "sync", label: "Sync & Sicherung", sections: ["cloud-sync", "device-sync", "auto-backup", "backup"] },
-  { id: "about", label: "Info", sections: ["about"] },
+  cat("general", ["behavior", "language", "appearance", "sounds", "startup"]),
+  cat("keyboard", ["popup-hotkey", "history-hotkey", "global-shortcuts", "input-lock", "linux-shortcuts", "keyboard-shortcuts"]),
+  cat("clipboard", ["clipboard-history", "clipboard-privacy", "paste", "capture"]),
+  cat("snippets", ["snippets", "expander", "auto-expand", "direct-slots"]),
+  cat("desktop", ["gestures", "window", "window-palette", "cursor-wrap"]),
+  cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"]),
+  cat("services", ["ai", "weather", "spotify", "pagespeed", "github", "repos"]),
+  cat("sync", ["cloud-sync", "device-sync", "auto-backup", "backup"]),
+  cat("about", ["about"]),
 ];
 
 /** The category a section is filed under (for the search row's hint). */

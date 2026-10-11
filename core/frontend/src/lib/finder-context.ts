@@ -3,6 +3,7 @@
  * touch/echo/mkdir/terminal/daisy act on, and what is selected. Pure.
  */
 import type { FinderContext } from "./ipc";
+import { t } from "./i18n";
 
 /** `/Users/<name>/x` → `~/x` (macOS), `C:\Users\<name>\x` → `~\x` (Windows). */
 export function tildePath(path: string): string {
@@ -32,9 +33,9 @@ function baseName(path: string): string {
 export function selectionLabel(ctx: FinderContext): string {
   const n = ctx.selected_count;
   if (n === 0) return "";
-  if (n > 1) return `${n} ausgewählt`;
+  if (n > 1) return t("finder.selected_n", { n });
   const only = ctx.selected[0];
-  if (!only) return "1 ausgewählt";
+  if (!only) return t("finder.selected_n", { n: 1 });
   const trimmed = only.replace(/[\\/]+$/, "");
   if (trimmed === ctx.dir.replace(/[\\/]+$/, "")) return "";
   return baseName(only);
@@ -42,14 +43,14 @@ export function selectionLabel(ctx: FinderContext): string {
 
 /** Tooltip: the full folder and what is selected. */
 export function contextTitle(ctx: FinderContext): string {
-  const lines = [`Arbeitsordner für touch, echo, mkdir, terminal, daisy:`, tildePath(ctx.dir)];
+  const lines = [t("finder.title.workdir"), tildePath(ctx.dir)];
   if (ctx.selected_count > 0) {
-    lines.push("", `Ausgewählt (${ctx.selected_count}):`);
+    lines.push("", t("finder.title.selected", { n: ctx.selected_count }));
     for (const s of ctx.selected.slice(0, 5)) lines.push(`• ${baseName(s)}`);
-    if (ctx.selected_count > 5) lines.push(`• … und ${ctx.selected_count - 5} weitere`);
+    if (ctx.selected_count > 5) lines.push(t("finder.title.more", { n: ctx.selected_count - 5 }));
   } else {
-    lines.push("", "Nichts ausgewählt — vorderstes Finder-Fenster.");
+    lines.push("", t("finder.title.nothing"));
   }
-  lines.push("", "Klick: im Finder zeigen");
+  lines.push("", t("finder.title.click"));
   return lines.join("\n");
 }

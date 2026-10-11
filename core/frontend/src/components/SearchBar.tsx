@@ -1,6 +1,7 @@
 import { Calculator, ChevronRight, X } from "lucide-react";
 import { forwardRef, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { touchPaste } from "../lib/touch";
+import { useT } from "../lib/i18n";
 
 /** What Tab would do right now (argument completion, see lib/arg-complete). */
 export interface CompletionHint {
@@ -30,6 +31,7 @@ interface Props {
 
 /** The pill at the right end of the field: which word Tab takes, and why. */
 function CompletionPill({ c }: { c: CompletionHint }) {
+  const t = useT();
   return (
     <span
       data-testid="completion-pill"
@@ -37,7 +39,7 @@ function CompletionPill({ c }: { c: CompletionHint }) {
     >
       <kbd className="shrink-0 whitespace-nowrap rounded bg-rose-500/15 px-1 font-sans text-[10px] font-semibold text-rose-500">⇥ Tab</kbd>
       <span className="truncate">
-        {c.cycling && <span>weiter: </span>}
+        {c.cycling && <span>{t("search.cycling")} </span>}
         {c.fix && !c.cycling && (
           <span>
             <span className="line-through decoration-rose-500/70">{c.fix}</span> →{" "}
@@ -47,7 +49,7 @@ function CompletionPill({ c }: { c: CompletionHint }) {
         <span> · {c.hint}</span>
       </span>
       {c.total > 1 && c.index >= 0 && (
-        <span className="shrink-0 tabular-nums" aria-label={`Vorschlag ${c.index + 1} von ${c.total}`}>
+        <span className="shrink-0 tabular-nums" aria-label={t("search.suggestion_n", { i: c.index + 1, n: c.total })}>
           {c.index + 1}/{c.total}
         </span>
       )}
@@ -58,6 +60,7 @@ function CompletionPill({ c }: { c: CompletionHint }) {
 
 export const SearchBar = forwardRef<HTMLInputElement, Props>(
   ({ value, onChange, calcMode, completion }, ref) => {
+    const t = useT();
     // Own handle on the input (the forwarded ref belongs to App) — needed to
     // tell whether the text scrolls, where an overlay could not line up.
     const inner = useRef<HTMLInputElement | null>(null);
@@ -120,7 +123,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
-          placeholder="Search or calculate…"
+          placeholder={t("search.placeholder")}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onPaste={(e) => {
@@ -157,8 +160,8 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange("")}
-            title="Eingabe löschen"
-            aria-label="Eingabe löschen"
+            title={t("search.clear")}
+            aria-label={t("search.clear")}
             className="shrink-0 rounded-md p-1.5 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-border)]/40 hover:text-[var(--color-fg)]"
           >
             <X size={16} />

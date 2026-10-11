@@ -1,29 +1,35 @@
+import { locale, t } from "./i18n";
+
 export function relativeTime(unixMs: number): string {
   const diff = Date.now() - unixMs;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
-  return new Date(unixMs).toLocaleDateString();
+  if (diff < 60_000) return t("time.just_now");
+  if (diff < 3_600_000) return t("time.min_ago", { n: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t("time.hours_ago", { n: Math.floor(diff / 3_600_000) });
+  if (diff < 604_800_000) return t("time.days_ago", { n: Math.floor(diff / 86_400_000) });
+  return new Date(unixMs).toLocaleDateString(locale());
 }
 
-/** Full local date+time string for absolute timestamps in tooltips
- *  and click-to-reveal chips. Uses the user's locale via Intl —
- *  on macOS that's whatever System Settings → Language & Region says,
- *  matches Finder / mail / calendar formatting muscle memory. */
-// One formatter for the process: `toLocaleString(undefined, options)` builds
-// a fresh Intl.DateTimeFormat on EVERY call, and each visible history row
+/** Full local date+time string for absolute timestamps in tooltips and
+ *  click-to-reveal chips, in the APP language. */
+// One formatter per locale: `toLocaleString(undefined, options)` builds a
+// fresh Intl.DateTimeFormat on EVERY call, and each visible history row
 // formats its timestamp on render.
-const ABSOLUTE_FMT = new Intl.DateTimeFormat(undefined, {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-});
+const ABSOLUTE_FMT = new Map<string, Intl.DateTimeFormat>();
 export function formatAbsolute(unixMs: number): string {
-  return ABSOLUTE_FMT.format(new Date(unixMs));
+  const loc = locale();
+  let fmt = ABSOLUTE_FMT.get(loc);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(loc, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    ABSOLUTE_FMT.set(loc, fmt);
+  }
+  return fmt.format(new Date(unixMs));
 }
 
 export function formatBytes(n: number): string {

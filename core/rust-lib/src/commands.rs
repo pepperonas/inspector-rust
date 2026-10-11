@@ -2061,6 +2061,54 @@ pub fn set_theme_preference(db: State<'_, DbHandle>, theme: String) -> Result<()
     settings::set(&db, KEY_THEME, normalised).map_err(map_err)
 }
 
+// ── App language (English / German) ────────────────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LanguageInfo {
+    /// Stored preference: `system` | `en` | `de`.
+    pub setting: String,
+    /// What the app actually shows: `en` | `de`.
+    pub effective: crate::i18n::Lang,
+    /// The OS language, for the "System (…)" option label.
+    pub system: crate::i18n::Lang,
+}
+
+fn language_info(setting: &str) -> LanguageInfo {
+    let system = crate::i18n::system_lang();
+    LanguageInfo {
+        setting: crate::i18n::normalise_setting(setting).to_string(),
+        effective: crate::i18n::resolve(setting, system),
+        system,
+    }
+}
+
+#[tauri::command]
+pub fn get_language(db: State<'_, DbHandle>) -> Result<LanguageInfo, String> {
+    let raw = settings::get_or(&db, crate::i18n::KEY_LANGUAGE, "system").map_err(map_err)?;
+    Ok(language_info(&raw))
+}
+
+/// Persist the language preference, switch Rust's own text (tray menu) and
+/// tell every window (`language-changed`) so each one swaps its catalogue.
+#[tauri::command]
+pub fn set_language(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    setting: String,
+) -> Result<LanguageInfo, String> {
+    let normalised = crate::i18n::normalise_setting(&setting);
+    if normalised != setting {
+        return Err(format!("invalid language {setting:?} — expected system / en / de"));
+    }
+    settings::set(&db, crate::i18n::KEY_LANGUAGE, normalised).map_err(map_err)?;
+    let info = language_info(normalised);
+    crate::i18n::set_current(info.effective);
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || crate::retranslate_tray(&app2));
+    let _ = app.emit("language-changed", &info);
+    Ok(info)
+}
+
 // ── Feedback sounds (v0.84.57) ─────────────────────────────────────────
 
 const KEY_SOUND_ENABLED: &str = "sound.enabled";

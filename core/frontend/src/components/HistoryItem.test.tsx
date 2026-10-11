@@ -442,7 +442,7 @@ describe("HistoryItem — settings-search jump row (v0.164.0)", () => {
   it("shows the section label and the jump hint", () => {
     renderRow(NEUTRAL_ROWS["settings-section"]);
     expect(screen.getByText("Appearance")).toBeTruthy();
-    expect(screen.getByText(/Springt zu Settings/)).toBeTruthy();
+    expect(screen.getByText(/Jumps to Settings/)).toBeTruthy();
     expect(screen.getByText("setting")).toBeTruthy();
   });
 });

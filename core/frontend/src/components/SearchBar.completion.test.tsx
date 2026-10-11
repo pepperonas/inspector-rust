@@ -40,7 +40,7 @@ describe("SearchBar completion", () => {
     );
     expect(screen.queryByTestId("completion-ghost")).toBeNull();
     const pill = screen.getByTestId("completion-pill");
-    expect(pill.textContent).toContain("weiter: pause · pausieren");
+    expect(pill.textContent).toContain("next: pause · pausieren");
     expect(pill.textContent).toContain("1/3");
   });
 

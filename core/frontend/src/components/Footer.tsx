@@ -9,6 +9,7 @@ import { contextTitle, selectionLabel, shortDir } from "../lib/finder-context";
 // menu loads from the local asset protocol in a few ms after mount.
 const AudioMenu = lazy(() => import("./AudioMenu").then((m) => ({ default: m.AudioMenu })));
 import { formatBytesDecimal, freeSpaceLevel, freeSpaceTitle } from "../lib/free-space";
+import { useT } from "../lib/i18n";
 
 interface Props {
   /** App version, e.g. "0.2.6". Rendered as `v0.2.6` next to the counter
@@ -70,6 +71,7 @@ export function Footer({
   onRevealFolder,
   audio,
 }: Props) {
+  const t = useT();
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
   // Surfaced in the footer so users discover them without having to dig
@@ -105,9 +107,9 @@ export function Footer({
           {activeTimerCount != null && activeTimerCount > 0 && (
             <TimerBadge count={activeTimerCount} />
           )}
-          <Hint k={ocrKey} label="OCR" />
-          <Hint k={screenshotKey} label="Shot" />
-          <Hint k={colorKey} label="Color" />
+          <Hint k={ocrKey} label={t("footer.ocr")} />
+          <Hint k={screenshotKey} label={t("footer.shot")} />
+          <Hint k={colorKey} label={t("footer.color")} />
         </div>
         {freeSpace && <FreeSpaceBadge space={freeSpace} />}
       </div>
@@ -119,7 +121,7 @@ export function Footer({
         </div>
         {/* Version sits at the FAR right of the bottom row — the fixed anchor. */}
         {version && (
-          <span title="Inspector Rust version" className="shrink-0 font-[var(--font-mono)]">
+          <span title={t("footer.version")} className="shrink-0 font-[var(--font-mono)]">
             v{version}
           </span>
         )}
@@ -131,6 +133,7 @@ export function Footer({
 /** Free disk space (v0.195.0): neutral while there's room, amber under
  *  20 GB / 10 %, red under 5 GB / 2 %. Tooltip uses System Settings' wording. */
 function FreeSpaceBadge({ space }: { space: FreeSpace }) {
+  const t = useT();
   const level = freeSpaceLevel(space.available, space.total);
   const color =
     level === "crit" ? "text-red-500" : level === "warn" ? "text-amber-500" : "";
@@ -142,13 +145,14 @@ function FreeSpaceBadge({ space }: { space: FreeSpace }) {
       className={`flex items-center gap-1 font-[var(--font-mono)] ${color}`}
     >
       <HardDrive size={11} aria-hidden />
-      {formatBytesDecimal(space.available)} frei
+      {t("freespace.free", { size: formatBytesDecimal(space.available) })}
     </span>
   );
 }
 
 /** The working folder of touch/echo/mkdir/terminal/daisy + the selection. */
 function FinderChip({ ctx, onReveal }: { ctx: FinderContext; onReveal?: (dir: string) => void }) {
+  useT();
   const sel = selectionLabel(ctx);
   return (
     <button
@@ -190,9 +194,10 @@ function Hint({ k, label }: { k: string; label: string }) {
  * to cancel is to wait or restart the app.
  */
 function TimerBadge({ count }: { count: number }) {
+  const t = useT();
   return (
     <span
-      title={`${count} timer${count === 1 ? "" : "s"} running — will fire a macOS notification + Glass sound`}
+      title={t(count === 1 ? "footer.timers.one" : "footer.timers.other", { n: count })}
       className="confirm-enter flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
     >
       ⏰ {count}
@@ -203,14 +208,11 @@ function TimerBadge({ count }: { count: number }) {
 /** Timesheet tracking indicator — green pulsing dot + REC while recording,
  *  amber + PAUSED while idle-auto-paused. */
 function TrackingLed({ paused }: { paused: boolean }) {
+  const t = useT();
   const color = paused ? "245, 158, 11" : "34, 197, 94"; // amber / green
   return (
     <span
-      title={
-        paused
-          ? "Time tracking paused (idle). Type `track off` to stop, or `track` to open the timesheet."
-          : "Time tracking active. Type `track off` to stop, or `track` to open the timesheet."
-      }
+      title={paused ? t("footer.tracking.paused_title") : t("footer.tracking.active_title")}
       className="confirm-enter flex shrink-0 items-center gap-1"
     >
       <span
@@ -223,7 +225,7 @@ function TrackingLed({ paused }: { paused: boolean }) {
         }}
       />
       <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
-        {paused ? "paused" : "rec"}
+        {paused ? t("footer.tracking.paused") : t("footer.tracking.rec")}
       </span>
     </span>
   );
@@ -276,6 +278,7 @@ function SleepLed({
   status: SleepStatus | null;
   wakelockActive: boolean;
 }) {
+  useT();
   const ticking = indicatorTicks(status, wakelockActive);
   // Locally ticking remainder, anchored to the moment THIS status arrived
   // (re-anchors per poll). Lives in an effect — render stays pure (no
@@ -332,15 +335,12 @@ function SleepLed({
  * clamshell sleep — no assertion prevents that).
  */
 function DarkWakeButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  const t = useT();
   return (
     <button
       type="button"
       onClick={onToggle}
-      title={
-        on
-          ? "Dark Wake aktiv: System bleibt wach, Display darf schlafen — Remote-Verbindungen (SSH/Claude Code) bleiben erreichbar. Klick schaltet aus. Deckel muss offen bleiben."
-          : "Dark Wake einschalten: Display darf schlafen, System bleibt wach — Remote-Verbindungen bleiben erreichbar (caffeinate -is, ohne sudo)."
-      }
+      title={on ? t("footer.darkwake.on_title") : t("footer.darkwake.off_title")}
       className={
         // ⚠️ No `opacity-60` in the resting state. An 11 px glyph at 60 % of an
         // already-muted colour, with no label, next to labelled glowing
@@ -369,7 +369,7 @@ function DarkWakeButton({ on, onToggle }: { on: boolean; onToggle: () => void })
           uppercase mono label; this one carried text only while active, so
           when off it was a bare 11 px moon nobody could place. */}
       <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
-        {on ? "srv" : "dark"}
+        {on ? t("footer.darkwake.on") : t("footer.darkwake.off")}
       </span>
     </button>
   );

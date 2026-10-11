@@ -20,6 +20,7 @@
 import type { CommandKind } from "./commands";
 import { palettesFor } from "./retro";
 import { SETTINGS_SECTIONS } from "./settings-sections";
+import { t, type MessageKey } from "./i18n";
 
 export interface ArgOption {
   value: string;
@@ -46,111 +47,111 @@ export const SOURCE_SPOTIFY_ARTISTS = "spotify-artists";
 export const SOURCE_GITHUB_REPOS = "github-repos";
 
 const ON_OFF: readonly ArgOption[] = [
-  { value: "on", hint: "einschalten" },
-  { value: "off", hint: "ausschalten" },
+  { value: "on", hint: "arg.on" },
+  { value: "off", hint: "arg.off" },
 ];
 
 const SPOTIFY_EXPORT: readonly ArgOption[] = [
-  { value: "json", hint: "strukturierte Daten" },
-  { value: "csv", hint: "für Tabellen" },
-  { value: "md", hint: "lesbares Protokoll" },
+  { value: "json", hint: "arg.json" },
+  { value: "csv", hint: "arg.csv" },
+  { value: "md", hint: "arg.md" },
 ];
 
 /** After `spotify history` the filters combine in any order, so the node
  * refers to itself. */
 const SPOTIFY_HISTORY: ArgNode = () => [
-  { value: "heute", hint: "nur heute", next: SPOTIFY_HISTORY },
-  { value: "gestern", hint: "nur gestern", next: SPOTIFY_HISTORY },
-  { value: "woche", hint: "letzte 7 Tage", next: SPOTIFY_HISTORY },
-  { value: "monat", hint: "letzte 30 Tage", next: SPOTIFY_HISTORY },
+  { value: "heute", hint: "arg.today", next: SPOTIFY_HISTORY },
+  { value: "gestern", hint: "arg.yesterday", next: SPOTIFY_HISTORY },
+  { value: "woche", hint: "arg.week", next: SPOTIFY_HISTORY },
+  { value: "monat", hint: "arg.month", next: SPOTIFY_HISTORY },
   {
     value: "artist",
-    hint: "nur ein Künstler",
-    next: { source: SOURCE_SPOTIFY_ARTISTS, hint: "Künstler aus deinem Verlauf" },
+    hint: "arg.artist",
+    next: { source: SOURCE_SPOTIFY_ARTISTS, hint: "arg.artist_source" },
   },
-  { value: "export", hint: "als Datei nach ~/Downloads", next: SPOTIFY_EXPORT },
+  { value: "export", hint: "arg.export_file", next: SPOTIFY_EXPORT },
 ];
 
 const SPOTIFY: readonly ArgOption[] = [
-  { value: "now", hint: "läuft gerade" },
-  { value: "history", hint: "Verlauf nach Tagen", next: SPOTIFY_HISTORY },
-  { value: "play", hint: "abspielen" },
-  { value: "pause", hint: "pausieren" },
-  { value: "toggle", hint: "Wiedergabe umschalten" },
-  { value: "next", hint: "nächster Titel" },
-  { value: "previous", hint: "vorheriger Titel" },
+  { value: "now", hint: "arg.now" },
+  { value: "history", hint: "arg.history_days", next: SPOTIFY_HISTORY },
+  { value: "play", hint: "arg.play" },
+  { value: "pause", hint: "arg.pause" },
+  { value: "toggle", hint: "arg.toggle" },
+  { value: "next", hint: "arg.next" },
+  { value: "previous", hint: "arg.previous" },
   {
     value: "volume",
-    hint: "Lautstärke 0–100",
+    hint: "arg.volume",
     next: [
-      { value: "25", hint: "leise" },
-      { value: "50", hint: "mittel" },
-      { value: "75", hint: "laut" },
-      { value: "100", hint: "voll" },
+      { value: "25", hint: "arg.quiet" },
+      { value: "50", hint: "arg.medium" },
+      { value: "75", hint: "arg.loud" },
+      { value: "100", hint: "arg.full" },
     ],
   },
-  { value: "seek", hint: "zu Sekunde springen" },
+  { value: "seek", hint: "arg.seek" },
 ];
 
 const GITHUB_EXPORT: readonly ArgOption[] = [
-  { value: "json", hint: "everything, structured", next: [{ value: "private", hint: "include private repositories" }] },
-  { value: "csv", hint: "repository snapshots", next: [{ value: "private", hint: "include private repositories" }] },
+  { value: "json", hint: "arg.gh.json", next: [{ value: "private", hint: "arg.gh.private" }] },
+  { value: "csv", hint: "arg.gh.csv", next: [{ value: "private", hint: "arg.gh.private" }] },
 ];
 
 const GITHUB: readonly ArgOption[] = [
-  { value: "stats", hint: "dashboard" },
+  { value: "stats", hint: "arg.gh.stats" },
   {
     value: "repos",
-    hint: "repository ranking",
+    hint: "arg.gh.top",
     next: [
-      { value: "stars", hint: "most stars" },
-      { value: "forks", hint: "most forks" },
-      { value: "updated", hint: "recently updated" },
-      { value: "name", hint: "A–Z" },
-      { value: "growth7d", hint: "growth, 7 days" },
-      { value: "growth30d", hint: "growth, 30 days" },
+      { value: "stars", hint: "arg.gh.most_stars" },
+      { value: "forks", hint: "arg.gh.most_forks" },
+      { value: "updated", hint: "arg.gh.updated" },
+      { value: "name", hint: "arg.gh.name" },
+      { value: "growth7d", hint: "arg.gh.growth7" },
+      { value: "growth30d", hint: "arg.gh.growth30" },
     ],
   },
-  { value: "repo", hint: "one repository", next: { source: SOURCE_GITHUB_REPOS, hint: "your repositories" } },
-  { value: "followers", hint: "follower history" },
-  { value: "stars", hint: "star history" },
-  { value: "trending", hint: "fastest growing" },
-  { value: "refresh", hint: "ask GitHub now" },
-  { value: "export", hint: "JSON / CSV to Downloads", next: GITHUB_EXPORT },
-  { value: "connect", hint: "sign in with GitHub" },
+  { value: "repo", hint: "arg.gh.repo", next: { source: SOURCE_GITHUB_REPOS, hint: "arg.gh.repo_source" } },
+  { value: "followers", hint: "arg.gh.followers" },
+  { value: "stars", hint: "arg.gh.stars" },
+  { value: "trending", hint: "arg.gh.trending" },
+  { value: "refresh", hint: "arg.gh.refresh" },
+  { value: "export", hint: "arg.gh.export", next: GITHUB_EXPORT },
+  { value: "connect", hint: "arg.gh.connect" },
 ];
 
 const WAKELOCK: readonly ArgOption[] = [
   ...ON_OFF,
-  { value: "dark", hint: "wach, Bildschirm darf aus" },
+  { value: "dark", hint: "arg.wake_dark" },
 ];
 
 const GESTURES: readonly ArgOption[] = [
   ...ON_OFF,
-  { value: "calibrate", hint: "Erkennung kalibrieren" },
-  { value: "record", hint: "Gesten aufzeichnen" },
+  { value: "calibrate", hint: "arg.calibrate" },
+  { value: "record", hint: "arg.record" },
 ];
 
 const retro = (mode: "8bit" | "16bit"): ArgNode => () => [
   ...ON_OFF,
-  { value: "focus", hint: "aktives Fenster aussparen" },
-  { value: "lens", hint: "Lupe um den Zeiger" },
-  ...palettesFor(mode).map((p) => ({ value: p.id, hint: `Palette ${p.name}` })),
+  { value: "focus", hint: "arg.focus" },
+  { value: "lens", hint: "arg.lens" },
+  ...palettesFor(mode).map((p) => ({ value: p.id, hint: p.name })),
 ];
 
 const LANGUAGES: readonly ArgOption[] = [
-  { value: "de", hint: "Deutsch" },
-  { value: "en", hint: "Englisch" },
-  { value: "fr", hint: "Französisch" },
-  { value: "es", hint: "Spanisch" },
-  { value: "it", hint: "Italienisch" },
-  { value: "auto", hint: "automatisch erkennen" },
+  { value: "de", hint: "arg.lang.de" },
+  { value: "en", hint: "arg.lang.en" },
+  { value: "fr", hint: "arg.lang.fr" },
+  { value: "es", hint: "arg.lang.es" },
+  { value: "it", hint: "arg.lang.it" },
+  { value: "auto", hint: "arg.lang.auto" },
 ];
 
 const DELAY: readonly ArgOption[] = [
-  { value: "3", hint: "in 3 Sekunden" },
-  { value: "5", hint: "in 5 Sekunden" },
-  { value: "10", hint: "in 10 Sekunden" },
+  { value: "3", hint: "arg.in3s" },
+  { value: "5", hint: "arg.in5s" },
+  { value: "10", hint: "arg.in10s" },
 ];
 
 const SETTINGS: ArgNode = () =>
@@ -163,59 +164,59 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
   wakelock: WAKELOCK,
   nosleep: ON_OFF,
   track: [
-    { value: "on", hint: "Zeiterfassung starten" },
-    { value: "off", hint: "Zeiterfassung stoppen" },
+    { value: "on", hint: "arg.track_on" },
+    { value: "off", hint: "arg.track_off" },
   ],
   disco: [
-    { value: "1", hint: "Beat-Sync an" },
-    { value: "0", hint: "Beat-Sync aus" },
+    { value: "1", hint: "arg.disco_on" },
+    { value: "0", hint: "arg.disco_off" },
   ],
   gestures: GESTURES,
   "8bit": retro("8bit"),
   "16bit": retro("16bit"),
   adb: [
-    { value: "remote", hint: "Bildschirm steuern" },
-    { value: "apps", hint: "Apps verwalten" },
-    { value: "wifi", hint: "per WLAN verbinden" },
+    { value: "remote", hint: "arg.adb_remote" },
+    { value: "apps", hint: "arg.adb_apps" },
+    { value: "wifi", hint: "arg.adb_wifi" },
   ],
-  snitch: [{ value: "map", hint: "Verbindungen auf der Weltkarte" }],
-  shazam: [{ value: "history", hint: "erkannte Songs" }],
+  snitch: [{ value: "map", hint: "arg.snitch_map" }],
+  shazam: [{ value: "history", hint: "arg.shazam_history" }],
   resize: [
-    { value: "px", hint: "Größe in Pixeln" },
-    { value: "%", hint: "Größe in Prozent" },
+    { value: "px", hint: "arg.rz_px" },
+    { value: "%", hint: "arg.rz_pct" },
   ],
-  kill: [{ value: "-9", hint: "sofort beenden (SIGKILL)" }],
+  kill: [{ value: "-9", hint: "arg.kill9" }],
   transcribe: [
-    { value: "--language", hint: "Sprache vorgeben", next: LANGUAGES },
+    { value: "--language", hint: "arg.language", next: LANGUAGES },
   ],
   settings: SETTINGS,
   // Typical values — numbers are free, these are the common ones.
   timer: [
-    { value: "5min", hint: "kurze Pause" },
-    { value: "10min", hint: "Tee ziehen" },
-    { value: "25min", hint: "Pomodoro" },
-    { value: "1h", hint: "eine Stunde" },
+    { value: "5min", hint: "arg.t5" },
+    { value: "10min", hint: "arg.t10" },
+    { value: "25min", hint: "arg.t25" },
+    { value: "1h", hint: "arg.t60" },
   ],
   "shot-region": DELAY,
   "shot-full": DELAY,
   "shot-window": DELAY,
   pwgen: [
-    { value: "16", hint: "Zeichen" },
-    { value: "24", hint: "Zeichen" },
-    { value: "32", hint: "Zeichen" },
+    { value: "16", hint: "arg.chars" },
+    { value: "24", hint: "arg.chars" },
+    { value: "32", hint: "arg.chars" },
   ],
   uuid: [
-    { value: "5", hint: "fünf UUIDs" },
-    { value: "10", hint: "zehn UUIDs" },
+    { value: "5", hint: "arg.uuid5" },
+    { value: "10", hint: "arg.uuid10" },
   ],
   random: [
-    { value: "6", hint: "Würfel" },
-    { value: "100", hint: "1 bis 100" },
+    { value: "6", hint: "arg.dice" },
+    { value: "100", hint: "arg.1to100" },
   ],
   iris: [
-    { value: "55", hint: "dB-Schwelle (Standard)" },
-    { value: "65", hint: "dB-Schwelle (laut)" },
-    { value: "75", hint: "dB-Schwelle (sehr laut)" },
+    { value: "55", hint: "arg.db55" },
+    { value: "65", hint: "arg.db65" },
+    { value: "75", hint: "arg.db75" },
   ],
 };
 
@@ -411,7 +412,7 @@ export function completeArg(kind: CommandKind, line: string, ctx: CompleteContex
     partial: w.partial,
     candidates: ranked.map((o) => ({
       value: o.value,
-      hint: o.hint,
+      hint: t(o.hint as MessageKey),
       completion: `${w.head}${o.value}`,
       ...(fix ? { fix: true } : {}),
     })),

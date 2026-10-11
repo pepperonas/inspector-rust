@@ -536,6 +536,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_animation_stage": return "reduced";
     case "get_crt_animation": return { ms: 0, min: 80, max: 900, default_ms: 250 };
     case "get_theme_preference": return "dark";
+    case "get_language": return { setting: "system", effective: "en", system: "en" };
     case "get_lineage_highlight": return true;
     case "get_history": return CLIPS;
     case "search_history": return CLIPS.filter((c) => sameFuzzy(String(args.query ?? ""), c.content_text));

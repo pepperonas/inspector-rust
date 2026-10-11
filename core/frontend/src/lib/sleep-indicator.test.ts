@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { sleepIndicator, indicatorTicks } from "./sleep-indicator";
 import type { SleepStatus } from "./ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// Written against the German text (the original language of this UI).
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const base: SleepStatus = {
   supported: true,
@@ -28,7 +35,7 @@ describe("sleepIndicator", () => {
     // indicator. Nothing preventing sleep must still produce a reading.
     const off = sleepIndicator(s(), false, null);
     expect(off?.kind).toBe("sleepable");
-    expect(off?.label).toBe("sleep");
+    expect(off?.label).toBe("schlaf");
   });
 
   it("appears immediately on a wakelock toggle, before the first poll", () => {

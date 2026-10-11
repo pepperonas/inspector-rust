@@ -9,5 +9,11 @@
 // per-file `afterEach(cleanup)` remains harmless (unmounting twice is a no-op).
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import en from "./locales/en.json";
+import { setCatalog } from "./lib/i18n";
+
+// Components translate through `t()`; tests run with the English catalogue
+// loaded (a test that checks German text switches with `setCatalog("de", de)`).
+setCatalog("en", en);
 
 afterEach(cleanup);

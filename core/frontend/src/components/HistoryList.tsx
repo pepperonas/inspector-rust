@@ -5,6 +5,7 @@ import { Palette, Pin, Trash2 } from "lucide-react";
 import { HistoryItem } from "./HistoryItem";
 import { computeLineage, railGutterPx } from "../lib/lineage";
 import { isCustomCommandEntry, type ListEntry } from "../lib/types";
+import { tn, useT } from "../lib/i18n";
 
 // Loaded on first open — it was 7.5 KB of the start-up bundle for a dialog
 // most sessions never show (see scripts/check-bundle.mjs).
@@ -66,6 +67,7 @@ export function HistoryList({
   onTogglePinnedOnly,
   navInstant = false,
 }: Props) {
+  const t = useT();
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Selection indicator (animation layer, Etappe 2): ONE absolutely
@@ -213,19 +215,21 @@ export function HistoryList({
                 }
                 title={
                   pinnedOnly
-                    ? "Show all clipboard entries"
-                    : "Show only pinned clips"
+                    ? t("history.show_all")
+                    : t("history.show_pinned")
                 }
               >
                 <Pin size={11} className={pinnedOnly ? "fill-current" : ""} />
                 {pinnedOnly
-                  ? `${clipCount} pinned`
-                  : `Pinned${pinnedCount > 0 ? ` (${pinnedCount})` : ""}`}
+                  ? t("history.n_pinned", { n: clipCount })
+                  : pinnedCount > 0
+                    ? t("history.pinned_count", { n: pinnedCount })
+                    : t("history.pinned")}
               </button>
             )}
             {!pinnedOnly && (
               <span className="pl-1">
-                {clipCount} clip{clipCount === 1 ? "" : "s"}
+                {tn("history.clips", clipCount)}
               </span>
             )}
           </div>
@@ -233,36 +237,36 @@ export function HistoryList({
             <button
               onClick={() => setPickerOpen(true)}
               className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)]"
-              title="Open the color picker; the chosen value can be copied in HEX, RGB, or HSL"
+              title={t("history.color_picker_title")}
             >
               <Palette size={11} />
-              Color picker
+              {t("history.color_picker")}
             </button>
             {onClearAll && clipCount > 0 && (
               confirmClear ? (
                 <div className="flex items-center gap-1">
-                  <span className="text-[11px] text-red-400">Delete {clipCount} clip{clipCount === 1 ? "" : "s"}?</span>
+                  <span className="text-[11px] text-red-400">{tn("history.delete_confirm", clipCount)}</span>
                   <button
                     onClick={() => { onClearAll(); setConfirmClear(false); }}
                     className="rounded px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-400/10"
                   >
-                    Yes
+                    {t("common.yes")}
                   </button>
                   <button
                     onClick={() => setConfirmClear(false)}
                     className="rounded px-2 py-0.5 text-[11px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirmClear(true)}
                   className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-[var(--color-surface)] hover:text-red-400"
-                  title="Delete all clipboard history"
+                  title={t("history.clear_all_title")}
                 >
                   <Trash2 size={11} />
-                  Clear all
+                  {t("history.clear_all")}
                 </button>
               )
             )}
@@ -272,7 +276,7 @@ export function HistoryList({
       {entries.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-muted)]">
           <span className="md3-empty-float">
-            {pinnedOnly ? "No pinned clips" : "No matches"}
+            {pinnedOnly ? t("history.no_pinned") : t("history.no_matches")}
           </span>
         </div>
       ) : (

@@ -1,6 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { contextTitle, selectionLabel, shortDir, tildePath } from "./finder-context";
 import type { FinderContext } from "./ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// Written against the German text (the original language of this UI).
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const ctx = (dir: string, selected: string[], selected_count = selected.length): FinderContext => ({
   dir,

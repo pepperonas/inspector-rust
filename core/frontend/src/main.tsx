@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./styles.css";
 import { initMotion } from "./lib/motion-stage";
+import { initI18n } from "./lib/i18n";
 
 // Animation layer (v0.163.0): synchronous `@starting-style` feature detection
 // (`has-enter-anim` on the root — old WKWebView shows elements instantly
@@ -98,10 +99,14 @@ function Mount() {
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
-root.render(
-  <React.StrictMode>
-    <Suspense fallback={null}>
-      <Mount />
-    </Suspense>
-  </React.StrictMode>,
-);
+// Language before the first paint: nothing should flash in the wrong one.
+// initI18n never rejects (it falls back to English).
+void initI18n().finally(() => {
+  root.render(
+    <React.StrictMode>
+      <Suspense fallback={null}>
+        <Mount />
+      </Suspense>
+    </React.StrictMode>,
+  );
+});

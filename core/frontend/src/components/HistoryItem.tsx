@@ -9,6 +9,7 @@ import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 import { InlineMd } from "./InlineMd";
 import { TotpBrandIcon } from "./TotpBrandIcon";
 import { platformLabel } from "../lib/social";
+import { locale, tSplit, useT } from "../lib/i18n";
 
 interface Props {
   entry: ListEntry;
@@ -127,6 +128,7 @@ export const HistoryItem = memo(function HistoryItem({
   onTogglePin,
   style,
 }: Props) {
+  const t = useT();
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
   // Track the "Saved!" feedback timer so it can be cleared on unmount —
   // rows unmount frequently in the virtualized list, and a pending timeout
@@ -192,14 +194,14 @@ export const HistoryItem = memo(function HistoryItem({
       : isMeme && entry.kind === "meme"
         ? entry.data.name
         : isRepoUrl && entry.kind === "repo-url"
-          ? `Repo analysieren · ${entry.data.owner}/${entry.data.repo}`
+          ? t("list.repo_analyze", { repo: `${entry.data.owner}/${entry.data.repo}` })
         : isSocial && entry.kind === "social"
-          ? `Download from ${platformLabel(entry.data.platform)}`
+          ? t("list.download_from", { platform: platformLabel(entry.data.platform) })
           : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection || entry.kind === "typed-text"
             ? ""
             : isClown && entry.kind === "clown"
               ? truncateOneLine(entry.data.output, 80)
-              : truncateOneLine(entry.data.content_text || "(empty)", 80);
+              : truncateOneLine(entry.data.content_text || t("list.empty_clip"), 80);
 
   const right = isSnippet ? (
     <span
@@ -210,7 +212,7 @@ export const HistoryItem = memo(function HistoryItem({
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
     >
-      snippet
+      {t("list.tag.snippet")}
     </span>
   ) : isCalc ? (
     <span
@@ -221,7 +223,7 @@ export const HistoryItem = memo(function HistoryItem({
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
     >
-      calc
+      {t("list.tag.calc")}
     </span>
   ) : isColor ? (
     <span
@@ -232,7 +234,7 @@ export const HistoryItem = memo(function HistoryItem({
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
     >
-      color
+      {t("list.tag.color")}
     </span>
   ) : isCommand ? (
     <span
@@ -254,7 +256,7 @@ export const HistoryItem = memo(function HistoryItem({
           : "bg-rose-500/15 text-rose-500")
       }
     >
-      hint
+      {t("list.tag.hint")}
     </span>
   ) : isKillTarget && entry.kind === "kill-target" ? (
     <span
@@ -264,7 +266,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-red-500/15 text-red-500")
       }
-      title={entry.data.force ? "SIGKILL — force quit" : "SIGTERM — graceful"}
+      title={entry.data.force ? t("list.kill.force") : t("list.kill.graceful")}
     >
       {entry.data.force ? "kill -9" : "kill"}
     </span>
@@ -276,9 +278,9 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="Random pickup-line — ← / → cycles to the previous / next opener"
+      title={t("list.opener.title")}
     >
-      opener
+      {t("list.tag.opener")}
     </span>
   ) : isFinderFile ? (
     <span
@@ -288,9 +290,9 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="Selected in Finder"
+      title={t("list.finder.title")}
     >
-      finder
+      {t("list.tag.finder")}
     </span>
   ) : isSettingsSection ? (
     <span
@@ -300,9 +302,9 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="Springt zur Sektion im Settings-Tab"
+      title={t("list.setting.title")}
     >
-      setting
+      {t("list.tag.setting")}
     </span>
   ) : isMeme && entry.kind === "meme" ? (
     <span
@@ -312,7 +314,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="Meme — ⏎ copies it to the clipboard"
+      title={t("list.meme.title")}
     >
       {entry.data.category || "meme"}
     </span>
@@ -324,7 +326,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title={`${entry.data.name} — ⏎ fügt den Text ein`}
+      title={t("list.clown.title", { name: entry.data.name })}
     >
       {entry.data.name}
     </span>
@@ -336,7 +338,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="Brutto → Netto (Steuerjahr 2025, vereinfacht)"
+      title={t("list.bruno.title")}
     >
       bruno
     </span>
@@ -348,9 +350,9 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="Launch app (Spotlight-like)"
+      title={t("list.app.title")}
     >
-      app
+      {t("list.tag.app")}
     </span>
   ) : entry.kind === "typed-text" ? (
     <span
@@ -360,9 +362,9 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="The typed text — transform it in the preview"
+      title={t("list.typed.title")}
     >
-      text
+      {t("list.tag.text")}
     </span>
   ) : isPwgen ? (
     <span
@@ -372,7 +374,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="Generated password — ⏎ copies, ⌥⏎ switches to alphanumeric + copies"
+      title={t("list.pwgen.title")}
     >
       pwgen
     </span>
@@ -384,7 +386,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="Live BPM detector — listens to the microphone"
+      title={t("list.bpm.title")}
     >
       bpm
     </span>
@@ -396,7 +398,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="Live spectrum equalizer — listens to the microphone"
+      title={t("list.equalizer.title")}
     >
       equalizer
     </span>
@@ -408,7 +410,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="2FA / TOTP management overlay"
+      title={t("list.totp_manage.title")}
     >
       2fa
     </span>
@@ -420,7 +422,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/90"
           : "bg-rose-500/15 text-rose-500")
       }
-      title="TOTP code — ⏎ copies"
+      title={t("list.totp.title")}
     >
       otp
     </span>
@@ -434,8 +436,8 @@ export const HistoryItem = memo(function HistoryItem({
       const lastUsed = formatAbsolute(entry.data.last_used_at);
       const sameInstant = entry.data.created_at === entry.data.last_used_at;
       const tooltip = sameInstant
-        ? `Captured: ${captured}\n(never re-used since)`
-        : `Captured: ${captured}\nLast used: ${lastUsed}`;
+        ? t("list.time.captured_only", { captured })
+        : t("list.time.captured_used", { captured, lastUsed });
       const display = showAbsoluteTime
         ? lastUsed
         : relativeTime(entry.data.last_used_at);
@@ -634,7 +636,7 @@ export const HistoryItem = memo(function HistoryItem({
           <span className="flex flex-col">
             <span className="font-semibold">
               {(() => {
-                const fmt = new Intl.NumberFormat("de-DE", {
+                const fmt = new Intl.NumberFormat(locale(), {
                   style: "currency",
                   currency: "EUR",
                   maximumFractionDigits: 0,
@@ -643,8 +645,8 @@ export const HistoryItem = memo(function HistoryItem({
                   ? entry.data.netMonth
                   : entry.data.netYear;
                 const label = entry.data.period === "monthly"
-                  ? "/ Monat netto"
-                  : "/ Jahr netto";
+                  ? t("list.bruno.per_month")
+                  : t("list.bruno.per_year");
                 return `${fmt.format(v)} ${label}`;
               })()}
             </span>
@@ -655,19 +657,21 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               {(() => {
-                const fmt = new Intl.NumberFormat("de-DE", {
+                const fmt = new Intl.NumberFormat(locale(), {
                   style: "currency",
                   currency: "EUR",
                   maximumFractionDigits: 0,
                 });
-                const pct = new Intl.NumberFormat("de-DE", {
+                const pct = new Intl.NumberFormat(locale(), {
                   style: "percent",
                   maximumFractionDigits: 1,
                 });
                 // Name the ACTIVE mode and the way to the other one — the
                 // switch existed but was invisible (only the `f` suffix).
-                const kind = entry.data.self ? "Unternehmer · Gewinn" : "Angestellt · Brutto";
-                return `${kind} ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)} · ⇥ Modus`;
+                return t(entry.data.self ? "list.bruno.summary_self" : "list.bruno.summary_employee", {
+                  gross: fmt.format(entry.data.yearlyGross),
+                  rate: pct.format(entry.data.deductionRate),
+                });
               })()}
             </span>
           </span>
@@ -682,7 +686,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              {entry.data.length} chars · {entry.data.mode} · ⏎ copy · ⌥⏎ alnum
+              {t("list.pwgen.hint", { n: entry.data.length, mode: entry.data.mode })}
             </span>
           </span>
         ) : isXhype && entry.kind === "xhype" ? (
@@ -694,9 +698,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Vollbild · 30 s · sechs Akte ·{" "}
-              {entry.data.mode === "news" ? "tagesschau-Schlagzeilen" : "x!! zeigt die News"} ·
-              Klick/Taste bricht ab
+              {t(entry.data.mode === "news" ? "list.xhype.hint_news" : "list.xhype.hint_features")}
             </span>
           </span>
         ) : isBpm && entry.kind === "bpm" ? (
@@ -708,7 +710,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Listen to mic + detect BPM live · Esc to exit
+              {t("list.bpm.hint")}
             </span>
           </span>
         ) : isEqualizer && entry.kind === "equalizer" ? (
@@ -720,7 +722,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Live mic spectrum · Enter pins · Esc to exit
+              {t("list.equalizer.hint")}
             </span>
           </span>
         ) : isTotpManage && entry.kind === "totp-manage" ? (
@@ -733,15 +735,15 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               {entry.data.mode === "add"
-                ? "⏎ Opens the add form (Issuer · Login · Secret) · Esc to exit"
-                : "⏎ List, Add, Import, Export · Esc to exit"}
+                ? t("list.totp_manage.hint_add")
+                : t("list.totp_manage.hint")}
             </span>
           </span>
         ) : isTotp && entry.kind === "totp" ? (
           <span className="flex flex-1 items-center gap-3">
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate font-semibold">
-                {entry.data.issuer || "(no issuer)"}
+                {entry.data.issuer || t("list.totp.no_issuer")}
               </span>
               {entry.data.account && (
                 <span
@@ -750,7 +752,16 @@ export const HistoryItem = memo(function HistoryItem({
                     (selected ? "text-white/70" : "text-[var(--color-muted)]")
                   }
                 >
-                  {entry.data.account} · <TotpSecondsLeft period={entry.data.period} />s remaining · ⏎ copies code
+                  {(() => {
+                    const [before, after] = tSplit("list.totp.remaining", "s", { account: entry.data.account });
+                    return (
+                      <>
+                        {before}
+                        <TotpSecondsLeft period={entry.data.period} />
+                        {after}
+                      </>
+                    );
+                  })()}
                 </span>
               )}
             </span>
@@ -767,7 +778,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Launch · {entry.data.path}
+              {t("list.app.hint", { path: entry.data.path })}
             </span>
           </span>
         ) : entry.kind === "typed-text" ? (
@@ -779,7 +790,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Paste · transform this text in the preview
+              {t("list.typed.hint")}
             </span>
           </span>
         ) : isSettingsSection && entry.kind === "settings-section" ? (
@@ -791,7 +802,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Springt zu Settings → {entry.data.label}
+              {t("list.setting.hint", { label: entry.data.label })}
             </span>
           </span>
         ) : isFinderFile && entry.kind === "finder-file" ? (
@@ -824,7 +835,7 @@ export const HistoryItem = memo(function HistoryItem({
               <span className={selected ? "text-white/60" : "text-[var(--color-muted)]"}>
                 {entry.data.category}
               </span>
-              {entry.data.pinned && <span title="Pinned">★</span>}
+              {entry.data.pinned && <span title={t("list.pinned")}>★</span>}
             </span>
             {entry.data.sample && (
               <pre
@@ -846,14 +857,14 @@ export const HistoryItem = memo(function HistoryItem({
         // full inline help. Subtle, right-aligned, keyboard-cap styled.
         <span
           className="ml-auto shrink-0 rounded border border-white/30 px-1 py-px text-[9px] font-semibold text-white/80"
-          aria-label="Press ? for help"
+          aria-label={t("list.help.aria")}
         >
-          ? help
+          {t("list.help.chip")}
         </span>
       )}
       {styledFormat && (
         <span
-          title={`Styled ${styledFormat} content`}
+          title={t("list.styled", { format: styledFormat })}
           className={
             "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wider " +
             (selected ? "bg-white/20 text-white/80" : "bg-[var(--color-border)]/60 text-[var(--color-muted)]")
@@ -866,7 +877,7 @@ export const HistoryItem = memo(function HistoryItem({
         <span
           title={entry.data.note}
           className={"shrink-0 " + (selected ? "text-white/90" : "text-amber-500")}
-          aria-label="Has a note"
+          aria-label={t("list.has_note")}
         >
           <StickyNote size={12} fill="currentColor" />
         </span>
@@ -877,7 +888,7 @@ export const HistoryItem = memo(function HistoryItem({
             e.stopPropagation();
             onTogglePin(!entry.data.pinned);
           }}
-          title={entry.data.pinned ? "Unpin" : "Pin to top"}
+          title={entry.data.pinned ? t("list.unpin") : t("list.pin")}
           className={
             "shrink-0 rounded p-0.5 " +
             (entry.data.pinned
@@ -905,7 +916,7 @@ export const HistoryItem = memo(function HistoryItem({
               1500,
             );
           }}
-          title={bookmarkSaved ? "Saved!" : "Save as note"}
+          title={bookmarkSaved ? t("list.saved") : t("list.save_note")}
           className={
             "shrink-0 rounded p-0.5 " +
             (bookmarkSaved
@@ -925,7 +936,7 @@ export const HistoryItem = memo(function HistoryItem({
             e.stopPropagation();
             onDelete();
           }}
-          title="Delete entry from history"
+          title={t("list.delete")}
           className={
             "shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 " +
             (selected

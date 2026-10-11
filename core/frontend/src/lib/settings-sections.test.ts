@@ -156,7 +156,7 @@ describe("SETTINGS_CATEGORIES", () => {
   it("names the category of a section", () => {
     expect(categoryOf("cue")).toBeNull();
     expect(categoryOf("cloud-sync")?.id).toBe("sync");
-    expect(categoryOf("gestures")?.label).toBe("Trackpad & Fenster");
+    expect(categoryOf("gestures")?.label).toBe("Trackpad & windows");
   });
 
   it("the panel renders a block for every section the categories list", () => {

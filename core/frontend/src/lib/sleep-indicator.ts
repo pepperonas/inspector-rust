@@ -1,5 +1,6 @@
 import type { SleepStatus } from "./ipc";
 import { formatHolders, formatSleepCountdown } from "./sleep-status";
+import { t } from "./i18n";
 
 /**
  * One footer indicator for "will this Mac sleep?", replacing the two that used
@@ -52,16 +53,15 @@ export function sleepIndicator(
   wakelockActive: boolean,
   remainingSecs: number | null,
 ): SleepIndicator | null {
-  const holders = status?.holders.length ? ` Wachhalter: ${formatHolders(status.holders)}.` : "";
+  const holders = status?.holders.length
+    ? " " + t("sleep.holders", { holders: formatHolders(status.holders) })
+    : "";
 
   if (wakelockActive) {
     return {
       kind: "wake",
-      label: "wake",
-      title:
-        "Inspector Rust hält den Mac wach — er schläft nicht und sperrt nicht. " +
-        "Mit `wakelock off` (oder `caffeine off`) ausschalten." +
-        holders,
+      label: t("sleep.wake.label"),
+      title: t("sleep.wake.title") + holders,
     };
   }
   if (!status?.supported) return null;
@@ -69,32 +69,29 @@ export function sleepIndicator(
   if (status.sleep_disabled) {
     return {
       kind: "no-sleep",
-      label: "no-sleep",
-      title:
-        "Das Energieprofil steht auf `sleep 0` — der Mac schläft nie von selbst. " +
-        "Das kommt vom Profil, nicht vom Wakelock; mit `nosleep off` zurückstellen." +
-        holders,
+      label: t("sleep.nosleep.label"),
+      title: t("sleep.nosleep.title") + holders,
     };
   }
   if (status.prevented && status.indefinite) {
     return {
       kind: "awake-infinite",
-      label: "wach ∞",
-      title: `Der Mac wird ohne Zeitlimit wachgehalten (Assertion ohne Timeout).${holders}`,
+      label: t("sleep.infinite.label"),
+      title: t("sleep.infinite.title") + holders,
     };
   }
   if (status.prevented) {
     const secs = remainingSecs ?? status.max_timeout_secs ?? 0;
     return {
       kind: "awake-timed",
-      label: `wach ${formatSleepCountdown(secs)}`,
-      title: `Der Mac wird wachgehalten — so lange noch, bis Sleep wieder möglich ist.${holders}`,
+      label: t("sleep.timed.label", { time: formatSleepCountdown(secs) }),
+      title: t("sleep.timed.title") + holders,
     };
   }
   return {
     kind: "sleepable",
-    label: "sleep",
-    title: "Nichts hält den Mac wach — er darf einschlafen.",
+    label: t("sleep.sleepable.label"),
+    title: t("sleep.sleepable.title"),
   };
 }
 

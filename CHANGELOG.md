@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.206.0] - 2026-10-11
+
+### Added
+- **Spotify integration (macOS).** Inspector keeps a local history of what the Spotify desktop app plays: one entry per track with start, end, the time actually heard and whether it was listened (half the track or 4 min), partially played or skipped (under 30 s). Pause and resume stay one entry; a long pause, a new track or quitting Spotify ends it; plays under 5 s are dropped. Recorded from Spotify's own playback notification — no Spotify account, no Web API, nothing leaves the Mac; stored in `history.db`.
+- **`spotify history`** shows the log grouped by day (Heute, Gestern, …) with heard time and status; filter with `heute`, `gestern`, `woche`, `monat`, `artist <name>` or free text; loads 100 entries at a time.
+- **Export** as JSON, CSV or Markdown (`spotify history export csv`, or the buttons in the panel) to `~/Downloads`, with ISO 8601 timestamps; never overwrites.
+- **`spotify`** shows the current track with progress and controls; `spotify play | pause | toggle | next | previous | volume <0-100> | seek <s>` control the app (asks once for the macOS Automation permission). Settings → Spotify: recording on/off, covers (off by default — they load from Spotify's image server), clear history.
+
 ## [0.205.0] - 2026-10-11
 
 ### Added

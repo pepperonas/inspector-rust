@@ -2,6 +2,7 @@ import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive } from "./lib/transcribe";
+import { commandLabel as spotifyLabel, parseSpotifyArg } from "./lib/spotify";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -51,6 +52,7 @@ const BoomPanel = lazy(() => import("./components/BoomPanel").then((m) => ({ def
 const ConvertPanel = lazy(() => import("./components/ConvertPanel").then((m) => ({ default: m.ConvertPanel })));
 const CalendarPanel = lazy(() => import("./components/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
 const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ default: m.CleanPanel })));
+const SpotifyPanel = lazy(() => import("./components/SpotifyPanel").then((m) => ({ default: m.SpotifyPanel })));
 const TranscribePanel = lazy(() => import("./components/TranscribePanel").then((m) => ({ default: m.TranscribePanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
 const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
@@ -552,6 +554,10 @@ function App() {
   // the preview column. The job lives in Rust and survives Esc / overlay-hide;
   // App owns the one `transcribe-progress` subscription and hands the
   // snapshot down. The ref mirrors let event handlers read the live values.
+  // Spotify — the panel shows while `spotify …` is typed (reads only); Enter
+  // focuses it and bumps `spotifyRun`, which runs a control / export.
+  const [spotifyFocus, setSpotifyFocus] = useState(false);
+  const [spotifyRun, setSpotifyRun] = useState(0);
   const [transcribeMode, setTranscribeMode] = useState(false);
   const [transcribeFocus, setTranscribeFocus] = useState(false);
   const [transcribeJob, setTranscribeJob] = useState<TranscribeJob | null>(null);
@@ -1774,6 +1780,14 @@ function App() {
   // Transcribe: leaving the command closes the panel (the job keeps running);
   // TYPING the command while a job runs reconnects to it without a keypress —
   // only on that edge, so Esc can close it while the query stays.
+  const isSpotifyCmd = parsedCommand?.spec.kind === "spotify";
+  const spotifyCmd = useMemo(
+    () => (isSpotifyCmd ? parseSpotifyArg(parsedCommand?.arg ?? "") : null),
+    [isSpotifyCmd, parsedCommand?.arg],
+  );
+  useEffect(() => {
+    if (!isSpotifyCmd) setSpotifyFocus(false);
+  }, [isSpotifyCmd]);
   const isTranscribeCmd = parsedCommand?.spec.kind === "transcribe";
   useEffect(() => {
     if (!isTranscribeCmd) {
@@ -2131,6 +2145,10 @@ function App() {
         }
         break;
       }
+      case "spotify":
+        label = spotifyLabel(parseSpotifyArg(arg));
+        hint = spec.description;
+        break;
       case "transcribe":
       case "md2pdf":
         label = `${spec.keyword}: ${arg || "Finder-Auswahl"}`;
@@ -3936,6 +3954,7 @@ function App() {
     setNosleepFocus(false);
     setAliasMode(false);
     setAliasFocus(false);
+    setSpotifyFocus(false);
     // The transcription itself keeps running — only the view closes.
     setTranscribeMode(false);
     setTranscribeFocus(false);
@@ -4073,7 +4092,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4096,6 +4115,7 @@ function App() {
           commandKind === "alias" ||
           commandKind === "task" ||
           commandKind === "transcribe" ||
+          commandKind === "spotify" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
@@ -4547,6 +4567,11 @@ function App() {
         }
         await startTimer(a.seconds, `Alarm ${a.label}`);
         await showStatusToast("alarm", true, "Alarm set", a.label);
+      } else if (commandKind === "spotify") {
+        // The panel is already showing; Enter hands it the keys and runs the
+        // command's action (control / export) — reads need no Enter.
+        setSpotifyFocus(true);
+        setSpotifyRun((n) => n + 1);
       } else if (commandKind === "transcribe") {
         // The overlay stays open with the per-file progress; Esc closes it and
         // the batch keeps running. A running job is shown, never restarted.
@@ -5207,6 +5232,7 @@ function App() {
       !convertFocus &&
       !cleanFocus &&
       !transcribeFocus &&
+      !spotifyFocus &&
       !snitchFocus &&
       !shazamFocus,
   });
@@ -6043,6 +6069,19 @@ function App() {
                       onExit={() => {
                         setCalendarMode(false);
                         setCalendarFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : spotifyCmd ? (
+                  <div className="md3-pop-in h-full">
+                    <SpotifyPanel
+                      cmd={spotifyCmd}
+                      focused={spotifyFocus}
+                      runSignal={spotifyRun}
+                      onQuery={(q) => setQuery(q)}
+                      onExit={() => {
+                        setSpotifyFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

@@ -99,6 +99,7 @@ export type CommandKind =
   | "stats"
   | "snitch"
   | "shazam"
+  | "spotify"
   | "boom"
   | "uptime"
   | "weather"
@@ -965,6 +966,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description:
       "Identify the song playing (records ~10 s from the mic) · `shazam history` opens your recognized-songs history",
     requiresArg: false,
+  },
+  {
+    kind: "spotify",
+    keyword: "spotify",
+    syntax: "spotify [now | history [heute|woche|artist <name>|<suche>] [export json|csv|md] | play | pause | toggle | next | previous | volume <0-100> | seek <s>]",
+    description:
+      "Spotify desktop app: what's playing, your local play history (recorded on this Mac), export, and playback control",
+    requiresArg: false,
+    platform: ["mac"],
   },
   {
     kind: "iris",

@@ -43,6 +43,7 @@ import {
   Type,
   Zap,
   CloudSun,
+  Music,
   History,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -70,6 +71,10 @@ import {
   getMemeDir,
   setMemeDir,
   getWeatherConfig,
+  getSpotifyConfig,
+  setSpotifyConfig,
+  spotifyHistoryClear,
+  type SpotifyConfig,
   setWeatherConfig,
   type WeatherConfig,
   getDbSpace,
@@ -2932,6 +2937,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <WeatherSection />
         </div>
     ),
+        /* Spotify — local play history (macOS) */
+    "spotify": IS_MAC ? (
+        <div className="mb-6">
+          <SpotifySection />
+        </div>
+    ) : null,
         /* Cloud sync with cue (snippets) */
     "cloud-sync": (
         <div className="mb-6">
@@ -6228,6 +6239,83 @@ function HistoryLimitSection() {
           </button>
           {compactResult && <span className="text-emerald-500">{compactResult}</span>}
         </div>
+      </Row>
+    </Section>
+  );
+}
+
+/** Spotify (macOS): record the local play history, show covers, clear it. */
+function SpotifySection() {
+  const [cfg, setCfg] = useState<SpotifyConfig | null>(null);
+  const [armed, setArmed] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSpotifyConfig()
+      .then(setCfg)
+      .catch(() => setCfg({ history: true, artwork: false }));
+  }, []);
+
+  if (cfg === null) return null;
+
+  const update = (next: SpotifyConfig) => {
+    setCfg(next);
+    void setSpotifyConfig(next).catch((e) => console.error("save spotify config", e));
+  };
+
+  const clear = async () => {
+    if (!armed) {
+      setArmed(true);
+      return;
+    }
+    setArmed(false);
+    try {
+      const n = await spotifyHistoryClear();
+      setNote(`${n} Einträge gelöscht.`);
+    } catch (e) {
+      setNote(String(e));
+    }
+  };
+
+  return (
+    <Section
+      icon={<Music size={16} className="text-[var(--color-accent)]" />}
+      id="spotify"
+      title="Spotify"
+      subtitle="The `spotify` command shows what the Spotify desktop app plays, a local history of what you heard, export (JSON / CSV / Markdown) and playback control. Recorded from Spotify's own playback notification — no Spotify account, no Web API, nothing leaves this Mac. Stored in history.db (table spotify_plays)."
+    >
+      <Row label="Record history" help="Plays shorter than 5 s are not kept. Turning this off ends the current entry.">
+        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+          <input
+            type="checkbox"
+            checked={cfg.history}
+            onChange={(e) => update({ ...cfg, history: e.target.checked })}
+            className="accent-[var(--color-accent)]"
+          />
+          <span className="text-[var(--color-muted)]">{cfg.history ? "On — every Spotify play is logged locally" : "Off"}</span>
+        </label>
+      </Row>
+      <Row label="Show covers" help="Loads the album art from Spotify's image server (i.scdn.co) — the only network request of this feature.">
+        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+          <input
+            type="checkbox"
+            checked={cfg.artwork}
+            onChange={(e) => update({ ...cfg, artwork: e.target.checked })}
+            className="accent-[var(--color-accent)]"
+          />
+          <span className="text-[var(--color-muted)]">{cfg.artwork ? "On" : "Off — a music icon instead"}</span>
+        </label>
+      </Row>
+      <Row label="Clear history" help="Deletes every finished entry. The track playing right now stays.">
+        <button
+          type="button"
+          onClick={() => void clear()}
+          onBlur={() => setArmed(false)}
+          className={`rounded-md px-2 py-1 text-[12px] ${armed ? "bg-red-600 text-white" : "border border-[var(--color-border)] text-[var(--color-fg)] hover:bg-[var(--color-surface)]"}`}
+        >
+          {armed ? "Really clear?" : "Clear history"}
+        </button>
+        {note && <span className="text-[12px] text-[var(--color-muted)]">{note}</span>}
       </Row>
     </Section>
   );

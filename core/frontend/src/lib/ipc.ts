@@ -4703,3 +4703,110 @@ export interface FinderContext {
 export function finderContext(): Promise<FinderContext> {
   return invoke("finder_context");
 }
+
+// ── Spotify (macOS) — local play history + control ──────────────────────
+// Backend: core/rust-lib/src/spotify/. Reference: docs/spotify.md.
+
+export type SpotifyControl = "play" | "pause" | "toggle" | "next" | "previous" | "volume" | "seek";
+export type SpotifyPlayerState = "playing" | "paused" | "stopped" | "not_running";
+export type SpotifyPermission = "granted" | "denied" | "undetermined" | "unknown";
+
+export interface SpotifyNowTrack {
+  uri: string;
+  name: string;
+  artist: string;
+  album: string;
+  duration_ms: number | null;
+  artwork_url: string | null;
+}
+
+/** Mirrors `spotify::macos::Now`. */
+export interface SpotifyNow {
+  installed: boolean;
+  running: boolean;
+  permission: SpotifyPermission;
+  state: SpotifyPlayerState;
+  track: SpotifyNowTrack | null;
+  position_ms: number | null;
+  volume: number | null;
+  at_ms: number;
+  source: "applescript" | "recorder";
+  played_ms: number | null;
+  history_enabled: boolean;
+  artwork_enabled: boolean;
+  error: string | null;
+}
+
+/** Mirrors `spotify::store::PlayRow`. */
+export interface SpotifyPlayRow {
+  id: number;
+  started_at: number;
+  ended_at: number;
+  track_uri: string;
+  track: string;
+  artist: string;
+  album: string;
+  duration_ms: number | null;
+  played_ms: number;
+  status: "listened" | "partial" | "skipped" | "playing";
+  artwork_url: string | null;
+  open: boolean;
+}
+
+export interface SpotifyHistoryQuery {
+  text?: string | null;
+  artist?: string | null;
+  since_ms?: number | null;
+  until_ms?: number | null;
+  limit?: number | null;
+  offset?: number | null;
+}
+
+export interface SpotifyHistoryPage {
+  rows: SpotifyPlayRow[];
+  total: number;
+  played_ms: number;
+}
+
+export interface SpotifyConfig {
+  history: boolean;
+  artwork: boolean;
+}
+
+export const SPOTIFY_NOT_INSTALLED = "spotify.not_installed";
+export const SPOTIFY_NOT_RUNNING = "spotify.not_running";
+export const SPOTIFY_DENIED = "spotify.automation_denied";
+
+/** `ask` = user-initiated: the macOS Automation prompt may appear. */
+export function spotifyNow(ask: boolean): Promise<SpotifyNow> {
+  return invoke("spotify_now", { ask });
+}
+
+export function spotifyControl(action: SpotifyControl, value?: number): Promise<void> {
+  return invoke("spotify_control", { action, value: value ?? null });
+}
+
+export function spotifyHistory(query: SpotifyHistoryQuery): Promise<SpotifyHistoryPage> {
+  return invoke("spotify_history", { query });
+}
+
+/** Writes to ~/Downloads (never overwrites), reveals it, returns the path. */
+export function spotifyHistoryExport(format: "json" | "csv" | "md", query: SpotifyHistoryQuery): Promise<string> {
+  return invoke("spotify_history_export", { format, query });
+}
+
+export function spotifyHistoryClear(): Promise<number> {
+  return invoke("spotify_history_clear");
+}
+
+export function getSpotifyConfig(): Promise<SpotifyConfig> {
+  return invoke("get_spotify_config");
+}
+
+export function setSpotifyConfig(config: SpotifyConfig): Promise<void> {
+  return invoke("set_spotify_config", { config });
+}
+
+export function spotifyOpenAutomationSettings(): Promise<void> {
+  return invoke("spotify_open_automation_settings");
+}

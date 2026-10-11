@@ -104,6 +104,7 @@ mod snippets;
 mod snitch;
 mod pulse;
 mod speedtest;
+mod spotify;
 mod social_dl;
 mod sound;
 mod stats_history;
@@ -472,6 +473,10 @@ pub fn run(context: tauri::Context<Wry>) {
                 gestures::apply(app.handle(), &db_handle, g_state.inner());
                 gestures::spawn_wake_watchdog(app.handle());
             }
+
+            // Spotify play history: notification observer + recorder thread.
+            #[cfg(target_os = "macos")]
+            spotify::macos::start(app.handle(), &db_handle);
 
             // Retro overlay: stop on sleep / lock, rebuild on display changes.
             #[cfg(target_os = "macos")]
@@ -979,6 +984,24 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::cleaner_categories,
             commands::get_cleaner_config,
             commands::set_cleaner_config,
+            #[cfg(target_os = "macos")]
+            commands::spotify_now,
+            #[cfg(target_os = "macos")]
+            commands::spotify_control,
+            #[cfg(target_os = "macos")]
+            commands::spotify_history,
+            #[cfg(target_os = "macos")]
+            commands::spotify_history_export,
+            #[cfg(target_os = "macos")]
+            commands::spotify_history_delete,
+            #[cfg(target_os = "macos")]
+            commands::spotify_history_clear,
+            #[cfg(target_os = "macos")]
+            commands::get_spotify_config,
+            #[cfg(target_os = "macos")]
+            commands::set_spotify_config,
+            #[cfg(target_os = "macos")]
+            commands::spotify_open_automation_settings,
             #[cfg(target_os = "macos")]
             commands::snitch_list_apps,
             #[cfg(target_os = "macos")]

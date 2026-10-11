@@ -90,6 +90,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // Speed-test results (the `speedtest` command).
     crate::speedtest::init_schema(&conn)
         .with_context(|| "failed to create speedtest_history table")?;
+    // Spotify play history (the `spotify` command; macOS recorder).
+    crate::spotify::store::init_schema(&conn)
+        .with_context(|| "failed to create spotify_plays table")?;
     // AI tasks + their run log (the `task` / `ki` command).
     crate::ai_tasks::store::init_schema(&conn)
         .with_context(|| "failed to create ai_tasks tables")?;

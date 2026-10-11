@@ -1106,6 +1106,42 @@ export const COMMAND_DOCS: CommandDoc[] = [
     caveats: ["Needs a microphone + network (the recognition query). No match → a clear 'no match' state."],
     related: [],
   },
+  {
+    command: "spotify",
+    aliases: [],
+    category: CAT_MEDIA,
+    version_added: "0.206.0",
+    tagline: "Spotify: now playing, local play history, export, control.",
+    tagline_de: "Spotify: läuft gerade, lokaler Verlauf, Export, Steuerung.",
+    synopsis: "spotify [now | history [heute|woche|artist <name>|<suche>] [export json|csv|md] | play | pause | toggle | next | previous | volume <0-100> | seek <s>]",
+    description:
+      "Works with the Spotify desktop app — no account, no Web API, nothing leaves the Mac. Inspector records every play locally from Spotify's own playback notification: start, end, actually heard time, and listened / partial / skipped. Pause and resume stay one entry. `spotify` shows the current track with progress and controls, `spotify history` the log grouped by day with search, filters and export. Reads show while you type; controls and export run on Enter.",
+    arguments: [
+      { name: "now", required: false, description: "Current track, progress, controls and the last plays.", default: "(now)" },
+      { name: "history", required: false, description: "Play log. Then: heute / gestern / woche / monat, artist <name>, free text (track, artist, album), export json|csv|md." },
+      { name: "play | pause | toggle | next | previous", required: false, description: "Control the Spotify app." },
+      { name: "volume <0-100> | seek <s|m:ss>", required: false, description: "Spotify's own volume; jump to a position." },
+    ],
+    flags: [],
+    examples: [
+      { input: "spotify", result: "Now playing with cover (optional), progress, controls and the last 5 plays." },
+      { input: "spotify history heute", result: "Today's plays, newest first, with heard time and status." },
+      { input: "spotify history artist Kanye West", result: "Only plays by that artist." },
+      { input: "spotify history export csv", result: "Whole history as CSV in ~/Downloads (never overwrites)." },
+      { input: "spotify volume 40", result: "Enter sets Spotify's volume to 40." },
+    ],
+    tips: [
+      "With the panel focused: Space plays/pauses, ←/→ previous/next; in the history ↑/↓ scroll.",
+      "listened = at least half the track or 4 minutes; skipped = under 30 s; in between partial. Plays under 5 s are not kept.",
+      "Covers are off by default — they load from Spotify's image server (Settings → Spotify).",
+    ],
+    caveats: [
+      "macOS only. The history needs no permission; live position and controls ask once for the Automation permission (Settings → Privacy → Automation).",
+      "Only plays on this Mac's Spotify app are recorded — not the phone, not while Inspector isn't running.",
+    ],
+    related: ["shazam", "sound"],
+    see_also: "docs/spotify.md",
+  },
 
   // ── Cleanup / Display / Info ──────────────────────────────────────────
   {

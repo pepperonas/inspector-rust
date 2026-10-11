@@ -62,6 +62,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "linux-shortcuts", label: "Linux desktop shortcuts", names: ["linux", "gnome", "desktop shortcuts"] },
   { id: "about", label: "About", names: ["about", "version", "über", "info", "lizenz", "license"] },
   { id: "pulse", label: "Pulse (Speicherdruck & SSD)", names: ["pulse", "speicherdruck", "swap", "ssd", "tbw", "memory pressure"] },
+  { id: "spotify", label: "Spotify", names: ["spotify", "musik", "music", "verlauf", "history", "scrobble"] },
 ] as const;
 
 export interface SettingsCategory {
@@ -97,7 +98,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     label: "Befehle",
     sections: ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"],
   },
-  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "pagespeed", "repos"] },
+  { id: "services", label: "Dienste & Zugänge", sections: ["ai", "weather", "spotify", "pagespeed", "repos"] },
   { id: "sync", label: "Sync & Sicherung", sections: ["cloud-sync", "device-sync", "auto-backup", "backup"] },
   { id: "about", label: "Info", sections: ["about"] },
 ];

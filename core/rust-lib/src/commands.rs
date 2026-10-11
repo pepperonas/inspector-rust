@@ -8841,3 +8841,117 @@ mod color_pick_flow_tests {
         assert!(park - gate < 80, "the gate sits directly on the park call");
     }
 }
+
+// ── Spotify (macOS): play history + control ────────────────────────────────
+
+/// Current player state. `ask` = the user ran the command, so the macOS
+/// Automation prompt may appear; otherwise AppleScript only with a granted
+/// permission. Async: osascript + TCC are blocking calls.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn spotify_now(ask: bool) -> crate::spotify::macos::Now {
+    tauri::async_runtime::spawn_blocking(move || crate::spotify::macos::now(ask))
+        .await
+        .unwrap_or_else(|_| crate::spotify::macos::now(false))
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn spotify_control(
+    action: crate::spotify::macos::Control,
+    value: Option<f64>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::spotify::macos::control(action, value))
+        .await
+        .map_err(|e| format!("spotify: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn spotify_history(
+    db: State<'_, DbHandle>,
+    query: crate::spotify::store::HistoryQuery,
+) -> Result<crate::spotify::store::HistoryPage, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.lock();
+        crate::spotify::store::query(&conn, &query).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spotify: {e}"))?
+}
+
+/// Write the (filtered) history to ~/Downloads as JSON / CSV / Markdown —
+/// never overwriting — and reveal it. Returns the path.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn spotify_history_export(
+    db: State<'_, DbHandle>,
+    format: String,
+    query: crate::spotify::store::HistoryQuery,
+) -> Result<String, String> {
+    use crate::spotify::export;
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let fmt = export::Format::parse(&format).ok_or_else(|| format!("Unbekanntes Format: {format}"))?;
+        let rows = {
+            let conn = db.lock();
+            crate::spotify::store::all(&conn, &query).map_err(|e| e.to_string())?
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let text = export::render(&rows, fmt, &export::iso_local, now);
+        let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+        let stem = format!("spotify-history-{}", chrono::Local::now().format("%Y-%m-%d"));
+        let name = export::free_name(&stem, fmt.extension(), |n| dir.join(n).exists());
+        let out = dir.join(name);
+        std::fs::write(&out, text).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
+        reveal_in_file_manager(&out);
+        Ok(out.display().to_string())
+    })
+    .await
+    .map_err(|e| format!("spotify: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn spotify_history_delete(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+    let conn = db.lock();
+    crate::spotify::store::delete(&conn, id).map_err(|e| e.to_string())
+}
+
+/// Remove every finished entry (the current play stays). Returns the count.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn spotify_history_clear(db: State<'_, DbHandle>) -> Result<usize, String> {
+    let conn = db.lock();
+    crate::spotify::store::clear(&conn).map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn get_spotify_config(db: State<'_, DbHandle>) -> crate::spotify::macos::SpotifyConfig {
+    crate::spotify::macos::load_config(&db)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn set_spotify_config(
+    db: State<'_, DbHandle>,
+    config: crate::spotify::macos::SpotifyConfig,
+) -> Result<(), String> {
+    crate::spotify::macos::save_config(&db, config)
+}
+
+/// System Settings → Privacy & Security → Automation.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn spotify_open_automation_settings() -> Result<(), String> {
+    std::process::Command::new("/usr/bin/open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}

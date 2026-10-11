@@ -8915,6 +8915,17 @@ pub async fn spotify_history_export(
     .map_err(|e| format!("spotify: {e}"))?
 }
 
+/// Most played artists (Tab completion of `spotify history artist`).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn spotify_top_artists(
+    db: State<'_, DbHandle>,
+    limit: u32,
+) -> Result<Vec<crate::spotify::store::ArtistCount>, String> {
+    let conn = db.lock();
+    crate::spotify::store::top_artists(&conn, limit.min(500)).map_err(|e| e.to_string())
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn spotify_history_delete(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {

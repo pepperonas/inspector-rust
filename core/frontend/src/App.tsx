@@ -2,7 +2,10 @@ import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive } from "./lib/transcribe";
-import { completeArg, cycleIndex, ghostSuffix, tabStep, type ArgCycle } from "./lib/arg-complete";
+
+/** localStorage key of the argument-usage memory (Tab ranking). */
+const ARG_USAGE_KEY = "ir.arg-usage.v1";
+import type { ArgCycle, ArgOption, ArgUsage } from "./lib/arg-complete";
 import type { CompletionHint } from "./components/SearchBar";
 import { commandLabel as spotifyLabel, parseSpotifyArg } from "./lib/spotify";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -233,6 +236,7 @@ import {
   mdToPdfRun,
   transcribeRun,
   transcribeStatus,
+  spotifyTopArtists,
   TRANSCRIBE_BUSY,
   type TranscribeJob,
   type TranscribeDone,
@@ -3460,6 +3464,20 @@ function App() {
   // suggestions, figlet fonts, bruno, social) are other row kinds, so the
   // handlers never compete.
   const [argCycle, setArgCycle] = useState<ArgCycle | null>(null);
+  // Which argument words were used, to put habits first. Per device
+  // (localStorage) — a convenience, never required: unreadable storage just
+  // means registry order.
+  const [argUsage, setArgUsage] = useState<{ usage: ArgUsage; now: number }>(() => {
+    try {
+      const raw = localStorage.getItem(ARG_USAGE_KEY);
+      return { usage: raw ? (JSON.parse(raw) as ArgUsage) : {}, now: Date.now() };
+    } catch {
+      return { usage: {}, now: Date.now() };
+    }
+  });
+  // Live value lists for completion slots (artists of the Spotify history),
+  // loaded the first time a slot needs them.
+  const [argSources, setArgSources] = useState<Partial<Record<string, readonly ArgOption[]>>>({});
   // The command comes from the first word as typed — not only from the
   // parsed command, which is null for `wakelock ` (a required argument is
   // still missing — exactly when completion helps most).
@@ -3479,10 +3497,43 @@ function App() {
     selectedRow?.kind === "bruno" ||
     selectedRow?.kind === "social";
   const argRowSelected = !!argSpec && !ownTab;
-  const argComplete = useMemo(
-    () => (argSpec && argRowSelected ? completeArg(argSpec.kind, query) : null),
-    [argSpec, argRowSelected, query],
+  // The completer (registry + rules) loads with the first recognised
+  // command word — it is not needed before, and the start-up chunk has a
+  // budget (check-bundle.mjs).
+  const [argMod, setArgMod] = useState<typeof import("./lib/arg-complete") | null>(null);
+  useEffect(() => {
+    if (argSpec && !argMod) void import("./lib/arg-complete").then(setArgMod);
+  }, [argSpec, argMod]);
+  const argCtx = useMemo(
+    () => ({ sources: argSources, usage: argUsage.usage, now: argUsage.now }),
+    [argSources, argUsage],
   );
+  const argComplete = useMemo(
+    () => (argMod && argSpec && argRowSelected ? argMod.completeArg(argSpec.kind, query, argCtx) : null),
+    [argMod, argSpec, argRowSelected, query, argCtx],
+  );
+  const neededSource =
+    argMod && argSpec && argRowSelected ? argMod.missingSource(argSpec.kind, query, argCtx) : null;
+  useEffect(() => {
+    if (!argMod || neededSource !== argMod.SOURCE_SPOTIFY_ARTISTS) return;
+    const key = argMod.SOURCE_SPOTIFY_ARTISTS;
+    let cancelled = false;
+    void spotifyTopArtists(300)
+      .then((list) => {
+        if (cancelled) return;
+        setArgSources((s) => ({
+          ...s,
+          [key]: list.map((a) => ({
+            value: a.artist,
+            hint: `${a.plays}× gehört`,
+          })),
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [argMod, neededSource]);
   // A cycle only lives while the line still shows the word it put there.
   const cycleLive =
     argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : null;
@@ -3490,20 +3541,21 @@ function App() {
     if (cycleLive) {
       const n = cycleLive.cands.length;
       if (n < 2) return null;
-      const next = cycleLive.cands[cycleIndex(cycleLive.index, n, false)];
+      const next = cycleLive.cands[argMod ? argMod.cycleIndex(cycleLive.index, n, false) : 0];
       return { ghost: "", value: next.value, hint: next.hint, index: cycleLive.index, total: n, cycling: true };
     }
     if (!argComplete) return null;
     const first = argComplete.candidates[0];
     return {
-      ghost: ghostSuffix(query, first),
+      fix: first.fix ? argComplete.partial.trim() : undefined,
+      ghost: argMod ? argMod.ghostSuffix(query, first) : "",
       value: first.value,
       hint: first.hint,
       index: -1,
       total: argComplete.candidates.length,
       cycling: false,
     };
-  }, [cycleLive, argComplete, query]);
+  }, [argMod, cycleLive, argComplete, query]);
   useEffect(() => {
     if (gameMode || (!argComplete && !cycleLive)) return;
     const onKey = (e: KeyboardEvent) => {
@@ -3517,7 +3569,8 @@ function App() {
         const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
         if (e.shiftKey || cycleLive || !atEnd || !completionHint?.ghost) return;
       }
-      const step = tabStep(tab ? cycleLive : null, argComplete, tab && e.shiftKey);
+      if (!argMod) return;
+      const step = argMod.tabStep(tab ? cycleLive : null, argComplete, tab && e.shiftKey);
       if (!step) return;
       e.preventDefault();
       e.stopPropagation();
@@ -3531,7 +3584,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [argComplete, cycleLive, completionHint, gameMode]);
+  }, [argMod, argComplete, cycleLive, completionHint, gameMode]);
 
   // Tab / → on a selected figlet-font row fills `@font` into the search bar
   // (rz-preset semantics) so the user can keep tweaking the text before Enter.
@@ -4169,6 +4222,21 @@ function App() {
       arg: string,
       keyword?: string,
     ): Promise<boolean> => {
+      // Remember the argument words of what actually ran — Tab offers
+      // habits first next time.
+      if (arg.trim() && argMod) {
+        const mod = argMod;
+        setArgUsage(({ usage }) => {
+          const now = Date.now();
+          const next = mod.recordUse(usage, commandKind, `${commandKind} ${arg}`, { sources: argSources }, now);
+          try {
+            localStorage.setItem(ARG_USAGE_KEY, JSON.stringify(next));
+          } catch {
+            /* storage full / blocked — ranking just stays as it was */
+          }
+          return { usage: next, now };
+        });
+      }
       // INVARIANT — inline preview-panel commands must canonicalise the query
       // to their keyword the moment they open. Every one of these renders in
       // the preview column and stays open only while the query still parses to

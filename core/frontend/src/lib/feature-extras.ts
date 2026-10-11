@@ -101,7 +101,7 @@ export const IN_POPUP_ACTIONS: FeatureRow[] = [
   {
     name: "Complete command arguments",
     trigger: "Tab · Shift+Tab · →",
-    note: "Typing a command's argument (spotify hi, wakelock o, settings spo) shows the rest as grey text plus a hint with its meaning; Tab takes it, more Tabs cycle through the alternatives, Shift+Tab goes back, → at the end takes the grey text.",
+    note: "Typing a command's argument (spotify hi, wakelock o, settings spo) shows the rest as grey text plus a hint with its meaning; Tab takes it, more Tabs cycle through the alternatives, Shift+Tab goes back, → at the end takes the grey text. Also typical values (volume 25/50/75), artists from your Spotify history, typo fixes (histroy → history) — and the words you use most come first.",
   },
   { name: "Paste with formatting", trigger: formatHotkey("Shift+Enter"), note: "Paste a clip keeping its original HTML/RTF formatting." },
   { name: "Navigate / close", trigger: "↑ ↓ · Esc", note: "Arrow keys move the selection; Esc hides the popup." },

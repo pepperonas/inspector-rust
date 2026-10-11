@@ -51,6 +51,8 @@ describe("parseSpotifyArg", () => {
       export: undefined,
     });
     expect(parseSpotifyArg("history export")).toEqual({ kind: "history", filter: {}, export: "json" });
+    // Name still to come: neither an artist filter nor a search for "artist".
+    expect(parseSpotifyArg("history artist")).toEqual({ kind: "history", filter: {}, export: undefined });
     expect(parseSpotifyArg("history export csv")).toEqual({ kind: "history", filter: {}, export: "csv" });
     expect(parseSpotifyArg("history week artist Kanye West export markdown")).toEqual({
       kind: "history",

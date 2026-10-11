@@ -76,6 +76,8 @@ function parseHistory(words: string[]): SpotifyCmd {
       } else {
         exportFormat = "json";
       }
+    } else if (ARTIST_WORDS.has(lower) && i + 1 >= words.length) {
+      // `artist` with the name still to come: no filter yet, not a search.
     } else if (RANGES[lower] && !filter.range) {
       filter.range = RANGES[lower];
     } else if (ARTIST_WORDS.has(lower) && i + 1 < words.length && filter.artist == null) {

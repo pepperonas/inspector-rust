@@ -44,6 +44,20 @@ describe("SearchBar completion", () => {
     expect(pill.textContent).toContain("1/3");
   });
 
+  it("shows a typo correction as typed → corrected", () => {
+    render(
+      <SearchBar
+        value="spotify histroy"
+        onChange={() => {}}
+        completion={hint({ ghost: "", fix: "histroy", value: "history" })}
+      />,
+    );
+    const pill = screen.getByTestId("completion-pill");
+    expect(pill.textContent).toContain("histroy → history · Verlauf nach Tagen");
+    expect(pill.querySelector(".line-through")?.textContent).toBe("histroy");
+    expect(screen.queryByTestId("completion-ghost")).toBeNull();
+  });
+
   it("renders nothing extra without a completion", () => {
     render(<SearchBar value="hallo" onChange={() => {}} />);
     expect(screen.queryByTestId("completion-ghost")).toBeNull();

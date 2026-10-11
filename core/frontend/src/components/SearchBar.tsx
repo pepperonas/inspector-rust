@@ -4,6 +4,8 @@ import { touchPaste } from "../lib/touch";
 
 /** What Tab would do right now (argument completion, see lib/arg-complete). */
 export interface CompletionHint {
+  /** Set for a typo correction: the word as typed, which Tab replaces. */
+  fix?: string;
   /** Grey text after the caret — the rest of the word Tab inserts. */
   ghost: string;
   /** The word the NEXT Tab inserts. */
@@ -36,6 +38,11 @@ function CompletionPill({ c }: { c: CompletionHint }) {
       <kbd className="shrink-0 whitespace-nowrap rounded bg-rose-500/15 px-1 font-sans text-[10px] font-semibold text-rose-500">⇥ Tab</kbd>
       <span className="truncate">
         {c.cycling && <span>weiter: </span>}
+        {c.fix && !c.cycling && (
+          <span>
+            <span className="line-through decoration-rose-500/70">{c.fix}</span> →{" "}
+          </span>
+        )}
         <span className="text-[var(--color-fg)]">{c.value}</span>
         <span> · {c.hint}</span>
       </span>

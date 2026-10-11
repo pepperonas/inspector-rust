@@ -220,11 +220,37 @@ function countMetrics() {
     for (const m of src.matchAll(/\.emit(?:_to)?\(\s*(?:[^,()]+,\s*)?"([a-z0-9:_-]+)"/g)) eventNames.add(m[1]);
   }
 
+  // Sections in the Settings registry (the ones with search names — the
+  // category list below it has `sections:` instead).
+  const settings = (read("core/frontend/src/lib/settings-sections.ts").match(/\{ id: "[^"]+", label: "[^"]+", names: \[/g) ?? []).length;
+
+  // Commands whose arguments Tab completes: the keys of ARG_TREES.
+  const argSrc = read("core/frontend/src/lib/arg-complete.ts");
+  const argTrees = argSrc.slice(argSrc.indexOf("export const ARG_TREES"));
+  const completion = (argTrees.slice(0, argTrees.indexOf("\n};")).match(/^  (?:"[^"]+"|[a-z][a-zA-Z0-9]*):/gm) ?? []).length;
+
+  // Released versions in the CHANGELOG (Unreleased doesn't count).
+  const releases = (read("CHANGELOG.md").match(/^## \[\d+\.\d+\.\d+\]/gm) ?? []).length;
+
+  // Hidden triggers (games, visualizers …) — the list the Features tab pins.
+  const extras = read("core/frontend/src/lib/feature-extras.ts");
+  const hiddenList = extras.slice(extras.indexOf("export const HIDDEN_TRIGGERS"));
+  const hidden = (hiddenList.slice(0, hiddenList.indexOf("];")).match(/^\s+"[^"]*",/gm) ?? []).length;
+
+  // Rebindable global action hotkeys (`ActionId::ALL`).
+  const hotkeys = Number(/pub const ALL: \[ActionId; (\d+)\]/.exec(read("core/rust-lib/src/hotkey.rs"))?.[1]);
+
+  // Frontend logic modules (src/lib, without tests).
+  const frontendModules = readdirSync(join(ROOT, "core/frontend/src/lib")).filter(
+    (f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f),
+  ).length;
+
   // ⚠️ The frontend test `readme-badges.test.ts` recomputes each of these with
   // the SAME patterns — change one side, change both.
   return {
     commands, docs, modules, crates, features,
     ipc, components, suites, tables: tableNames.size, events: eventNames.size,
+    settings, completion, releases, hidden, hotkeys, frontendModules,
   };
 }
 
@@ -237,7 +263,8 @@ function countMetrics() {
 // The "%20Seiten" variant simply doesn't match in the English file.
 function applyMetricBadges(s, metrics) {
   const { commands, docs, modules, crates, features, ipc, components, suites, tables, events } = metrics;
-  for (const [k, v] of Object.entries({ commands, docs, modules, crates, features, ipc, components, suites, tables, events })) {
+  const { settings, completion, releases, hidden, hotkeys, frontendModules } = metrics;
+  for (const [k, v] of Object.entries({ commands, docs, modules, crates, features, ipc, components, suites, tables, events, settings, completion, releases, hidden, hotkeys, frontendModules })) {
     if (!Number.isFinite(v)) throw new Error(`badge metric '${k}' is ${v} — refusing to write it into the README`);
   }
   return s
@@ -253,7 +280,14 @@ function applyMetricBadges(s, metrics) {
     .replace(/badge\/UI%20components-(?:\d+|undefined)/g, `badge/UI%20components-${components}`)
     .replace(/badge\/test%20suites-(?:\d+|undefined)/g, `badge/test%20suites-${suites}`)
     .replace(/badge\/SQLite%20tables-(?:\d+|undefined)/g, `badge/SQLite%20tables-${tables}`)
-    .replace(/badge\/events-(?:\d+|undefined)/g, `badge/events-${events}`);
+    .replace(/badge\/events-(?:\d+|undefined)/g, `badge/events-${events}`)
+    .replace(/badge\/settings%20sections-\d+/g, `badge/settings%20sections-${settings}`)
+    .replace(/badge\/Tab%20completion-\d+%20commands/g, `badge/Tab%20completion-${completion}%20commands`)
+    .replace(/badge\/Tab--Vervollst%C3%A4ndigung-\d+%20Befehle/g, `badge/Tab--Vervollst%C3%A4ndigung-${completion}%20Befehle`)
+    .replace(/badge\/releases-\d+/g, `badge/releases-${releases}`)
+    .replace(/badge\/hidden%20triggers-\d+/g, `badge/hidden%20triggers-${hidden}`)
+    .replace(/badge\/rebindable%20hotkeys-\d+/g, `badge/rebindable%20hotkeys-${hotkeys}`)
+    .replace(/badge\/frontend%20modules-\d+/g, `badge/frontend%20modules-${frontendModules}`);
 }
 
 function writeEdits(edits) {

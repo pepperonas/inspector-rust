@@ -993,6 +993,8 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::spotify_history_export,
             #[cfg(target_os = "macos")]
+            commands::spotify_top_artists,
+            #[cfg(target_os = "macos")]
             commands::spotify_history_delete,
             #[cfg(target_os = "macos")]
             commands::spotify_history_clear,

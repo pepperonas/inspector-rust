@@ -612,6 +612,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "fx_rates": return FX;
     case "loc_count": return LOC;
     case "shazam_history_list": return SONGS;
+    case "spotify_top_artists":
+      return [
+        { artist: "Parra for Cuva", plays: 42 },
+        { artist: "Kraftwerk", plays: 31 },
+        { artist: "Khruangbin", plays: 18 },
+        { artist: "Moderat", plays: 9 },
+      ];
     case "shazam_is_listening": return false;
     // ── settings tab (plausible, invented values) ─────────────────────────
     case "adb_status": return { found: true, devices: [], recording: false };

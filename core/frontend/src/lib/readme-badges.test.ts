@@ -16,6 +16,9 @@ import winConf from "../../../../win/src-tauri/tauri.conf.json?raw";
 import linuxConf from "../../../../linux/src-tauri/tauri.conf.json?raw";
 import { COMMAND_DOCS } from "./commandDocs";
 import { COMMANDS } from "./commands";
+import { SETTINGS_SECTIONS } from "./settings-sections";
+import { ARG_TREES } from "./arg-complete";
+import { HIDDEN_TRIGGERS } from "./feature-extras";
 import libRs from "../../../rust-lib/src/lib.rs?raw";
 
 // The source trees the new count badges describe — the same globs the
@@ -27,6 +30,9 @@ const globbedTests = Object.keys(import.meta.glob("../**/*.test.{ts,tsx}"));
 const tsTestFiles = globbedTests.some((f) => f.endsWith("/readme-badges.test.ts"))
   ? globbedTests
   : [...globbedTests, "./readme-badges.test.ts"];
+// Frontend logic modules: src/lib without tests (this file is a test, so the
+// glob leaving it out changes nothing).
+const libModules = Object.keys(import.meta.glob("./*.{ts,tsx}")).filter((f) => !/\.test\.tsx?$/.test(f));
 const rustSources = import.meta.glob("../../../rust-lib/src/**/*.rs", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 /**
@@ -178,11 +184,41 @@ describe("badge parity and manifest agreement", () => {
     }
   });
 
+  it("settings-sections badge equals the Settings registry", () => {
+    expect(badge(readmeEn, "settings%20sections")).toBe(SETTINGS_SECTIONS.length);
+  });
+
+  it("Tab-completion badge equals the commands with an argument tree", () => {
+    expect(badge(readmeEn, "Tab%20completion")).toBe(Object.keys(ARG_TREES).length);
+  });
+
+  it("rebindable-hotkeys badge equals ActionId::ALL", () => {
+    const hotkeyRs = Object.entries(rustSources).find(([k]) => k.endsWith("/hotkey.rs"))?.[1] ?? "";
+    const n = Number(/pub const ALL: \[ActionId; (\d+)\]/.exec(hotkeyRs)?.[1]);
+    expect(n).toBeGreaterThan(0);
+    expect(badge(readmeEn, "rebindable%20hotkeys")).toBe(n);
+  });
+
+  it("hidden-triggers badge equals the pinned trigger list", () => {
+    expect(badge(readmeEn, "hidden%20triggers")).toBe(HIDDEN_TRIGGERS.length);
+  });
+
+  it("frontend-modules badge equals the src/lib modules", () => {
+    expect(libModules.length).toBeGreaterThan(50);
+    expect(badge(readmeEn, "frontend%20modules")).toBe(libModules.length);
+  });
+
+  it("releases badge equals the released versions in the CHANGELOG", () => {
+    const n = (changelogMd.match(/^## \[\d+\.\d+\.\d+\]/gm) ?? []).length;
+    expect(n).toBeGreaterThan(100);
+    expect(badge(readmeEn, "releases")).toBe(n);
+  });
+
   it("every computed badge shows the SAME value in English and German", () => {
     // ⚠️ This is the drift that actually happened: the German README sat at
     // docs-22/modules-84 beside the English 24/87 for weeks, because the
     // update script only carried rules for one language.
-    for (const key of ["commands", "docs", "rust%20modules", "crates", "features", "IPC%20commands", "UI%20components", "test%20suites", "SQLite%20tables", "events"]) {
+    for (const key of ["commands", "docs", "rust%20modules", "crates", "features", "IPC%20commands", "UI%20components", "test%20suites", "SQLite%20tables", "events", "settings%20sections", "Tab%20completion", "rebindable%20hotkeys", "hidden%20triggers", "frontend%20modules", "releases"]) {
       expect(badge(readmeEn, key), `${key} missing in EN`).not.toBeNull();
       expect(badge(readmeDe, key), `${key} missing in DE`).toBe(badge(readmeEn, key));
     }

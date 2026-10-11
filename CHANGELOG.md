@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.208.0] - 2026-10-11
+
+### Added
+- **Tab suggests values, not just words.** Typical values where a command takes a number — `spotify volume` 25/50/75/100, `timer` 5min/10min/25min/1h, `shot` 3/5/10 s, `pwgen` 16/24/32, `uuid`, `rnd`, `iris` thresholds — and the artists of your own Spotify history for `spotify history artist`, most played first (names with spaces complete as one value).
+- **Habits first.** The argument words of the commands you run are remembered per position; next time the ones you use most come first, and old habits fade (half weight after 14 days). Nothing is hidden, only the order changes. Stored per device.
+- **Typo correction.** When nothing matches by prefix, a word one slip away (`histroy`, `pasue`, `dakr`) is offered as `histroy → history`; Tab replaces it. Short words and numbers are never „corrected“.
+- **New README badges**, computed like the others and checked in CI: Settings sections, commands with Tab completion, rebindable hotkeys, hidden triggers, frontend modules, releases — plus feature badges for Spotify, transcription, Tab completion, pulse, speedtest, AI tasks and more.
+- `docs/tab-completion.md`.
+
+### Changed
+- The grey suggestion also shows when the case differs (`artist kr` → `aftwerk`); Tab writes the proper spelling.
+- `spotify history artist` without a name no longer searches for the word „artist“.
+- The completer loads with the first recognised command word instead of with every popup start.
+
 ## [0.207.0] - 2026-10-11
 
 ### Added

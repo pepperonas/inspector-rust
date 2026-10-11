@@ -261,6 +261,31 @@ pub fn all(conn: &Connection, q: &HistoryQuery) -> rusqlite::Result<Vec<PlayRow>
     Ok(page.rows)
 }
 
+/// An artist and how often they were played (for Tab completion).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ArtistCount {
+    pub artist: String,
+    pub plays: u32,
+}
+
+/// Most played artists first; ties go to the more recent one.
+pub fn top_artists(conn: &Connection, limit: u32) -> rusqlite::Result<Vec<ArtistCount>> {
+    let mut stmt = conn.prepare(
+        "SELECT artist, COUNT(*) AS n FROM spotify_plays
+         WHERE trim(artist) <> ''
+         GROUP BY artist ORDER BY n DESC, MAX(started_at) DESC LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map([limit], |r| {
+            Ok(ArtistCount {
+                artist: r.get(0)?,
+                plays: r.get(1)?,
+            })
+        })?
+        .collect();
+    rows
+}
+
 pub fn delete(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM spotify_plays WHERE id=?1 AND open = 0", [id])
         .map(|_| ())
@@ -447,6 +472,25 @@ mod tests {
         let range = query(&c, &HistoryQuery { since_ms: Some(100_000), until_ms: Some(300_000), ..Default::default() }).unwrap();
         assert_eq!(range.rows.iter().map(|r| r.track.as_str()).collect::<Vec<_>>(), ["Über", "Runaway"]);
         assert_eq!(all(&c, &HistoryQuery::default()).unwrap()[0].track, "Wicked Games", "export is oldest first");
+    }
+
+    #[test]
+    fn top_artists_counts_plays_and_breaks_ties_by_recency() {
+        let c = db();
+        let mut t = Tracker::new();
+        let plays = [("Kanye West", 0), ("Metallica", 1), ("Kanye West", 2), ("", 3), ("Metallica", 4), ("Daft Punk", 5)];
+        for (artist, i) in plays {
+            play(&c, &mut t, track(&format!("spotify:track:{i}"), "T", artist, "A"), i * 100_000, 60);
+        }
+        // Finish the last one.
+        let ch = t.observe(&Observation { at_ms: 10_000_000, state: PlayerState::Stopped, track: None, position_ms: None });
+        feed(&c, &mut t, ch);
+        let top = top_artists(&c, 10).unwrap();
+        let names: Vec<_> = top.iter().map(|a| a.artist.as_str()).collect();
+        // Metallica's last play is newer than Kanye's → first among the 2s.
+        assert_eq!(names, ["Metallica", "Kanye West", "Daft Punk"]);
+        assert_eq!(top[0].plays, 2);
+        assert_eq!(top_artists(&c, 1).unwrap().len(), 1);
     }
 
     #[test]

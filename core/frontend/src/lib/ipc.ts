@@ -4795,6 +4795,16 @@ export function spotifyHistoryExport(format: "json" | "csv" | "md", query: Spoti
   return invoke("spotify_history_export", { format, query });
 }
 
+export interface SpotifyArtistCount {
+  artist: string;
+  plays: number;
+}
+
+/** Most played artists (Tab completion of `spotify history artist`). */
+export function spotifyTopArtists(limit: number): Promise<SpotifyArtistCount[]> {
+  return invoke("spotify_top_artists", { limit });
+}
+
 export function spotifyHistoryClear(): Promise<number> {
   return invoke("spotify_history_clear");
 }

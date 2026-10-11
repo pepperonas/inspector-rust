@@ -69,6 +69,9 @@ describe("parseSpotifyArg", () => {
     expect(parseSpotifyArg("seek 1:30")).toEqual({ kind: "control", action: "seek", value: 90 });
     expect(parseSpotifyArg("seek x").kind).toBe("invalid");
     expect(parseSpotifyArg("dance").kind).toBe("invalid");
+    // Still typing a known word: not an error yet.
+    expect(parseSpotifyArg("hi")).toEqual({ kind: "now" });
+    expect(parseSpotifyArg("vol")).toEqual({ kind: "invalid", message: expect.stringContaining("Lautstärke") });
   });
 });
 

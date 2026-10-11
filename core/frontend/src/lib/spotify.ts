@@ -45,6 +45,11 @@ const CONTROLS: Record<string, SpotifyControl> = {
   zurück: "previous",
 };
 
+/** Every first word the grammar knows (for "still typing it"). */
+const KNOWN_HEADS = [
+  "now", "jetzt", ...HISTORY_WORDS, ...Object.keys(CONTROLS), "volume", "vol", "lautstärke", "seek", "spulen",
+];
+
 /** `90`, `1:30` or `1:02:05` → seconds; null if not a time. */
 export function parseSeconds(s: string): number | null {
   const t = s.trim();
@@ -106,6 +111,9 @@ export function parseSpotifyArg(arg: string): SpotifyCmd {
     if (s == null) return { kind: "invalid", message: "Position angeben, z. B. spotify seek 90 oder 1:30" };
     return { kind: "control", action: "seek", value: s };
   }
+  // The start of a known word is not an error yet — the user is still
+  // typing it (Tab completes it).
+  if (words.length === 1 && KNOWN_HEADS.some((k) => k.startsWith(head))) return { kind: "now" };
   return {
     kind: "invalid",
     message: `Unbekannt: „${words[0]}“ — now, history, play, pause, toggle, next, previous, volume, seek`,

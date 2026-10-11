@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.207.0] - 2026-10-11
+
+### Added
+- **Tab completes command arguments.** While you type a command's argument — `spotify hi`, `wakelock o`, `settings spo`, `8bit` palettes, `transcribe --language` — the rest of the word appears in grey right in the search field, and a small hint underneath names the word, what it does and how many alternatives there are. Tab takes it, further Tabs cycle through the alternatives (Shift+Tab goes back), → at the end of the line takes the grey text. A space opens the next level (`spotify history ` → `heute`, `woche`, `export` …).
+
+### Changed
+- `spotify` no longer reports „Unbekannt“ while you are still typing a known word.
+- The weather city list now loads on the first `weather` instead of with every popup start (keeps the start-up bundle under its budget).
+
 ## [0.206.0] - 2026-10-11
 
 ### Added

@@ -98,6 +98,11 @@ export const IN_POPUP_ACTIONS: FeatureRow[] = [
     trigger: "type a setting's name (3+ chars)",
     note: "Matching Settings sections surface as jump rows (macOS/Android-style) — Enter opens the Settings tab scrolled to the section, briefly highlighted. Exact/prefix/word-start matches only, max 2 rows, below the app-launcher hit.",
   },
+  {
+    name: "Complete command arguments",
+    trigger: "Tab · Shift+Tab · →",
+    note: "Typing a command's argument (spotify hi, wakelock o, settings spo) shows the rest as grey text plus a hint with its meaning; Tab takes it, more Tabs cycle through the alternatives, Shift+Tab goes back, → at the end takes the grey text.",
+  },
   { name: "Paste with formatting", trigger: formatHotkey("Shift+Enter"), note: "Paste a clip keeping its original HTML/RTF formatting." },
   { name: "Navigate / close", trigger: "↑ ↓ · Esc", note: "Arrow keys move the selection; Esc hides the popup." },
   {

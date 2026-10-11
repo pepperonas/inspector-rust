@@ -2,6 +2,8 @@ import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive } from "./lib/transcribe";
+import { completeArg, cycleIndex, ghostSuffix, tabStep, type ArgCycle } from "./lib/arg-complete";
+import type { CompletionHint } from "./components/SearchBar";
 import { commandLabel as spotifyLabel, parseSpotifyArg } from "./lib/spotify";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
@@ -137,6 +139,7 @@ import {
   COMMANDS,
   commandSuggestions,
   isCommandAvailable,
+  lookupKeyword,
   isFlappyTrigger,
   isSpaceInvadersTrigger,
   isGetShakyTrigger,
@@ -175,7 +178,6 @@ import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { clownAll, parseClownArg } from "./lib/clown";
 import { lookupDoc } from "./lib/commandDocs";
 import { qrPngBase64 } from "./lib/qr";
-import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 const PongGame = lazy(() => import("./components/PongGame").then((m) => ({ default: m.PongGame })));
 const SnakeGame = lazy(() => import("./components/SnakeGame").then((m) => ({ default: m.SnakeGame })));
@@ -2552,11 +2554,17 @@ function App() {
     [query],
   );
 
+  // The city list loads on the first `weather`: ~13 KB of data that the
+  // start-up chunk (budget, check-bundle.mjs) shouldn't carry for everyone.
+  const [citiesMod, setCitiesMod] = useState<typeof import("./lib/cities") | null>(null);
+  useEffect(() => {
+    if (isWeatherCmd && !citiesMod) void import("./lib/cities").then(setCitiesMod);
+  }, [isWeatherCmd, citiesMod]);
   const weatherCitySuggestionEntries: ListEntry[] = useMemo(() => {
-    if (!isWeatherCmd || weatherFocus) return [];
+    if (!isWeatherCmd || weatherFocus || !citiesMod) return [];
     const q = weatherArg.trim();
     if (q.length < 1) return [];
-    return matchCities(q, 6).map(
+    return citiesMod.matchCities(q, 6).map(
       (c): ListEntry => ({
         kind: "command-suggestion",
         data: {
@@ -2567,7 +2575,7 @@ function App() {
         },
       }),
     );
-  }, [isWeatherCmd, weatherFocus, weatherArg]);
+  }, [isWeatherCmd, weatherFocus, weatherArg, citiesMod]);
 
   // `cv` unit autocomplete: an unfinished unit (`cv 165 mp`), the longer
   // units a short one starts (`cv 165 m` → mi, mm, mph …) and an open target
@@ -3443,6 +3451,87 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSuggestion, gameMode]);
+
+  // ── Argument completion (v0.207.0) ────────────────────────────────────
+  // While a command row is selected, its fixed argument words complete:
+  // the first candidate shows as grey ghost text, Tab takes it, further Tabs
+  // cycle (Shift+Tab back), → at the end of the line takes the ghost.
+  // Registry + rules: lib/arg-complete.ts. Rows with their own Tab (keyword
+  // suggestions, figlet fonts, bruno, social) are other row kinds, so the
+  // handlers never compete.
+  const [argCycle, setArgCycle] = useState<ArgCycle | null>(null);
+  // The command comes from the first word as typed — not only from the
+  // parsed command, which is null for `wakelock ` (a required argument is
+  // still missing — exactly when completion helps most).
+  const argSpec = useMemo(() => {
+    const word = query.trimStart().split(/\s/)[0] ?? "";
+    const spec = word ? lookupKeyword(word) : undefined;
+    return spec && isCommandAvailable(spec) ? spec : null;
+  }, [query]);
+  const selectedRow = combined[selected];
+  // Rows with a Tab of their own keep it: another command's suggestion, a
+  // figlet font, bruno's mode switch, a social link's video/audio. Anything
+  // else — the command row, an empty list (`wakelock ` shows none), a clip
+  // that happens to match — gets the argument completion.
+  const ownTab =
+    (selectedRow?.kind === "command-suggestion" && selectedRow.data.keyword !== argSpec?.keyword) ||
+    selectedRow?.kind === "figlet-font" ||
+    selectedRow?.kind === "bruno" ||
+    selectedRow?.kind === "social";
+  const argRowSelected = !!argSpec && !ownTab;
+  const argComplete = useMemo(
+    () => (argSpec && argRowSelected ? completeArg(argSpec.kind, query) : null),
+    [argSpec, argRowSelected, query],
+  );
+  // A cycle only lives while the line still shows the word it put there.
+  const cycleLive =
+    argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : null;
+  const completionHint: CompletionHint | null = useMemo(() => {
+    if (cycleLive) {
+      const n = cycleLive.cands.length;
+      if (n < 2) return null;
+      const next = cycleLive.cands[cycleIndex(cycleLive.index, n, false)];
+      return { ghost: "", value: next.value, hint: next.hint, index: cycleLive.index, total: n, cycling: true };
+    }
+    if (!argComplete) return null;
+    const first = argComplete.candidates[0];
+    return {
+      ghost: ghostSuffix(query, first),
+      value: first.value,
+      hint: first.hint,
+      index: -1,
+      total: argComplete.candidates.length,
+      cycling: false,
+    };
+  }, [cycleLive, argComplete, query]);
+  useEffect(() => {
+    if (gameMode || (!argComplete && !cycleLive)) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tab = e.key === "Tab";
+      if (!tab && e.key !== "ArrowRight") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const input = searchRef.current;
+      if (!input) return;
+      if (!tab) {
+        // → only takes a visible ghost, and only from the end of the line.
+        const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+        if (e.shiftKey || cycleLive || !atEnd || !completionHint?.ghost) return;
+      }
+      const step = tabStep(tab ? cycleLive : null, argComplete, tab && e.shiftKey);
+      if (!step) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = step.cands[step.index].completion;
+      setArgCycle(step);
+      setQuery(next);
+      requestAnimationFrame(() => {
+        searchRef.current?.focus();
+        searchRef.current?.setSelectionRange(next.length, next.length);
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [argComplete, cycleLive, completionHint, gameMode]);
 
   // Tab / → on a selected figlet-font row fills `@font` into the search bar
   // (rz-preset semantics) so the user can keep tweaking the text before Enter.
@@ -5586,6 +5675,7 @@ function App() {
               value={query}
               onChange={setQuery}
               calcMode={calcResult !== null || convertResult !== null}
+              completion={completionHint}
             />
           ) : (
             <div className="flex h-14 items-center border-b border-[var(--color-border)] pl-4 pr-[var(--tab-reserve,260px)]">

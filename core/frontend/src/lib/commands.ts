@@ -1292,7 +1292,7 @@ export function parseDiscoArg(arg: string): boolean | null {
 }
 
 /** Lookup by exact keyword. O(n=6); a HashMap would be premature. */
-function lookupKeyword(keyword: string): CommandSpec | undefined {
+export function lookupKeyword(keyword: string): CommandSpec | undefined {
   return COMMANDS.find((c) => c.keyword === keyword);
 }
 

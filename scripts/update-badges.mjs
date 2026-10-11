@@ -287,6 +287,11 @@ function applyMetricBadges(s, metrics) {
     .replace(/badge\/releases-\d+/g, `badge/releases-${releases}`)
     .replace(/badge\/hidden%20triggers-\d+/g, `badge/hidden%20triggers-${hidden}`)
     .replace(/badge\/rebindable%20hotkeys-\d+/g, `badge/rebindable%20hotkeys-${hotkeys}`)
+    // Two hand-typed badges drifted (75 commands beside the computed 77, 12
+    // hotkeys beside 13). Global shortcuts = the rebindable actions plus the
+    // two popup hotkeys (main + clipboard history), which live outside ActionId.
+    .replace(/badge\/search--bar%20commands-\d+/g, `badge/search--bar%20commands-${commands}`)
+    .replace(/badge\/global%20hotkeys-\d+/g, `badge/global%20hotkeys-${hotkeys + 2}`)
     .replace(/badge\/frontend%20modules-\d+/g, `badge/frontend%20modules-${frontendModules}`);
 }
 

@@ -199,6 +199,15 @@ describe("badge parity and manifest agreement", () => {
     expect(badge(readmeEn, "rebindable%20hotkeys")).toBe(n);
   });
 
+  it("global-hotkeys badge = rebindable actions + the two popup hotkeys", () => {
+    // These two were hand-typed and drifted (12 beside 13, 75 beside 77).
+    expect(badge(readmeEn, "global%20hotkeys")).toBe(badge(readmeEn, "rebindable%20hotkeys")! + 2);
+  });
+
+  it("search-bar-commands badge equals the commands badge", () => {
+    expect(badge(readmeEn, "search--bar%20commands")).toBe(COMMAND_DOCS.length);
+  });
+
   it("hidden-triggers badge equals the pinned trigger list", () => {
     expect(badge(readmeEn, "hidden%20triggers")).toBe(HIDDEN_TRIGGERS.length);
   });
@@ -218,7 +227,7 @@ describe("badge parity and manifest agreement", () => {
     // ⚠️ This is the drift that actually happened: the German README sat at
     // docs-22/modules-84 beside the English 24/87 for weeks, because the
     // update script only carried rules for one language.
-    for (const key of ["commands", "docs", "rust%20modules", "crates", "features", "IPC%20commands", "UI%20components", "test%20suites", "SQLite%20tables", "events", "settings%20sections", "Tab%20completion", "rebindable%20hotkeys", "hidden%20triggers", "frontend%20modules", "releases"]) {
+    for (const key of ["commands", "docs", "rust%20modules", "crates", "features", "IPC%20commands", "UI%20components", "test%20suites", "SQLite%20tables", "events", "settings%20sections", "Tab%20completion", "rebindable%20hotkeys", "global%20hotkeys", "search--bar%20commands", "hidden%20triggers", "frontend%20modules", "releases"]) {
       expect(badge(readmeEn, key), `${key} missing in EN`).not.toBeNull();
       expect(badge(readmeDe, key), `${key} missing in DE`).toBe(badge(readmeEn, key));
     }

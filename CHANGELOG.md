@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 - **README badges load reliably on GitHub.** The ~300 static badges are now SVG files in `.github/badges/` (`scripts/vendor-badges.mjs`) instead of shields.io links. GitHub's image proxy gave up after ~4 s on about 40 % of them when the page loaded, showing broken images. Only computed and live badges (lines of code, tests, CI, release, stars …) still come from shields.io; `scripts/check.sh` fails if a static badge is linked remotely again.
+- **Two README badges showed stale numbers**: "search-bar commands" said 75 (77) and "global hotkeys" 12 (15 = 13 rebindable actions + the two popup hotkeys). Both are now computed by `scripts/update-badges.mjs` and pinned by tests.
 
 ## [0.210.2] - 2026-10-11
 

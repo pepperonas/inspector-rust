@@ -81,6 +81,23 @@ never as 0. A brand-new connection says **History collecting…**.
 Total stars and forks are summed over the repositories you own, forks
 included. A fork's stars are yours too.
 
+Below the KPIs, four charts need **no history** — they are drawn from the
+current numbers, so they appear as soon as you connect:
+
+- **Languages:** a donut of your repositories by language, switchable to
+  weigh by stars. Repositories without a language show as "No language";
+  slices under 4 % fold into "Other".
+- **Last push:** a column per month (12 months) counting the repositories
+  whose last push falls into it. A repository without a push date uses its
+  update date. The current month is green.
+- **Stars by repository** and **Forks by repository:** the top 8 as bars.
+  A repository with 0 is left out, not drawn as an empty bar. Click a bar to
+  open the repository.
+
+The line charts (followers, total stars, per repository) fill the area under
+the line, mark the newest value with a dot and label the real minimum and
+maximum of the shown range.
+
 ## Repository analytics
 
 The ranking lists every repository you own, with these columns: name, stars

@@ -11,6 +11,7 @@ import {
   parseSpotifyArg,
   rangeBounds,
   toQuery,
+  playedFraction,
 } from "./spotify";
 
 function row(id: number, started: Date): SpotifyPlayRow {
@@ -134,5 +135,16 @@ describe("helpers", () => {
     expect(commandLabel(parseSpotifyArg("history today export csv"))).toBe(
       "Spotify-Verlauf als CSV exportieren · heute",
     );
+  });
+});
+
+describe("playedFraction", () => {
+  it("is played / duration, clamped, and null without a length", () => {
+    expect(playedFraction({ played_ms: 30_000, duration_ms: 120_000 })).toBe(0.25);
+    expect(playedFraction({ played_ms: 200_000, duration_ms: 120_000 })).toBe(1);
+    expect(playedFraction({ played_ms: -5, duration_ms: 120_000 })).toBe(0);
+    expect(playedFraction({ played_ms: 30_000, duration_ms: null })).toBeNull();
+    expect(playedFraction({ played_ms: 30_000, duration_ms: 0 })).toBeNull();
+    expect(playedFraction({ played_ms: 30_000, duration_ms: -1 })).toBeNull();
   });
 });

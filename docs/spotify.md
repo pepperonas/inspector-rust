@@ -56,6 +56,18 @@ One rule, defined in `classify` (constants at the top of `spotify/mod.rs`):
 
 Without a known track length only the absolute limits apply.
 
+In the history panel each status has its own icon and a coloured left edge
+(`components/PlayStatusIcon.tsx`):
+
+| Status | Icon |
+|---|---|
+| listened | green ring, bold arrow running into an end stop |
+| partial | orange tilde in a ring that fills to the heard share (tooltip: `angespielt · 42 %`); no ring fill without a known length |
+| skipped | rose double chevron |
+| playing | three green bars that bounce (still under reduced motion and the Off stage) |
+
+The text label stays next to the time, and the icon carries an `aria-label`.
+
 ## Commands
 
 All under `spotify` (type `spotify?` for the in-app help). Reads show while you

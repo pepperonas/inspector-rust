@@ -224,3 +224,73 @@ export function timeDomain(series: SeriesPoint[][]): [number, number] | null {
   if (ts.length === 0) return null;
   return [Math.min(...ts), Math.max(...ts)];
 }
+
+/** Label for repositories GitHub reports no language for. */
+export const NO_LANGUAGE = "No language";
+
+/**
+ * Language mix of the repositories, by repository count or by stars, as
+ * 0..100 shares (largest first, ties by name). Feeds the donut. Archived and
+ * forked repositories count too — they are part of the account.
+ */
+export function languageShares(
+  rows: ReadonlyArray<{ language: string | null; stars: number }>,
+  by: "repos" | "stars",
+): { name: string; value: number; pct: number }[] {
+  const acc = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.language ?? NO_LANGUAGE;
+    acc.set(k, (acc.get(k) ?? 0) + (by === "repos" ? 1 : r.stars));
+  }
+  const total = [...acc.values()].reduce((a, b) => a + b, 0);
+  if (total <= 0) return [];
+  return [...acc.entries()]
+    .filter(([, v]) => v > 0)
+    .map(([name, value]) => ({ name, value, pct: (value / total) * 100 }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+}
+
+/**
+ * Last activity per month: how many repositories saw their LAST push in each
+ * of the `months` calendar months up to `now` (oldest first, local time).
+ * Repositories without a push date or older than the window are not counted.
+ * Needs no history — it comes from the current repository list.
+ */
+export function activityByMonth(
+  rows: ReadonlyArray<{ pushed_at_ms: number | null; updated_at_ms: number | null }>,
+  now: number,
+  months = 12,
+): { start: number; label: string; count: number }[] {
+  const end = new Date(now);
+  const buckets: { start: number; label: string; count: number }[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(end.getFullYear(), end.getMonth() - i, 1);
+    buckets.push({
+      start: d.getTime(),
+      label: d.toLocaleDateString("en-US", { month: "short" }),
+      count: 0,
+    });
+  }
+  for (const r of rows) {
+    const t = r.pushed_at_ms ?? r.updated_at_ms;
+    if (t == null || t > now || t < buckets[0].start) continue;
+    let idx = buckets.length - 1;
+    while (idx > 0 && t < buckets[idx].start) idx--;
+    buckets[idx].count++;
+  }
+  return buckets;
+}
+
+/** Top `n` repositories by any numeric metric, relative to the biggest. */
+export function metricBars<K extends "stars" | "forks" | "open_issues">(
+  rows: ReadonlyArray<{ name: string } & Record<K, number>>,
+  key: K,
+  n = 8,
+): { name: string; value: number; frac: number }[] {
+  const top = [...rows]
+    .filter((r) => r[key] > 0)
+    .sort((a, b) => b[key] - a[key] || a.name.localeCompare(b.name))
+    .slice(0, n);
+  const max = Math.max(1, ...top.map((r) => r[key]));
+  return top.map((r) => ({ name: r.name, value: r[key], frac: r[key] / max }));
+}

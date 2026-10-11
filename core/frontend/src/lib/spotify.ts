@@ -215,6 +215,16 @@ export const STATUS_LABEL: Record<SpotifyPlayRow["status"], string> = {
   playing: "läuft",
 };
 
+/** How much of a play was heard, 0..1 — `null` when the length is unknown.
+ *  Drives the progress ring of a "partial" icon; a missing length must not
+ *  be drawn as a guess. */
+export function playedFraction(row: { played_ms: number; duration_ms: number | null }): number | null {
+  if (row.duration_ms == null || !(row.duration_ms > 0)) return null;
+  const f = row.played_ms / row.duration_ms;
+  if (!Number.isFinite(f)) return null;
+  return Math.min(1, Math.max(0, f));
+}
+
 /** One-line label for the command row. */
 export function commandLabel(cmd: SpotifyCmd): string {
   switch (cmd.kind) {

@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.210.0] - 2026-10-11
+
+### Added
+- **GitHub charts that need no history.** The dashboard now draws a language donut (by repositories or by stars), a 12-month column chart of each repository's last push, and bar charts of stars and forks by repository. They come from the current numbers, so a fresh connection shows charts right away instead of only "History collecting…".
+- **Spotify history status at a glance.** Each entry has its own icon and a coloured edge. Played to the end is a green ring with a bold arrow into an end stop; partly played is an orange tilde in a ring showing how much was heard (the tooltip gives the %); skipped is a rose double chevron; playing is animated green bars (still under reduced motion).
+
+### Changed
+- GitHub line charts got an area fill, an end dot, faint grid lines and labels for the real minimum and maximum.
+
 ## [0.209.0] - 2026-10-11
 
 ### Added

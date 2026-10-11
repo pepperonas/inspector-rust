@@ -110,6 +110,29 @@ afterEach(() => {
 });
 
 describe("GithubPanel", () => {
+  it("draws charts that need no history: languages, last-push activity, stars/forks by repository", async () => {
+    ipc.status = status();
+    const d = dash();
+    d.rows[0].pushed_at_ms = Date.now();
+    ipc.dash = d;
+    render(<GithubPanel cmd={parseGithubArg("")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    const donut = await screen.findByTestId("gh-languages");
+    // By repos: one Rust, one without language — both are named, nothing is invented.
+    expect(donut.textContent).toContain("Rust");
+    expect(donut.textContent).toContain("No language");
+    expect(donut.querySelectorAll("path").length).toBe(2);
+    // Switching to stars weighs by stars (380 vs 4) — the share changes.
+    fireEvent.click(screen.getByRole("button", { name: "Stars" }));
+    expect(donut.textContent).toContain("99%");
+    const activity = screen.getByTestId("gh-activity");
+    expect(activity.textContent).toContain("1 active");
+    // Bars: a zero-fork repo is left out, not drawn as an empty bar.
+    const bars = screen.getAllByTestId("gh-bars");
+    expect(bars).toHaveLength(2);
+    expect(bars[1].textContent).toContain("inspector-rust");
+    expect(bars[1].textContent).not.toContain("secret");
+  });
+
   it("shows the KPI cards from the cache; a short history says so instead of 0", async () => {
     ipc.status = status();
     ipc.dash = dash();

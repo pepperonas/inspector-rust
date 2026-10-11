@@ -10,6 +10,10 @@ import {
   RANGES,
   SORTS,
   starBars,
+  languageShares,
+  activityByMonth,
+  metricBars,
+  NO_LANGUAGE,
   statusLine,
   timeDomain,
   toSeries,
@@ -174,6 +178,58 @@ describe("charts", () => {
     expect(bars[1].frac).toBeCloseTo(0.25);
     // No stars anywhere: no division by zero.
     expect(starBars([{ name: "x", stars: 0 }])[0].frac).toBe(0);
+  });
+
+  it("language mix by repositories and by stars, largest first", () => {
+    const rows = [
+      { language: "Rust", stars: 10 },
+      { language: "TypeScript", stars: 30 },
+      { language: "Rust", stars: 0 },
+      { language: null, stars: 0 },
+    ];
+    const byRepos = languageShares(rows, "repos");
+    expect(byRepos.map((s) => s.name)).toEqual(["Rust", NO_LANGUAGE, "TypeScript"]);
+    expect(byRepos[0].pct).toBeCloseTo(50);
+    expect(byRepos.reduce((a, s) => a + s.pct, 0)).toBeCloseTo(100);
+    // By stars: a language without stars drops out instead of a 0 % sliver.
+    const byStars = languageShares(rows, "stars");
+    expect(byStars.map((s) => [s.name, s.value])).toEqual([["TypeScript", 30], ["Rust", 10]]);
+    expect(languageShares([], "repos")).toEqual([]);
+    expect(languageShares([{ language: "Go", stars: 0 }], "stars")).toEqual([]);
+  });
+
+  it("activity: each repository counts once, in the month of its last push", () => {
+    const now = new Date(2026, 9, 11, 12).getTime(); // 11 Oct 2026
+    const at = (m: number, d = 5) => new Date(2026, m, d).getTime();
+    const months = activityByMonth(
+      [
+        { pushed_at_ms: at(9), updated_at_ms: null },
+        { pushed_at_ms: at(9, 1), updated_at_ms: null }, // first day of the month
+        { pushed_at_ms: null, updated_at_ms: at(8) }, // falls back to updated
+        { pushed_at_ms: new Date(2025, 0, 1).getTime(), updated_at_ms: null }, // before the window
+        { pushed_at_ms: null, updated_at_ms: null },
+        { pushed_at_ms: now + 86_400_000, updated_at_ms: null }, // future clock skew
+      ],
+      now,
+      12,
+    );
+    expect(months).toHaveLength(12);
+    expect(months[11].count).toBe(2);
+    expect(months[10].count).toBe(1);
+    expect(months.reduce((a, m) => a + m.count, 0)).toBe(3);
+    expect(months[0].start).toBe(new Date(2025, 10, 1).getTime());
+  });
+
+  it("metric bars skip zeros and scale to the biggest", () => {
+    const bars = metricBars(
+      [
+        { name: "a", forks: 2 },
+        { name: "b", forks: 8 },
+        { name: "c", forks: 0 },
+      ],
+      "forks",
+    );
+    expect(bars.map((b) => [b.name, b.frac])).toEqual([["b", 1], ["a", 0.25]]);
   });
 
   it("offers the documented ranges and sorts", () => {

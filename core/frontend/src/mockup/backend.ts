@@ -443,7 +443,7 @@ const GH_STARS = ghSeries(301, 1.4);
 const GH_REPO = (id: number, name: string, stars: number, forks: number, lang: string, extra: Record<string, unknown> = {}) => ({
   id, name, full_name: `northwind-ana/${name}`, private: false, archived: false, fork: false, language: lang,
   html_url: "", description: null, license: "MIT", stars, forks, watchers: null, open_issues: id % 4,
-  updated_at_ms: GH_NOW - id * 3 * GH_DAY, pushed_at_ms: GH_NOW - id * 2 * GH_DAY, ...extra,
+  updated_at_ms: GH_NOW - id * 3 * GH_DAY, pushed_at_ms: GH_NOW - [2, 19, 47, 96, 158, 290][(id - 1) % 6] * GH_DAY, ...extra,
 });
 const GH_ROWS = [
   { ...GH_REPO(1, "harbor-cli", 214, 31, "Rust"), growth_7d: 9, growth_30d: 38 },
@@ -476,6 +476,37 @@ function githubDashboardMock(range: string) {
     private_count: 1,
   };
 }
+
+const SP_NOW = Date.UTC(2026, 9, 11, 18, 40);
+const SPOTIFY_ROWS = (
+  [
+    [0, "Wicked Games", "Parra for Cuva", "Paradigm", 262_000, 140_000, "playing"],
+    [5, "Ocean Drive", "Khruangbin", "Mordechai", 238_000, 238_000, "listened"],
+    [9, "Bad Kingdom", "Moderat", "II", 291_000, 61_000, "partial"],
+    [10, "Computerliebe", "Kraftwerk", "Computerwelt", 409_000, 9_000, "skipped"],
+    [17, "Rising Tide", "Parra for Cuva", "Paradigm", 214_000, 214_000, "listened"],
+    [21, "Maria también", "Khruangbin", "Con Todo El Mundo", 196_000, 112_000, "partial"],
+    [25, "A New Error", "Moderat", "Moderat", 365_000, 365_000, "listened"],
+  ] as const
+).map(([min, track, artist, album, dur, played, status], i) => ({
+  id: 100 - i,
+  started_at: SP_NOW - (min as number) * 60_000 * 4,
+  ended_at: SP_NOW - (min as number) * 60_000 * 4 + (played as number),
+  track_uri: `spotify:track:mock${i}`,
+  track,
+  artist,
+  album,
+  duration_ms: dur,
+  played_ms: played,
+  status,
+  artwork_url: null,
+  open: status === "playing",
+}));
+const SPOTIFY_HISTORY = {
+  rows: SPOTIFY_ROWS,
+  total: SPOTIFY_ROWS.length,
+  played_ms: SPOTIFY_ROWS.reduce((a, r) => a + r.played_ms, 0),
+};
 
 const SPEED_RUNS = [
   [0, 388, 20.4, 14.0, 3.6, 31, 11],
@@ -656,6 +687,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "fx_rates": return FX;
     case "loc_count": return LOC;
     case "shazam_history_list": return SONGS;
+    case "spotify_history": return SPOTIFY_HISTORY;
     case "spotify_top_artists":
       return [
         { artist: "Parra for Cuva", plays: 42 },

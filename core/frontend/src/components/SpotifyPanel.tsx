@@ -8,6 +8,7 @@
  * reads it. Pure logic: `lib/spotify.ts`. Reference: docs/spotify.md.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PlayStatusIcon, STATUS_COLOR } from "./PlayStatusIcon";
 import { listen } from "@tauri-apps/api/event";
 import {
   AlertTriangle,
@@ -101,20 +102,24 @@ function Cover({ url, show, size }: { url: string | null; show: boolean; size: n
 }
 
 function StatusChip({ row }: { row: SpotifyPlayRow }) {
-  const tone =
-    row.status === "playing"
-      ? "bg-emerald-500/15 text-emerald-500"
-      : row.status === "listened"
-        ? "text-[var(--color-muted)]"
-        : row.status === "skipped"
-          ? "text-amber-500"
-          : "text-[var(--color-muted)]";
-  return <span className={`rounded px-1 text-[10px] uppercase tracking-wide ${tone}`}>{STATUS_LABEL[row.status]}</span>;
+  return (
+    <span
+      className="rounded px-1 text-[10px] font-medium uppercase tracking-wide"
+      style={{ color: STATUS_COLOR[row.status] }}
+    >
+      {STATUS_LABEL[row.status]}
+    </span>
+  );
 }
 
 function HistoryRow({ row, artwork }: { row: SpotifyPlayRow; artwork: boolean }) {
   return (
-    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5" data-testid="spotify-row">
+    <div
+      className="flex items-center gap-2 rounded-lg border-l-2 px-2 py-1.5"
+      style={{ borderLeftColor: `${STATUS_COLOR[row.status]}${row.status === "listened" || row.status === "playing" ? "" : "99"}` }}
+      data-testid="spotify-row"
+    >
+      <PlayStatusIcon row={row} />
       <span className="w-10 shrink-0 text-xs tabular-nums text-[var(--color-muted)]">{timeOfDay(row.started_at)}</span>
       {artwork && <Cover url={row.artwork_url} show size={32} />}
       <div className="min-w-0 flex-1">

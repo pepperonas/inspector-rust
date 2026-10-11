@@ -8,7 +8,7 @@
  * (refresh, export, connect) run on Enter via `runSignal`. Pure logic:
  * `lib/github.ts`. Reference: docs/github.md.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -31,6 +31,7 @@ import {
   type GithubStatus,
 } from "../lib/ipc";
 import {
+  NO_LANGUAGE,
   RANGES,
   SORTS,
   SOURCE_LABEL,
@@ -40,14 +41,17 @@ import {
   formatDate,
   formatDelta,
   historyCollecting,
-  starBars,
+  activityByMonth,
+  languageShares,
+  metricBars,
   statusLine,
   timeDomain,
   toSeries,
   type GithubCmd,
   type GithubRange,
 } from "../lib/github";
-import { linePath, seriesExtent } from "../lib/stats-chart";
+import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
+import { donutSegments } from "../lib/loc";
 
 /** Signals already handled — module-level so a remount never replays one. */
 let lastHandledRun = 0;
@@ -145,7 +149,12 @@ function LineChart({
   const enough = series.some((s) => s.length >= 2);
   const values = series.flat().map((p) => p.v);
   const [vMin, vMax] = seriesExtent(values);
+  // Labels name the real extremes, not the padded drawing range.
+  const dataMin = values.length ? Math.min(...values) : 0;
+  const dataMax = values.length ? Math.max(...values) : 0;
   const current = lines.length === 1 ? lines[0].points[lines[0].points.length - 1]?.[1] : undefined;
+  const last = series.length === 1 ? series[0][series[0].length - 1] : undefined;
+  const gradId = `gh-grad-${useId().replace(/:/g, "")}`;
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid="gh-chart">
       <div className="mb-1 flex items-center justify-between text-xs">
@@ -157,18 +166,56 @@ function LineChart({
           History collecting… ({values.length} {values.length === 1 ? "snapshot" : "snapshots"})
         </div>
       ) : (
-        <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="h-[70px] w-full">
-          {series.map((s, i) => (
-            <path
-              key={lines[i].name}
-              d={linePath(s, domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)}
-              fill="none"
-              stroke={LINE_COLORS[i % LINE_COLORS.length]}
-              strokeWidth={1.6}
-              vectorEffect="non-scaling-stroke"
+        <div className="relative">
+          <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="h-[70px] w-full" data-testid="gh-chart-svg">
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={LINE_COLORS[0]} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={LINE_COLORS[0]} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            {[0.25, 0.5, 0.75].map((f) => (
+              <line key={f} x1={0} x2={CHART_W} y1={CHART_H * f} y2={CHART_H * f} stroke="var(--color-border)" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="2 3" />
+            ))}
+            {lines.length === 1 && (
+              <path d={areaPath(series[0], domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)} fill={`url(#${gradId})`} />
+            )}
+            {series.map((s, i) => (
+              <path
+                key={lines[i].name}
+                d={linePath(s, domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)}
+                fill="none"
+                stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                strokeWidth={1.8}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </svg>
+          {/* HTML overlays: the SVG is stretched, so text and dots would distort. */}
+          {lines.length === 1 && last && (
+            <span
+              className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-[var(--color-surface)]"
+              style={{
+                left: `${((last.t - domain[0]) / (domain[1] - domain[0] || 1)) * 100}%`,
+                top: `${(1 - (last.v - vMin) / (vMax - vMin || 1)) * 100}%`,
+                background: LINE_COLORS[0],
+              }}
             />
-          ))}
-        </svg>
+          )}
+          <span className="pointer-events-none absolute left-0 top-0 rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] tabular-nums text-[var(--color-muted)]">
+            max {fmtAxis(dataMax)}
+          </span>
+          <span className="pointer-events-none absolute bottom-0 right-0 rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] tabular-nums text-[var(--color-muted)]">
+            min {fmtAxis(dataMin)}
+          </span>
+        </div>
+      )}
+      {enough && domain && (
+        <div className="mt-0.5 flex justify-between text-[9px] text-[var(--color-muted)]">
+          <span>{formatDate(domain[0] * 1000)}</span>
+          <span>{formatDate(domain[1] * 1000)}</span>
+        </div>
       )}
       {lines.length > 1 && (
         <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-muted)]">
@@ -184,21 +231,154 @@ function LineChart({
   );
 }
 
-function StarBars({ rows }: { rows: GithubRepoRow[] }) {
-  const bars = starBars(rows);
+/** Axis label: whole numbers stay whole, large ones get a k. */
+function fmtAxis(v: number): string {
+  if (Math.abs(v) >= 10_000) return `${(v / 1000).toFixed(0)}k`;
+  if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}k`;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+function Card({ title, aside, children, testId }: { title: string; aside?: React.ReactNode; children: React.ReactNode; testId?: string }) {
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-      <div className="mb-1 text-xs text-[var(--color-muted)]">Stars by repository</div>
-      {bars.map((b) => (
-        <div key={b.name} className="flex items-center gap-2 text-xs">
-          <span className="w-28 shrink-0 truncate text-[var(--color-fg)]">{b.name}</span>
-          <div className="h-2 flex-1 rounded bg-[var(--color-border)]">
-            <div className="h-2 rounded bg-[var(--color-accent)]" style={{ width: `${Math.max(2, b.frac * 100)}%` }} />
-          </div>
-          <span className="w-12 shrink-0 text-right tabular-nums">{b.stars.toLocaleString("en-US")}</span>
-        </div>
-      ))}
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid={testId}>
+      <div className="mb-1.5 flex items-center justify-between text-xs">
+        <span className="text-[var(--color-muted)]">{title}</span>
+        {aside}
+      </div>
+      {children}
     </div>
+  );
+}
+
+/** Horizontal bars for one metric across the repositories. Needs no history. */
+function MetricBars({
+  title,
+  rows,
+  metric,
+  color,
+  onOpen,
+}: {
+  title: string;
+  rows: GithubRepoRow[];
+  metric: "stars" | "forks" | "open_issues";
+  color: string;
+  onOpen: (name: string) => void;
+}) {
+  const bars = metricBars(rows, metric);
+  if (bars.length === 0) return null;
+  return (
+    <Card title={title} testId="gh-bars">
+      <div className="space-y-1">
+        {bars.map((b) => (
+          <button
+            type="button"
+            key={b.name}
+            onClick={() => onOpen(b.name)}
+            className="flex w-full items-center gap-2 text-left text-xs hover:opacity-80"
+          >
+            <span className="w-28 shrink-0 truncate text-[var(--color-fg)]">{b.name}</span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-border)]">
+              <div
+                className="h-2 origin-left rounded-full"
+                style={{ width: `${Math.max(3, b.frac * 100)}%`, background: `linear-gradient(90deg, ${color}99, ${color})` }}
+              />
+            </div>
+            <span className="w-10 shrink-0 text-right tabular-nums">{b.value.toLocaleString("en-US")}</span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/** Language mix as a donut, by repositories or by stars. */
+function LanguageDonut({ rows }: { rows: GithubRepoRow[] }) {
+  const [by, setBy] = useState<"repos" | "stars">("repos");
+  const shares = languageShares(rows, by);
+  const segs = donutSegments(
+    shares.map((s) => ({ name: s.name, pct: s.pct })),
+    { cx: 50, cy: 50, rOuter: 46, rInner: 30, minPct: 4 },
+  ).map((seg) => (seg.name === NO_LANGUAGE ? { ...seg, color: "#6b7280" } : seg));
+  const total = shares.reduce((a, s) => a + s.value, 0);
+  return (
+    <Card
+      title="Languages"
+      testId="gh-languages"
+      aside={
+        <span className="flex gap-1 text-[10px]">
+          {(["repos", "stars"] as const).map((k) => (
+            <button
+              type="button"
+              key={k}
+              onClick={() => setBy(k)}
+              className={`rounded px-1 ${by === k ? "bg-[var(--color-accent)]/20 text-[var(--color-fg)]" : "text-[var(--color-muted)]"}`}
+            >
+              {k === "repos" ? "Repos" : "Stars"}
+            </button>
+          ))}
+        </span>
+      }
+    >
+      {segs.length === 0 ? (
+        <div className="flex h-[96px] items-center justify-center text-xs text-[var(--color-muted)]">No stars yet.</div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <div className="relative h-[96px] w-[96px] shrink-0">
+            <svg viewBox="0 0 100 100" className="h-full w-full">
+              {segs.map((seg) => (
+                <path key={seg.name} d={seg.d} fill={seg.color}>
+                  <title>{`${seg.name} · ${seg.pct.toFixed(0)} %`}</title>
+                </path>
+              ))}
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+              <span className="text-sm font-semibold tabular-nums text-[var(--color-fg)]">{total.toLocaleString("en-US")}</span>
+              <span className="text-[9px] text-[var(--color-muted)]">{by === "repos" ? "repos" : "stars"}</span>
+            </div>
+          </div>
+          <div className="min-w-0 flex-1 space-y-0.5">
+            {segs.slice(0, 6).map((seg) => (
+              <div key={seg.name} className="flex items-center gap-1.5 text-[11px]">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.color }} />
+                <span className="truncate text-[var(--color-fg)]">{seg.name}</span>
+                <span className="ml-auto tabular-nums text-[var(--color-muted)]">{seg.pct.toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/** Columns: repositories by the month of their last push (last 12 months). */
+function ActivityColumns({ rows, now }: { rows: GithubRepoRow[]; now: number }) {
+  const months = activityByMonth(rows, now, 12);
+  const max = Math.max(1, ...months.map((m) => m.count));
+  const active = months.reduce((a, m) => a + m.count, 0);
+  return (
+    <Card
+      title="Last push"
+      testId="gh-activity"
+      aside={<span className="text-[10px] tabular-nums text-[var(--color-muted)]">{active} active · 12 mo</span>}
+    >
+      <div className="flex h-[78px] items-stretch gap-[3px]">
+        {months.map((m, i) => (
+          <div key={m.start} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-0.5" title={`${m.label}: ${m.count}`}>
+            {m.count > 0 && <span className="text-[8px] tabular-nums text-[var(--color-muted)]">{m.count}</span>}
+            <div
+              className="w-full rounded-t-sm"
+              style={{
+                height: `${m.count === 0 ? 2 : Math.max(8, (m.count / max) * 56)}px`,
+                background: m.count === 0 ? "var(--color-border)" : i === months.length - 1 ? "#10b981" : "var(--color-accent)",
+                opacity: m.count === 0 ? 1 : 0.55 + 0.45 * (m.count / max),
+              }}
+            />
+            <span className="text-[8px] text-[var(--color-muted)]">{m.label.slice(0, 1)}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -576,6 +756,14 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
                   <LineChart title="Followers" lines={[{ name: "followers", points: dash.followers }]} />
                   <LineChart title="Total stars" lines={[{ name: "stars", points: dash.stars }]} />
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <LanguageDonut rows={dash.rows} />
+                  <ActivityColumns rows={dash.rows} now={now} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <MetricBars title="Stars by repository" rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
+                  <MetricBars title="Forks by repository" rows={dash.rows} metric="forks" color="#38bdf8" onOpen={openRepo} />
+                </div>
                 <RepoTable rows={rows.slice(0, 5)} onOpen={openRepo} />
                 {dash.rows.length > 5 && (
                   <button type="button" className="text-xs text-[var(--color-accent)]" onClick={() => onQuery("github repos")}>
@@ -606,7 +794,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
               <>
                 <KpiCard kpi={starsKpi} />
                 <LineChart title="Total stars" lines={[{ name: "stars", points: dash.stars }]} />
-                <StarBars rows={dash.rows} />
+                <MetricBars title="Stars by repository" rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
                 <LineChart title="Top repositories — stars over time" lines={dash.growth} />
               </>
             )}

@@ -1495,3 +1495,21 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
 @media (prefers-reduced-motion: reduce) {
   .rickroll-marquee { animation: none; }
 }
+
+/* Spotify history: "playing" badge — three bars bounce (transform only).
+   Reduced motion and the Off stage leave them standing. */
+.eq-bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: eq-bounce 780ms var(--ease-sharp) infinite alternate;
+}
+@keyframes eq-bounce {
+  from { transform: scaleY(0.35); }
+  to   { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eq-bar { animation: none; }
+}
+html.anim-reduced .eq-bar {
+  animation: none;
+}

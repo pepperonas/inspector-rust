@@ -4,7 +4,7 @@ import { PlayStatusIcon, STATUS_COLOR } from "./PlayStatusIcon";
 
 afterEach(cleanup);
 
-const row = (status: "listened" | "partial" | "skipped" | "playing", played = 60_000, duration: number | null = 200_000) => ({
+const row = (status: "listened" | "partial" | "skipped" | "playing" | "paused", played = 60_000, duration: number | null = 200_000) => ({
   status,
   played_ms: played,
   duration_ms: duration,
@@ -39,5 +39,13 @@ describe("PlayStatusIcon", () => {
     render(<PlayStatusIcon row={row("playing")} />);
     expect(screen.getByRole("img", { name: "übersprungen" }).querySelectorAll("path")).toHaveLength(2);
     expect(screen.getByRole("img", { name: "läuft" }).querySelectorAll(".eq-bar")).toHaveLength(3);
+  });
+
+  it("a paused open play shows static pause bars, not the running equalizer", () => {
+    render(<PlayStatusIcon row={row("paused")} />);
+    const icon = screen.getByRole("img", { name: "pausiert" });
+    expect(icon.querySelectorAll("rect")).toHaveLength(2);
+    expect(icon.querySelectorAll(".eq-bar")).toHaveLength(0);
+    expect(STATUS_COLOR.paused).not.toBe(STATUS_COLOR.playing);
   });
 });

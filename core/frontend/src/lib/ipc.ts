@@ -4748,7 +4748,7 @@ export interface SpotifyPlayRow {
   album: string;
   duration_ms: number | null;
   played_ms: number;
-  status: "listened" | "partial" | "skipped" | "playing";
+  status: "listened" | "partial" | "skipped" | "playing" | "paused";
   artwork_url: string | null;
   open: boolean;
 }

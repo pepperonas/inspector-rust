@@ -129,8 +129,10 @@ pub enum PlayStatus {
     Listened,
     Partial,
     Skipped,
-    /// Still open (now playing / paused).
+    /// Still open and playing.
     Playing,
+    /// Still open, paused (closes after `PAUSE_CLOSE_MS`).
+    Paused,
 }
 
 impl PlayStatus {
@@ -140,6 +142,7 @@ impl PlayStatus {
             Self::Partial => "partial",
             Self::Skipped => "skipped",
             Self::Playing => "playing",
+            Self::Paused => "paused",
         }
     }
 
@@ -148,6 +151,7 @@ impl PlayStatus {
             "listened" => Self::Listened,
             "skipped" => Self::Skipped,
             "playing" => Self::Playing,
+            "paused" => Self::Paused,
             _ => Self::Partial,
         }
     }
@@ -202,13 +206,14 @@ impl Play {
         }
     }
 
-    /// Count time up to `now` if it was playing. Steps beyond
+    /// Count time up to `now` if it was playing AND audible. Steps beyond
     /// `MAX_STEP_MS` are sleep / stalls and are not counted past the cap.
-    fn advance(&mut self, now: i64) {
+    /// Silent time still moves `last_at`, so it is never counted later.
+    fn advance(&mut self, now: i64, audible: bool) {
         if now <= self.last_at {
             return;
         }
-        if self.state == PlayerState::Playing {
+        if self.state == PlayerState::Playing && audible {
             let step = (now - self.last_at).min(MAX_STEP_MS);
             self.played_ms += step as u64;
             self.ended_at = self.last_at + step;
@@ -217,7 +222,9 @@ impl Play {
     }
 
     pub fn status(&self, open: bool) -> PlayStatus {
-        if open {
+        if open && self.state == PlayerState::Paused {
+            PlayStatus::Paused
+        } else if open {
             PlayStatus::Playing
         } else {
             classify(self.played_ms, self.track.duration_ms)
@@ -235,16 +242,37 @@ pub enum Change {
     Finish(Play),
 }
 
+/// Could the user hear it? Silent when the system output is muted or at 0,
+/// or Spotify's own volume is 0. An unknown reading counts as audible — a
+/// missing measurement (no AppleScript permission, an output without a volume
+/// control) must never erase history.
+pub fn is_audible(system_muted: Option<bool>, system_volume: Option<i32>, spotify_volume: Option<u8>) -> bool {
+    system_muted != Some(true) && system_volume != Some(0) && spotify_volume != Some(0)
+}
+
 /// The play-history state machine. Feed it observations and periodic ticks;
 /// it decides when a play starts, continues and ends. Pause/resume of the
 /// same track stays one play; a different track, Spotify stopping or
 /// quitting, or a long pause ends it.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Tracker {
     current: Option<Play>,
     /// An entry a previous run left open, waiting to see whether the same
     /// track is still playing (`RESUME_MS`).
     pending_resume: Option<Play>,
+    /// Whether playback can currently be heard (see `is_audible`). Silent
+    /// playing time is not listening time.
+    audible: bool,
+}
+
+impl Default for Tracker {
+    fn default() -> Self {
+        Self {
+            current: None,
+            pending_resume: None,
+            audible: true,
+        }
+    }
 }
 
 impl Tracker {
@@ -256,9 +284,22 @@ impl Tracker {
     /// Start with the entry a previous run left open (if any).
     pub fn with_open(open: Option<Play>) -> Self {
         Self {
-            current: None,
             pending_resume: open,
+            ..Self::default()
         }
+    }
+
+    /// Record whether playback is audible from `now` on. Time up to `now`
+    /// is accounted with the previous value, so a switch splits it exactly.
+    pub fn set_audible(&mut self, now: i64, audible: bool) {
+        if audible == self.audible {
+            return;
+        }
+        let was = self.audible;
+        if let Some(p) = self.current.as_mut() {
+            p.advance(now, was);
+        }
+        self.audible = audible;
     }
 
     pub fn current(&self) -> Option<&Play> {
@@ -317,8 +358,9 @@ impl Tracker {
     pub fn observe(&mut self, obs: &Observation) -> Vec<Change> {
         let mut out = Vec::new();
         self.settle_resume(Some(obs), obs.at_ms, &mut out);
+        let audible = self.audible;
         if let Some(p) = self.current.as_mut() {
-            p.advance(obs.at_ms);
+            p.advance(obs.at_ms, audible);
         }
         let track = obs
             .track
@@ -382,7 +424,7 @@ impl Tracker {
         if long_pause {
             self.finish_current(&mut out);
         } else if let Some(p) = self.current.as_mut() {
-            p.advance(now);
+            p.advance(now, self.audible);
             out.push(Change::Update(p.clone()));
         }
         out
@@ -779,5 +821,60 @@ mod tests {
         let empty = observation_from_notification(|k| (k == "Player State").then(|| Field::Text("Stopped".into())), 1);
         assert_eq!(empty.state, PlayerState::Stopped);
         assert!(empty.track.is_none());
+    }
+
+    #[test]
+    fn a_paused_open_play_reads_paused_not_playing() {
+        let a = track(A, Some(300_000));
+        let mut t = Tracker::new();
+        t.observe(&obs(0, PlayerState::Playing, Some(a.clone()), Some(0)));
+        let c = t.observe(&obs(30 * S, PlayerState::Paused, Some(a.clone()), Some(30_000)));
+        let Some(Change::Update(p)) = c.last() else { panic!("update") };
+        assert_eq!(p.status(true), PlayStatus::Paused);
+        let c = t.observe(&obs(60 * S, PlayerState::Playing, Some(a), Some(30_000)));
+        let Some(Change::Update(p)) = c.last() else { panic!("update") };
+        assert_eq!(p.status(true), PlayStatus::Playing);
+        assert_eq!(PlayStatus::parse("paused"), PlayStatus::Paused);
+        assert_eq!(PlayStatus::Paused.as_str(), "paused");
+    }
+
+    #[test]
+    fn audibility_matrix() {
+        assert!(is_audible(None, None, None));
+        assert!(is_audible(Some(false), Some(40), Some(70)));
+        assert!(!is_audible(Some(true), Some(40), Some(70)));
+        assert!(!is_audible(Some(false), Some(0), Some(70)));
+        assert!(!is_audible(Some(false), Some(40), Some(0)));
+        assert!(is_audible(Some(false), Some(1), Some(1)));
+    }
+
+    #[test]
+    fn a_track_played_in_silence_never_counts() {
+        let mut t = Tracker::new();
+        t.set_audible(0, false);
+        t.observe(&obs(0, PlayerState::Playing, Some(track(A, Some(200_000))), Some(0)));
+        for i in 1..=14 {
+            t.tick(i * 15 * S);
+        }
+        let done = finished(&t.observe(&obs(210 * S, PlayerState::Playing, Some(track(B, None)), Some(0))));
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0].played_ms, 0);
+    }
+
+    #[test]
+    fn only_audible_time_counts_and_the_switch_splits_exactly() {
+        let mut t = Tracker::new();
+        t.observe(&obs(0, PlayerState::Playing, Some(track(A, Some(300_000))), Some(0)));
+        t.tick(15 * S);
+        // Muted between two ticks: the 15–20 s stretch still counts.
+        t.set_audible(20 * S, false);
+        t.tick(30 * S);
+        t.tick(140 * S);
+        // Loud again: the silent 120 s are not counted afterwards either.
+        t.set_audible(140 * S, true);
+        t.tick(150 * S);
+        let done = finished(&t.observe(&obs(160 * S, PlayerState::Playing, Some(track(B, None)), Some(0))));
+        assert_eq!(done[0].played_ms, 40_000);
+        assert_eq!(done[0].status(false), PlayStatus::Partial);
     }
 }

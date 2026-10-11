@@ -500,7 +500,7 @@ const SPOTIFY_ROWS = (
   played_ms: played,
   status,
   artwork_url: null,
-  open: status === "playing",
+  open: false,
 }));
 const SPOTIFY_HISTORY = {
   rows: SPOTIFY_ROWS,

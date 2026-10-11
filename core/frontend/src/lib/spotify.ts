@@ -213,6 +213,7 @@ export const STATUS_LABEL: Record<SpotifyPlayRow["status"], string> = {
   partial: "angespielt",
   skipped: "übersprungen",
   playing: "läuft",
+  paused: "pausiert",
 };
 
 /** How much of a play was heard, 0..1 — `null` when the length is unknown.

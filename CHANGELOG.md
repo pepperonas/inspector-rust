@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.210.2] - 2026-10-11
+
+### Fixed
+- **Paused tracks no longer show as playing in the Spotify history.** An open entry that is paused now reads "pausiert" with two still pause bars instead of the animated "läuft" bars.
+- **Silent playback is not counted as listening.** Time only counts while it can be heard: a muted Mac, a system volume of 0 % or a Spotify volume of 0 no longer adds to the heard time. A track that played entirely in silence does not appear in the history; a partly silent one counts only the audible part.
+
 ## [0.210.1] - 2026-10-11
 
 ### Added

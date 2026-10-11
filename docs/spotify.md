@@ -43,7 +43,14 @@ the readings into plays:
 | Inspector quit while a track played | the entry is continued if the same track is still playing within 3 minutes; otherwise it is closed |
 
 Heard time (`played`) is measured separately from the track length
-(`duration`): only time in the *playing* state counts.
+(`duration`): only time in the *playing* state counts, and only while it can be
+heard. Playback counts as silent when the Mac's output is muted or at 0 % (read
+from CoreAudio; a mute on the real output behind boom counts too) or Spotify's
+own volume is 0. Spotify's volume is only known through AppleScript, so it is
+refreshed when Inspector queries Spotify (about once a minute, only with the
+Automation permission); without that permission only the system volume decides.
+An unknown reading counts as audible. A track played entirely in silence never
+reaches the 5-second minimum and does not appear in the history.
 
 ### listened / partial / skipped
 
@@ -65,6 +72,7 @@ In the history panel each status has its own icon and a coloured left edge
 | partial | orange tilde in a ring that fills to the heard share (tooltip: `angespielt · 42 %`); no ring fill without a known length |
 | skipped | rose double chevron |
 | playing | three green bars that bounce (still under reduced motion and the Off stage) |
+| paused | two static slate pause bars — the entry is still open and closes after 30 minutes of pause |
 
 The text label stays next to the time, and the icon carries an `aria-label`.
 

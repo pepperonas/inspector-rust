@@ -370,6 +370,19 @@ mod tests {
     }
 
     #[test]
+    fn a_paused_open_row_is_stored_as_paused() {
+        let c = db();
+        let mut t = Tracker::new();
+        let tr = track("spotify:track:a", "A", "X", "Y");
+        play(&c, &mut t, tr.clone(), 0, 60);
+        let ch = t.observe(&Observation { at_ms: 61_000, state: PlayerState::Paused, track: Some(tr), position_ms: None });
+        feed(&c, &mut t, ch);
+        let page = query(&c, &HistoryQuery::default()).unwrap();
+        assert!(page.rows[0].open);
+        assert_eq!(page.rows[0].status, PlayStatus::Paused);
+    }
+
+    #[test]
     fn touches_shorter_than_the_minimum_never_become_history() {
         let c = db();
         let mut t = Tracker::new();

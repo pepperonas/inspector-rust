@@ -5,6 +5,7 @@
  *  - partial:  orange tilde inside a ring that shows how much was heard
  *  - skipped:  rose double chevron
  *  - playing:  green equalizer bars (animated; still under reduced motion)
+ *  - paused:   slate pause bars (static — nothing is playing)
  *
  * Pure inline SVG, colours from fixed hues so the meaning is the same in
  * light and dark themes; the text label next to it stays for screen readers.
@@ -17,6 +18,7 @@ export const STATUS_COLOR: Record<SpotifyPlayRow["status"], string> = {
   partial: "#f97316",
   skipped: "#f43f5e",
   playing: "#10b981",
+  paused: "#64748b",
 };
 
 export function PlayStatusIcon({
@@ -93,6 +95,12 @@ export function PlayStatusIcon({
           >
             <path d="M7 8l4 4-4 4" />
             <path d="M12.5 8l4 4-4 4" />
+          </g>
+        )}
+        {row.status === "paused" && (
+          <g fill={color}>
+            <rect x={7.5} y={6.5} width={3.4} height={11} rx={1.2} />
+            <rect x={13.1} y={6.5} width={3.4} height={11} rx={1.2} />
           </g>
         )}
         {row.status === "playing" && (

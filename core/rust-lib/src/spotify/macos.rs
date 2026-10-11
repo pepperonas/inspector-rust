@@ -52,6 +52,10 @@ static HISTORY_ON: AtomicBool = AtomicBool::new(true);
 /// Cached Automation permission (see `Permission`).
 static PERMISSION: AtomicU8 = AtomicU8::new(Permission::Unknown as u8);
 static SENDER: OnceLock<Mutex<Sender<Msg>>> = OnceLock::new();
+/// Spotify's own volume from the last AppleScript reading (`NO_VOLUME` =
+/// never read — no permission yet). Feeds `audible_now`.
+static SPOTIFY_VOLUME: AtomicU8 = AtomicU8::new(NO_VOLUME);
+const NO_VOLUME: u8 = u8::MAX;
 /// What the recorder knows right now (for `now()` without AppleScript).
 static LAST: Mutex<Option<Play>> = Mutex::new(None);
 
@@ -245,7 +249,24 @@ pub fn query() -> Result<(Observation, Option<u8>), String> {
         return Err(ERR_NOT_INSTALLED.into());
     }
     let answer = osa(QUERY_SCRIPT)?;
-    super::parse_query(&answer, now_ms()).ok_or_else(|| "Unerwartete Antwort von Spotify".into())
+    let parsed = super::parse_query(&answer, now_ms()).ok_or_else(|| "Unerwartete Antwort von Spotify".to_string())?;
+    if let Some(v) = parsed.1 {
+        SPOTIFY_VOLUME.store(v, Ordering::Relaxed);
+    }
+    Ok(parsed)
+}
+
+/// Can the user hear Spotify right now? System output (CoreAudio, no
+/// process spawn; boom's bridge devices included) plus Spotify's last known
+/// own volume. Unknown readings count as audible (`super::is_audible`).
+fn audible_now() -> bool {
+    use crate::system_commands::ca_volume;
+    let muted = ca_volume::read_mute().map(|m| m || crate::boom::output_muted());
+    let spotify = match SPOTIFY_VOLUME.load(Ordering::Relaxed) {
+        NO_VOLUME => None,
+        v => Some(v),
+    };
+    super::is_audible(muted, ca_volume::read_volume(), spotify)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -603,6 +624,11 @@ pub fn start(app: &AppHandle, db: &DbHandle) {
         loop {
             let msg = rx.recv_timeout(TICK);
             let enabled = HISTORY_ON.load(Ordering::Relaxed);
+            if enabled {
+                // Silent playback is not listening (Mac muted / at 0, or
+                // Spotify at 0). Read before the observation/tick accounts time.
+                tracker.set_audible(now_ms(), audible_now());
+            }
             let changes = match msg {
                 Ok(Msg::Obs(o)) => {
                     if !enabled {
@@ -666,6 +692,8 @@ pub fn start(app: &AppHandle, db: &DbHandle) {
                 // permission (checked without asking).
                 if running() && permission() == Permission::Granted {
                     if let Ok((obs, _)) = query() {
+                        // The query just refreshed Spotify's own volume.
+                        tracker.set_audible(obs.at_ms, audible_now());
                         let c = tracker.observe(&obs);
                         persist(&app, &db, &mut tracker, c);
                     }

@@ -6,8 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.205.0] - 2026-10-11
+
 ### Added
 - **`transcribe [path] [--language de]` — local audio/video transcription.** Like `md2pdf`, uses the Finder selection on macOS or an explicit path. Whisper detects the language per file unless specified (`--language` / `-l`), runs in the background and writes a sibling TXT without overwriting existing files. Includes a setup script for the local Whisper environment; requires ffmpeg. No media upload.
+- **Transcription progress per file.** `transcribe` no longer closes the overlay: the preview shows each file of the batch with a progress bar, percentage, remaining time and the result. Esc closes the view while the batch keeps running; typing `transcribe` again shows it again. A batch can be cancelled (two clicks); transcripts already written stay.
 
 ## [0.204.0] - 2026-10-08
 

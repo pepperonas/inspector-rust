@@ -175,8 +175,25 @@ Python/Whisper/ffmpeg off the main thread, then launches a background worker. Em
 `assets/transcribe/runner.py` receives JSON over stdin, validates Whisper languages,
 loads the multilingual small CPU model once per batch and exclusively creates sibling
 TXT files (`name 2.txt` on collisions). Each file gets fresh automatic language detection;
-file failures do not abort the batch. Completion/errors use the existing status toast plus a native macOS notification.
-The frontend shares the file-command preview/dispatch with md2pdf; popup hiding keeps the existing CRT lifecycle.
+file failures do not abort the batch. **Background job + per-file progress (v0.205.0):**
+the worker prints one JSON event per line (`model`/`start`/`progress`/`done`/`failed`);
+`progress` comes from replacing whisper's tqdm bar (`sys.modules["whisper.transcribe"].tqdm`
+— the package attribute `whisper.transcribe` is the FUNCTION) with a shim, so `verbose=None`
+stays silent. Rust folds them into a `Job` (pure `Job::apply`/`finish`, tested: progress
+never runs backwards, bad indices ignored, a crash or clean exit never leaves a row
+"running") held in a static, emitted as `transcribe-progress`, ended with `transcribe-done`
++ the macOS notification. `transcribe_run` returns the first snapshot (input errors become
+a failed job so the panel shows them), `transcribe.busy` while one runs; `transcribe_status`
+reconnects, `transcribe_cancel` kills the worker (finished TXTs stay). The overlay stays
+open: `TranscribePanel` (lazy, preview column, `PANEL_KINDS`+keepArg) shows one row per
+file with bar + status/ETA (`lib/transcribe.ts`); Esc closes the view only, typing
+`transcribe` while a job runs reconnects (edge-triggered, so Esc sticks), Enter on a
+finished job restarts, cancel is two-stage inline. App owns the one subscription;
+`transcribe-done` toasts only while the panel is closed. ⚠️ The first snapshot from the
+invoke can arrive AFTER newer progress events — it never replaces a same-id job.
+⚠️ Bundle: this pushed the App chunk to 404 KB; `disco-engine` (with the BPM analyser +
+mic feed) is now imported on demand and its running flag lives in `lib/disco-state.ts`.
+md2pdf keeps the old fire-and-forget dispatch.
 `scripts/setup-transcribe.py` installs Whisper in the per-user local-data
 `InspectorRust/transcribe/venv`; `IR_WHISPER_PYTHON` overrides the interpreter and
 `IR_WHISPER_MODEL` the default small model. No automatic package installs; only model

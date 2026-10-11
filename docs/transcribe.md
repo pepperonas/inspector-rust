@@ -51,10 +51,21 @@ GUI launches also find ffmpeg in the usual Homebrew locations.
 
 ## Results
 
-The command checks the input, language and dependencies before starting a
-background worker. Inspector remains usable while Whisper processes the batch.
-A status notification reports the written filename or any failures; macOS also
-shows a system notification. A failed file does not stop the remaining batch.
+The command checks the input and starts a background job. The overlay stays
+open and the preview shows every file with its own progress bar, the percentage,
+an estimate of the remaining time and, when done, the detected language and the
+duration. Click a finished file to show its transcript in Finder.
+
+Press Esc to close the view (or the whole overlay): the batch keeps running.
+Type `transcribe` again while it runs to see the progress again — Enter does
+not start a second run then. "Abbrechen" (click twice) stops the batch;
+transcripts already written stay. When the batch ends while the view is closed,
+a status message reports the result; macOS also shows a system notification.
+A failed file does not stop the remaining batch.
+
+Whisper reports progress in 30-second windows, so a short clip jumps straight
+from "Audio wird gelesen…" to done, and language detection happens before the
+first step.
 
 Each transcript is UTF-8 plain text in the input folder: `clip.mp4` becomes
 `clip.txt`. Existing files are never overwritten: subsequent runs create

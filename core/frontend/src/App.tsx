@@ -1,6 +1,7 @@
 import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
+import { isJobActive } from "./lib/transcribe";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -50,6 +51,7 @@ const BoomPanel = lazy(() => import("./components/BoomPanel").then((m) => ({ def
 const ConvertPanel = lazy(() => import("./components/ConvertPanel").then((m) => ({ default: m.ConvertPanel })));
 const CalendarPanel = lazy(() => import("./components/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
 const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ default: m.CleanPanel })));
+const TranscribePanel = lazy(() => import("./components/TranscribePanel").then((m) => ({ default: m.TranscribePanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
 const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
 const ShazamPanel = lazy(() => import("./components/ShazamPanel").then((m) => ({ default: m.ShazamPanel })));
@@ -99,7 +101,7 @@ import {
   type FigletDefaults,
   type FigletOpts,
 } from "./lib/figlet";
-import { discoEngine } from "./lib/disco-engine";
+import { discoRunning } from "./lib/disco-state";
 import { SearchBar } from "./components/SearchBar";
 const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
 const SnippetsPanel = lazy(() => import("./components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
@@ -226,6 +228,10 @@ import {
   finderOpenTerminal,
   mdToPdfRun,
   transcribeRun,
+  transcribeStatus,
+  TRANSCRIBE_BUSY,
+  type TranscribeJob,
+  type TranscribeDone,
   screenshotCapture,
   screenshotRepeatLast,
   listMemes,
@@ -542,6 +548,19 @@ function App() {
   useEffect(() => {
     cleanModeRef.current = cleanMode;
   }, [cleanMode]);
+  // Transcribe mode — the per-file progress of the background Whisper job in
+  // the preview column. The job lives in Rust and survives Esc / overlay-hide;
+  // App owns the one `transcribe-progress` subscription and hands the
+  // snapshot down. The ref mirrors let event handlers read the live values.
+  const [transcribeMode, setTranscribeMode] = useState(false);
+  const [transcribeFocus, setTranscribeFocus] = useState(false);
+  const [transcribeJob, setTranscribeJob] = useState<TranscribeJob | null>(null);
+  const transcribeModeRef = useRef(transcribeMode);
+  const transcribeJobRef = useRef(transcribeJob);
+  useEffect(() => {
+    transcribeModeRef.current = transcribeMode;
+    transcribeJobRef.current = transcribeJob;
+  }, [transcribeMode, transcribeJob]);
   // Snitch mode — `snitch` (app blocker) / `snitch map` (world map). Enter
   // opens; the arg picks which view. macOS-only command.
   const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
@@ -1751,6 +1770,19 @@ function App() {
   // Clean mode auto-exits when the query is no longer the `clean` command
   // (it is entered via Enter, not while typing — the scan is heavy).
   const isCleanCmd = parsedCommand?.spec.kind === "clean";
+
+  // Transcribe: leaving the command closes the panel (the job keeps running);
+  // TYPING the command while a job runs reconnects to it without a keypress —
+  // only on that edge, so Esc can close it while the query stays.
+  const isTranscribeCmd = parsedCommand?.spec.kind === "transcribe";
+  useEffect(() => {
+    if (!isTranscribeCmd) {
+      setTranscribeMode(false);
+      setTranscribeFocus(false);
+    } else if (isJobActive(transcribeJobRef.current)) {
+      setTranscribeMode(true);
+    }
+  }, [isTranscribeCmd]);
   useEffect(() => {
     if (!isCleanCmd && cleanMode) {
       setCleanMode(false);
@@ -2352,7 +2384,7 @@ function App() {
         break;
       case "disco": {
         const on = parseDiscoArg(arg);
-        const willRun = on === null ? !discoEngine.isRunning() : on;
+        const willRun = on === null ? !discoRunning() : on;
         label = willRun ? "Beat-sync Hue lamps to the mic" : "Stop the Hue beat-sync";
         hint = willRun
           ? "Pulses your lamps to music; keeps running after the popup closes"
@@ -3692,6 +3724,34 @@ function App() {
   // Clean scan/execute finished. Jobs run in the backend and survive Esc —
   // when the panel is closed, surface a status toast (scan ready / cleaned /
   // failed). Open panel handles the result itself (no toast duplication).
+  // Transcription job: one subscription for the whole app. The panel renders
+  // the snapshot; when the job ends while the panel is closed, a status toast
+  // reports it (the open panel shows the result itself).
+  useEffect(() => {
+    void transcribeStatus()
+      .then((j) => {
+        if (j) setTranscribeJob((cur) => cur ?? j);
+      })
+      .catch(() => undefined);
+  }, []);
+  // Start a run. The progress event can overtake the invoke's answer, so the
+  // returned first snapshot never replaces a newer one of the same job.
+  const startTranscribe = useCallback(async (arg: string) => {
+    try {
+      const j = await transcribeRun(arg);
+      setTranscribeJob((cur) => (cur && cur.id === j.id ? cur : j));
+    } catch (e) {
+      if (String(e) !== TRANSCRIBE_BUSY) console.warn("transcribe:", e);
+    }
+  }, []);
+  useTauriEvent<TranscribeJob>("transcribe-progress", (e) => {
+    if (e.payload) setTranscribeJob(e.payload);
+  });
+  useTauriEvent<TranscribeDone>("transcribe-done", (e) => {
+    if (transcribeModeRef.current || !e.payload) return;
+    void showStatusToast("transcribe", e.payload.ok, "Audio/Video → Text", e.payload.message);
+  });
+
   useTauriEvent<CleanDone>("clean-done", (e) => {
     if (cleanModeRef.current) return;
     const d = e.payload;
@@ -3876,6 +3936,9 @@ function App() {
     setNosleepFocus(false);
     setAliasMode(false);
     setAliasFocus(false);
+    // The transcription itself keeps running — only the view closes.
+    setTranscribeMode(false);
+    setTranscribeFocus(false);
     // ⚠️ Explicit: a mic panel surviving a click-away hide would keep the
     // native capture running invisibly (the bpm/equalizer lesson, v0.105.0).
     setDezibelMode(false);
@@ -4010,7 +4073,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4032,6 +4095,7 @@ function App() {
           commandKind === "16bit" ||
           commandKind === "alias" ||
           commandKind === "task" ||
+          commandKind === "transcribe" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
@@ -4483,9 +4547,15 @@ function App() {
         }
         await startTimer(a.seconds, `Alarm ${a.label}`);
         await showStatusToast("alarm", true, "Alarm set", a.label);
-      } else if (commandKind === "transcribe" || commandKind === "md2pdf") {
+      } else if (commandKind === "transcribe") {
+        // The overlay stays open with the per-file progress; Esc closes it and
+        // the batch keeps running. A running job is shown, never restarted.
+        setTranscribeMode(true);
+        setTranscribeFocus(true);
+        if (!isJobActive(transcribeJobRef.current)) await startTranscribe(arg);
+      } else if (commandKind === "md2pdf") {
         try {
-          await (commandKind === "transcribe" ? transcribeRun(arg) : mdToPdfRun(arg || undefined));
+          await mdToPdfRun(arg || undefined);
         } catch (e) {
           await showStatusToast(commandKind, false, commandKind, String(e));
           return true;
@@ -4705,7 +4775,9 @@ function App() {
         // forget; the engine surfaces its own error (e.g. no bridge) in the
         // hue panel. Close the popup so the lights take the stage.
         const on = parseDiscoArg(arg);
-        const want = on === null ? !discoEngine.isRunning() : on;
+        const want = on === null ? !discoRunning() : on;
+        // Loaded on demand — the engine pulls the BPM analyser + mic feed.
+        const { discoEngine } = await import("./lib/disco-engine");
         if (want) void discoEngine.start();
         else discoEngine.stop();
         await hidePopup();
@@ -5134,6 +5206,7 @@ function App() {
       !calendarFocus &&
       !convertFocus &&
       !cleanFocus &&
+      !transcribeFocus &&
       !snitchFocus &&
       !shazamFocus,
   });
@@ -5970,6 +6043,19 @@ function App() {
                       onExit={() => {
                         setCalendarMode(false);
                         setCalendarFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : transcribeMode ? (
+                  <div className="md3-pop-in h-full">
+                    <TranscribePanel
+                      job={transcribeJob}
+                      focused={transcribeFocus}
+                      onRestart={() => void startTranscribe(isTranscribeCmd ? (parsedCommand?.arg ?? "") : "")}
+                      onExit={() => {
+                        setTranscribeMode(false);
+                        setTranscribeFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

@@ -895,6 +895,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::finder_open_terminal,
             commands::md_to_pdf_run,
             commands::transcribe_run,
+            commands::transcribe_status,
+            commands::transcribe_cancel,
             commands::show_status_toast,
             commands::get_finder_automation_status,
             commands::open_finder_automation_settings,

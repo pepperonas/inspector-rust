@@ -59,10 +59,39 @@ class WorkerTests(unittest.TestCase):
             output = io.StringIO()
             with patch.object(worker, "load_whisper", return_value=(Whisper, None)), patch("sys.stdin", io.StringIO(json.dumps(request))), patch("sys.argv", ["runner"]), contextlib.redirect_stdout(output):
                 worker.main()
-            summary = json.loads(output.getvalue())
-            self.assertEqual([Path(p).name for p in summary["outputs"]], ["first.txt", "last.txt"])
-            self.assertEqual(summary["failed"], [[paths[1], "no audio track"]])
+            events = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(events[0], {"event": "model"})
+            done = [e for e in events if e["event"] == "done"]
+            self.assertEqual([Path(e["output"]).name for e in done], ["first.txt", "last.txt"])
+            self.assertEqual([e["index"] for e in done], [0, 2])
+            self.assertEqual(
+                [e for e in events if e["event"] == "failed"],
+                [{"event": "failed", "index": 1, "error": "no audio track"}],
+            )
+            self.assertEqual([e["index"] for e in events if e["event"] == "start"], [0, 1, 2])
             self.assertFalse(Path(paths[1]).with_suffix(".txt").exists())
+
+    def test_whisper_progress_bar_becomes_progress_events(self):
+        import sys
+        import types
+
+        module = types.ModuleType("whisper.transcribe")
+        module.tqdm = object()
+        output = io.StringIO()
+        with patch.dict(sys.modules, {"whisper.transcribe": module}), contextlib.redirect_stdout(output):
+            worker.install_progress()
+            worker._Progress.current = 3
+            with module.tqdm.tqdm(total=200, unit="frames", disable=True) as bar:
+                bar.update(50)
+                bar.update(150)
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(
+            events,
+            [
+                {"event": "progress", "index": 3, "done": 50, "total": 200},
+                {"event": "progress", "index": 3, "done": 200, "total": 200},
+            ],
+        )
 
 
 if __name__ == "__main__":

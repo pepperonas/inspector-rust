@@ -173,73 +173,479 @@ fn python() -> PathBuf {
     PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
 }
 
-pub struct Worker {
-    python: PathBuf,
-    path_env: std::ffi::OsString,
-    request: Vec<u8>,
+// ---------------------------------------------------------------------------
+// Background job. The worker prints one JSON event per line (model / start /
+// progress / done / failed); the state below folds them into a `Job` that the
+// preview panel renders per file. The job lives in the backend, so closing the
+// overlay never stops it — reopening `transcribe` reconnects via `status()`.
+// ---------------------------------------------------------------------------
+
+/// Tauri event carrying the full `Job` snapshot after every change.
+pub const PROGRESS_EVENT: &str = "transcribe-progress";
+/// Tauri event fired once when a job ends (`DoneEvent`).
+pub const DONE_EVENT: &str = "transcribe-done";
+/// Error sentinel: a job is already running (the panel just reconnects).
+pub const ERR_BUSY: &str = "transcribe.busy";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileState {
+    Queued,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
 }
 
-impl Worker {
-    pub fn prepare(paths: &[PathBuf], language: Option<&str>) -> Result<Self, String> {
-        let ffmpeg = crate::screen_record::ffmpeg_path()
-            .ok_or("ffmpeg fehlt — bitte installieren (macOS: brew install ffmpeg)")?;
-        let mut path_dirs = vec![ffmpeg.parent().unwrap_or(Path::new(".")).to_path_buf()];
-        if let Some(current) = std::env::var_os("PATH") {
-            path_dirs.extend(std::env::split_paths(&current));
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileJob {
+    pub path: String,
+    pub name: String,
+    pub state: FileState,
+    /// 0..=1 — frames decoded / frames total, as reported by Whisper.
+    pub progress: f64,
+    pub output: Option<String>,
+    pub language: Option<String>,
+    pub error: Option<String>,
+    pub started_ms: Option<u64>,
+    pub finished_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Phase {
+    /// Worker spawned, Whisper still importing.
+    Starting,
+    LoadingModel,
+    Running,
+    Finished,
+    Cancelled,
+    /// The worker itself failed (Whisper missing, ffmpeg missing, no input…).
+    Failed,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Job {
+    pub id: u64,
+    pub phase: Phase,
+    pub language: Option<String>,
+    pub files: Vec<FileJob>,
+    pub error: Option<String>,
+    pub started_ms: u64,
+    pub finished_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DoneEvent {
+    pub id: u64,
+    pub ok: bool,
+    pub message: String,
+}
+
+/// One line of worker output.
+#[derive(Debug, serde::Deserialize, PartialEq)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum WorkerEvent {
+    Model,
+    Start {
+        index: usize,
+    },
+    Progress {
+        index: usize,
+        done: u64,
+        total: u64,
+    },
+    Done {
+        index: usize,
+        output: String,
+        #[serde(default)]
+        language: Option<String>,
+    },
+    Failed {
+        index: usize,
+        error: String,
+    },
+}
+
+/// How the worker process ended.
+#[derive(Debug, PartialEq)]
+pub enum Exit {
+    /// Exit code 0 — every file reported its own outcome.
+    Ok,
+    /// Non-zero exit / spawn failure, with the stderr text.
+    Crashed(String),
+    /// The user cancelled.
+    Cancelled,
+}
+
+impl Job {
+    pub fn new(id: u64, paths: &[PathBuf], language: Option<String>, now: u64) -> Self {
+        Self {
+            id,
+            phase: Phase::Starting,
+            language,
+            files: paths
+                .iter()
+                .map(|p| FileJob {
+                    path: p.to_string_lossy().into_owned(),
+                    name: p
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| p.to_string_lossy().into_owned()),
+                    state: FileState::Queued,
+                    progress: 0.0,
+                    output: None,
+                    language: None,
+                    error: None,
+                    started_ms: None,
+                    finished_ms: None,
+                })
+                .collect(),
+            error: None,
+            started_ms: now,
+            finished_ms: None,
         }
-        let path_env = std::env::join_paths(path_dirs).map_err(|e| e.to_string())?;
-        let worker = Self {
-            python: python(),
-            path_env,
-            request: serde_json::to_vec(
-                &serde_json::json!({ "paths": paths, "language": language }),
-            )
-            .map_err(|e| format!("Dateipfade: {e}"))?,
+    }
+
+    /// A job that never got going (no input, ffmpeg missing, …).
+    pub fn failed(id: u64, error: String, now: u64) -> Self {
+        let mut job = Self::new(id, &[], None, now);
+        job.phase = Phase::Failed;
+        job.error = Some(error);
+        job.finished_ms = Some(now);
+        job
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Starting | Phase::LoadingModel | Phase::Running
+        )
+    }
+
+    /// Fold one worker event in. Out-of-range indices are ignored (a worker
+    /// bug must never panic the backend).
+    pub fn apply(&mut self, event: WorkerEvent, now: u64) {
+        match event {
+            WorkerEvent::Model => {
+                if self.phase == Phase::Starting {
+                    self.phase = Phase::LoadingModel;
+                }
+            }
+            WorkerEvent::Start { index } => {
+                self.phase = Phase::Running;
+                if let Some(f) = self.files.get_mut(index) {
+                    f.state = FileState::Running;
+                    f.progress = 0.0;
+                    f.started_ms = Some(now);
+                }
+            }
+            WorkerEvent::Progress { index, done, total } => {
+                if let Some(f) = self.files.get_mut(index) {
+                    if total > 0 {
+                        // Never let a stray event move a bar backwards.
+                        f.progress = f.progress.max((done as f64 / total as f64).clamp(0.0, 1.0));
+                    }
+                }
+            }
+            WorkerEvent::Done {
+                index,
+                output,
+                language,
+            } => {
+                if let Some(f) = self.files.get_mut(index) {
+                    f.state = FileState::Done;
+                    f.progress = 1.0;
+                    f.output = Some(output);
+                    f.language = language;
+                    f.finished_ms = Some(now);
+                }
+            }
+            WorkerEvent::Failed { index, error } => {
+                if let Some(f) = self.files.get_mut(index) {
+                    f.state = FileState::Failed;
+                    f.error = Some(user_error(&error));
+                    f.finished_ms = Some(now);
+                }
+            }
+        }
+    }
+
+    /// Close the job once the worker process is gone. Files the worker never
+    /// reported on are marked so no row stays "running" forever.
+    pub fn finish(&mut self, exit: Exit, now: u64) {
+        let (phase, leftover, reason) = match exit {
+            Exit::Cancelled => (Phase::Cancelled, FileState::Cancelled, None),
+            Exit::Crashed(err) => (Phase::Failed, FileState::Failed, Some(user_error(&err))),
+            Exit::Ok => (
+                Phase::Finished,
+                FileState::Failed,
+                Some("Worker beendet, ohne diese Datei zu melden".to_string()),
+            ),
         };
-        worker.invoke(true)?;
-        Ok(worker)
+        for f in &mut self.files {
+            if matches!(f.state, FileState::Queued | FileState::Running) {
+                f.state = leftover;
+                if leftover == FileState::Failed {
+                    f.error = reason.clone();
+                }
+                f.finished_ms = Some(now);
+            }
+        }
+        if phase == Phase::Failed {
+            self.error = reason;
+        }
+        self.phase = phase;
+        self.finished_ms = Some(now);
     }
 
-    fn invoke(&self, check: bool) -> Result<Vec<u8>, String> {
-        let mut cmd = Command::new(&self.python);
-        cmd.args(["-c", RUNNER])
-            .env("PATH", &self.path_env)
-            .env("PYTHONIOENCODING", "utf-8")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if check {
-            cmd.arg("--check");
+    pub fn summary(&self) -> Summary {
+        let mut summary = Summary::default();
+        for f in &self.files {
+            match f.state {
+                FileState::Done => summary
+                    .outputs
+                    .push(PathBuf::from(f.output.clone().unwrap_or_default())),
+                FileState::Failed => summary
+                    .failed
+                    .push((PathBuf::from(&f.path), f.error.clone().unwrap_or_default())),
+                _ => {}
+            }
         }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
-        let mut child = cmd.spawn().map_err(|e| format!(
-            "Python/Whisper nicht verfügbar: {e}. Einmal python3 scripts/setup-transcribe.py ausführen; alternativ IR_WHISPER_PYTHON setzen."
-        ))?;
-        let write_result = child
-            .stdin
-            .take()
-            .ok_or("Whisper-Eingabe nicht verfügbar")?
-            .write_all(&self.request);
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("Whisper: {e}"))?;
-        if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-        }
-        write_result.map_err(|e| format!("Whisper-Eingabe: {e}"))?;
-        Ok(output.stdout)
+        summary
     }
 
-    pub fn run(&self) -> Result<Summary, String> {
-        serde_json::from_slice(&self.invoke(false)?).map_err(|e| format!("Whisper-Antwort: {e}"))
+    /// The one-line result for the toast / notification.
+    pub fn message(&self) -> String {
+        match self.phase {
+            Phase::Failed if self.files.iter().all(|f| f.state != FileState::Done) => self
+                .error
+                .clone()
+                .unwrap_or_else(|| "Transkription fehlgeschlagen".into()),
+            Phase::Cancelled => {
+                let done = self
+                    .files
+                    .iter()
+                    .filter(|f| f.state == FileState::Done)
+                    .count();
+                format!("Abgebrochen — {done} von {} fertig", self.files.len())
+            }
+            _ => self.summary().message(),
+        }
+    }
+
+    pub fn ok(&self) -> bool {
+        self.phase == Phase::Finished && self.files.iter().all(|f| f.state == FileState::Done)
     }
 }
 
-#[derive(Debug, serde::Deserialize, Default)]
+/// Parse one stdout line; anything that isn't a worker event (a library
+/// printing to stdout) is ignored rather than breaking the job.
+pub fn parse_event(line: &str) -> Option<WorkerEvent> {
+    serde_json::from_str(line.trim()).ok()
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+static JOB: parking_lot::Mutex<Option<Job>> = parking_lot::Mutex::new(None);
+static CHILD: parking_lot::Mutex<Option<std::process::Child>> = parking_lot::Mutex::new(None);
+static CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The current (or last) job — for a panel that opens after the start.
+pub fn status() -> Option<Job> {
+    JOB.lock().clone()
+}
+
+fn publish(app: &tauri::AppHandle, job: &Job) {
+    use tauri::Emitter;
+    let _ = app.emit(PROGRESS_EVENT, job);
+}
+
+fn update(app: &tauri::AppHandle, f: impl FnOnce(&mut Job)) {
+    let snapshot = {
+        let mut guard = JOB.lock();
+        let Some(job) = guard.as_mut() else { return };
+        f(job);
+        job.clone()
+    };
+    publish(app, &snapshot);
+}
+
+/// Record a job that failed before it started, so the panel shows the reason
+/// in the same place as every other outcome. Never replaces a running job.
+pub fn record_failure(app: &tauri::AppHandle, error: String) -> Job {
+    let mut guard = JOB.lock();
+    if let Some(job) = guard.as_ref().filter(|j| j.is_active()) {
+        return job.clone();
+    }
+    let job = Job::failed(
+        NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+        error,
+        now_ms(),
+    );
+    *guard = Some(job.clone());
+    drop(guard);
+    publish(app, &job);
+    job
+}
+
+/// Start a job in the background. Errors with `ERR_BUSY` while one runs.
+pub fn start(
+    app: tauri::AppHandle,
+    paths: Vec<PathBuf>,
+    language: Option<String>,
+) -> Result<Job, String> {
+    let job = {
+        let mut guard = JOB.lock();
+        if guard.as_ref().is_some_and(Job::is_active) {
+            return Err(ERR_BUSY.into());
+        }
+        let job = Job::new(
+            NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            &paths,
+            language.clone(),
+            now_ms(),
+        );
+        *guard = Some(job.clone());
+        job
+    };
+    CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
+    publish(&app, &job);
+    let request = serde_json::json!({ "paths": paths, "language": language });
+    std::thread::Builder::new()
+        .name("ir-transcribe".into())
+        .spawn(move || run_job(app, request))
+        .map_err(|e| format!("transcribe: {e}"))?;
+    Ok(job)
+}
+
+/// Stop the running job. Returns false when nothing was running.
+pub fn cancel() -> bool {
+    if !JOB.lock().as_ref().is_some_and(Job::is_active) {
+        return false;
+    }
+    CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(child) = CHILD.lock().as_mut() {
+        let _ = child.kill();
+    }
+    true
+}
+
+fn worker_command() -> Result<Command, String> {
+    let ffmpeg = crate::screen_record::ffmpeg_path()
+        .ok_or("ffmpeg fehlt — bitte installieren (macOS: brew install ffmpeg)")?;
+    let mut path_dirs = vec![ffmpeg.parent().unwrap_or(Path::new(".")).to_path_buf()];
+    if let Some(current) = std::env::var_os("PATH") {
+        path_dirs.extend(std::env::split_paths(&current));
+    }
+    let path_env = std::env::join_paths(path_dirs).map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(python());
+    cmd.args(["-c", RUNNER])
+        .env("PATH", path_env)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUNBUFFERED", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    Ok(cmd)
+}
+
+fn run_job(app: tauri::AppHandle, request: serde_json::Value) {
+    use std::io::{BufRead, BufReader, Read};
+    let exit = (|| -> Exit {
+        let mut cmd = match worker_command() {
+            Ok(cmd) => cmd,
+            Err(e) => return Exit::Crashed(e),
+        };
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return Exit::Crashed(format!(
+                    "Python/Whisper nicht verfügbar: {e}. Einmal python3 scripts/setup-transcribe.py ausführen; alternativ IR_WHISPER_PYTHON setzen."
+                ))
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(request.to_string().as_bytes());
+        }
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        // Drain stderr on its own thread so a chatty library can't fill the
+        // pipe and stall the worker.
+        let err_reader = std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut s) = stderr {
+                let _ = s.read_to_string(&mut text);
+            }
+            text
+        });
+        *CHILD.lock() = Some(child);
+        // A cancel that landed before the child was stored.
+        if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(c) = CHILD.lock().as_mut() {
+                let _ = c.kill();
+            }
+        }
+        if let Some(out) = stdout {
+            for line in BufReader::new(out).lines() {
+                let Ok(line) = line else { break };
+                if let Some(event) = parse_event(&line) {
+                    let now = now_ms();
+                    update(&app, |job| job.apply(event, now));
+                }
+            }
+        }
+        let status = CHILD.lock().take().map(|mut c| c.wait());
+        let stderr_text = err_reader.join().unwrap_or_default();
+        if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
+            return Exit::Cancelled;
+        }
+        match status {
+            Some(Ok(s)) if s.success() => Exit::Ok,
+            Some(Ok(_)) => Exit::Crashed(stderr_text),
+            Some(Err(e)) => Exit::Crashed(format!("Whisper: {e}")),
+            None => Exit::Crashed("Whisper-Prozess verloren".into()),
+        }
+    })();
+    if let Exit::Crashed(e) = &exit {
+        tracing::warn!("transcribe: {e}");
+    }
+    let now = now_ms();
+    update(&app, |job| job.finish(exit, now));
+    if let Some(job) = status() {
+        for f in job.files.iter().filter(|f| f.state == FileState::Failed) {
+            tracing::warn!(
+                "transcribe: {}: {}",
+                f.path,
+                f.error.clone().unwrap_or_default()
+            );
+        }
+        let message = job.message();
+        notify_completion(&message);
+        use tauri::Emitter;
+        let _ = app.emit(
+            DONE_EVENT,
+            DoneEvent {
+                id: job.id,
+                ok: job.ok(),
+                message,
+            },
+        );
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Summary {
     pub outputs: Vec<PathBuf>,
     pub failed: Vec<(PathBuf, String)>,
@@ -403,6 +809,213 @@ mod tests {
         assert!(summary
             .message()
             .contains("1 fehlgeschlagen: broken.mp4 — Keine Tonspur"));
+    }
+
+    fn batch() -> Job {
+        Job::new(
+            7,
+            &[PathBuf::from("/a/eins.mp4"), PathBuf::from("/a/zwei.mp3")],
+            None,
+            1000,
+        )
+    }
+
+    #[test]
+    fn worker_lines_parse_and_noise_is_ignored() {
+        assert_eq!(
+            parse_event(r#"{"event":"model"}"#),
+            Some(WorkerEvent::Model)
+        );
+        assert_eq!(
+            parse_event(r#"{"event":"progress","index":1,"done":30,"total":120}"#),
+            Some(WorkerEvent::Progress {
+                index: 1,
+                done: 30,
+                total: 120
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"event":"done","index":0,"output":"/a/eins.txt"}"#),
+            Some(WorkerEvent::Done {
+                index: 0,
+                output: "/a/eins.txt".into(),
+                language: None
+            })
+        );
+        assert_eq!(parse_event("Detected language: German"), None);
+        assert_eq!(parse_event(r#"{"event":"unknown"}"#), None);
+    }
+
+    #[test]
+    fn a_batch_reports_every_file_on_its_own() {
+        let mut job = batch();
+        assert_eq!(job.phase, Phase::Starting);
+        assert!(job.is_active());
+        job.apply(WorkerEvent::Model, 1100);
+        assert_eq!(job.phase, Phase::LoadingModel);
+        job.apply(WorkerEvent::Start { index: 0 }, 1200);
+        assert_eq!(job.phase, Phase::Running);
+        assert_eq!(job.files[0].state, FileState::Running);
+        assert_eq!(job.files[1].state, FileState::Queued);
+        job.apply(
+            WorkerEvent::Progress {
+                index: 0,
+                done: 30,
+                total: 120,
+            },
+            1300,
+        );
+        assert!((job.files[0].progress - 0.25).abs() < 1e-9);
+        assert_eq!(job.files[1].progress, 0.0);
+        job.apply(
+            WorkerEvent::Done {
+                index: 0,
+                output: "/a/eins.txt".into(),
+                language: Some("de".into()),
+            },
+            1400,
+        );
+        job.apply(WorkerEvent::Start { index: 1 }, 1400);
+        job.apply(
+            WorkerEvent::Failed {
+                index: 1,
+                error: "trace\nKeine Tonspur".into(),
+            },
+            1500,
+        );
+        job.finish(Exit::Ok, 1500);
+        assert_eq!(job.phase, Phase::Finished);
+        assert!(!job.is_active());
+        assert_eq!(job.files[0].state, FileState::Done);
+        assert_eq!(job.files[0].progress, 1.0);
+        assert_eq!(job.files[0].language.as_deref(), Some("de"));
+        assert_eq!(job.files[1].error.as_deref(), Some("Keine Tonspur"));
+        assert!(!job.ok());
+        assert!(job
+            .message()
+            .contains("1 fehlgeschlagen: zwei.mp3 — Keine Tonspur"));
+    }
+
+    #[test]
+    fn progress_never_runs_backwards_and_bad_indices_are_ignored() {
+        let mut job = batch();
+        job.apply(
+            WorkerEvent::Progress {
+                index: 0,
+                done: 80,
+                total: 100,
+            },
+            0,
+        );
+        job.apply(
+            WorkerEvent::Progress {
+                index: 0,
+                done: 10,
+                total: 100,
+            },
+            0,
+        );
+        assert!((job.files[0].progress - 0.8).abs() < 1e-9);
+        job.apply(
+            WorkerEvent::Progress {
+                index: 0,
+                done: 500,
+                total: 100,
+            },
+            0,
+        );
+        assert_eq!(job.files[0].progress, 1.0);
+        job.apply(
+            WorkerEvent::Progress {
+                index: 1,
+                done: 5,
+                total: 0,
+            },
+            0,
+        );
+        assert_eq!(job.files[1].progress, 0.0);
+        job.apply(WorkerEvent::Start { index: 9 }, 0);
+        job.apply(
+            WorkerEvent::Failed {
+                index: 9,
+                error: "x".into(),
+            },
+            0,
+        );
+        assert!(job.files.iter().all(|f| f.state == FileState::Queued));
+    }
+
+    #[test]
+    fn cancel_keeps_finished_files_and_stops_the_rest() {
+        let mut job = batch();
+        job.apply(WorkerEvent::Start { index: 0 }, 0);
+        job.apply(
+            WorkerEvent::Done {
+                index: 0,
+                output: "/a/eins.txt".into(),
+                language: None,
+            },
+            0,
+        );
+        job.apply(WorkerEvent::Start { index: 1 }, 0);
+        job.finish(Exit::Cancelled, 9);
+        assert_eq!(job.phase, Phase::Cancelled);
+        assert_eq!(job.files[0].state, FileState::Done);
+        assert_eq!(job.files[1].state, FileState::Cancelled);
+        assert_eq!(job.files[1].error, None);
+        assert_eq!(job.message(), "Abgebrochen — 1 von 2 fertig");
+    }
+
+    #[test]
+    fn a_crashed_worker_never_leaves_a_row_running() {
+        let mut job = batch();
+        job.apply(WorkerEvent::Model, 0);
+        job.finish(Exit::Crashed("Traceback…\nWhisper fehlt.".into()), 5);
+        assert_eq!(job.phase, Phase::Failed);
+        assert_eq!(job.error.as_deref(), Some("Whisper fehlt."));
+        assert!(job.files.iter().all(|f| f.state == FileState::Failed));
+        assert_eq!(job.message(), "Whisper fehlt.");
+        // A clean exit that skipped a file still closes that row.
+        let mut job = batch();
+        job.apply(WorkerEvent::Start { index: 0 }, 0);
+        job.apply(
+            WorkerEvent::Done {
+                index: 0,
+                output: "/a/eins.txt".into(),
+                language: None,
+            },
+            0,
+        );
+        job.finish(Exit::Ok, 1);
+        assert_eq!(job.files[1].state, FileState::Failed);
+        assert_eq!(job.phase, Phase::Finished);
+    }
+
+    #[test]
+    fn all_done_is_ok_and_input_errors_become_a_failed_job() {
+        let mut job = batch();
+        for i in 0..2 {
+            job.apply(WorkerEvent::Start { index: i }, 0);
+            job.apply(
+                WorkerEvent::Done {
+                    index: i,
+                    output: format!("/a/{i}.txt"),
+                    language: None,
+                },
+                0,
+            );
+        }
+        job.finish(Exit::Ok, 1);
+        assert!(job.ok());
+        assert_eq!(job.message(), "2 Transkripte erstellt");
+        let failed = Job::failed(3, "Keine Audio-/Videodatei im Finder ausgewählt".into(), 4);
+        assert_eq!(failed.phase, Phase::Failed);
+        assert!(failed.files.is_empty());
+        assert!(!failed.is_active());
+        assert_eq!(
+            failed.message(),
+            "Keine Audio-/Videodatei im Finder ausgewählt"
+        );
     }
 
     #[test]

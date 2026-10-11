@@ -26,6 +26,7 @@ import { beatColor, floorBrightness, nextIndex, type DiscoMode } from "./disco-m
 import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
 import { warmContext } from "./warm-audio";
 import { startFedMic } from "./mic-feed";
+import { setDiscoRunning } from "./disco-state";
 
 export type { DiscoMode };
 
@@ -118,6 +119,7 @@ class DiscoEngine {
 
   private set(patch: Partial<DiscoState>) {
     this.state = { ...this.state, ...patch };
+    setDiscoRunning(this.state.running);
     this.snap = this.state;
     this.listeners.forEach((l) => l());
   }

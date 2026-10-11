@@ -222,9 +222,56 @@ export function mdToPdfRun(path?: string): Promise<void> {
   return invoke("md_to_pdf_run", { path: path ?? null });
 }
 
-/** Start local Whisper transcription; completion is reported by the backend. */
-export function transcribeRun(arg: string): Promise<void> {
+/** One file of a transcription batch. Mirrors `transcribe::FileJob`. */
+export interface TranscribeFile {
+  path: string;
+  name: string;
+  state: "queued" | "running" | "done" | "failed" | "cancelled";
+  /** 0..1 — frames decoded / total, reported by Whisper. */
+  progress: number;
+  output: string | null;
+  language: string | null;
+  error: string | null;
+  started_ms: number | null;
+  finished_ms: number | null;
+}
+
+/** A transcription job. Mirrors `transcribe::Job`. */
+export interface TranscribeJob {
+  id: number;
+  phase: "starting" | "loading_model" | "running" | "finished" | "cancelled" | "failed";
+  language: string | null;
+  files: TranscribeFile[];
+  error: string | null;
+  started_ms: number;
+  finished_ms: number | null;
+}
+
+/** Payload of `transcribe-done`. */
+export interface TranscribeDone {
+  id: number;
+  ok: boolean;
+  message: string;
+}
+
+/** Error sentinel: a job is already running (`transcribe::ERR_BUSY`). */
+export const TRANSCRIBE_BUSY = "transcribe.busy";
+
+/** Start a background Whisper transcription. Resolves with the first job
+ *  snapshot; progress arrives as `transcribe-progress`, the end as
+ *  `transcribe-done`. Rejects with `TRANSCRIBE_BUSY` while one runs. */
+export function transcribeRun(arg: string): Promise<TranscribeJob> {
   return invoke("transcribe_run", { arg });
+}
+
+/** The current or last transcription job (null = none since app start). */
+export function transcribeStatus(): Promise<TranscribeJob | null> {
+  return invoke("transcribe_status");
+}
+
+/** Cancel the running transcription; finished transcripts stay. */
+export function transcribeCancel(): Promise<boolean> {
+  return invoke("transcribe_cancel");
 }
 
 /** Show an on-screen status toast (hide popup + animated flourish). Used for

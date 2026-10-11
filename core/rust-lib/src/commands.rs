@@ -5363,54 +5363,59 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
 }
 
 /// Local media → TXT, with the same selection/path workflow as md2pdf.
+/// Starts a background job and returns its first snapshot; progress arrives
+/// as `transcribe-progress`, the end as `transcribe-done`. Input errors are
+/// recorded as a failed job so the panel shows them where everything else is.
+/// While a job runs, a second call returns `transcribe.busy`.
 #[tauri::command]
-pub async fn transcribe_run(app: AppHandle, arg: String) -> Result<(), String> {
+pub async fn transcribe_run(
+    app: AppHandle,
+    arg: String,
+) -> Result<crate::transcribe::Job, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let args = crate::transcribe::parse_args(&arg)?;
-        let path = args
-            .path
-            .as_deref()
-            .map(|p| crate::path_arg::expand_user(p, dirs::home_dir().as_deref()));
-        let selection = if path.is_some() {
-            Ok(Vec::new())
-        } else {
-            #[cfg(target_os = "macos")]
-            {
-                crate::finder_selection::read()
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                Err("transcribe: Dateipfad angeben (Finder-Auswahl nur unter macOS)".into())
-            }
-        };
-        let paths = crate::transcribe::choose_inputs(path, selection, |p| p.is_file())?;
-        let worker = crate::transcribe::Worker::prepare(&paths, args.language.as_deref())?;
-        std::thread::spawn(move || {
-            let (ok, message) = match worker.run() {
-                Ok(summary) => {
-                    for (path, reason) in &summary.failed {
-                        tracing::warn!("transcribe: {}: {reason}", path.display());
-                    }
-                    (summary.failed.is_empty(), summary.message())
+        if crate::transcribe::status().is_some_and(|j| j.is_active()) {
+            return Err(crate::transcribe::ERR_BUSY.to_string());
+        }
+        let inputs = (|| {
+            let args = crate::transcribe::parse_args(&arg)?;
+            let path = args
+                .path
+                .as_deref()
+                .map(|p| crate::path_arg::expand_user(p, dirs::home_dir().as_deref()));
+            let selection = if path.is_some() {
+                Ok(Vec::new())
+            } else {
+                #[cfg(target_os = "macos")]
+                {
+                    crate::finder_selection::read()
                 }
-                Err(error) => {
-                    tracing::warn!("transcribe: {error}");
-                    (false, crate::transcribe::user_error(&error))
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Err("transcribe: Dateipfad angeben (Finder-Auswahl nur unter macOS)".into())
                 }
             };
-            crate::transcribe::notify_completion(&message);
-            show_status_toast(
-                app,
-                "transcribe".into(),
-                ok,
-                "Audio/Video → Text".into(),
-                message,
-            );
-        });
-        Ok(())
+            let paths = crate::transcribe::choose_inputs(path, selection, |p| p.is_file())?;
+            Ok::<_, String>((paths, args.language))
+        })();
+        match inputs {
+            Ok((paths, language)) => crate::transcribe::start(app, paths, language),
+            Err(e) => Ok(crate::transcribe::record_failure(&app, e)),
+        }
     })
     .await
     .map_err(|e| format!("transcribe task: {e}"))?
+}
+
+/// The current or last transcription job (panel reconnect).
+#[tauri::command]
+pub fn transcribe_status() -> Option<crate::transcribe::Job> {
+    crate::transcribe::status()
+}
+
+/// Cancel the running transcription. Finished transcripts stay on disk.
+#[tauri::command]
+pub fn transcribe_cancel() -> bool {
+    crate::transcribe::cancel()
 }
 
 /// Runs the hotkey-driven Finder-selection pipeline: read the

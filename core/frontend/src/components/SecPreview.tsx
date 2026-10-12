@@ -2,15 +2,16 @@ import { useEffect, useState } from "react";
 import { ShieldAlert, Terminal, AlertTriangle, ShieldCheck } from "lucide-react";
 import { parseSecCommand, type SecCatalog, type SecDefaults } from "../lib/sec";
 import { secPathExists } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 const ACK_KEY = "sec-authorization-acknowledged";
 
 const TAG_LABEL: Record<string, string> = {
-  "long-running": "long-running",
-  loud: "loud / noisy",
-  "writes-data": "writes data out",
-  "needs-root": "needs root",
-  "jumbo-only": "John Jumbo only",
+  get "long-running"() { return t("sec.tag.long_running"); },
+  get loud() { return t("sec.tag.loud"); },
+  get "writes-data"() { return t("sec.tag.writes_data"); },
+  get "needs-root"() { return t("sec.tag.needs_root"); },
+  get "jumbo-only"() { return t("sec.tag.jumbo_only"); },
 };
 
 /**
@@ -30,6 +31,7 @@ export function SecPreview({
   catalog: SecCatalog;
   defaults: SecDefaults;
 }) {
+  useT();
   const [ackd, setAckd] = useState(true);
   useEffect(() => {
     try {
@@ -70,14 +72,14 @@ export function SecPreview({
       {defaults.scope_note.trim() && (
         <div className="mb-2 flex items-start gap-2 rounded bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-muted)]">
           <ShieldCheck size={13} className="mt-0.5 shrink-0 text-emerald-500" />
-          <span>Scope: {defaults.scope_note}</span>
+          <span>{t("sec.scope")} {defaults.scope_note}</span>
         </div>
       )}
       {!ackd && (
         <div className="mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-          Only run these against systems you have written authorization to test.
+          {t("sec.only_run_these_against_systems")}
           <button onClick={dismiss} className="ml-2 underline hover:no-underline">
-            Got it
+            {t("sec.got_it")}
           </button>
         </div>
       )}
@@ -89,16 +91,16 @@ export function SecPreview({
       <div className="flex h-full flex-col p-3 text-sm">
         {Header}
         <div className="mb-2 flex items-center gap-2 font-semibold text-[var(--color-fg)]">
-          <ShieldAlert size={16} className="text-rose-500" /> Security builders
+          <ShieldAlert size={16} className="text-rose-500" /> {t("sec.security_builders")}
         </div>
         <p className="text-[var(--color-muted)]">
           {parsed.kind === "suggestion"
             ? parsed.message
             : parsed.kind === "tool-overview"
-              ? "Pick a tool: nmap · sqlmap · ferox · john — then a preset, then the target."
+              ? t("sec.pick_a_tool_nmap_sqlmap")
               : parsed.kind === "preset-list"
-                ? `Pick an ${parsed.tool.name} preset from the list, then add the target.`
-                : "Type a tool + preset (e.g. nmap service 10.0.0.5)."}
+                ? t("sec.pick_preset", { tool: parsed.tool.name })
+                : t("sec.type_a_tool_preset_e")}
         </p>
       </div>
     );
@@ -115,7 +117,7 @@ export function SecPreview({
         {tool.name} · {preset.name}
         {sharp && (
           <span className="flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
-            <AlertTriangle size={11} /> confirm before run
+            <AlertTriangle size={11} /> {t("sec.confirm_before_run")}
           </span>
         )}
       </div>
@@ -126,17 +128,17 @@ export function SecPreview({
       </div>
       {missing.length > 0 && (
         <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
-          Fill in: {missing.map((m) => `‹${m}›`).join(", ")} — Enter still copies the template.
+          {t("sec.fill_in", { fields: missing.map((m) => `‹${m}›`).join(", ") })}
         </p>
       )}
       {wl && wlExists === false && (
         <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
-          Wordlist not found on this machine: {wl}
+          {t("sec.wordlist_missing", { path: wl })}
         </p>
       )}
       {tool.name === "john" && catalog.john_formats.length > 0 && (
         <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-          <span className="font-medium">--format</span> ({defaults.john_line}):{" "}
+          <span className="font-medium">{t("sec.format")}</span> ({defaults.john_line}):{" "}
           {catalog.john_formats
             .filter((f) => defaults.john_line === "jumbo" || !f.jumbo)
             .slice(0, 12)
@@ -149,9 +151,9 @@ export function SecPreview({
       {/* Honest safety tags. */}
       {tags.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-1">
-          {tags.map((t) => (
-            <span key={t} className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
-              {TAG_LABEL[t] ?? t}
+          {tags.map((tag) => (
+            <span key={tag} className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
+              {TAG_LABEL[tag] ?? tag}
             </span>
           ))}
         </div>
@@ -177,9 +179,9 @@ export function SecPreview({
       </div>
 
       <div className="mt-2 flex items-center gap-3 border-t border-[var(--color-border)] pt-2 text-[11px] text-[var(--color-muted)]">
-        <span>⏎ Copy</span>
+        <span>{t("sec.copy")}</span>
         <span className="flex items-center gap-1">
-          <Terminal size={12} /> ⌘⏎ Run in terminal
+          <Terminal size={12} /> {t("sec.run_in_terminal")}
         </span>
       </div>
     </div>

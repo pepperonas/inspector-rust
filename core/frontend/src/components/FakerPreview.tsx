@@ -9,6 +9,7 @@ import {
   type FakerGenResult,
 } from "../lib/faker";
 import { fakerGenerate } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 const FORMATS: FakerFormat[] = ["plain", "json", "csv", "sql", "ts"];
 const PREVIEW_N = 25; // above this the preview generates only a sample window
@@ -31,6 +32,7 @@ export function FakerPreview({
   defaults: FakerDefaults;
   rerollSignal: number;
 }) {
+  useT();
   const parsed = useMemo(
     () => parseFakerCommand(arg, catalog, defaults),
     [arg, catalog, defaults],
@@ -112,21 +114,20 @@ export function FakerPreview({
     return (
       <div className="p-4 text-sm text-[var(--color-muted)]">
         <div className="mb-2 flex items-center gap-2 font-semibold text-[var(--color-fg)]">
-          <Dices size={16} className="text-rose-500" /> Fake data
+          <Dices size={16} className="text-rose-500" /> {t("faker.fake_data")}
         </div>
         {parsed.kind === "suggestion" ? (
           <p>
             {parsed.message}
             {parsed.didYouMean && (
               <>
-                {" — did you mean "}
+                {t("faker.did_you_mean")}
                 <span className="font-mono text-rose-500">{parsed.didYouMean}</span>?
               </>
             )}
           </p>
         ) : (
-          <p>Type a generator (e.g. <span className="font-mono">email</span>,{" "}
-            <span className="font-mono">person 50 --csv</span>) or pick one from the list.</p>
+          <p>{t("faker.type_hint")}</p>
         )}
       </div>
     );
@@ -141,15 +142,15 @@ export function FakerPreview({
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2 font-semibold text-[var(--color-fg)]">
           <Dices size={16} className="text-rose-500" />
-          {spec.mode === "template" ? "Template" : spec.generator}
+          {spec.mode === "template" ? t("faker.template") : spec.generator}
           <span className="text-[var(--color-muted)]">· {spec.n}×</span>
         </div>
         <button
           onClick={() => setRerollSeed(Math.floor(Math.random() * 2 ** 31))}
           className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-rose-500"
-          title="Reroll (⌘/Ctrl+R)"
+          title={t("faker.reroll_ctrl_r")}
         >
-          <RefreshCw size={13} /> Reroll
+          <RefreshCw size={13} /> {t("faker.reroll")}
         </button>
       </div>
 
@@ -184,8 +185,8 @@ export function FakerPreview({
               }
               title={
                 result.fell_back
-                  ? `Not localised for this generator — fell back to EN`
-                  : "Locale used"
+                  ? t("faker.not_localised_for_this_generator")
+                  : t("faker.locale_used")
               }
             >
               {result.locale_used}
@@ -193,7 +194,7 @@ export function FakerPreview({
             </span>
             <span
               className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 font-mono text-[var(--color-muted)]"
-              title="Seed — reuse with --seed= to reproduce"
+              title={t("faker.seed_reuse_with_seed_to")}
             >
               seed {result.seed}
             </span>
@@ -205,8 +206,8 @@ export function FakerPreview({
       {(spec.generator === "password" || spec.generator === "iban" || spec.generator === "credit_card") && (
         <p className="mb-2 rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
           {spec.generator === "password"
-            ? "Toy value (seedable PRNG) — use pwgen for real passwords."
-            : "Syntactically valid but fictional — never a real account."}
+            ? t("faker.toy_value_seedable_prng_use")
+            : t("faker.syntactically_valid_but_fictional_never")}
         </p>
       )}
 
@@ -221,7 +222,7 @@ export function FakerPreview({
           ))}
           {capped && (
             <div className="mt-1 text-[var(--color-muted)]">
-              … preview of {PREVIEW_N} · Enter generates all {spec.n}
+              {t("faker.preview_of", { n: PREVIEW_N, total: spec.n })}
             </div>
           )}
         </div>

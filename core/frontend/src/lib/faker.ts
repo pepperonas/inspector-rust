@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Faker search-bar command — pure parser + output formatters (v0.84.270).
 //
 // Parsing is 100% frontend (no IPC per keystroke, like calc.ts); generation is
@@ -128,7 +129,7 @@ export function parseFakerCommand(
   }
 
   if (generator === undefined) {
-    return { kind: "suggestion", message: "Type a generator name (e.g. email, person, uuid)" };
+    return { kind: "suggestion", message: t("faker.msg.type_name") };
   }
 
   const entry = resolveGenerator(generator, catalog);
@@ -136,7 +137,7 @@ export function parseFakerCommand(
     const dym = fuzzyBest(generator, catalog);
     return {
       kind: "suggestion",
-      message: `Unknown generator '${generator}'`,
+      message: t("faker.msg.unknown", { name: generator }),
       didYouMean: dym?.name,
     };
   }
@@ -170,7 +171,7 @@ function parseTemplate(rest: string, defaults: FakerDefaults): FakerParse {
     template = rest.trim();
   }
   if (template === "") {
-    return { kind: "suggestion", message: 'Template: faker tpl "{name} <{email}>" 10' };
+    return { kind: "suggestion", message: t("faker.msg.template") };
   }
   return {
     kind: "spec",

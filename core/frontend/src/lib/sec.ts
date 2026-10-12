@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // Security command builders — pure parser + command builder + POSIX quoter.
 //
 // Everything here is frontend-side (no IPC per keystroke): the Rust registry
@@ -291,7 +292,7 @@ export function parseSecCommand(
   const tool = findTool(toolName, catalog);
   if (!tool) {
     return viaSec
-      ? { kind: "suggestion", message: `Unknown tool '${toolName}' — try nmap, sqlmap, ferox, john` }
+      ? { kind: "suggestion", message: t("sec.unknown_tool", { name: toolName }) }
       : { kind: "not-command" };
   }
 

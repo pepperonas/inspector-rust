@@ -2,6 +2,8 @@
 // (serde snake_case) and derives per-row states + the overall label/tone, so
 // the panel stays a thin renderer and this stays unit-testable.
 
+import { t, tn } from "./i18n";
+
 export type MailboxStatus =
   | "likely_valid"
   | "unknown"
@@ -69,12 +71,12 @@ export function toneGlyph(t: Tone): string {
   }
 }
 
-export const OVERALL: Record<Overall, { label: string; tone: Tone }> = {
-  deliverable: { label: "DELIVERABLE", tone: "ok" },
-  deliverable_likely: { label: "DELIVERABLE LIKELY", tone: "ok" },
-  risky: { label: "RISKY", tone: "warn" },
-  undeliverable: { label: "UNDELIVERABLE", tone: "fail" },
-  invalid: { label: "INVALID", tone: "fail" },
+export const OVERALL: Record<Overall, { readonly label: string; tone: Tone }> = {
+  deliverable: { get label() { return t("mail.overall.deliverable"); }, tone: "ok" },
+  deliverable_likely: { get label() { return t("mail.overall.deliverable_likely"); }, tone: "ok" },
+  risky: { get label() { return t("mail.overall.risky"); }, tone: "warn" },
+  undeliverable: { get label() { return t("mail.overall.undeliverable"); }, tone: "fail" },
+  invalid: { get label() { return t("mail.overall.invalid"); }, tone: "fail" },
 };
 
 export function mailboxTone(m: MailboxStatus): Tone {
@@ -94,20 +96,20 @@ export function mailboxTone(m: MailboxStatus): Tone {
 export function mailboxLabel(m: MailboxStatus): string {
   switch (m) {
     case "likely_valid":
-      return "Likely valid";
+      return t("mail.box.likely_valid");
     case "invalid":
-      return "Invalid";
+      return t("mail.box.invalid");
     case "unlikely":
-      return "Unlikely";
+      return t("mail.box.unlikely");
     case "not_probed":
-      return "Not probed";
+      return t("mail.box.not_probed");
     default:
-      return "Inconclusive";
+      return t("mail.box.inconclusive");
   }
 }
 
 export function catchAllLabel(c: CatchAll): string {
-  return c === "yes" ? "Yes" : c === "no" ? "No" : "Unknown";
+  return c === "yes" ? t("mail.yes") : c === "no" ? t("mail.no") : t("mail.unknown");
 }
 
 /** The per-stage tone for the summary rows. */
@@ -118,10 +120,9 @@ export function dnsTone(dns: DnsResult): Tone {
 
 /** Short human summary of the DNS/MX row. */
 export function mxSummary(dns: DnsResult): string {
-  if (!dns.resolves) return "No MX / address record";
-  if (dns.implicit_mx) return "No MX — implicit (A record)";
-  const n = dns.mx.length;
-  return `${n} MX record${n === 1 ? "" : "s"}`;
+  if (!dns.resolves) return t("mail.mx.none");
+  if (dns.implicit_mx) return t("mail.mx.implicit");
+  return tn("mail.mx.records", dns.mx.length);
 }
 
 /** A pasteable one-line summary of the whole result. */

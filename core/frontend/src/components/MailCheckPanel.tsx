@@ -13,6 +13,7 @@ import {
   type MailCheckResult,
   type Tone,
 } from "../lib/mailcheck";
+import { t, useT } from "../lib/i18n";
 
 interface Props {
   email: string;
@@ -29,6 +30,7 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 export function MailCheckPanel({ email, focused, onExit }: Props) {
+  useT();
   const [result, setResult] = useState<MailCheckResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,14 +108,14 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
           <button
             onClick={copySummary}
             disabled={!result}
-            title="Zusammenfassung kopieren"
+            title={t("mail.copy_summary")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-30"
           >
             <Copy className="h-4 w-4" />
           </button>
           <button
             onClick={() => setRunId((n) => n + 1)}
-            title="Erneut prüfen (R)"
+            title={t("mail.check_again_r")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "motion-safe:animate-spin" : ""}`} />
@@ -134,7 +136,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
 
       {loading && !result && (
         <div className="flex flex-1 items-center justify-center gap-2 text-[12px] text-[var(--color-muted)]">
-          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> Prüfe Zustellbarkeit …
+          <RefreshCw className="h-4 w-4 motion-safe:animate-spin" /> {t("mail.checking_deliverability")}
         </div>
       )}
 
@@ -170,9 +172,9 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
                 value={mailboxLabel(result.smtp.mailbox)}
               />
               <SummaryRow
-                label="Disposable"
+                label={t("mail.disposable")}
                 tone={result.disposable ? "warn" : "ok"}
-                value={result.disposable ? "Yes" : "No"}
+                value={result.disposable ? t("mail.yes") : t("mail.no")}
                 plain
               />
               <SummaryRow
@@ -194,7 +196,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
           {result.dns.mx.length > 0 && (
             <div className="flex flex-col gap-1">
               <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                MX Records
+                {t("mail.mx_records")}
               </div>
               <div className="rounded-md border border-[var(--color-border)] p-2 font-[var(--font-mono)] text-[11px]">
                 {result.dns.mx.map((m, i) => (
@@ -207,7 +209,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
                 ))}
                 {result.dns.implicit_mx && (
                   <div className="mt-1 text-[9px] text-amber-400">
-                    Kein MX-Record — A-Record als impliziter Mailserver.
+                    {t("mail.no_mx_record_the_a")}
                   </div>
                 )}
               </div>
@@ -219,7 +221,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
             <div className="flex flex-col gap-1 rounded-md border border-[var(--color-border)] p-2 text-[11px]">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-                  Mailbox
+                  {t("mail.mailbox")}
                 </span>
                 <span className={`text-[11px] font-medium ${TONE_TEXT[mailboxTone(result.smtp.mailbox)]}`}>
                   {toneGlyph(mailboxTone(result.smtp.mailbox))} {mailboxLabel(result.smtp.mailbox)}
@@ -230,7 +232,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
               </p>
               {result.smtp.tried_host && (
                 <p className="font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
-                  {result.smtp.connected ? "via" : "tried"} {result.smtp.tried_host}
+                  {result.smtp.connected ? t("mail.via") : t("mail.tried")} {result.smtp.tried_host}
                   {result.smtp.rcpt_code ? ` · RCPT ${result.smtp.rcpt_code}` : ""}
                 </p>
               )}
@@ -239,13 +241,10 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
 
           {/* honest limits note */}
           <p className="text-[9px] leading-relaxed text-[var(--color-muted)]">
-            Mailbox existence cannot always be verified because many mail servers
-            intentionally prevent recipient enumeration and outbound port 25 is
-            often blocked. This never claims a mailbox exists — only what the
-            signals support.
+            {t("mail.limits")}
           </p>
 
-          {copied && <div className="confirm-enter text-[9px] text-[var(--color-accent)]">Zusammenfassung kopiert ✓</div>}
+          {copied && <div className="confirm-enter text-[9px] text-[var(--color-accent)]">{t("mail.summary_copied")}</div>}
         </>
       )}
     </div>

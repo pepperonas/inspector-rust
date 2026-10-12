@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ClaudeLimit, ClaudeLimitsStatus, LimitForecast } from "../lib/ipc";
 
@@ -18,6 +18,13 @@ vi.mock("../lib/ipc", () => ({
 }));
 
 import { ClaudeLimitsPanel } from "./ClaudeLimitsPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const WINDOW = { start: "2026-10-03T23:00:00Z", end: "2026-10-10T23:00:00Z" };
 

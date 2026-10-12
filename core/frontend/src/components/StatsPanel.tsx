@@ -39,6 +39,7 @@ import {
   fanDuration,
 } from "../lib/stats-anim";
 import { prefersReducedMotion } from "../lib/md3-motion";
+import { t, useT } from "../lib/i18n";
 
 /**
  * Read-only live system-stats panel rendered in the right preview column —
@@ -54,11 +55,11 @@ import { prefersReducedMotion } from "../lib/md3-motion";
 const POLL_MS = 1500;
 
 /** History time-frame options (seconds) for the dropdown. */
-const RANGES: ReadonlyArray<{ label: string; secs: number }> = [
-  { label: "1h", secs: 3600 },
-  { label: "6h", secs: 21600 },
-  { label: "24h", secs: 86400 },
-  { label: "7d", secs: 604800 },
+const RANGES: ReadonlyArray<{ readonly label: string; secs: number }> = [
+  { get label() { return t("stats.range.1h"); }, secs: 3600 },
+  { get label() { return t("stats.range.6h"); }, secs: 21600 },
+  { get label() { return t("stats.range.24h"); }, secs: 86400 },
+  { get label() { return t("stats.range.7d"); }, secs: 604800 },
 ];
 
 type Mode = "live" | "history";
@@ -70,6 +71,7 @@ export function StatsPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [mode, setMode] = useState<Mode>("live");
   const [rangeSecs, setRangeSecs] = useState<number>(21600); // default 6h
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -202,7 +204,7 @@ export function StatsPanel({
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[13px] font-medium">
-          <Activity size={15} className="text-[var(--color-accent)]" /> System stats
+          <Activity size={15} className="text-[var(--color-accent)]" /> {t("stats.system_stats")}
         </div>
         <div className="flex items-center gap-1.5">
           {mode === "history" && (
@@ -210,7 +212,7 @@ export function StatsPanel({
               value={rangeSecs}
               onChange={(e) => setRangeSecs(Number(e.target.value))}
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[11px] text-[var(--color-fg)] outline-none"
-              aria-label="History time range"
+              aria-label={t("stats.history_time_range")}
             >
               {RANGES.map((r) => (
                 <option key={r.secs} value={r.secs}>
@@ -221,10 +223,10 @@ export function StatsPanel({
           )}
           <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] p-0.5">
             <ModeButton active={mode === "live"} onClick={() => setMode("live")}>
-              Live
+              {t("stats.live")}
             </ModeButton>
             <ModeButton active={mode === "history"} onClick={() => setMode("history")}>
-              History
+              {t("stats.history")}
             </ModeButton>
           </div>
         </div>
@@ -235,7 +237,7 @@ export function StatsPanel({
       ) : error ? (
         <p className="text-[12px] text-[var(--color-muted)]">{error}</p>
       ) : stats === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Reading system…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("stats.reading_system")}</p>
       ) : (
         <>
           <CpuSection s={stats} />
@@ -250,7 +252,7 @@ export function StatsPanel({
       )}
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          ↑ ↓ scroll · Esc close
+          {t("stats.scroll_esc_close")}
         </p>
       )}
     </div>
@@ -287,6 +289,7 @@ function ModeButton({
 const HISTORY_REFRESH_MS = 30000;
 
 function HistoryView({ rangeSecs }: { rangeSecs: number }) {
+  useT();
   const [hist, setHist] = useState<StatsHistory | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const alive = useRef(true);
@@ -313,16 +316,15 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
   }, [rangeSecs]);
 
   if (err) return <p className="text-[12px] text-[var(--color-muted)]">{err}</p>;
-  if (!hist) return <p className="text-[12px] text-[var(--color-muted)]">Loading history…</p>;
+  if (!hist) return <p className="text-[12px] text-[var(--color-muted)]">{t("stats.loading_history")}</p>;
   const pts = hist.points;
   if (pts.length < 2) {
     const mins = Math.round(hist.interval_secs / 60);
     return (
       <div className="rounded-xl border border-[var(--color-border)] p-4 text-center">
-        <p className="text-[12px] text-[var(--color-fg)]">Collecting history…</p>
+        <p className="text-[12px] text-[var(--color-fg)]">{t("stats.collecting_history")}</p>
         <p className="mt-1 text-[11px] text-[var(--color-muted)]">
-          A data point is recorded every {mins || 1} min. Come back in a little
-          while to see the trend.
+          {t("stats.collecting_hint", { n: mins || 1 })}
         </p>
       </div>
     );
@@ -349,7 +351,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
       />
       <LineChartCard
         icon={<MemoryStick size={14} />}
-        title="Memory"
+        title={t("stats.memory")}
         pts={pts}
         pick={(p) => p.mem}
         tMin={tMin}
@@ -361,7 +363,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
       {hasPower && (
         <LineChartCard
           icon={<Zap size={14} />}
-          title="Power draw"
+          title={t("stats.power_draw")}
           pts={pts}
           pick={(p) => p.power}
           tMin={tMin}
@@ -372,7 +374,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
       {hasTemp && (
         <LineChartCard
           icon={<Thermometer size={14} />}
-          title="CPU temp"
+          title={t("stats.cpu_temp")}
           pts={pts}
           pick={(p) => p.cpu_temp}
           tMin={tMin}
@@ -383,7 +385,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
       {hasBattery && (
         <LineChartCard
           icon={<BatteryCharging size={14} />}
-          title="Battery"
+          title={t("stats.battery")}
           pts={pts}
           pick={(p) => p.battery}
           tMin={tMin}
@@ -393,7 +395,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
         />
       )}
       <p className="px-1 pb-1 text-[10px] text-[var(--color-muted)]">
-        {rangeLabel} ago · {hist.sample_count} samples · now →
+        {t("stats.history_axis", { range: rangeLabel, n: hist.sample_count })}
       </p>
     </>
   );
@@ -424,6 +426,7 @@ function LineChartCard({
   domain?: [number, number];
   fmt: (v: number) => string;
 }) {
+  useT();
   const series = pts
     .map((p) => ({ t: p.ts, v: pick(p) }))
     .filter((s): s is { t: number; v: number } => s.v != null);
@@ -440,9 +443,9 @@ function LineChartCard({
     <Card icon={icon} title={title} right={fmt(cur)}>
       <Sparkline line={d} area={a} color="var(--color-accent)" />
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--color-muted)] tabular-nums">
-        <span>min {fmt(min)}</span>
-        <span>avg {fmt(avg)}</span>
-        <span>max {fmt(max)}</span>
+        <span>{t("stats.min", { v: fmt(min) })}</span>
+        <span>{t("stats.avg", { v: fmt(avg) })}</span>
+        <span>{t("stats.max", { v: fmt(max) })}</span>
       </div>
     </Card>
   );
@@ -457,6 +460,7 @@ function NetworkChartCard({
   tMin: number;
   tMax: number;
 }) {
+  useT();
   const rx = pts.map((p) => ({ t: p.ts, v: p.net_rx }));
   const tx = pts.map((p) => ({ t: p.ts, v: p.net_tx }));
   const peak = Math.max(1, ...pts.map((p) => Math.max(p.net_rx, p.net_tx)));
@@ -468,7 +472,7 @@ function NetworkChartCard({
   return (
     <Card
       icon={<ArrowDownUp size={14} />}
-      title="Network"
+      title={t("stats.network")}
       right={`↓ ${humanRate(curRx)} · ↑ ${humanRate(curTx)}`}
     >
       <svg
@@ -481,12 +485,12 @@ function NetworkChartCard({
       </svg>
       <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-muted)]">
         <span className="flex items-center gap-1">
-          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "var(--color-accent)" }} /> download
+          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "var(--color-accent)" }} /> {t("stats.download")}
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "#f59e0b" }} /> upload
+          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "#f59e0b" }} /> {t("stats.upload")}
         </span>
-        <span className="ml-auto tabular-nums">peak {humanRate(peak)}</span>
+        <span className="ml-auto tabular-nums">{t("stats.peak", { v: humanRate(peak) })}</span>
       </div>
     </Card>
   );
@@ -734,9 +738,10 @@ function HeadlinePct({ pct }: { pct: number }) {
 }
 
 function CpuSection({ s }: { s: SystemStats }) {
+  useT();
   const cores = s.physical_cores
     ? `${s.physical_cores}C / ${s.logical_cores}T`
-    : `${s.logical_cores} threads`;
+    : t("stats.threads", { n: s.logical_cores });
   return (
     <Card
       icon={<Cpu size={14} />}
@@ -751,7 +756,7 @@ function CpuSection({ s }: { s: SystemStats }) {
         <span>{cores}</span>
         <span className="tabular-nums">
           {s.cpu_freq_mhz > 0 ? `${(s.cpu_freq_mhz / 1000).toFixed(2)} GHz` : ""}
-          {s.load_avg ? ` · load ${s.load_avg.map((l) => l.toFixed(1)).join(" ")}` : ""}
+          {s.load_avg ? ` · ${t("stats.load", { v: s.load_avg.map((l) => l.toFixed(1)).join(" ") })}` : ""}
         </span>
       </div>
       {s.per_core.length > 1 && (
@@ -769,6 +774,7 @@ function CpuSection({ s }: { s: SystemStats }) {
  *  glow/beam layers: 8–10 tiny cells with animated shadows would pay paint
  *  for little signal; `loadColor`'s red already marks a maxed core. */
 function CoreCell({ index, pct }: { index: number; pct: number }) {
+  useT();
   const ref = useRef<HTMLDivElement>(null);
   const reassert = useStatTween(clampPct(pct), (v) => {
     const el = ref.current;
@@ -779,7 +785,7 @@ function CoreCell({ index, pct }: { index: number; pct: number }) {
   useLayoutEffect(reassert);
   return (
     <div
-      title={`Core ${index}: ${pct.toFixed(0)}%`}
+      title={t("stats.core", { n: index, pct: pct.toFixed(0) })}
       className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
     >
       <div ref={ref} className="absolute inset-0 origin-bottom" />
@@ -788,10 +794,11 @@ function CoreCell({ index, pct }: { index: number; pct: number }) {
 }
 
 function MemorySection({ s }: { s: SystemStats }) {
+  useT();
   const memPct = usedPct(s.mem_used, s.mem_total);
   const swapPct = usedPct(s.swap_used, s.swap_total);
   return (
-    <Card icon={<MemoryStick size={14} />} title="Memory" right={<HeadlinePct pct={memPct} />}>
+    <Card icon={<MemoryStick size={14} />} title={t("stats.memory")} right={<HeadlinePct pct={memPct} />}>
       <Bar pct={memPct} />
       <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--color-muted)] tabular-nums">
         <span>
@@ -799,7 +806,7 @@ function MemorySection({ s }: { s: SystemStats }) {
           {humanBytes(s.mem_total)}
         </span>
         <span>
-          <TweenNum value={s.mem_available} fmt={bytesFormatterFor(s.mem_available)} /> free
+          <TweenNum value={s.mem_available} fmt={bytesFormatterFor(s.mem_available)} /> {t("stats.free")}
         </span>
       </div>
       {s.swap_total > 0 && (
@@ -817,18 +824,31 @@ function MemorySection({ s }: { s: SystemStats }) {
   );
 }
 
+// The battery state arrives as the Rust enum name; show it in the app language.
+function batteryStateLabel(state: string): string {
+  switch (state) {
+    case "Charging": return t("stats.battery.charging");
+    case "Discharging": return t("stats.battery.discharging");
+    case "Full": return t("stats.battery.full");
+    case "Empty": return t("stats.battery.empty");
+    case "Unknown": return t("stats.battery.unknown");
+    default: return state;
+  }
+}
+
 function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
+  useT();
   const charging = b.state === "Charging" || b.state === "Full";
   const time =
     b.state === "Charging" && b.time_to_full_secs != null
-      ? `${humanDuration(b.time_to_full_secs)} to full`
+      ? t("stats.to_full", { d: humanDuration(b.time_to_full_secs) })
       : b.state === "Discharging" && b.time_to_empty_secs != null
-        ? `${humanDuration(b.time_to_empty_secs)} left`
-        : b.state;
+        ? t("stats.left", { d: humanDuration(b.time_to_empty_secs) })
+        : batteryStateLabel(b.state);
   return (
     <Card
       icon={<BatteryCharging size={14} />}
-      title="Battery & power"
+      title={t("stats.battery_power")}
       right={<TweenNum value={b.percent} fmt={(v) => `${v.toFixed(0)}%`} />}
     >
       <Bar
@@ -846,14 +866,14 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
         {b.health_percent != null && (
-          <Kv k="Health" v={`${b.health_percent.toFixed(0)}%`} />
+          <Kv k={t("stats.health")} v={`${b.health_percent.toFixed(0)}%`} />
         )}
-        {b.cycle_count != null && <Kv k="Cycles" v={`${b.cycle_count}`} />}
+        {b.cycle_count != null && <Kv k={t("stats.cycles")} v={`${b.cycle_count}`} />}
         {b.temperature_c != null && (
-          <Kv k="Temp" v={<TweenNum value={b.temperature_c} fmt={(v) => `${v.toFixed(1)}°C`} />} />
+          <Kv k={t("stats.temp")} v={<TweenNum value={b.temperature_c} fmt={(v) => `${v.toFixed(1)}°C`} />} />
         )}
         {(b.model || b.vendor) && (
-          <Kv k="Model" v={b.model || b.vendor || ""} />
+          <Kv k={t("stats.model")} v={b.model || b.vendor || ""} />
         )}
       </div>
     </Card>
@@ -893,11 +913,12 @@ function TemperatureMeter({ celsius }: { celsius: number }) {
 }
 
 function TemperatureSection({ temps }: { temps: SystemStats["temps"] }) {
+  useT();
   if (temps.length === 0) return null;
   return (
     <Card
       icon={<Thermometer size={14} />}
-      title="Temperatures"
+      title={t("stats.temperatures")}
       right={`${temps.length} sensor${temps.length === 1 ? "" : "s"}`}
     >
       <div className="flex flex-col gap-2.5">
@@ -923,9 +944,10 @@ function TemperatureSection({ temps }: { temps: SystemStats["temps"] }) {
 }
 
 function FanSection({ fans }: { fans: SystemStats["fans"] }) {
+  useT();
   if (fans.length === 0) return null;
   return (
-    <Card icon={<Fan size={14} />} title="Fans" right={`${fans.length}`}>
+    <Card icon={<Fan size={14} />} title={t("stats.fans")} right={`${fans.length}`}>
       <div className="flex flex-col gap-2.5">
         {fans.map((fan, index) => (
           <div
@@ -961,9 +983,10 @@ function FanSection({ fans }: { fans: SystemStats["fans"] }) {
 }
 
 function DisksSection({ s }: { s: SystemStats }) {
+  useT();
   if (s.disks.length === 0) return null;
   return (
-    <Card icon={<HardDrive size={14} />} title="Storage">
+    <Card icon={<HardDrive size={14} />} title={t("stats.storage")}>
       <div className="flex flex-col gap-2">
         {s.disks.map((d, i) => {
           const used = d.total - d.available;
@@ -988,8 +1011,9 @@ function DisksSection({ s }: { s: SystemStats }) {
 }
 
 function NetworkSection({ s }: { s: SystemStats }) {
+  useT();
   return (
-    <Card icon={<ArrowDownUp size={14} />} title="Network">
+    <Card icon={<ArrowDownUp size={14} />} title={t("stats.network")}>
       <div className="flex items-center justify-between text-[12px] tabular-nums">
         <span className="flex items-center gap-1.5">
           <span className="text-[var(--color-muted)]">↓</span>
@@ -1005,14 +1029,15 @@ function NetworkSection({ s }: { s: SystemStats }) {
 }
 
 function HostSection({ s }: { s: SystemStats }) {
+  useT();
   return (
-    <Card icon={<Server size={14} />} title="Host">
+    <Card icon={<Server size={14} />} title={t("stats.host")}>
       <div className="grid grid-cols-1 gap-1">
-        {s.host_name && <Kv k="Host" v={s.host_name} />}
+        {s.host_name && <Kv k={t("stats.host")} v={s.host_name} />}
         {s.os_name && <Kv k="OS" v={s.os_name} />}
         {s.kernel && <Kv k="Kernel" v={s.kernel} />}
         {s.cpu_arch && <Kv k="Arch" v={s.cpu_arch} />}
-        <Kv k="Uptime" v={humanUptime(s.uptime_secs)} />
+        <Kv k={t("stats.uptime")} v={humanUptime(s.uptime_secs)} />
       </div>
     </Card>
   );

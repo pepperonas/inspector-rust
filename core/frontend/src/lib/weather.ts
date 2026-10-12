@@ -5,17 +5,18 @@
  * here so it can be tested without a DOM or a live API.
  */
 import type { WeatherKind } from "./ipc";
+import { locale, t } from "./i18n";
 
-/** Short human label per sky kind (English UI). */
+/** Short human label per sky kind, in the app language (getters: read at access time). */
 export const WEATHER_LABELS: Record<WeatherKind, string> = {
-  "clear-day": "Clear",
-  "clear-night": "Clear night",
-  clouds: "Cloudy",
-  drizzle: "Drizzle",
-  rain: "Rain",
-  thunderstorm: "Thunderstorm",
-  snow: "Snow",
-  mist: "Mist",
+  get "clear-day"() { return t("weather.kind.clear_day"); },
+  get "clear-night"() { return t("weather.kind.clear_night"); },
+  get clouds() { return t("weather.kind.clouds"); },
+  get drizzle() { return t("weather.kind.drizzle"); },
+  get rain() { return t("weather.kind.rain"); },
+  get thunderstorm() { return t("weather.kind.thunderstorm"); },
+  get snow() { return t("weather.kind.snow"); },
+  get mist() { return t("weather.kind.mist"); },
 };
 
 /** A two-stop background gradient (top → bottom) evoking each sky kind. Drives
@@ -39,7 +40,7 @@ export function mpsToKmh(mps: number): number {
 /** Meteorological degrees (0 = N) → an 8-point compass label. `null` → "". */
 export function windCompass(deg: number | null): string {
   if (deg == null || !Number.isFinite(deg)) return "";
-  const points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const points = t("weather.compass").split(",");
   const idx = Math.round((((deg % 360) + 360) % 360) / 45) % 8;
   return points[idx];
 }
@@ -66,7 +67,7 @@ export function parseYmd(date: string): Date | null {
 export function dayName(date: string): string {
   const d = parseYmd(date);
   if (!d) return "";
-  return new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d);
+  return new Intl.DateTimeFormat(locale(), { weekday: "short" }).format(d);
 }
 
 /** Whether a `YYYY-MM-DD` is today's local date. `now` injectable for tests. */

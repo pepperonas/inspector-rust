@@ -37,7 +37,6 @@ pub const ERR_NO_KEY: &str = "weather.no_key";
 
 const OWM_BASE: &str = "https://api.openweathermap.org/data/2.5";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(6);
-const DEFAULT_LANG: &str = "de";
 
 // ── Weather kind (drives the frontend animation) ────────────────────────────
 
@@ -491,7 +490,11 @@ pub fn fetch(db: &DbHandle, city: Option<String>) -> Result<WeatherReport, Strin
         .filter(|k| !k.trim().is_empty())
         .ok_or(ERR_NO_KEY)?;
     let units = stored_units(db);
-    let lang = DEFAULT_LANG;
+    // Condition texts follow the app language (OpenWeather translates them).
+    let lang = match crate::i18n::current() {
+        crate::i18n::Lang::De => "de",
+        crate::i18n::Lang::En => "en",
+    };
 
     let loc = match city {
         Some(c) if !c.trim().is_empty() => Location::City(c.trim().to_string()),

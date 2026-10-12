@@ -22,14 +22,15 @@ import {
   type BoomPreset,
   boomUnmute,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
-const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
-  { key: "bass", label: "Bass" },
-  { key: "clarity", label: "Clarity" },
-  { key: "ambience", label: "Ambience" },
-  { key: "fidelity", label: "Fidelity" },
+const EFFECTS: { key: keyof BoomConfig["effects"]; readonly label: string }[] = [
+  { key: "bass", get label() { return t("boom.fx.bass"); } },
+  { key: "clarity", get label() { return t("boom.fx.clarity"); } },
+  { key: "ambience", get label() { return t("boom.fx.ambience"); } },
+  { key: "fidelity", get label() { return t("boom.fx.fidelity"); } },
   // Night is a compressor — no Equalizer-APO equivalent on Windows.
-  ...(IS_WINDOWS ? [] : [{ key: "night", label: "Night" } as const]),
+  ...(IS_WINDOWS ? [] : [{ key: "night" as const, get label() { return t("boom.fx.night"); } }]),
 ];
 
 const EQAPO_URL = "https://sourceforge.net/projects/equalizerapo/";
@@ -44,6 +45,7 @@ export function BoomPanel({
   /** Called after a mouse interaction so the parent can keep the search field focused. */
   onInteract?: () => void;
 }) {
+  useT();
   const [available, setAvailable] = useState<boolean | null>(null);
   const [driverInstalled, setDriverInstalled] = useState<boolean | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -187,7 +189,7 @@ export function BoomPanel({
     if (!cfg) return;
     const bands = cfg.band_gains_db.slice();
     bands[i] = v;
-    update({ band_gains_db: bands, preset: "Custom" });
+    update({ band_gains_db: bands, preset: t("boom.custom") });
   };
 
   const applyPreset = (name: string) => {
@@ -204,16 +206,16 @@ export function BoomPanel({
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-[var(--color-muted)]">
         <Volume2 size={22} className="text-[var(--color-accent)]" />
         <p className="text-[13px] text-[var(--color-fg)]">
-          boom needs macOS 14.2 or newer
+          {t("boom.boom_needs_macos_14_2")}
         </p>
         <p className="text-[11px]">
-          The driverless audio engine uses Apple’s Core-Audio process taps (macOS 14.2+).
+          {t("boom.the_driverless_audio_engine_uses")}
         </p>
       </div>
     );
   }
   if (!cfg) {
-    return <p className="p-4 text-[12px] text-[var(--color-muted)]">Loading…</p>;
+    return <p className="p-4 text-[12px] text-[var(--color-muted)]">{t("boom.loading")}</p>;
   }
 
   // The audio backend must be present first. Windows: Equalizer APO (boom
@@ -224,13 +226,10 @@ export function BoomPanel({
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <Volume2 size={24} className="text-[var(--color-accent)]" />
         <p className="text-[13px] font-medium text-[var(--color-fg)]">
-          Install Equalizer APO
+          {t("boom.install_equalizer_apo")}
         </p>
         <p className="text-[11px] text-[var(--color-muted)]">
-          On Windows, boom drives Equalizer APO — the standard system-wide audio
-          processor. Install it once (enable it for your playback device in its
-          Configurator, then reboot); boom then applies the EQ, presets and effects
-          through it automatically.
+          {t("boom.on_windows_boom_drives_equalizer")}
         </p>
         <div className="mt-1 flex items-center gap-2">
           <button
@@ -238,7 +237,7 @@ export function BoomPanel({
             onClick={() => void openUrl(EQAPO_URL)}
             className="flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] px-3.5 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
           >
-            <Download size={13} /> Get Equalizer APO
+            <Download size={13} /> {t("boom.get_equalizer_apo")}
           </button>
           <button
             type="button"
@@ -249,7 +248,7 @@ export function BoomPanel({
             }
             className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1.5 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
-            <RefreshCw size={13} /> Check again
+            <RefreshCw size={13} /> {t("boom.check_again")}
           </button>
         </div>
       </div>
@@ -260,12 +259,10 @@ export function BoomPanel({
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <Volume2 size={24} className="text-[var(--color-accent)]" />
         <p className="text-[13px] font-medium text-[var(--color-fg)]">
-          Install the boom Audio driver
+          {t("boom.install_the_boom_audio_driver")}
         </p>
         <p className="text-[11px] text-[var(--color-muted)]">
-          boom needs a small virtual audio device (one-time). The installer asks for your
-          admin password and briefly restarts the audio service (~1 s). It routes all
-          system audio through the EQ; uninstall any time.
+          {t("boom.boom_needs_a_small_virtual")}
         </p>
         <button
           type="button"
@@ -275,11 +272,11 @@ export function BoomPanel({
         >
           {installing ? (
             <>
-              <Loader2 size={13} className="animate-spin" /> Installing…
+              <Loader2 size={13} className="animate-spin" /> {t("boom.installing")}
             </>
           ) : (
             <>
-              <Download size={13} /> Install driver
+              <Download size={13} /> {t("boom.install_driver")}
             </>
           )}
         </button>
@@ -319,7 +316,7 @@ export function BoomPanel({
               cfg.enabled ? "text-[var(--color-accent)]" : "text-[var(--color-muted)]"
             }
           >
-            {cfg.enabled ? "Active" : "Off"}
+            {cfg.enabled ? t("boom.active") : t("common.off")}
           </span>
           <span
             className={
@@ -342,9 +339,9 @@ export function BoomPanel({
         <span>
           {cfg.enabled
             ? IS_WINDOWS
-              ? "Active — applies system-wide via Equalizer APO."
-              : "Active — routing system audio through the boom Audio driver."
-            : "Inactive — audio passes through untouched."}
+              ? t("boom.active_applies_system_wide_via")
+              : t("boom.active_routing_system_audio_through")
+            : t("boom.inactive_audio_passes_through_untouched")}
         </span>
         {!IS_WINDOWS && (
           <button
@@ -353,7 +350,7 @@ export function BoomPanel({
             disabled={installing}
             className="shrink-0 underline decoration-dotted hover:text-[var(--color-fg)] disabled:opacity-50"
           >
-            {installing ? "…" : "Uninstall driver"}
+            {installing ? "…" : t("boom.uninstall_driver")}
           </button>
         )}
       </div>
@@ -365,8 +362,8 @@ export function BoomPanel({
       {!cfg.enabled && (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-[var(--color-muted)]">
           <Volume2 size={20} className="opacity-40" />
-          <p className="text-[12px]">boom is off — audio passes through untouched.</p>
-          <p className="text-[11px]">Turn it on to configure EQ, presets and effects.</p>
+          <p className="text-[12px]">{t("boom.boom_is_off_audio_passes")}</p>
+          <p className="text-[11px]">{t("boom.turn_it_on_to_configure")}</p>
         </div>
       )}
 
@@ -374,7 +371,7 @@ export function BoomPanel({
           persisted invisibly — with boom on it read as "boom is broken". */}
       {cfg.enabled && muted && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-300">
-          <span>Output is muted — that's why it's silent.</span>
+          <span>{t("boom.output_is_muted_that_s")}</span>
           <button
             type="button"
             className="rounded-md bg-amber-500/20 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/30"
@@ -384,7 +381,7 @@ export function BoomPanel({
                 .catch(() => {});
             }}
           >
-            Unmute
+            {t("boom.unmute")}
           </button>
         </div>
       )}
@@ -393,7 +390,7 @@ export function BoomPanel({
       {cfg.enabled && !IS_WINDOWS && (
         <div className="flex flex-col gap-1 rounded-lg border border-[var(--color-border)] p-2">
           <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
-            <span>Levels</span>
+            <span>{t("boom.levels")}</span>
             <span className={"flex items-center gap-1 " + (clip ? "text-red-400" : "")}>
               <span
                 className={
@@ -401,7 +398,7 @@ export function BoomPanel({
                   (clip ? "bg-red-500" : "bg-[var(--color-border)]")
                 }
               />
-              clip
+              {t("boom.clip")}
             </span>
           </div>
           <Meter label="in" value={meterIn} />
@@ -413,7 +410,7 @@ export function BoomPanel({
         <>
           {/* Preset */}
           <label className="flex items-center justify-between gap-2 text-[12px]">
-            <span className="text-[var(--color-muted)]">Preset</span>
+            <span className="text-[var(--color-muted)]">{t("boom.preset")}</span>
             <select
               value={cfg.preset}
               onChange={(e) => {
@@ -422,8 +419,8 @@ export function BoomPanel({
               }}
               className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[12px] text-[var(--color-fg)] outline-none"
             >
-              {cfg.preset === "Custom" && <option value="Custom">Custom</option>}
-              <optgroup label="Genre">
+              {cfg.preset === t("boom.custom") && <option value="Custom">Custom</option>}
+              <optgroup label={t("boom.genre")}>
                 {presets
                   .filter((p) => p.group === "Genre")
                   .map((p) => (
@@ -432,7 +429,7 @@ export function BoomPanel({
                     </option>
                   ))}
               </optgroup>
-              <optgroup label="Device">
+              <optgroup label={t("boom.device")}>
                 {presets
                   .filter((p) => p.group === "Device")
                   .map((p) => (
@@ -446,7 +443,7 @@ export function BoomPanel({
 
           {/* Pre-amp */}
           <Slider
-            label="Pre-amp"
+            label={t("boom.pre_amp")}
             value={cfg.preamp_db}
             min={-12}
             max={12}
@@ -458,7 +455,7 @@ export function BoomPanel({
           {/* 10-band graphic EQ */}
           <div className="rounded-xl border border-[var(--color-border)] p-2.5">
             <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">
-              Graphic EQ
+              {t("boom.graphic_eq")}
             </div>
             <div className="flex items-end justify-between gap-1">
               {BOOM_BANDS.map((label, i) => {
@@ -494,7 +491,7 @@ export function BoomPanel({
           {/* Volume boost */}
           <div>
             <Slider
-              label="Volume boost"
+              label={t("boom.volume_boost")}
               value={cfg.boost_pct}
               min={0}
               max={300}
@@ -506,8 +503,7 @@ export function BoomPanel({
             />
             {boosting && (
               <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-500">
-                <AlertTriangle size={11} /> Above 100 % — sustained boost can stress
-                internal speakers (limiter active).
+                <AlertTriangle size={11} /> {t("boom.above_100_sustained_boost_can")}
               </p>
             )}
             <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--color-muted)]">
@@ -517,14 +513,14 @@ export function BoomPanel({
                 onChange={(e) => update({ controlled_boost: e.target.checked })}
                 className="accent-[var(--color-accent)]"
               />
-              Controlled boost (stronger limiting for distortion-free high boost)
+              {t("boom.controlled_boost_stronger_limiting_for")}
             </label>
           </div>
 
           {/* Enhancement effects */}
           <div className="rounded-xl border border-[var(--color-border)] p-2.5">
             <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">
-              Enhancement
+              {t("boom.enhancement")}
             </div>
             <div className="flex flex-col gap-2">
               {EFFECTS.map((fx) => (
@@ -547,7 +543,7 @@ export function BoomPanel({
       )}
 
       {focused && (
-        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc close</p>
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("boom.esc_close")}</p>
       )}
     </div>
   );

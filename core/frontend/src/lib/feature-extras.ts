@@ -9,7 +9,12 @@
  * `commandDocs.test.ts` + `gen-docs`). When you add a hidden trigger (a new
  * game, visualizer, …) add it to `HIDDEN_TRIGGERS` **and** to the matching row
  * list, or the test fails by name.
+ *
+ * The visible texts live in the catalogue (`fx.<id>.name|trigger|note`) and are
+ * read through getters, so the tab follows the app language; literal triggers
+ * (what you actually type) stay as they are.
  */
+import { t } from "./i18n";
 import { IS_MAC, formatHotkey } from "./platform";
 
 const MOD = IS_MAC ? "Meta" : "Ctrl"; // Cmd on macOS, Ctrl elsewhere
@@ -29,144 +34,59 @@ export interface FeatureRow {
 
 /** Search-bar features that aren't power commands (no `CommandDoc`). */
 export const NON_COMMAND_FEATURES: FeatureRow[] = [
-  {
-    name: "AI prompt templates",
-    trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)",
-    typed: true,
-    note: '27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Grouped under "AI Prompts" in the Snippets tab.',
-  },
-  {
-    name: "Snippet groups",
-    trigger: "Snippets tab",
-    typed: false,
-    note: "Organise snippets into groups — filter the list by group chip, assign a group in the editor, and create/rename/reorder/delete groups via the folder button. Ships pre-grouped (AI Prompts · Colors). Groups are carried in snippet + full-settings backups by name.",
-  },
-  {
-    name: "Snippet storage",
-    trigger: "Settings → Snippets",
-    typed: false,
-    note: "Shows how many snippets you have and their on-disk footprint. There's no cap on how many you can store (the 1000-item limit is clipboard history only); the list is virtualised so thousands stay smooth.",
-  },
-  {
-    name: "Download social media",
-    trigger: "paste a YouTube / Instagram / TikTok / Facebook URL",
-    typed: true,
-    note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Prefers H.264 (QuickTime-playable); retries with browser cookies on YouTube's bot check. Needs yt-dlp.",
-  },
-  {
-    name: "Ausschnitt (trim & download)",
-    trigger: "„Ausschnitt“ under the download buttons",
-    typed: false,
-    note: "QuickTime-style trim bar: yellow handles over the timeline, everything outside is discarded; drag the range, set the playhead, type start/end times, check Anfang · Bereich · Ende by ear (a small audio proxy, ~5 s to fetch). The download then fetches ONLY the section (yt-dlp --download-sections, frame-accurate) — 20 s out of an 83-minute set arrive as ~1.2 MiB. Collapsed = the download is byte-identical to before.",
-  },
-  {
-    name: "Link grabber (batch download)",
-    trigger: "paste many links into the box under the download bar",
-    typed: true,
-    note: "Paste anything — a list, a chat log, an e-mail — and every YouTube / Instagram / TikTok / Facebook / Dailymotion link in it is picked out, deduplicated and downloaded one after another. A failing link is recorded on its row and the queue continues; Retry re-runs only the failures. Audio is offered when every link is YouTube. The popup stays pinned for the run and Finder opens once at the end, not once per file. Each row shows a small thumbnail, the title, channel and duration before anything is downloaded — cached per URL, debounced, at most three lookups at once (each costs ~4 s).",
-  },
-  { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },
-  {
-    name: "Unit / base / time converter",
-    trigger: "5 km in mi · 0xff in dec · 1700000000 as date",
-    typed: true,
-    note: "Conversions right in the search box (length/mass/data/temp · number base · epoch→date).",
-  },
-  { name: "Colour converter", trigger: "#hex · rgb(…) · hsl(…)", typed: true, note: "Parse any colour format; Enter pastes the canonical hex." },
+  { get name() { return t("fx.ai_prompts.name"); }, trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, get note() { return t("fx.ai_prompts.note"); } },
+  { get name() { return t("fx.snippet_groups.name"); }, get trigger() { return t("fx.snippet_groups.trigger"); }, typed: false, get note() { return t("fx.snippet_groups.note"); } },
+  { get name() { return t("fx.snippet_storage.name"); }, get trigger() { return t("fx.snippet_storage.trigger"); }, typed: false, get note() { return t("fx.snippet_storage.note"); } },
+  { get name() { return t("fx.social_download.name"); }, get trigger() { return t("fx.social_download.trigger"); }, typed: true, get note() { return t("fx.social_download.note"); } },
+  { get name() { return t("fx.trim_download.name"); }, get trigger() { return t("fx.trim_download.trigger"); }, typed: false, get note() { return t("fx.trim_download.note"); } },
+  { get name() { return t("fx.link_grabber.name"); }, get trigger() { return t("fx.link_grabber.trigger"); }, typed: true, get note() { return t("fx.link_grabber.note"); } },
+  { get name() { return t("fx.calculator.name"); }, trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, get note() { return t("fx.calculator.note"); } },
+  { get name() { return t("fx.converter.name"); }, trigger: "5 km in mi · 0xff in dec · 1700000000 as date", typed: true, get note() { return t("fx.converter.note"); } },
+  { get name() { return t("fx.colour.name"); }, trigger: "#hex · rgb(…) · hsl(…)", typed: true, get note() { return t("fx.colour.note"); } },
 ];
 
 /** Hidden triggers — an exact word, deliberately NOT in autocomplete/`COMMANDS`. */
 export const HIDDEN_TRIGGER_FEATURES: FeatureRow[] = [
-  { name: "2FA manager", trigger: "2fa", keyword: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export, each entry with its brand icon (Simple Icons; unknown issuers get a monogram, never a guessed look-alike). Just type to filter the list; Enter copies the top match's code. `2fa add [issuer]` (or the preview's ＋ button) jumps straight to the add form: Issuer · Login · Base32 secret." },
-  { name: "TOTP code", trigger: "otp <issuer> · 2fa <issuer>", keyword: "otp", typed: true, note: "e.g. otp ama or 2fa hosti → live code for the matching provider with its brand icon, Enter copies it." },
-  { name: "BPM detector", trigger: "bpm", keyword: "bpm", typed: true, note: "Press Enter — taps your mic, shows live BPM. Enter again pins it (click-outside won't close; visualizer turns red)." },
-  {
-    name: "Equalizer",
-    trigger: "equalizer · eq",
-    keyword: "equalizer",
-    typed: true,
-    note: "Press Enter — a live 28-band mic spectrum analyzer with peak-hold, plus a live BPM + dB readout and beat-reactive effects. Enter pins it (turns red, click-outside won't close); shares the native mic with bpm/disco.",
-  },
-  { name: "App launcher", trigger: "<app name>", typed: true, note: "Type an app's name → Enter launches it." },
+  { get name() { return t("fx.twofa.name"); }, trigger: "2fa", typed: true, keyword: "2fa", get note() { return t("fx.twofa.note"); } },
+  { get name() { return t("fx.totp_code.name"); }, trigger: "otp <issuer> · 2fa <issuer>", typed: true, keyword: "otp", get note() { return t("fx.totp_code.note"); } },
+  { get name() { return t("fx.bpm.name"); }, trigger: "bpm", typed: true, keyword: "bpm", get note() { return t("fx.bpm.note"); } },
+  { get name() { return t("fx.equalizer.name"); }, trigger: "equalizer · eq", typed: true, keyword: "equalizer", get note() { return t("fx.equalizer.note"); } },
+  { get name() { return t("fx.app_launcher.name"); }, get trigger() { return t("fx.app_launcher.trigger"); }, typed: true, get note() { return t("fx.app_launcher.note"); } },
 ];
 
 /** In-popup & preview actions (mouse / keyboard on the popup itself). */
 export const IN_POPUP_ACTIONS: FeatureRow[] = [
-  { name: "Paste selected entry", trigger: formatHotkey("Enter") },
-  {
-    name: "Settings search",
-    trigger: "type a setting's name (3+ chars)",
-    note: "Matching Settings sections surface as jump rows (macOS/Android-style) — Enter opens the Settings tab scrolled to the section, briefly highlighted. Exact/prefix/word-start matches only, max 2 rows, below the app-launcher hit.",
-  },
-  {
-    name: "Complete command arguments",
-    trigger: "Tab · Shift+Tab · →",
-    note: "Typing a command's argument (spotify hi, wakelock o, settings spo) shows the rest as grey text plus a hint with its meaning; Tab takes it, more Tabs cycle through the alternatives, Shift+Tab goes back, → at the end takes the grey text. Also typical values (volume 25/50/75), artists from your Spotify history, typo fixes (histroy → history) — and the words you use most come first.",
-  },
-  { name: "Paste with formatting", trigger: formatHotkey("Shift+Enter"), note: "Paste a clip keeping its original HTML/RTF formatting." },
-  { name: "Navigate / close", trigger: "↑ ↓ · Esc", note: "Arrow keys move the selection; Esc hides the popup." },
-  {
-    name: "Adjust volume",
-    trigger: formatHotkey("Shift+ArrowUp") + " / " + formatHotkey("Shift+ArrowDown"),
-    note: "Raise / lower the system volume without leaving the popup.",
-  },
-  { name: "Pin clip to top", trigger: "★ list action", note: "Pin a clip — floats to the top and is never pruned." },
-  {
-    name: "System sleep status",
-    trigger: "footer indicator (macOS)",
-    note: "Shows whether something is holding the Mac awake: amber \"no-sleep\" when the active pmset profile has sleep 0, \"wach 4:12\" counting down until sleep is possible again (caffeinate & co), \"wach ∞\" for an indefinite holder — tooltip names the processes. Hidden when nothing prevents sleep. Distinct from the red \"wake\" LED, which is Inspector's own wakelock.",
-  },
-  {
-    name: "Show only pinned clips",
-    trigger: "📌 history toolbar",
-    note: "Toggle the pin button in the history toolbar to collapse the list to just your pinned clips (search still filters within them). Resets when the popup closes.",
-  },
-  {
-    name: "Lineage rails",
-    trigger: "left of the list",
-    note: "Coloured commit-graph paths connect a clip you copied in a different shape (Plain text / UPPER / base64 …) to its original. Toggle in Settings → Appearance.",
-  },
-  {
-    name: "Formatting options",
-    trigger: `hold ${IS_MAC ? "⌘" : "Ctrl"} in the preview`,
-    note: "On a text/HTML/RTF clip, hold the modifier (or click the hint) to reveal the transform chips (UPPER / lower / base64 / url-encode …). Each makes a NEW entry; the original is untouched.",
-  },
-  {
-    name: "Transform typed text",
-    trigger: "↓ below an app hit",
-    note: "When the search names an app (BRIDGE → Code Bridge), the row below the app is the typed text itself: its preview opens the transform chips straight away, Enter pastes it as typed.",
-  },
-  { name: "Smart actions", trigger: "preview buttons", note: "On a text clip: Open link · Compose email · Call · Open in Maps · Make QR (auto-detected). The qr command preview also saves PNG and printable STL to Downloads." },
-  { name: "Delete entry", trigger: "🗑 list action", note: "Remove a single clip from the history." },
-  { name: "Cut out background", trigger: formatHotkey(`${MOD}+KeyB`), note: "On an image entry in the preview — U²-Net subject cut-out → Downloads." },
-  { name: "Screenshot annotate", trigger: "preview → Edit", note: "Arrow/line/text/rect/ellipse/highlight/blur/redact/step-badge on a canvas." },
-  { name: "Pin screenshot to screen", trigger: "preview → Pin to screen", note: "Float the capture as an always-on-top window; multiple pins; close per pin." },
-  { name: "Text transforms", trigger: formatHotkey(`${MOD}+1`) + "…" + formatHotkey(`${MOD}+9`), note: "On a text entry — UPPER / lower / camel / snake / base64 / url-encode …" },
-  { name: "Recolor", trigger: "preview toolbar", note: "Shown for logos / silhouettes (low-chroma images)." },
-  { name: "Save entry as note", trigger: "list action", note: "Bookmark any clipboard entry into the Notes tab." },
+  { get name() { return t("fx.paste.name"); }, trigger: formatHotkey("Enter") },
+  { get name() { return t("fx.settings_search.name"); }, get trigger() { return t("fx.settings_search.trigger"); }, get note() { return t("fx.settings_search.note"); } },
+  { get name() { return t("fx.arg_complete.name"); }, trigger: "Tab · Shift+Tab · →", get note() { return t("fx.arg_complete.note"); } },
+  { get name() { return t("fx.paste_formatted.name"); }, trigger: formatHotkey("Shift+Enter"), get note() { return t("fx.paste_formatted.note"); } },
+  { get name() { return t("fx.navigate.name"); }, trigger: "↑ ↓ · Esc", get note() { return t("fx.navigate.note"); } },
+  { get name() { return t("fx.volume.name"); }, trigger: formatHotkey("Shift+ArrowUp") + " / " + formatHotkey("Shift+ArrowDown"), get note() { return t("fx.volume.note"); } },
+  { get name() { return t("fx.pin_clip.name"); }, get trigger() { return t("fx.pin_clip.trigger"); }, get note() { return t("fx.pin_clip.note"); } },
+  { get name() { return t("fx.sleep_status.name"); }, get trigger() { return t("fx.sleep_status.trigger"); }, get note() { return t("fx.sleep_status.note"); } },
+  { get name() { return t("fx.pinned_only.name"); }, get trigger() { return t("fx.pinned_only.trigger"); }, get note() { return t("fx.pinned_only.note"); } },
+  { get name() { return t("fx.lineage.name"); }, get trigger() { return t("fx.lineage.trigger"); }, get note() { return t("fx.lineage.note"); } },
+  { get name() { return t("fx.formatting.name"); }, get trigger() { return t("fx.formatting.trigger", { key: IS_MAC ? "⌘" : "Ctrl" }); }, get note() { return t("fx.formatting.note"); } },
+  { get name() { return t("fx.typed_text.name"); }, get trigger() { return t("fx.typed_text.trigger"); }, get note() { return t("fx.typed_text.note"); } },
+  { get name() { return t("fx.smart_actions.name"); }, get trigger() { return t("fx.smart_actions.trigger"); }, get note() { return t("fx.smart_actions.note"); } },
+  { get name() { return t("fx.delete.name"); }, get trigger() { return t("fx.delete.trigger"); }, get note() { return t("fx.delete.note"); } },
+  { get name() { return t("fx.cutout.name"); }, trigger: formatHotkey(`${MOD}+KeyB`), get note() { return t("fx.cutout.note"); } },
+  { get name() { return t("fx.annotate.name"); }, get trigger() { return t("fx.annotate.trigger"); }, get note() { return t("fx.annotate.note"); } },
+  { get name() { return t("fx.pin_screenshot.name"); }, get trigger() { return t("fx.pin_screenshot.trigger"); }, get note() { return t("fx.pin_screenshot.note"); } },
+  { get name() { return t("fx.transforms.name"); }, trigger: formatHotkey(`${MOD}+1`) + "…" + formatHotkey(`${MOD}+9`), get note() { return t("fx.transforms.note"); } },
+  { get name() { return t("fx.recolor.name"); }, get trigger() { return t("fx.recolor.trigger"); }, get note() { return t("fx.recolor.note"); } },
+  { get name() { return t("fx.save_note.name"); }, get trigger() { return t("fx.save_note.trigger"); }, get note() { return t("fx.save_note.note"); } },
 ];
 
 /** Hidden games — exact word into the search field. */
 export const HIDDEN_GAMES: FeatureRow[] = [
-  {
-    name: "X!",
-    trigger: "x!",
-    keyword: "x!",
-    typed: true,
-    note: "Vollbild-Spektakel in sechs Akten (30 s) — zeigt zufällig gezogene Befehle und Eigenschaften der App selbst. Klick oder Taste bricht ab.",
-  },
-  {
-    name: "X!! (Schlagzeilen)",
-    trigger: "x!!",
-    keyword: "x!!",
-    typed: true,
-    note: "Dasselbe Stück, gefüttert mit den heutigen tagesschau-Schlagzeilen (öffentliche API, ohne Schlüssel). Ohne Netz spielt es die Eigenschaften-Fassung.",
-  },
-  { name: "Pong", trigger: "getshaky", keyword: "getshaky", typed: true },
-  { name: "Snake — walls", trigger: "rockthebox", keyword: "rockthebox", typed: true },
-  { name: "Snake — wrap edges", trigger: "rockthabox", keyword: "rockthabox", typed: true },
-  { name: "Space Invaders", trigger: "spacer", keyword: "spacer", typed: true },
-  { name: "Flappy Bird", trigger: "learningtofly", keyword: "learningtofly", typed: true },
+  { get name() { return t("fx.x.name"); }, trigger: "x!", typed: true, keyword: "x!", get note() { return t("fx.x.note"); } },
+  { get name() { return t("fx.xx.name"); }, trigger: "x!!", typed: true, keyword: "x!!", get note() { return t("fx.xx.note"); } },
+  { get name() { return t("fx.pong.name"); }, trigger: "getshaky", typed: true, keyword: "getshaky" },
+  { get name() { return t("fx.snake_walls.name"); }, trigger: "rockthebox", typed: true, keyword: "rockthebox" },
+  { get name() { return t("fx.snake_wrap.name"); }, trigger: "rockthabox", typed: true, keyword: "rockthabox" },
+  { get name() { return t("fx.invaders.name"); }, trigger: "spacer", typed: true, keyword: "spacer" },
+  { get name() { return t("fx.flappy.name"); }, trigger: "learningtofly", typed: true, keyword: "learningtofly" },
 ];
 
 /**

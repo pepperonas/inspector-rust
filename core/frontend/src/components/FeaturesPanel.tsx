@@ -19,6 +19,7 @@ import {
 } from "../lib/feature-extras";
 import { InlineMd } from "./InlineMd";
 import { stripInlineMarkup } from "../lib/inline-md";
+import { t, useT } from "../lib/i18n";
 
 /**
  * Features tab — a read-only, tabular catalogue of everything the app can
@@ -53,6 +54,7 @@ interface Section {
 
 
 export function FeaturesPanel() {
+  useT();
   const [popupHotkey, setPopupHotkey] = useState("Ctrl+Space");
   const [historyHotkey, setHistoryHotkey] = useState("");
   const [expander, setExpander] = useState<{ enabled: boolean; hotkey: string }>({
@@ -97,102 +99,102 @@ export function FeaturesPanel() {
     name: d.command,
     trigger: d.synopsis,
     typed: true,
-    note: d.aliases.length > 0 ? `${d.tagline} (alias: ${d.aliases.join(", ")})` : d.tagline,
+    note: d.aliases.length > 0 ? t("feat.with_alias", { text: d.tagline, aliases: d.aliases.join(", ") }) : d.tagline,
   }));
 
   const sections: Section[] = [
     {
-      title: "Global hotkeys",
+      title: t("feat.global_hotkeys"),
       icon: <Keyboard size={14} />,
-      blurb: "Work in any app, even when the popup is closed.",
+      blurb: t("feat.work_in_any_app_even"),
       rows: [
         {
-          name: "Open app / clipboard history",
+          name: t("feat.open_app_clipboard_history"),
           trigger: formatHotkey(popupHotkey),
-          note: "Toggle the main popup (clipboard history, search & commands). Configurable in Settings → Popup hotkey.",
+          note: t("feat.toggle_the_main_popup_clipboard"),
         },
         ...(historyHotkey.trim()
           ? [
               {
-                name: "Clipboard history (2nd hotkey)",
+                name: t("feat.clipboard_history_2nd_hotkey"),
                 trigger: formatHotkey(historyHotkey),
-                note: "Second, optional shortcut that also opens the clipboard history. Configurable in Settings → Clipboard-history hotkey.",
+                note: t("feat.second_optional_shortcut_that_also"),
               },
             ]
           : []),
         {
-          name: "OCR region",
+          name: t("feat.ocr_region"),
           trigger: formatHotkey("Ctrl+Shift+O"),
-          note: "Drag a marquee → recognised text lands on the clipboard.",
+          note: t("feat.drag_a_marquee_recognised_text"),
         },
         {
-          name: "Screenshot region",
+          name: t("feat.screenshot_region"),
           trigger: formatHotkey("Ctrl+Shift+S"),
-          note: "Drag a marquee → PNG to clipboard + a floating preview to save/edit.",
+          note: t("feat.drag_a_marquee_png_to"),
         },
         {
-          name: "Pick colour (eyedropper)",
+          name: t("feat.pick_colour_eyedropper"),
           trigger: formatHotkey("Ctrl+Shift+C"),
-          note: "Loupe to sample any on-screen pixel; hex → clipboard.",
+          note: t("feat.loupe_to_sample_any_on"),
         },
         {
-          name: "Screen recording",
+          name: t("feat.screen_recording"),
           trigger: formatHotkey("Ctrl+Shift+Alt+S"),
-          note: "Drag a region → pick audio (system / mic / none) → 3 s countdown → MP4 to Downloads. Floating bar with pause/resume + stop; needs ffmpeg.",
+          note: t("feat.drag_a_region_pick_audio"),
         },
         {
-          name: "Replace / overlay audio",
+          name: t("feat.replace_overlay_audio"),
           trigger: formatHotkey("Ctrl+Shift+Alt+M"),
-          note: "Select a video in Finder → overlay opens. Replace or mix in a local audio file or a yt-dlp'd YouTube track at a chosen start position; saves a sibling -audioswap.mp4. Needs ffmpeg (+ yt-dlp for YouTube).",
+          note: t("feat.select_a_video_in_finder"),
         },
         {
-          name: "Finder selection",
+          name: t("feat.finder_selection"),
           trigger: formatHotkey("Ctrl+Shift+F"),
-          note: "Pull the files selected in Finder into the popup (resize / optimise / cut-out).",
+          note: t("feat.pull_the_files_selected_in"),
         },
         {
           name: "Markdown → PDF",
           trigger: formatHotkey("Ctrl+Shift+M"),
-          note: "Convert the .md files selected in Finder to PDF beside the source.",
+          note: t("feat.convert_the_md_files_selected"),
         },
         {
-          name: "Timesheet",
+          name: t("feat.timesheet"),
           trigger: formatHotkey("Ctrl+Shift+T"),
-          note: "Open the time-tracking overview (the Timesheet tab). Doesn't start/stop tracking — use `track on` / `track off` for that. macOS.",
+          note: t("feat.open_the_time_tracking_overview"),
         },
         {
-          name: "Abbreviation expander",
+          name: t("feat.abbreviation_expander"),
           trigger: formatHotkey(expander.hotkey),
           note: expander.enabled
-            ? "Type an abbreviation anywhere (incl. terminals), press the hotkey → it expands. Backed by the keystroke buffer."
-            : "Disabled — enable it in Settings. Then type an abbreviation and press the hotkey (works everywhere, incl. terminals).",
+            ? t("feat.type_an_abbreviation_anywhere_incl")
+            : t("feat.disabled_enable_it_in_settings"),
         },
         {
-          name: "Auto-Expansion (aText-Stil)",
-          trigger: "automatic",
+          name: t("feat.auto_expansion_atext_style"),
+          trigger: t("feat.automatic"),
           note: autoExpand?.enabled
-            ? `On — snippets expand while you type (${autoExpand.trigger === "immediate" ? "immediate" : "after a delimiter"}), no hotkey. Configure in Settings.`
-            : "Off — enable in Settings to expand snippets automatically as you type, in any app.",
+            ? t("feat.auto_on", { mode: autoExpand.trigger === "immediate" ? t("feat.auto_immediate") : t("feat.auto_delimiter") })
+            : t("feat.off_enable_in_settings_to"),
         },
         ...(slots.length
           ? slots.map((s) => ({
-              name: `Direct snippet — ${s.title ?? s.abbreviation ?? `#${s.snippet_id}`}`,
+              name: t("feat.direct_snippet", { name: s.title ?? s.abbreviation ?? `#${s.snippet_id}` }),
               trigger: formatHotkey(s.hotkey),
-              note: "Press to paste the snippet's body anywhere (works in terminals too).",
+              note: t("feat.press_to_paste_the_snippet"),
             }))
           : [
               {
-                name: "Direct snippet slots",
+                name: t("feat.direct_snippet_slots"),
                 trigger: "—",
-                note: "None bound. Add hotkey → snippet bindings in Settings.",
+                note: t("feat.none_bound_add_hotkey_snippet"),
               },
             ]),
       ],
     },
     {
-      title: "Search-bar commands",
+      title: t("feat.search_bar_commands"),
       icon: <Terminal size={14} />,
-      blurb: "Type these into the popup's search field. Add ? to any command (or type ? alone) for full inline help — arguments, examples, tips.",
+      blurb: t("feat.type_these_into_the_popup"),
       rows: [
         // Non-command features (calculator / converters / clip detection) — not
         // power commands, so not in the CommandDoc registry (see feature-extras).
@@ -204,14 +206,14 @@ export function FeaturesPanel() {
       ],
     },
     {
-      title: "In-popup & preview actions",
+      title: t("feat.in_popup_preview_actions"),
       icon: <MousePointerClick size={14} />,
       rows: IN_POPUP_ACTIONS,
     },
     {
-      title: "Hidden games",
+      title: t("feat.hidden_games"),
       icon: <Gamepad2 size={14} />,
-      blurb: "Type the exact word into the search field. Esc suspends & resumes; each keeps its own high score.",
+      blurb: t("feat.type_the_exact_word_into"),
       rows: HIDDEN_GAMES,
     },
   ];
@@ -247,7 +249,7 @@ export function FeaturesPanel() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search features…"
+              placeholder={t("feat.search_features")}
               className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] py-1.5 pl-8 pr-3 text-[12px] outline-none focus:border-[var(--color-accent)]"
             />
           </div>
@@ -259,7 +261,7 @@ export function FeaturesPanel() {
         <div className="mx-auto w-full max-w-3xl space-y-7">
         {filteredSections.length === 0 && (
           <p className="text-center text-[12px] text-[var(--color-muted)]">
-            No features match “{query}”.
+            {t("feat.no_match", { q: query })}
           </p>
         )}
         {filteredSections.map((sec) => (
@@ -304,7 +306,7 @@ export function FeaturesPanel() {
         ))}
 
         <p className="pb-2 text-center text-[10px] text-[var(--color-muted)]">
-          Configurable shortcuts (popup, expander, snippet slots) are set in the Settings tab.
+          {t("feat.configurable_shortcuts_popup_expander_sn")}
         </p>
         </div>
       </div>

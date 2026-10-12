@@ -2,6 +2,7 @@
 // usage limits). The data comes from `claude_limits.rs`.
 
 import type { LimitForecast } from "./ipc";
+import { locale, t, tn } from "./i18n";
 
 export const LIMITS_TZ = "Europe/Berlin";
 
@@ -26,7 +27,7 @@ export function formatPercent(percent: number): string {
   const r = Math.round(percent * 10) / 10;
   const s = Number.isInteger(r)
     ? String(r)
-    : r.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    : r.toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   return `${s} %`;
 }
 
@@ -36,19 +37,19 @@ export function formatPercent(percent: number): string {
  */
 export function relativeReset(targetMs: number, nowMs: number): string {
   const diff = targetMs - nowMs;
-  if (!Number.isFinite(diff) || diff < 60_000) return "jetzt";
+  if (!Number.isFinite(diff) || diff < 60_000) return t("climits.now");
   const min = Math.floor(diff / 60_000);
   const days = Math.floor(min / 1440);
   const hours = Math.floor((min % 1440) / 60);
   const mins = min % 60;
-  if (days > 0) return hours > 0 ? `in ${days} T. ${hours} Std.` : `in ${days} T.`;
-  if (hours > 0) return mins > 0 ? `in ${hours} Std. ${mins} Min.` : `in ${hours} Std.`;
-  return `in ${mins} Min.`;
+  if (days > 0) return hours > 0 ? t("climits.in_dh", { d: days, h: hours }) : t("climits.in_d", { d: days });
+  if (hours > 0) return mins > 0 ? t("climits.in_hm", { h: hours, m: mins }) : t("climits.in_h", { h: hours });
+  return t("climits.in_m", { m: mins });
 }
 
 /** Absolute reset time in Europe/Berlin: "Sa., 10.10., 01:00". */
 export function absoluteReset(targetMs: number, tz: string = LIMITS_TZ): string {
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat(locale(), {
     timeZone: tz,
     weekday: "short",
     day: "2-digit",
@@ -60,18 +61,15 @@ export function absoluteReset(targetMs: number, tz: string = LIMITS_TZ): string 
 
 /** "Stand 14:32" in Europe/Berlin. */
 export function standLabel(ms: number, tz: string = LIMITS_TZ): string {
-  return (
-    "Stand " +
-    new Intl.DateTimeFormat("de-DE", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(
-      new Date(ms),
-    )
-  );
+  return t("climits.as_of", {
+    time: new Intl.DateTimeFormat(locale(), { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(new Date(ms)),
+  });
 }
 
 /** Money with its currency, German format. */
 export function formatMoney(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat("de-DE", { style: "currency", currency }).format(amount);
+    return new Intl.NumberFormat(locale(), { style: "currency", currency }).format(amount);
   } catch {
     return `${amount.toFixed(2)} ${currency}`;
   }
@@ -83,15 +81,15 @@ export function limitsErrorText(code: string | null): string | null {
     case null:
       return null;
     case "limits.token_expired":
-      return "Token abgelaufen — Claude Code einmal starten.";
+      return t("climits.err.token_expired");
     case "limits.no_token":
-      return "Kein Claude-Code-Login gefunden — Claude Code starten und anmelden.";
+      return t("climits.err.no_token");
     case "limits.rate_limited":
-      return "Zu viele Abfragen (429) — neuer Versuch später.";
+      return t("climits.err.rate_limited");
     case "limits.network":
-      return "Anthropic nicht erreichbar.";
+      return t("climits.err.network");
     case "limits.schema":
-      return "Unerwartete Antwort der API — Format hat sich geändert.";
+      return t("climits.err.schema");
     default:
       return code;
   }
@@ -120,12 +118,12 @@ export function limitsPhase(
 /** "gerade eben", "vor 12 Min.", "vor 3 Std.", "vor 2 T." */
 export function sinceLabel(thenMs: number, nowMs: number): string {
   const d = nowMs - thenMs;
-  if (!Number.isFinite(d) || d < 60_000) return "gerade eben";
+  if (!Number.isFinite(d) || d < 60_000) return t("climits.just_now");
   const min = Math.floor(d / 60_000);
-  if (min < 60) return `vor ${min} Min.`;
+  if (min < 60) return t("climits.ago_m", { m: min });
   const h = Math.floor(min / 60);
-  if (h < 24) return `vor ${h} Std.`;
-  return `vor ${Math.floor(h / 24)} T.`;
+  if (h < 24) return t("climits.ago_h", { h });
+  return t("climits.ago_d", { d: Math.floor(h / 24) });
 }
 
 export const POLL_CHOICES = [2, 5, 10, 15, 30, 60];
@@ -171,30 +169,30 @@ export function barSegments(percent: number, f: LimitForecast | null | undefined
 
 /** "Mi 22 Uhr" / "Mi 22:30 Uhr" in Europe/Berlin. */
 function dayHour(ms: number, tz: string): string {
-  const parts = new Intl.DateTimeFormat("de-DE", {
+  const parts = new Intl.DateTimeFormat(locale(), {
     timeZone: tz,
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(new Date(ms));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   const wd = get("weekday").replace(".", "");
   const h = String(Number(get("hour")));
   const m = get("minute");
-  return m === "00" ? `${wd} ${h} Uhr` : `${wd} ${h}:${m} Uhr`;
+  return m === "00" ? t("climits.day_hour", { wd, h }) : t("climits.day_hour_min", { wd, h, m });
 }
 
 /** "Do ~14:20" */
 function dayTime(ms: number, tz: string): string {
-  const parts = new Intl.DateTimeFormat("de-DE", {
+  const parts = new Intl.DateTimeFormat(locale(), {
     timeZone: tz,
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   }).formatToParts(new Date(ms));
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${get("weekday").replace(".", "")} ~${get("hour")}:${get("minute")}`;
 }
 
@@ -215,9 +213,8 @@ function windowMinutes(f: LimitForecast): number | null {
 /** "7 Punkte Reserve" / "8 Punkte voraus" / "genau im Plan". */
 export function paceText(deltaPoints: number): string {
   const n = Math.round(Math.abs(deltaPoints));
-  if (n < 1) return "genau im Plan";
-  const unit = n === 1 ? "Punkt" : "Punkte";
-  return deltaPoints < 0 ? `${n} ${unit} Reserve` : `${n} ${unit} voraus`;
+  if (n < 1) return t("climits.on_plan");
+  return deltaPoints < 0 ? tn("climits.reserve", n) : tn("climits.ahead", n);
 }
 
 /**
@@ -234,30 +231,30 @@ export function forecastText(
   tz: string = LIMITS_TZ,
 ): string | null {
   if (!f || f.status === "unknown") return null;
-  if (f.status === "idle") return "noch nichts verbraucht";
+  if (f.status === "idle") return t("climits.idle");
   const parts: string[] = [];
   const short = (windowMinutes(f) ?? 0) <= 360;
   const ex = f.exhaustsAt;
   if (f.status === "exhausts" && ex?.median) {
     const at = Date.parse(ex.median);
     if (short || at - nowMs < 60_000) {
-      parts.push(at - nowMs < 60_000 ? "aufgebraucht" : `leer in ${inHours(at - nowMs)}`);
+      parts.push(at - nowMs < 60_000 ? t("climits.used_up") : t("climits.empty_in", { d: inHours(at - nowMs) }));
     } else {
       let range = "";
       if (ex.early && ex.late) range = ` (${dayHour(Date.parse(ex.early), tz)} – ${dayHour(Date.parse(ex.late), tz)})`;
-      else if (ex.early) range = ` (frühestens ${dayHour(Date.parse(ex.early), tz)})`;
-      parts.push(`leer ${dayTime(at, tz)}${range}`);
+      else if (ex.early) range = ` (${t("climits.earliest", { at: dayHour(Date.parse(ex.early), tz) })})`;
+      parts.push(t("climits.empty_at", { at: dayTime(at, tz), range }));
     }
   } else {
     if (f.pace) parts.push(paceText(f.pace.deltaPoints));
-    if (f.notes.includes("too_early")) parts.push("zu früh für eine Hochrechnung");
-    else if (f.atReset) parts.push(`voraussichtlich ${Math.round(f.atReset.median)} %`);
+    if (f.notes.includes("too_early")) parts.push(t("climits.too_early"));
+    else if (f.atReset) parts.push(t("climits.expected", { n: Math.round(f.atReset.median) }));
     if (f.window && !short) {
       const end = Date.parse(f.window.end);
-      if (Number.isFinite(end)) parts.push(`Reset ${dayTime(end, tz).replace("~", "")}`);
+      if (Number.isFinite(end)) parts.push(t("climits.reset_at", { at: dayTime(end, tz).replace("~", "") }));
     }
   }
-  if (f.confidence === "rough") parts.push("grobe Schätzung");
+  if (f.confidence === "rough") parts.push(t("climits.rough"));
   return parts.join(" · ");
 }
 
@@ -289,7 +286,7 @@ export interface ChartModel {
 function hourIn(ms: number, tz: string): number {
   // ⚠️ formatToParts, not format: de-DE renders a bare hour as "01 Uhr",
   // which Number() turns into NaN — no night would ever be shaded.
-  const h = new Intl.DateTimeFormat("de-DE", { timeZone: tz, hour: "2-digit", hourCycle: "h23" })
+  const h = new Intl.DateTimeFormat(locale(), { timeZone: tz, hour: "2-digit", hourCycle: "h23" })
     .formatToParts(new Date(ms))
     .find((p) => p.type === "hour")?.value;
   return Number(h);

@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { barSegments, chartModel, forecastText, forecastTone, paceText } from "./claude-limits";
 import type { LimitForecast } from "./ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 // Week Sat 2026-10-03 23:00Z → Sat 2026-10-10 23:00Z (= Sun 01:00 Berlin, CEST).
 const WEEK = { start: "2026-10-03T23:00:00Z", end: "2026-10-10T23:00:00Z" };

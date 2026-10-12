@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   absoluteReset,
   barFill,
@@ -10,6 +10,13 @@ import {
   sinceLabel,
   standLabel,
 } from "./claude-limits";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 describe("claude-limits helpers", () => {
   it("clamps the bar and survives NaN", () => {

@@ -33,6 +33,7 @@ import {
   standLabel,
   type LimitTone,
 } from "../lib/claude-limits";
+import { t, useT } from "../lib/i18n";
 
 const ASK_EVERY_MS = 30_000;
 
@@ -66,6 +67,7 @@ function hasChart(f: LimitForecast | null): boolean {
  * No animation (nothing to reduce for `prefers-reduced-motion`).
  */
 function LimitChart({ f, tone }: { f: LimitForecast; tone: LimitTone }) {
+  useT();
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(300);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -119,7 +121,7 @@ function LimitChart({ f, tone }: { f: LimitForecast; tone: LimitTone }) {
         onMouseMove={(e) => setHoverX(e.nativeEvent.offsetX)}
         onMouseLeave={() => setHoverX(null)}
         role="img"
-        aria-label="Verlauf und Prognose im Fenster"
+        aria-label={t("climits.history_and_projection_in_the")}
       >
         {m.nights.map((n, i) => (
           <rect key={i} x={n.x} y={0} width={n.w} height={H} fill="currentColor" className="text-[color:var(--color-fg)]" opacity={0.04} />
@@ -157,16 +159,16 @@ function LimitChart({ f, tone }: { f: LimitForecast; tone: LimitTone }) {
           style={{ left: Math.min(Math.max(0, (hoverX ?? 0) + 6), width - 130) }}
         >
           {absoluteReset(hover.t)}
-          {hover.ist != null && ` · Ist ${formatPercent(hover.ist)}`}
-          {` · Plan ${formatPercent(hover.plan)}`}
-          {hover.prog != null && ` · Prognose ${formatPercent(hover.prog)}`}
+          {hover.ist != null && ` · ${t("climits.hover_actual", { v: formatPercent(hover.ist) })}`}
+          {` · ${t("climits.hover_plan", { v: formatPercent(hover.plan) })}`}
+          {hover.prog != null && ` · ${t("climits.hover_forecast", { v: formatPercent(hover.prog) })}`}
         </div>
       )}
       <div className="mt-0.5 flex justify-between text-[10px] text-[color:var(--color-muted)]">
         <span>{absoluteReset(s0)}</span>
         <span>
-          gestrichelt: Plan / Prognose
-          {f.notes.includes("chat_invisible") && " · Chat-Nutzung fließt nur über den Kalibrierfaktor ein"}
+          {t("climits.dashed_plan_projection")}
+          {f.notes.includes("chat_invisible") && ` · ${t("climits.chat_invisible")}`}
         </span>
         <span>{absoluteReset(s1)}</span>
       </div>
@@ -185,6 +187,7 @@ function LimitRow({
   open?: boolean;
   onToggle?: (id: string) => void;
 }) {
+  useT();
   const reset = l.resets_at ? Date.parse(l.resets_at) : NaN;
   const f = l.forecast ?? null;
   const seg = barSegments(l.percent, f);
@@ -201,8 +204,8 @@ function LimitRow({
               onClick={() => onToggle!(l.id)}
               className="md3-press mr-1 inline-flex align-middle text-[color:var(--color-muted)]"
               aria-expanded={open}
-              aria-label={open ? "Grafik zuklappen" : "Grafik aufklappen"}
-              title={open ? "Grafik zuklappen" : "Verlauf und Prognose zeigen"}
+              aria-label={open ? t("climits.chart_collapse") : t("climits.expand_chart")}
+              title={open ? t("climits.chart_collapse") : t("climits.show_history_and_projection")}
             >
               <ChevronDown size={13} className={`transition-transform duration-(--duration-fast) ease-sharp ${open ? "" : "-rotate-90"}`} />
             </button>
@@ -211,9 +214,9 @@ function LimitRow({
           {!l.known && (
             <span
               className="ml-1.5 rounded bg-[color:var(--color-bg)] px-1 text-[10px] font-normal text-[color:var(--color-muted)]"
-              title="Von dieser Version nicht erkannter Limit-Typ — Rohname der API"
+              title={t("climits.limit_type_not_recognised_by")}
             >
-              unbekannt
+              {t("climits.unknown")}
             </span>
           )}
         </div>
@@ -251,8 +254,8 @@ function LimitRow({
       <div className="mt-1 flex justify-between gap-2 text-[11px] text-[color:var(--color-muted)]">
         <span>
           {Number.isFinite(reset)
-            ? `Zurückgesetzt ${relativeReset(reset, now)}`
-            : "Kein Rücksetzzeitpunkt"}
+            ? t("climits.resets", { when: relativeReset(reset, now) })
+            : t("climits.no_reset_time")}
         </span>
         <span className="tabular-nums">
           {l.money
@@ -301,6 +304,7 @@ export function ClaudeLimitsPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [st, setSt] = useState<ClaudeLimitsStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -390,11 +394,11 @@ export function ClaudeLimitsPanel({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 font-medium text-[color:var(--color-fg)]">
           <Gauge size={14} className="text-rose-500" />
-          Claude-Limits
+          {t("climits.claude_limits")}
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-[color:var(--color-muted)]">
           {phase === "veraltet" && (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600">veraltet</span>
+            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600">{t("climits.stale")}</span>
           )}
           {st?.fetched_at_ms != null && <span>{standLabel(st.fetched_at_ms)}</span>}
           <select
@@ -404,12 +408,12 @@ export function ClaudeLimitsPanel({
               void load(false);
             }}
             className="rounded bg-[color:var(--color-surface)] px-1 py-0.5 text-[11px] text-[color:var(--color-fg)]"
-            title="Abfrage-Intervall"
-            aria-label="Abfrage-Intervall"
+            title={t("climits.poll_interval")}
+            aria-label={t("climits.poll_interval")}
           >
             {POLL_CHOICES.map((m) => (
               <option key={m} value={m}>
-                alle {m} min
+                {t("climits.every_min", { n: m })}
               </option>
             ))}
           </select>
@@ -417,8 +421,8 @@ export function ClaudeLimitsPanel({
             type="button"
             onClick={() => void load(true)}
             className="md3-press rounded-md p-1 hover:bg-[color:var(--color-surface)]"
-            title="Aktualisieren (R)"
-            aria-label="Aktualisieren"
+            title={t("climits.refresh_r")}
+            aria-label={t("climits.refresh")}
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           </button>
@@ -434,8 +438,8 @@ export function ClaudeLimitsPanel({
           <AlertCircle size={13} className="mt-0.5 shrink-0" />
           <span>
             {errText}
-            {phase === "veraltet" && st?.fetched_at_ms != null && ` Angezeigt: ${standLabel(st.fetched_at_ms)}.`}
-            {st?.retry_at_ms != null && ` Nächster Versuch ${relativeReset(st.retry_at_ms, now)}.`}
+            {phase === "veraltet" && st?.fetched_at_ms != null && ` ${t("climits.shown", { as_of: standLabel(st.fetched_at_ms) })}`}
+            {st?.retry_at_ms != null && ` ${t("climits.next_try", { when: relativeReset(st.retry_at_ms, now) })}`}
           </span>
         </div>
       )}
@@ -443,7 +447,7 @@ export function ClaudeLimitsPanel({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pr-0.5">
         {phase === "laden" && (
           <div className="flex items-center gap-2 py-6 text-[color:var(--color-muted)]">
-            <Loader2 size={14} className="animate-spin" /> lädt…
+            <Loader2 size={14} className="animate-spin" /> {t("climits.loading")}
           </div>
         )}
         {(report || st?.codex || st?.antigravity) && (
@@ -456,37 +460,36 @@ export function ClaudeLimitsPanel({
             ))}
             {anyLocal(report.limits) && (
               <div className="px-1 text-[11px] text-[color:var(--color-muted)]" data-testid="tracker-hint">
-                Hochrechnung linear aus dem aktuellen Stand — Token Tracker starten für Verlauf und genauere Prognose.
+                {t("climits.linear_projection_from_the_current")}
               </div>
             )}
             {report.limits.length === 0 && (
-              <div className="py-4 text-[color:var(--color-muted)]">Die API meldet keine Limits.</div>
+              <div className="py-4 text-[color:var(--color-muted)]">{t("climits.the_api_reports_no_limits")}</div>
             )}
 
             {report.extra && (
               <div className="rounded-lg bg-[color:var(--color-surface)] px-3 py-2 text-[12px]">
                 <div className="flex justify-between">
-                  <span className="font-medium text-[color:var(--color-fg)]">Zusätzliche Nutzung</span>
+                  <span className="font-medium text-[color:var(--color-fg)]">{t("climits.extra_usage")}</span>
                   <span className="text-[color:var(--color-muted)]">
-                    {report.extra.enabled ? "aktiv" : "aus"}
+                    {report.extra.enabled ? t("climits.extra_on") : t("climits.extra_off")}
                   </span>
                 </div>
                 <div className="mt-0.5 tabular-nums text-[color:var(--color-muted)]">
-                  {formatMoney(report.extra.used, report.extra.currency)} von{" "}
-                  {formatMoney(report.extra.limit, report.extra.currency)} · {formatPercent(report.extra.percent)}
+                  {t("climits.money_of", { used: formatMoney(report.extra.used, report.extra.currency), limit: formatMoney(report.extra.limit, report.extra.currency) })} · {formatPercent(report.extra.percent)}
                 </div>
               </div>
             )}
 
             {report.breakdown.length > 0 && (
               <div className="px-1 pt-1 text-[11px] text-[color:var(--color-muted)]">
-                Wochennutzung nach Bereich:{" "}
+                {t("climits.breakdown")}{" "}
                 {report.breakdown.map((b) => `${b.name} ${formatPercent(b.percent)}`).join(" · ")}
               </div>
             )}
             {report.legacy && (
               <div className="px-1 text-[11px] text-[color:var(--color-muted)]">
-                Ältere API-Form (five_hour / seven_day) — weniger Details.
+                {t("climits.older_api_shape_five_hour_seven_day")}
               </div>
             )}
           </div>
@@ -498,7 +501,7 @@ export function ClaudeLimitsPanel({
               title={`Codex${st.codex.plan ? ` · ${st.codex.plan}` : ""}`}
               note={
                 st.codex.as_of
-                  ? `Stand ${sinceLabel(Date.parse(st.codex.as_of), now)} (letzte Codex-Nutzung)`
+                  ? t("climits.codex_as_of", { since: sinceLabel(Date.parse(st.codex.as_of), now) })
                   : undefined
               }
             />
@@ -514,17 +517,17 @@ export function ClaudeLimitsPanel({
             <div className="rounded-lg bg-[color:var(--color-surface)] px-3 py-2 text-[12px]">
               {st.antigravity.blocked && st.antigravity.resets_at ? (
                 <>
-                  <div className="font-medium text-rose-600">Kontingent erschöpft</div>
+                  <div className="font-medium text-rose-600">{t("climits.quota_exhausted")}</div>
                   <div className="mt-0.5 text-[color:var(--color-muted)]">
-                    Wieder frei {relativeReset(Date.parse(st.antigravity.resets_at), now)} ·{" "}
+                    {t("climits.free_again", { when: relativeReset(Date.parse(st.antigravity.resets_at), now) })} ·{" "}
                     {absoluteReset(Date.parse(st.antigravity.resets_at))}
                   </div>
                 </>
               ) : (
-                <div className="text-[color:var(--color-fg)]">Keine aktive Sperre bekannt</div>
+                <div className="text-[color:var(--color-fg)]">{t("climits.no_active_block_known")}</div>
               )}
               <div className="mt-1 text-[11px] text-[color:var(--color-muted)]">
-                Antigravity zeigt lokal keine Prozente — nur, wann ein Limit erreicht wurde.
+                {t("climits.antigravity_shows_no_percentages_locally")}
               </div>
             </div>
           </div>
@@ -532,7 +535,7 @@ export function ClaudeLimitsPanel({
       </div>
 
       <div className="flex justify-between border-t border-[color:var(--color-border)] pt-1.5 text-[10px] text-[color:var(--color-muted)]">
-        <span>Inoffizielle Schnittstelle · R aktualisiert · Esc zurück</span>
+        <span>{t("climits.unofficial_interface_r_refreshes_esc")}</span>
         <span>© {year} Martin Pfeffer | celox.io</span>
       </div>
     </div>

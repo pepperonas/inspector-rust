@@ -39,6 +39,8 @@ import {
   WEATHER_GRADIENT,
   WEATHER_LABELS,
 } from "../lib/weather";
+import { locale, t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 // ── Animation stylesheet (injected once) ────────────────────────────────────
 
@@ -321,6 +323,7 @@ export function WeatherPanel({
   onExit: () => void;
   onInteract?: () => void;
 }) {
+  useT();
   const [report, setReport] = useState<WeatherReport | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
@@ -443,12 +446,9 @@ export function WeatherPanel({
           <KeyRound size={28} className="text-[var(--color-accent)]" />
         </div>
         <div>
-          <h3 className="text-[15px] font-semibold text-[var(--color-fg)]">Add your OpenWeather key</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--color-fg)]">{t("wx.add_your_openweather_key")}</h3>
           <p className="mx-auto mt-1 max-w-xs text-[12px] leading-relaxed text-[var(--color-muted)]">
-            Weather needs a free{" "}
-            <span className="text-[var(--color-fg)]">OpenWeatherMap</span> API key. Paste it
-            below (or set it in Settings → Weather). It's stored locally, never sent anywhere but
-            OpenWeather.
+            <InlineMd text={t("wx.key_explain")} />
           </p>
         </div>
         <div className="flex w-full max-w-xs items-center gap-2">
@@ -460,7 +460,7 @@ export function WeatherPanel({
               e.stopPropagation();
             }}
             onFocus={() => onInteract?.()}
-            placeholder="OpenWeather API key"
+            placeholder={t("wx.openweather_api_key")}
             className="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 font-mono text-[12px] outline-none focus:border-[var(--color-accent)]"
           />
           <button
@@ -468,14 +468,14 @@ export function WeatherPanel({
             disabled={savingKey || !keyInput.trim()}
             className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            {savingKey ? "Saving…" : "Save"}
+            {savingKey ? t("wx.saving") : t("common.save")}
           </button>
         </div>
         <button
           onClick={() => void openUrl("https://home.openweathermap.org/api_keys")}
           className="text-[11px] text-[var(--color-accent)] underline"
         >
-          Get a free key ↗
+          {t("wx.get_a_free_key")}
         </button>
       </div>
     );
@@ -491,7 +491,7 @@ export function WeatherPanel({
           onClick={() => void load(arg.trim())}
           className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[12px] text-[var(--color-fg)]"
         >
-          <RefreshCw size={13} /> Retry
+          <RefreshCw size={13} /> {t("wx.retry")}
         </button>
       </div>
     );
@@ -502,7 +502,7 @@ export function WeatherPanel({
     return (
       <div key="loading" className="panel-enter flex h-full flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
         <RefreshCw size={22} className="animate-spin" />
-        <p className="text-[12px]">Fetching weather…</p>
+        <p className="text-[12px]">{t("wx.fetching_weather")}</p>
       </div>
     );
   }
@@ -529,14 +529,14 @@ export function WeatherPanel({
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-1.5 text-[13px] font-medium drop-shadow">
               <MapPin size={14} />
-              <span className="truncate">{report.location || "Your location"}</span>
+              <span className="truncate">{report.location || t("wx.your_location")}</span>
             </div>
             <button
               onClick={() => {
                 void load(arg.trim());
                 onInteract?.();
               }}
-              title="Refresh (R)"
+              title={t("wx.refresh_r")}
               className="rounded-full bg-black/20 p-1.5 text-white/90 transition hover:bg-black/35"
             >
               <RefreshCw size={13} className={status === "loading" ? "animate-spin" : ""} />
@@ -556,8 +556,8 @@ export function WeatherPanel({
               </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-white/90 drop-shadow">
-              <span>Feels {roundTemp(c.feels_like)}°</span>
-              <span>H {roundTemp(c.temp_max)}° · L {roundTemp(c.temp_min)}°</span>
+              <span>{t("wx.feels", { v: roundTemp(c.feels_like) })}</span>
+              <span>{t("wx.high_low", { hi: roundTemp(c.temp_max), lo: roundTemp(c.temp_min) })}</span>
             </div>
           </div>
         </div>
@@ -565,13 +565,13 @@ export function WeatherPanel({
 
       {/* Current stat chips */}
       <div className="grid shrink-0 grid-cols-3 gap-px border-b border-[var(--color-border)] bg-[var(--color-border)]">
-        <Stat icon={<Droplets size={14} />} label="Humidity" value={`${c.humidity}%`} />
+        <Stat icon={<Droplets size={14} />} label={t("wx.humidity")} value={`${c.humidity}%`} />
         <Stat
           icon={<Wind size={14} />}
-          label="Wind"
+          label={t("wx.wind")}
           value={`${wind}${windDir ? " " + windDir : ""}`}
         />
-        <Stat icon={<Gauge size={14} />} label="Pressure" value={`${c.pressure} hPa`} />
+        <Stat icon={<Gauge size={14} />} label={t("wx.pressure")} value={`${c.pressure} hPa`} />
       </div>
 
       {/* Next 12 hours — 3-hour slots from the same forecast response, labelled
@@ -579,7 +579,7 @@ export function WeatherPanel({
       {report.hourly.length > 0 && (
         <div className="border-b border-[var(--color-border)] p-3">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-muted)]">
-            Next 12 hours
+            {t("wx.next_12_hours")}
           </div>
           <div className="grid grid-cols-5 gap-2">
             {report.hourly.slice(0, 5).map((h) => (
@@ -615,7 +615,7 @@ export function WeatherPanel({
       {forecast.length > 0 && (
         <div className="p-3">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-muted)]">
-            {forecast.length}-day forecast
+            {t("wx.forecast_days", { n: forecast.length })}
           </div>
           <div className="grid grid-cols-5 gap-2">
             {forecast.map((d) => (
@@ -641,8 +641,8 @@ export function WeatherPanel({
 
       {/* Footer */}
       <div className="mt-auto flex items-center justify-between px-3 pb-2 pt-1 text-[10px] text-[var(--color-muted)]">
-        <span>OpenWeather{arg.trim() ? "" : " · IP-located"}</span>
-        {updatedAt && <span>Updated {new Date(updatedAt).toLocaleTimeString()}</span>}
+        <span>OpenWeather{arg.trim() ? "" : ` · ${t("wx.ip_located")}`}</span>
+        {updatedAt && <span>{t("wx.updated", { time: new Date(updatedAt).toLocaleTimeString(locale()) })}</span>}
       </div>
     </div>
   );

@@ -3,13 +3,15 @@
  * for Claude Code usage pulled from the local Token Tracker.
  */
 
+import { t } from "./i18n";
+
 export type TokenPeriod = "today" | "7d" | "30d" | "all";
 
-export const TOKEN_PERIODS: ReadonlyArray<{ id: TokenPeriod; label: string }> = [
-  { id: "today", label: "Today" },
-  { id: "7d", label: "7d" },
-  { id: "30d", label: "30d" },
-  { id: "all", label: "All" },
+export const TOKEN_PERIODS: ReadonlyArray<{ id: TokenPeriod; readonly label: string }> = [
+  { id: "today", get label() { return t("tokens.period.today"); } },
+  { id: "7d", get label() { return t("tokens.period.7d"); } },
+  { id: "30d", get label() { return t("tokens.period.30d"); } },
+  { id: "all", get label() { return t("tokens.period.all"); } },
 ];
 
 /** Local `YYYY-MM-DD` for a Date (machine TZ). */

@@ -21,6 +21,8 @@ import {
   ERR_NO_YTDLP,
   type SwapMode,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Audio-swap overlay (`Ctrl+Shift+Alt+M`). Replace or overlay a video's audio
@@ -48,6 +50,7 @@ function fmtTime(s: number): string {
 }
 
 export function AudioSwapOverlay() {
+  useT();
   const [video, setVideo] = useState<Media | null>(null);
   const [audio, setAudio] = useState<Media | null>(null);
 
@@ -107,11 +110,11 @@ export function AudioSwapOverlay() {
   }
 
   async function pickVideo() {
-    const sel = await openDialog({ multiple: false, filters: [{ name: "Video", extensions: VIDEO_EXTS }] });
+    const sel = await openDialog({ multiple: false, filters: [{ name: t("aswap.video"), extensions: VIDEO_EXTS }] });
     if (typeof sel === "string") await loadVideo(sel);
   }
   async function pickAudio() {
-    const sel = await openDialog({ multiple: false, filters: [{ name: "Audio", extensions: AUDIO_EXTS }] });
+    const sel = await openDialog({ multiple: false, filters: [{ name: t("aswap.audio"), extensions: AUDIO_EXTS }] });
     if (typeof sel === "string") await loadAudio(sel);
   }
 
@@ -124,7 +127,7 @@ export function AudioSwapOverlay() {
       await loadAudio(path);
     } catch (e) {
       const msg = String(e);
-      setError(msg === ERR_NO_YTDLP ? "yt-dlp is not installed — run: brew install yt-dlp" : `Download failed: ${msg}`);
+      setError(msg === ERR_NO_YTDLP ? t("aswap.yt_dlp_is_not_installed") : t("aswap.download_failed", { msg }));
     } finally {
       setDownloading(false);
     }
@@ -162,35 +165,35 @@ export function AudioSwapOverlay() {
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-2.5">
         <div className="flex items-center gap-2 text-[13px] font-semibold">
           <Wand2 size={14} className="text-[var(--color-accent)]" />
-          Replace / overlay audio
+          {t("aswap.replace_overlay_audio")}
         </div>
-        <button onClick={close} className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]" title="Close (Esc)">
+        <button onClick={close} className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]" title={t("aswap.close_esc")}>
           <X size={15} />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
         {/* 1) Video */}
-        <Section icon={<Film size={13} />} title="Video">
+        <Section icon={<Film size={13} />} title={t("aswap.video")}>
           {video ? (
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-[13px] font-medium">{video.name}</div>
-                <div className="text-[11px] text-[var(--color-muted)]">{fmtTime(video.duration)} long</div>
+                <div className="text-[11px] text-[var(--color-muted)]">{t("aswap.long", { d: fmtTime(video.duration) })}</div>
               </div>
               <button onClick={pickVideo} className="md3-press shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)]">
-                Change
+                {t("aswap.change")}
               </button>
             </div>
           ) : (
             <button onClick={pickVideo} className="md3-press flex w-full items-center justify-center gap-2 rounded border border-dashed border-[var(--color-border)] px-3 py-3 text-[12px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]">
-              <FolderOpen size={14} /> No video selected in Finder — choose one
+              <FolderOpen size={14} /> {t("aswap.no_video_selected_in_finder")}
             </button>
           )}
         </Section>
 
         {/* 2) Audio source */}
-        <Section icon={<Music size={13} />} title="Audio to add">
+        <Section icon={<Music size={13} />} title={t("aswap.audio_to_add")}>
           {audio && (
             <div className="mb-2 flex items-center justify-between gap-2 rounded bg-[var(--color-surface)] px-2 py-1.5">
               <div className="min-w-0">
@@ -201,7 +204,7 @@ export function AudioSwapOverlay() {
             </div>
           )}
           <button onClick={pickAudio} className="md3-press mb-2 flex w-full items-center justify-center gap-2 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)]">
-            <FolderOpen size={14} /> Choose audio file…
+            <FolderOpen size={14} /> {t("aswap.choose_audio_file")}
           </button>
           <div className="flex items-center gap-1.5">
             <Link2 size={15} className={ytAvailable ? "text-rose-500" : "text-[var(--color-muted)]"} />
@@ -210,7 +213,7 @@ export function AudioSwapOverlay() {
               onChange={(e) => setYtUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && downloadYt()}
               disabled={!ytAvailable || downloading}
-              placeholder={ytAvailable ? "Paste a YouTube URL…" : "yt-dlp not installed"}
+              placeholder={ytAvailable ? t("aswap.paste_a_youtube_url") : t("aswap.yt_dlp_not_installed")}
               className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-[12px] outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
             />
             <button
@@ -219,21 +222,21 @@ export function AudioSwapOverlay() {
               className="md3-press flex shrink-0 items-center gap-1 rounded bg-[var(--color-accent)] px-2.5 py-1.5 text-[12px] text-[var(--color-accent-fg)] disabled:opacity-40"
             >
               {downloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-              {downloading ? "Downloading…" : "Get"}
+              {downloading ? t("aswap.downloading") : t("aswap.get")}
             </button>
           </div>
           {!ytAvailable && (
             <div className="mt-1 text-[11px] text-[var(--color-muted)]">
-              Install with <code className="rounded bg-[var(--color-surface)] px-1">brew install yt-dlp</code> to download from YouTube.
+              <InlineMd text={t("aswap.install_ytdlp")} />
             </div>
           )}
         </Section>
 
         {/* 3) Placement / trim / mode */}
         {ready && (
-          <Section icon={<Wand2 size={13} />} title="Placement">
+          <Section icon={<Wand2 size={13} />} title={t("aswap.placement")}>
             <Slider
-              label="Insert at (video position)"
+              label={t("aswap.insert_at_video_position")}
               value={startSeconds}
               min={0}
               max={video.duration}
@@ -243,7 +246,7 @@ export function AudioSwapOverlay() {
             {audio.duration > 0 && (
               <>
                 <Slider
-                  label="Audio start (trim in)"
+                  label={t("aswap.audio_start_trim_in")}
                   value={audioIn}
                   min={0}
                   max={Math.max(0, (audioOut ?? audio.duration) - 0.1)}
@@ -251,25 +254,25 @@ export function AudioSwapOverlay() {
                   display={fmtTime(audioIn)}
                 />
                 <Slider
-                  label="Audio end (trim out)"
+                  label={t("aswap.audio_end_trim_out")}
                   value={audioOut ?? audio.duration}
                   min={audioIn + 0.1}
                   max={audio.duration}
                   onChange={(v) => setAudioOut(v >= audio.duration ? null : v)}
                   display={fmtTime(audioOut ?? audio.duration)}
                 />
-                <div className="mb-2 text-[11px] text-[var(--color-muted)]">Inserted length: {fmtTime(audioLen)}</div>
+                <div className="mb-2 text-[11px] text-[var(--color-muted)]">{t("aswap.inserted_len", { d: fmtTime(audioLen) })}</div>
               </>
             )}
 
             <div className="mb-2 flex gap-1">
-              <ModeButton active={mode === "replace"} onClick={() => setMode("replace")} label="Replace audio" hint="drop original" />
-              <ModeButton active={mode === "mix"} onClick={() => setMode("mix")} label="Mix over original" hint="keep both" />
+              <ModeButton active={mode === "replace"} onClick={() => setMode("replace")} label={t("aswap.replace_audio")} hint={t("aswap.drop_original")} />
+              <ModeButton active={mode === "mix"} onClick={() => setMode("mix")} label={t("aswap.mix_over_original")} hint={t("aswap.keep_both")} />
             </div>
             {mode === "mix" && (
               <>
-                <Slider label="New audio volume" value={overlayVolume} min={0} max={2} step={0.05} onChange={setOverlayVolume} display={`${Math.round(overlayVolume * 100)}%`} />
-                <Slider label="Original volume" value={originalVolume} min={0} max={1.5} step={0.05} onChange={setOriginalVolume} display={`${Math.round(originalVolume * 100)}%`} />
+                <Slider label={t("aswap.new_audio_volume")} value={overlayVolume} min={0} max={2} step={0.05} onChange={setOverlayVolume} display={`${Math.round(overlayVolume * 100)}%`} />
+                <Slider label={t("aswap.original_volume")} value={originalVolume} min={0} max={1.5} step={0.05} onChange={setOriginalVolume} display={`${Math.round(originalVolume * 100)}%`} />
               </>
             )}
           </Section>
@@ -278,7 +281,7 @@ export function AudioSwapOverlay() {
         {error && <div className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-400">{error}</div>}
         {doneMsg && (
           <div className="md3-banner-in flex items-center gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
-            <Check size={14} /> Saved <b>{doneMsg}</b> next to the video (revealed in Finder).
+            <Check size={14} /> <InlineMd text={t("aswap.saved", { name: doneMsg })} />
           </div>
         )}
       </div>
@@ -291,7 +294,7 @@ export function AudioSwapOverlay() {
           className="md3-press flex w-full items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2.5 text-[13px] font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
         >
           {applying ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-          {applying ? "Processing…" : mode === "replace" ? "Replace audio & save" : "Mix audio & save"}
+          {applying ? t("aswap.processing") : mode === "replace" ? t("aswap.replace_audio_save") : t("aswap.mix_audio_save")}
         </button>
       </div>
     </div>

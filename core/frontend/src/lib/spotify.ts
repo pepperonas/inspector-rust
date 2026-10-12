@@ -4,6 +4,7 @@
  * (`spotify/`); see docs/spotify.md.
  */
 import type { SpotifyControl, SpotifyHistoryQuery, SpotifyPlayRow } from "./ipc";
+import { locale, t, type MessageKey } from "./i18n";
 
 export type HistoryRange = "today" | "yesterday" | "week" | "month";
 export type ExportFormat = "json" | "csv" | "md";
@@ -104,13 +105,13 @@ export function parseSpotifyArg(arg: string): SpotifyCmd {
   if (head === "volume" || head === "vol" || head === "lautstärke") {
     const v = words[1] != null ? Number(words[1].replace(",", ".")) : NaN;
     if (!Number.isFinite(v) || v < 0 || v > 100) {
-      return { kind: "invalid", message: "Lautstärke 0–100 angeben, z. B. spotify volume 40" };
+      return { kind: "invalid", message: t("spotify.err.volume") };
     }
     return { kind: "control", action: "volume", value: Math.round(v) };
   }
   if (head === "seek" || head === "spulen") {
     const s = words[1] != null ? parseSeconds(words[1]) : null;
-    if (s == null) return { kind: "invalid", message: "Position angeben, z. B. spotify seek 90 oder 1:30" };
+    if (s == null) return { kind: "invalid", message: t("spotify.err.seek") };
     return { kind: "control", action: "seek", value: s };
   }
   // The start of a known word is not an error yet — the user is still
@@ -118,7 +119,7 @@ export function parseSpotifyArg(arg: string): SpotifyCmd {
   if (words.length === 1 && KNOWN_HEADS.some((k) => k.startsWith(head))) return { kind: "now" };
   return {
     kind: "invalid",
-    message: `Unbekannt: „${words[0]}“ — now, history, play, pause, toggle, next, previous, volume, seek`,
+    message: t("spotify.err.unknown", { word: words[0] }),
   };
 }
 
@@ -163,10 +164,10 @@ export interface DayGroup {
 export function dayLabel(ms: number, now: Date): string {
   const day = startOfDay(new Date(ms));
   const today = startOfDay(now);
-  if (day === today) return "Heute";
-  if (day === new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()) return "Gestern";
+  if (day === today) return t("spotify.today");
+  if (day === new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime()) return t("spotify.yesterday");
   const d = new Date(ms);
-  return d.toLocaleDateString("de-DE", {
+  return d.toLocaleDateString(locale(), {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -199,21 +200,21 @@ export function formatClock(ms: number): string {
 /** `12 Min.` / `3 Std. 5 Min.` for totals. */
 export function formatTotal(ms: number): string {
   const min = Math.round(ms / 60000);
-  if (min < 60) return `${min} Min.`;
+  if (min < 60) return t("spotify.total_m", { m: min });
   const h = Math.floor(min / 60);
-  return min % 60 ? `${h} Std. ${min % 60} Min.` : `${h} Std.`;
+  return min % 60 ? t("spotify.total_hm", { h, m: min % 60 }) : t("spotify.total_h", { h });
 }
 
 export function timeOfDay(ms: number): string {
-  return new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 export const STATUS_LABEL: Record<SpotifyPlayRow["status"], string> = {
-  listened: "gehört",
-  partial: "angespielt",
-  skipped: "übersprungen",
-  playing: "läuft",
-  paused: "pausiert",
+  get listened() { return t("spotify.status.listened"); },
+  get partial() { return t("spotify.status.partial"); },
+  get skipped() { return t("spotify.status.skipped"); },
+  get playing() { return t("spotify.status.playing"); },
+  get paused() { return t("spotify.status.paused"); },
 };
 
 /** How much of a play was heard, 0..1 — `null` when the length is unknown.
@@ -230,29 +231,29 @@ export function playedFraction(row: { played_ms: number; duration_ms: number | n
 export function commandLabel(cmd: SpotifyCmd): string {
   switch (cmd.kind) {
     case "now":
-      return "Spotify — läuft gerade";
+      return t("spotify.cmd.now");
     case "invalid":
       return `spotify: ${cmd.message}`;
     case "control": {
       const what: Record<SpotifyControl, string> = {
-        play: "abspielen",
-        pause: "pausieren",
-        toggle: "Wiedergabe umschalten",
-        next: "nächster Titel",
-        previous: "vorheriger Titel",
-        volume: `Lautstärke ${cmd.value}`,
-        seek: `springen zu ${formatClock((cmd.value ?? 0) * 1000)}`,
+        play: t("spotify.cmd.play"),
+        pause: t("spotify.cmd.pause"),
+        toggle: t("spotify.cmd.toggle"),
+        next: t("spotify.cmd.next"),
+        previous: t("spotify.cmd.previous"),
+        volume: t("spotify.cmd.volume", { n: cmd.value ?? 0 }),
+        seek: t("spotify.cmd.seek", { at: formatClock((cmd.value ?? 0) * 1000) }),
       };
       return `Spotify: ${what[cmd.action]}`;
     }
     case "history": {
       const parts: string[] = [];
       if (cmd.filter.range) {
-        parts.push({ today: "heute", yesterday: "gestern", week: "7 Tage", month: "30 Tage" }[cmd.filter.range]);
+        parts.push(t(`spotify.range.${cmd.filter.range}` as MessageKey));
       }
-      if (cmd.filter.artist) parts.push(`von ${cmd.filter.artist}`);
+      if (cmd.filter.artist) parts.push(t("spotify.by_artist", { artist: cmd.filter.artist }));
       if (cmd.filter.text) parts.push(`„${cmd.filter.text}“`);
-      const base = cmd.export ? `Spotify-Verlauf als ${cmd.export.toUpperCase()} exportieren` : "Spotify-Verlauf";
+      const base = cmd.export ? t("spotify.cmd.export", { fmt: cmd.export.toUpperCase() }) : t("spotify.history");
       return parts.length ? `${base} · ${parts.join(" · ")}` : base;
     }
   }

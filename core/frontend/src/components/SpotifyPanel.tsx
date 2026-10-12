@@ -45,6 +45,7 @@ import {
   type HistoryFilter,
   type SpotifyCmd,
 } from "../lib/spotify";
+import { t, tn, useT, type MessageKey } from "../lib/i18n";
 
 /** History page size; more loads on demand. */
 export const HISTORY_PAGE = 100;
@@ -65,10 +66,10 @@ interface Props {
 }
 
 export function errorText(e: string): string {
-  if (e.includes(SPOTIFY_NOT_INSTALLED)) return "Spotify ist auf diesem Mac nicht installiert.";
-  if (e.includes(SPOTIFY_NOT_RUNNING)) return "Spotify läuft nicht.";
+  if (e.includes(SPOTIFY_NOT_INSTALLED)) return t("spotify.not_installed");
+  if (e.includes(SPOTIFY_NOT_RUNNING)) return t("spotify.spotify_isn_t_running");
   if (e.includes(SPOTIFY_DENIED))
-    return "Inspector darf Spotify nicht steuern — in den Systemeinstellungen unter Automation erlauben.";
+    return t("spotify.inspector_isn_t_allowed_to");
   return e;
 }
 
@@ -102,6 +103,7 @@ function Cover({ url, show, size }: { url: string | null; show: boolean; size: n
 }
 
 function StatusChip({ row }: { row: SpotifyPlayRow }) {
+  useT();
   return (
     <span
       className="rounded px-1 text-[10px] font-medium uppercase tracking-wide"
@@ -113,6 +115,7 @@ function StatusChip({ row }: { row: SpotifyPlayRow }) {
 }
 
 function HistoryRow({ row, artwork }: { row: SpotifyPlayRow; artwork: boolean }) {
+  useT();
   return (
     <div
       className="flex items-center gap-2 rounded-lg border-l-2 px-2 py-1.5"
@@ -123,7 +126,7 @@ function HistoryRow({ row, artwork }: { row: SpotifyPlayRow; artwork: boolean })
       <span className="w-10 shrink-0 text-xs tabular-nums text-[var(--color-muted)]">{timeOfDay(row.started_at)}</span>
       {artwork && <Cover url={row.artwork_url} show size={32} />}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[var(--color-fg)]">{row.track || "Unbekannter Titel"}</div>
+        <div className="truncate text-[var(--color-fg)]">{row.track || t("spotify.unknown_track")}</div>
         <div className="truncate text-xs text-[var(--color-muted)]">
           {[row.artist, row.album].filter(Boolean).join(" · ") || "—"}
         </div>
@@ -154,6 +157,7 @@ function HistoryView({
   onExport: (f: ExportFormat) => void;
   exportBusy: boolean;
 }) {
+  useT();
   const [rows, setRows] = useState<SpotifyPlayRow[] | null>(null);
   const [total, setTotal] = useState(0);
   const [played, setPlayed] = useState(0);
@@ -200,7 +204,7 @@ function HistoryView({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
         <span data-testid="spotify-summary">
-          {rows == null ? "…" : `${total} ${total === 1 ? "Eintrag" : "Einträge"} · ${formatTotal(played)} gehört`}
+          {rows == null ? "…" : `${tn("spotify.entries", total)} · ${t("spotify.played_total", { d: formatTotal(played) })}`}
         </span>
         <span className="ml-auto flex items-center gap-1">
           {exportBusy ? (
@@ -226,7 +230,7 @@ function HistoryView({
         {rows != null && rows.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-[var(--color-muted)]">
             <Music size={24} />
-            <div>{filtered ? "Keine Treffer." : "Noch nichts gehört — Spotify-Titel werden ab jetzt mitgeschrieben."}</div>
+            <div>{filtered ? t("spotify.no_matches") : t("spotify.nothing_played_yet_spotify_tracks")}</div>
           </div>
         )}
         {groups.map((g) => (
@@ -245,7 +249,7 @@ function HistoryView({
             onClick={loadMore}
             className="mx-auto my-2 block rounded-md px-3 py-1 text-xs text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
           >
-            {loadingMore ? "Lädt…" : `Mehr laden (${total - rows.length} weitere)`}
+            {loadingMore ? t("common.loading") : t("spotify.load_more", { n: total - rows.length })}
           </button>
         )}
       </div>
@@ -266,6 +270,7 @@ function NowView({
   busy: boolean;
   onShowHistory: () => void;
 }) {
+  useT();
   const [tick, setTick] = useState(() => Date.now());
   const playing = now?.state === "playing";
   useEffect(() => {
@@ -282,29 +287,29 @@ function NowView({
     );
   }
   if (!now.installed) {
-    return <Empty text="Spotify ist auf diesem Mac nicht installiert." />;
+    return <Empty text={t("spotify.not_installed")} />;
   }
-  const t = now.track;
-  const pos = t ? livePosition(now.position_ms, now.at_ms, playing, tick, t.duration_ms) : null;
-  const share = t?.duration_ms && pos != null ? pos / t.duration_ms : 0;
+  const track = now.track;
+  const pos = track ? livePosition(now.position_ms, now.at_ms, playing, tick, track.duration_ms) : null;
+  const share = track?.duration_ms && pos != null ? pos / track.duration_ms : 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {!now.running ? (
-        <Empty text="Spotify läuft nicht. Sobald es spielt, erscheint der Titel hier und landet im Verlauf." />
-      ) : !t ? (
-        <Empty text="Gerade läuft nichts." />
+        <Empty text={t("spotify.spotify_isn_t_running_as")} />
+      ) : !track ? (
+        <Empty text={t("spotify.nothing_is_playing")} />
       ) : (
         <div className="flex gap-3" data-testid="spotify-now">
-          <Cover url={t.artwork_url} show={now.artwork_enabled} size={96} />
+          <Cover url={track.artwork_url} show={now.artwork_enabled} size={96} />
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
             <div className="text-[10px] uppercase tracking-wide text-emerald-500">
-              {playing ? "Läuft" : now.state === "paused" ? "Pausiert" : "Gestoppt"}
+              {playing ? t("spotify.playing") : now.state === "paused" ? t("spotify.paused") : t("spotify.stopped")}
             </div>
-            <div className="truncate text-base font-semibold text-[var(--color-fg)]">{t.name || "Unbekannter Titel"}</div>
-            <div className="truncate text-sm text-[var(--color-muted)]">{t.artist}</div>
-            <div className="truncate text-xs text-[var(--color-muted)]">{t.album}</div>
-            {pos != null && t.duration_ms != null && (
+            <div className="truncate text-base font-semibold text-[var(--color-fg)]">{track.name || t("spotify.unknown_track")}</div>
+            <div className="truncate text-sm text-[var(--color-muted)]">{track.artist}</div>
+            <div className="truncate text-xs text-[var(--color-muted)]">{track.album}</div>
+            {pos != null && track.duration_ms != null && (
               <div className="mt-1 space-y-0.5">
                 <div className="h-1 overflow-hidden rounded-full bg-[var(--color-border)]">
                   <div
@@ -314,7 +319,7 @@ function NowView({
                 </div>
                 <div className="flex justify-between text-[10px] tabular-nums text-[var(--color-muted)]">
                   <span>{formatClock(pos)}</span>
-                  <span>{formatClock(t.duration_ms)}</span>
+                  <span>{formatClock(track.duration_ms)}</span>
                 </div>
               </div>
             )}
@@ -322,7 +327,7 @@ function NowView({
         </div>
       )}
 
-      {now.running && t && (
+      {now.running && track && (
         <div className="flex items-center justify-center gap-2">
           {(["previous", "toggle", "next"] as const).map((a) => (
             <button
@@ -330,48 +335,48 @@ function NowView({
               type="button"
               disabled={busy}
               onClick={() => onControl(a)}
-              aria-label={{ previous: "Vorheriger Titel", toggle: playing ? "Pause" : "Abspielen", next: "Nächster Titel" }[a]}
+              aria-label={{ previous: t("spotify.previous_track"), toggle: playing ? t("spotify.pause") : t("spotify.play"), next: t("spotify.next_track") }[a]}
               className="rounded-full p-2 text-[var(--color-fg)] hover:bg-[var(--color-surface)] disabled:opacity-40"
             >
               {a === "previous" ? <SkipBack size={18} /> : a === "next" ? <SkipForward size={18} /> : playing ? <Pause size={20} /> : <Play size={20} />}
             </button>
           ))}
           {now.volume != null && (
-            <span className="ml-2 text-xs tabular-nums text-[var(--color-muted)]">Vol {now.volume}</span>
+            <span className="ml-2 text-xs tabular-nums text-[var(--color-muted)]">{t("spotify.vol", { n: now.volume })}</span>
           )}
         </div>
       )}
 
       {now.running && now.permission === "undetermined" && now.source === "recorder" && (
         <div className="text-center text-xs text-[var(--color-muted)]">
-          Enter erlaubt Inspector, Spotify abzufragen und zu steuern (macOS fragt einmal nach).
+          {t("spotify.enter_lets_inspector_read_and")}
         </div>
       )}
       {now.permission === "denied" && (
         <div className="flex items-center justify-center gap-2 text-xs text-amber-500">
           <AlertTriangle size={12} />
-          <span>Steuerung nicht erlaubt.</span>
+          <span>{t("spotify.control_not_allowed")}</span>
           <button type="button" className="underline" onClick={() => void spotifyOpenAutomationSettings()}>
-            Systemeinstellungen öffnen
+            {t("spotify.open_system_settings")}
           </button>
         </div>
       )}
       {!now.history_enabled && (
         <div className="text-center text-xs text-[var(--color-muted)]">
-          Der Verlauf wird nicht aufgezeichnet (Einstellungen → Spotify).
+          {t("spotify.history_isn_t_being_recorded")}
         </div>
       )}
 
       {recent.length > 0 && (
         <div className="min-h-0 flex-1 overflow-hidden">
           <div className="flex items-center px-2 pb-1 text-xs font-semibold text-[var(--color-fg)]">
-            Zuletzt gehört
+            {t("spotify.recently_played")}
             <button
               type="button"
               onClick={onShowHistory}
               className="ml-auto font-normal text-[var(--color-muted)] hover:text-[var(--color-fg)]"
             >
-              Alle anzeigen
+              {t("spotify.show_all")}
             </button>
           </div>
           {recent.map((r) => (
@@ -393,6 +398,7 @@ function Empty({ text }: { text: string }) {
 }
 
 export function SpotifyPanel({ cmd, focused, runSignal, onExit, onQuery }: Props) {
+  useT();
   const view = cmd.kind === "history" ? "history" : "now";
   const [now, setNow] = useState<SpotifyNow | null>(null);
   const [recent, setRecent] = useState<SpotifyPlayRow[]>([]);
@@ -517,12 +523,12 @@ export function SpotifyPanel({ cmd, focused, runSignal, onExit, onQuery }: Props
     <div className="flex h-full flex-col gap-2 overflow-hidden p-3 text-sm" data-testid="spotify-panel">
       <div className="flex items-center gap-2 text-[var(--color-fg)]">
         <Music size={16} className="text-emerald-500" />
-        <span className="font-semibold">{view === "history" ? "Spotify-Verlauf" : "Spotify"}</span>
+        <span className="font-semibold">{view === "history" ? t("spotify.history") : "Spotify"}</span>
         {view === "history" && cmd.kind === "history" && (cmd.filter.range || cmd.filter.artist || cmd.filter.text) && (
           <span className="truncate text-xs text-[var(--color-muted)]">
             {[
-              cmd.filter.range && { today: "heute", yesterday: "gestern", week: "7 Tage", month: "30 Tage" }[cmd.filter.range],
-              cmd.filter.artist && `von ${cmd.filter.artist}`,
+              cmd.filter.range && t(`spotify.range.${cmd.filter.range}` as MessageKey),
+              cmd.filter.artist && t("spotify.by_artist", { artist: cmd.filter.artist }),
               cmd.filter.text && `„${cmd.filter.text}“`,
             ]
               .filter(Boolean)
@@ -538,7 +544,7 @@ export function SpotifyPanel({ cmd, focused, runSignal, onExit, onQuery }: Props
         </div>
       )}
       {cmd.kind === "control" && !focused && (
-        <div className="text-xs text-[var(--color-muted)]">Enter führt den Befehl aus.</div>
+        <div className="text-xs text-[var(--color-muted)]">{t("spotify.enter_runs_the_command")}</div>
       )}
       {message && (
         <div

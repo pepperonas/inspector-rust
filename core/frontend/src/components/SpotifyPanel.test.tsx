@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { SpotifyHistoryPage, SpotifyNow, SpotifyPlayRow } from "../lib/ipc";
 import { parseSpotifyArg } from "../lib/spotify";
@@ -33,6 +33,13 @@ vi.mock("../lib/ipc", () => ({
 }));
 
 import { SpotifyPanel } from "./SpotifyPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function now(over: Partial<SpotifyNow> = {}): SpotifyNow {
   return {

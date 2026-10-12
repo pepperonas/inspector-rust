@@ -5,6 +5,8 @@ import {
   FIXED_SWATCHES,
   type DiscoMode,
 } from "../lib/disco-engine";
+import { t, useT, type MessageKey } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Beat-sync panel — a thin UI over the persistent `discoEngine` singleton
@@ -14,6 +16,7 @@ import {
  * engine, so the two stay in sync automatically (via `useSyncExternalStore`).
  */
 export function HueBeatSync() {
+  useT();
   const st = useDiscoState();
   const showSwatches = st.mode !== "rainbow";
 
@@ -21,7 +24,7 @@ export function HueBeatSync() {
     <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-[12px] font-medium">
-          <Activity size={13} className="text-[var(--color-accent)]" /> Beat sync
+          <Activity size={13} className="text-[var(--color-accent)]" /> {t("hue.beat_sync")}
         </span>
         <button
           type="button"
@@ -34,7 +37,7 @@ export function HueBeatSync() {
           }
         >
           {st.running ? <Square size={11} /> : <Mic size={11} />}
-          {st.running ? "Stop" : "Listen"}
+          {st.running ? t("hue.stop") : t("hue.listen")}
         </button>
       </div>
 
@@ -64,13 +67,13 @@ export function HueBeatSync() {
             type="button"
             onClick={() => discoEngine.setMode(m)}
             className={
-              "md3-press flex-1 rounded px-2 py-1 text-[11px] capitalize " +
+              "md3-press flex-1 rounded px-2 py-1 text-[11px] " +
               (st.mode === m
                 ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
                 : "border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]")
             }
           >
-            {m}
+            {t(`hue.mode.${m}` as MessageKey)}
           </button>
         ))}
       </div>
@@ -78,7 +81,7 @@ export function HueBeatSync() {
       {/* Fixed colour (pulse / strobe only) */}
       {showSwatches && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-[var(--color-muted)]">Colour</span>
+          <span className="text-[10px] text-[var(--color-muted)]">{t("hue.colour")}</span>
           {FIXED_SWATCHES.map((hex) => (
             <button
               key={hex}
@@ -97,7 +100,7 @@ export function HueBeatSync() {
 
       {/* Sensitivity */}
       <div className="mt-2.5 flex items-center gap-2">
-        <span className="text-[10px] text-[var(--color-muted)]">Sensitivity</span>
+        <span className="text-[10px] text-[var(--color-muted)]">{t("hue.sensitivity")}</span>
         <input
           type="range"
           min={0}
@@ -113,8 +116,7 @@ export function HueBeatSync() {
         <p className="mt-2 text-[11px] text-rose-400">{st.error}</p>
       ) : (
         <p className="mt-2 text-[10px] text-[var(--color-muted)]">
-          Pulses your lamps to the beat from the mic. Keeps running after you close the popup —
-          stop it here or with <code className="text-[var(--color-fg)]">disco 0</code>.
+          <InlineMd text={t("hue.beat_hint")} />
         </p>
       )}
     </div>

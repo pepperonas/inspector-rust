@@ -4,6 +4,8 @@ import { TerminalSquare, Copy, Check, PlusCircle, Pencil, Trash2, Search, X } fr
 import { buildAliasSetups, validAliasName, filterAliases, chooseForm, type AliasSetup } from "../lib/alias";
 import { CURRENT_PLATFORM } from "../lib/platform";
 import { aliasCreate, aliasList, aliasDelete, type AliasEntry } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * `alias` — guided shell-alias builder + manager (v0.128.0). Top: two inputs
@@ -17,6 +19,7 @@ import { aliasCreate, aliasList, aliasDelete, type AliasEntry } from "../lib/ipc
  * field so typing starts immediately.
  */
 export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boolean; onExit: () => void }) {
+  useT();
   const [name, setName] = useState("");
   const [cmd, setCmd] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -165,11 +168,11 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]">
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <TerminalSquare size={15} className="text-[var(--color-accent)]" /> Alias anlegen
+        <TerminalSquare size={15} className="text-[var(--color-accent)]" /> {t("alias.create_alias")}
       </div>
 
       <label className="flex flex-col gap-1 text-[11px] text-[var(--color-muted)]">
-        Terminal-Befehl
+        {t("alias.terminal_command")}
         <input
           ref={cmdRef}
           value={cmd}
@@ -197,28 +200,19 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
         />
         {name !== "" && !nameOk && (
           <span className="text-amber-500">
-            Nur Buchstaben, Ziffern, „-“ und „_“ — beginnend mit Buchstabe oder „_“.
+            {t("alias.only_letters_digits_and__")}
           </span>
         )}
       </label>
 
       {form.kind === "function" && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[11px] leading-5">
-          <span className="font-medium">Wird eine Funktion, kein Alias.</span>{" "}
+          <span className="font-medium">{t("alias.becomes_a_function_not_an")}</span>{" "}
           <span className="text-[var(--color-muted)]">
             {form.reason === "changes-directory" ? (
-              <>
-                Der Befehl wechselt das Verzeichnis und macht danach noch etwas. Als
-                Alias bliebe <em>deine</em> Shell anschließend dort stehen — jeder
-                weitere Befehl im Terminal liefe woanders. Das <code>cd</code> läuft
-                deshalb in einer Subshell; dein Verzeichnis bleibt, wo es war.
-              </>
+              <InlineMd text={t("alias.why_cd")} />
             ) : (
-              <>
-                Der Befehl liest Argumente (<code>$1</code>, <code>$@</code>). Ein Alias
-                kann sie gar nicht empfangen: die Shell hängt das Getippte hinten an,
-                <code>$1</code> bliebe leer.
-              </>
+              <InlineMd text={t("alias.why_args")} />
             )}
           </span>
         </div>
@@ -241,7 +235,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-medium">
                     {s.label} <span className="text-[var(--color-muted)]">→ {s.target}</span>
-                    {isCurrent && <span className="ml-1 text-[10px] text-[var(--color-accent)]">dieses System</span>}
+                    {isCurrent && <span className="ml-1 text-[10px] text-[var(--color-accent)]">{t("alias.this_system")}</span>}
                   </span>
                   <div className="flex shrink-0 items-center gap-1">
                     {isCurrent && (
@@ -250,19 +244,19 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                         onClick={create}
                         disabled={creating}
                         className="md3-press flex items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-50"
-                        title={exists ? "Bestehenden Alias ersetzen" : "Alias auf diesem System anlegen"}
+                        title={exists ? t("alias.replace_the_existing_alias") : t("alias.create_the_alias_on_this")}
                       >
-                        <PlusCircle size={12} /> {creating ? "Lege an…" : exists ? "Aktualisieren" : "Anlegen"}
+                        <PlusCircle size={12} /> {creating ? t("alias.creating") : exists ? t("alias.update") : t("alias.create")}
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={() => copy(s.os, s.command)}
                       className="md3-press flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                      title="Befehl kopieren"
+                      title={t("alias.copy_command")}
                     >
                       {copied === s.os ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                      {copied === s.os ? "Kopiert" : "Kopieren"}
+                      {copied === s.os ? t("common.copied") : t("common.copy")}
                     </button>
                   </div>
                 </div>
@@ -275,8 +269,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
         </div>
       ) : (
         <p className="text-[12px] text-[var(--color-muted)]">
-          Befehl und Alias eintragen — darunter erscheint für macOS, Linux und Windows der genaue
-          Terminal-Befehl, der den Alias anlegt (Kopieren oder direkt auf diesem System anlegen).
+          {t("alias.enter_a_command_and_an")}
         </p>
       )}
 
@@ -289,7 +282,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
         <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-3">
           <div className="flex items-center justify-between gap-2">
             <span className="text-[12px] font-medium">
-              Bestehende Aliasse{list !== null && ` (${list.length})`}
+              {t("alias.existing_aliases")}{list !== null && ` (${list.length})`}
             </span>
           </div>
           {(list?.length ?? 0) > 0 && (
@@ -298,7 +291,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Suchen…"
+                placeholder={t("alias.search")}
                 spellCheck={false}
                 className={inputCls + " pl-6"}
               />
@@ -307,7 +300,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                   type="button"
                   onClick={() => setSearch("")}
                   className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                  title="Suche leeren"
+                  title={t("alias.clear_search")}
                 >
                   <X size={12} />
                 </button>
@@ -315,11 +308,11 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
             </div>
           )}
           {list === null ? (
-            <p className="text-[11px] text-[var(--color-muted)]">Lese Shell-Config…</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("alias.reading_the_shell_config")}</p>
           ) : list.length === 0 ? (
-            <p className="text-[11px] text-[var(--color-muted)]">Noch keine Aliasse in der Shell-Config.</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("alias.no_aliases_in_the_shell")}</p>
           ) : shown.length === 0 ? (
-            <p className="text-[11px] text-[var(--color-muted)]">Kein Alias passt zu „{search}“.</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("alias.no_match", { q: search })}</p>
           ) : (
             <div className="flex flex-col">
               {shown.map((e) => (
@@ -346,12 +339,12 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                   )}
                   {confirmDel === e.name ? (
                     <span className="flex shrink-0 items-center gap-1">
-                      <span className="text-[10px] text-rose-400">Löschen?</span>
+                      <span className="text-[10px] text-rose-400">{t("alias.delete")}</span>
                       <button
                         type="button"
                         onClick={() => remove(e.name)}
                         className="rounded p-1 text-rose-400 hover:bg-rose-500/15"
-                        title="Ja, löschen"
+                        title={t("alias.yes_delete")}
                       >
                         <Check size={12} />
                       </button>
@@ -359,7 +352,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                         type="button"
                         onClick={() => setConfirmDel(null)}
                         className="rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                        title="Abbrechen"
+                        title={t("common.cancel")}
                       >
                         <X size={12} />
                       </button>
@@ -370,7 +363,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                         type="button"
                         onClick={() => edit(e)}
                         className="rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                        title="Bearbeiten (füllt die Felder oben)"
+                        title={t("alias.edit_fills_the_fields_above")}
                       >
                         <Pencil size={12} />
                       </button>
@@ -378,7 +371,7 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                         type="button"
                         onClick={() => setConfirmDel(e.name)}
                         className="rounded p-1 text-[var(--color-muted)] hover:text-rose-400"
-                        title="Löschen"
+                        title={t("common.delete")}
                       >
                         <Trash2 size={12} />
                       </button>
@@ -392,12 +385,12 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
       )}
       {!manageable && (
         <p className="border-t border-[var(--color-border)] pt-3 text-[11px] text-[var(--color-muted)]">
-          Die Verwaltung bestehender Aliasse gibt es auf macOS/Linux (liest die Shell-Config).
+          {t("alias.managing_existing_aliases_is_available")}
         </p>
       )}
 
       <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-        Aliasse gelten im nächsten Terminal (oder nach <code>source</code>). Esc schließt.
+        <InlineMd text={t("alias.footer")} />
       </p>
     </div>
   );

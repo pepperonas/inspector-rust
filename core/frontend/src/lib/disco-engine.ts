@@ -27,6 +27,7 @@ import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
 import { warmContext } from "./warm-audio";
 import { startFedMic } from "./mic-feed";
 import { setDiscoRunning } from "./disco-state";
+import { t } from "./i18n";
 
 export type { DiscoMode };
 
@@ -152,7 +153,7 @@ class DiscoEngine {
     // Snapshot the lamps so we can restore them on stop.
     const lamps = await hueListLights().catch(() => []);
     if (lamps.length === 0) {
-      this.set({ error: "No Hue lamps — connect a bridge with `hue` first." });
+      this.set({ error: t("hue.disco_no_lamps") });
       return;
     }
     this.lampIds = lamps.map((l) => l.id);
@@ -243,7 +244,7 @@ class DiscoEngine {
       this.set({ running: true, error: null });
     } catch {
       this.teardownAudio();
-      this.set({ error: "Microphone unavailable — grant mic access in System Settings." });
+      this.set({ error: t("hue.disco_no_mic") });
     }
   }
 

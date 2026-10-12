@@ -14,6 +14,7 @@ import {
   type HueLight,
   type HueStatus,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * In-popup Philips Hue control, rendered in the **right preview column** (same
@@ -40,15 +41,15 @@ const STEP = 10;
 
 /** 8 colour presets shown as round swatches (the Rust side converts the hex to
  *  the bulb's xy colour space). First is a warm white for the "back to normal". */
-const PRESETS: { name: string; hex: string }[] = [
-  { name: "Warm white", hex: "#FFCB8E" },
-  { name: "Red", hex: "#FF2D2D" },
-  { name: "Orange", hex: "#FF8A00" },
-  { name: "Yellow", hex: "#FFE000" },
-  { name: "Green", hex: "#3DDC5F" },
-  { name: "Cyan", hex: "#1FD0E0" },
-  { name: "Blue", hex: "#2E6BFF" },
-  { name: "Magenta", hex: "#FF2D9B" },
+const PRESETS: { readonly name: string; hex: string }[] = [
+  { get name() { return t("hue.color.warm_white"); }, hex: "#FFCB8E" },
+  { get name() { return t("hue.color.red"); }, hex: "#FF2D2D" },
+  { get name() { return t("hue.color.orange"); }, hex: "#FF8A00" },
+  { get name() { return t("hue.color.yellow"); }, hex: "#FFE000" },
+  { get name() { return t("hue.color.green"); }, hex: "#3DDC5F" },
+  { get name() { return t("hue.color.cyan"); }, hex: "#1FD0E0" },
+  { get name() { return t("hue.color.blue"); }, hex: "#2E6BFF" },
+  { get name() { return t("hue.color.magenta"); }, hex: "#FF2D9B" },
 ];
 
 interface Row {
@@ -69,6 +70,7 @@ export function HuePanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [status, setStatus] = useState<HueStatus | null>(null);
   const [lights, setLights] = useState<HueLight[] | null>(null);
   const [sel, setSel] = useState(0);
@@ -131,7 +133,7 @@ export function HuePanel({
         : 100;
     const all: Row = {
       key: "all",
-      name: "All lamps",
+      name: t("hue.all_lamps"),
       on: onMap["all"] ?? anyOn,
       brightness: briMap["all"] ?? avgBri,
       dimmable: dimmables.length > 0,
@@ -275,12 +277,12 @@ export function HuePanel({
       if (found) {
         setIp(found);
         await hueSetBridgeIp(found);
-        setConnectMsg("Bridge found. Press its round link button, then Connect.");
+        setConnectMsg(t("hue.bridge_found_press_its_round"));
       } else {
-        setConnectMsg("No bridge found on the network. Enter its IP manually.");
+        setConnectMsg(t("hue.no_bridge_found_on_the"));
       }
     } catch {
-      setConnectMsg("Discovery failed. Enter the bridge IP manually.");
+      setConnectMsg(t("hue.discovery_failed_enter_the_bridge"));
     } finally {
       setBusy(null);
     }
@@ -289,7 +291,7 @@ export function HuePanel({
   const connect = async () => {
     const target = ip.trim();
     if (!target) {
-      setConnectMsg("Enter the bridge IP first (or use Discover).");
+      setConnectMsg(t("hue.enter_the_bridge_ip_first"));
       return;
     }
     setBusy("pair");
@@ -301,8 +303,8 @@ export function HuePanel({
       const msg = String(e);
       setConnectMsg(
         msg.includes(HUE_LINK_BUTTON)
-          ? "Press the round link button on top of the bridge, then click Connect (within 30 s)."
-          : `Connect failed: ${msg}`,
+          ? t("hue.press_the_round_link_button")
+          : t("hue.connect_failed", { msg }),
       );
     } finally {
       setBusy(null);
@@ -321,7 +323,7 @@ export function HuePanel({
       <div className="flex h-full flex-col gap-3 p-4 text-[var(--color-fg)]">
         {header}
         <p className="flex items-center gap-2 text-[12px] text-[var(--color-muted)]">
-          <Loader2 size={13} className="animate-spin" /> Checking bridge…
+          <Loader2 size={13} className="animate-spin" /> {t("hue.checking_bridge")}
         </p>
       </div>
     );
@@ -335,8 +337,8 @@ export function HuePanel({
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[12px]">
           <p className="mb-3 text-[var(--color-muted)]">
             {status.paired
-              ? `Saved bridge ${status.bridge_ip ?? ""} didn't answer. Re-discover or re-connect.`
-              : "Connect your Hue Bridge once. Discover it on the network (or type its IP), press the bridge's round link button, then Connect."}
+              ? t("hue.saved_no_answer", { ip: status.bridge_ip ?? "" })
+              : t("hue.connect_your_hue_bridge_once")}
           </p>
 
           <div className="mb-2 flex gap-2">
@@ -351,7 +353,7 @@ export function HuePanel({
               ) : (
                 <Wifi size={13} />
               )}
-              Discover
+              {t("hue.discover")}
             </button>
             <input
               value={ip}
@@ -368,7 +370,7 @@ export function HuePanel({
             className="md3-press flex w-full items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 font-medium text-[var(--color-accent-fg)] disabled:opacity-50"
           >
             {busy === "pair" ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
-            Connect (press the bridge button first)
+            {t("hue.connect_press_the_bridge_button")}
           </button>
 
           {connectMsg && (
@@ -380,12 +382,12 @@ export function HuePanel({
               onClick={() => void hueForget().then(refreshStatus)}
               className="mt-3 text-[11px] text-[var(--color-muted)] underline hover:text-[var(--color-fg)]"
             >
-              Forget saved bridge
+              {t("hue.forget_saved_bridge")}
             </button>
           )}
         </div>
         <p className="text-[10px] text-[var(--color-muted)]">
-          Local only — talks to the bridge over your LAN, no Philips cloud.
+          {t("hue.local_only_talks_to_the")}
         </p>
       </div>
     );
@@ -398,7 +400,7 @@ export function HuePanel({
         {header}
         <button
           type="button"
-          title="Refresh"
+          title={t("hue.refresh")}
           onClick={() => {
             setBusy("refresh");
             void loadLights().finally(() => setBusy(null));
@@ -410,7 +412,7 @@ export function HuePanel({
       </div>
 
       {lights && lights.length === 0 ? (
-        <p className="text-[12px] text-[var(--color-muted)]">No lamps found on this bridge.</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("hue.no_lamps_found_on_this")}</p>
       ) : (
         <div className="flex flex-col gap-2.5">
           {rows.map((row, i) => {
@@ -441,7 +443,7 @@ export function HuePanel({
                     {master && <Lightbulb size={12} className="text-[var(--color-accent)]" />}
                     <span className="truncate">{row.name}</span>
                     {!row.reachable && !master && (
-                      <span className="text-[10px] text-[var(--color-muted)]">(off network)</span>
+                      <span className="text-[10px] text-[var(--color-muted)]">{t("hue.off_network")}</span>
                     )}
                   </span>
                   <button
@@ -457,7 +459,7 @@ export function HuePanel({
                         : "border border-[var(--color-border)] text-[var(--color-muted)]")
                     }
                   >
-                    <Power size={11} /> {row.on ? "On" : "Off"}
+                    <Power size={11} /> {row.on ? "On" : t("common.off")}
                   </button>
                 </div>
 
@@ -469,7 +471,7 @@ export function HuePanel({
                         outside the bar. */}
                     <div
                       role="slider"
-                      aria-label={`${row.name} brightness`}
+                      aria-label={t("hue.brightness_of", { name: row.name })}
                       aria-valuenow={row.brightness}
                       aria-valuemin={0}
                       aria-valuemax={100}
@@ -521,9 +523,9 @@ export function HuePanel({
 
           <p className="mt-1 text-[11px] text-[var(--color-muted)]">
             {focused ? (
-              <>Tab next lamp · ←→ ±10% · Enter on/off · 1–8 colour · Esc close</>
+              <>{t("hue.tab_next_lamp_10_enter")}</>
             ) : (
-              <>Press Enter on the hue row to control the lamps with the keyboard.</>
+              <>{t("hue.press_enter_on_the_hue")}</>
             )}
           </p>
 

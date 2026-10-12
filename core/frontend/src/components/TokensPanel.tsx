@@ -30,6 +30,8 @@ import {
   formatTokens,
   shortProject,
 } from "../lib/token-usage";
+import { t, tn, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 type Tab = "overview" | "projects" | "models";
 type ListMode = "projects" | "sessions";
@@ -41,6 +43,7 @@ export function TokensPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [period, setPeriod] = useState<TokenPeriod>("today");
   const [tab, setTab] = useState<Tab>("overview");
   const [listMode, setListMode] = useState<ListMode>("projects");
@@ -141,14 +144,14 @@ export function TokensPanel({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 font-medium text-[color:var(--color-fg)]">
           <Coins size={14} className="text-rose-500" />
-          Claude tokens
+          {t("tokens.claude_tokens")}
         </div>
         <button
           type="button"
           onClick={() => void load(period, listMode === "sessions")}
           className="md3-press rounded-md p-1 text-[color:var(--color-muted)] hover:bg-[color:var(--color-surface)]"
-          title="Refresh (R)"
-          aria-label="Refresh"
+          title={t("tokens.refresh_r")}
+          aria-label={t("tokens.refresh")}
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
         </button>
@@ -176,9 +179,9 @@ export function TokensPanel({
       <div className="flex gap-1 border-b border-[color:var(--color-border)] pb-1">
         {(
           [
-            { id: "overview", label: "Overview", icon: Activity },
-            { id: "projects", label: "Projects", icon: FolderKanban },
-            { id: "models", label: "Models", icon: Layers },
+            { id: "overview", label: t("tokens.tab.overview"), icon: Activity },
+            { id: "projects", label: t("tokens.tab.projects"), icon: FolderKanban },
+            { id: "models", label: t("tokens.tab.models"), icon: Layers },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
           <button
@@ -234,18 +237,15 @@ export function TokensPanel({
 }
 
 function UnreachableCard() {
+  useT();
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-4">
       <div className="flex items-center gap-2 font-medium text-[color:var(--color-fg)]">
         <AlertCircle size={16} className="text-amber-500" />
-        Token Tracker not running
+        {t("tokens.token_tracker_not_running")}
       </div>
       <p className="text-[12px] leading-relaxed text-[color:var(--color-muted)]">
-        Start the local Claude Token Tracker dashboard (port{" "}
-        <code className="text-[11px]">5010</code>) — e.g. the LaunchAgent{" "}
-        <code className="text-[11px]">io.celox.token-tracker</code> or{" "}
-        <code className="text-[11px]">node server.js</code> in the
-        token-tracker repo — then press R to refresh.
+        <InlineMd text={t("tokens.unreachable_hint")} />
       </p>
     </div>
   );
@@ -258,16 +258,17 @@ function ErrorCard({
   message: string;
   onRetry: () => void;
 }) {
+  useT();
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-4">
-      <div className="font-medium text-[color:var(--color-fg)]">Couldn’t load usage</div>
+      <div className="font-medium text-[color:var(--color-fg)]">{t("tokens.couldn_t_load_usage")}</div>
       <p className="text-[12px] text-[color:var(--color-muted)]">{message}</p>
       <button
         type="button"
         onClick={onRetry}
         className="md3-press self-start rounded-md bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white"
       >
-        Retry
+        {t("tokens.retry")}
       </button>
     </div>
   );
@@ -288,6 +289,7 @@ function OverviewTab({
   onToggleCache: () => void;
   onShowPeriod: (p: TokenPeriod) => void;
 }) {
+  useT();
   const tokens = displayTokens(o, includeCache);
   const cost = displayCost(o, includeCache);
   const emptyToday =
@@ -296,10 +298,9 @@ function OverviewTab({
     <div className="flex flex-col gap-3">
       {emptyToday && priorDay && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-[color:var(--color-fg)]">
-          <div className="font-medium">No Claude Code tokens yet today</div>
+          <div className="font-medium">{t("tokens.no_claude_code_tokens_yet")}</div>
           <p className="mt-0.5 text-[color:var(--color-muted)]">
-            Cursor / Composer chats aren’t in the Token Tracker — only Claude
-            Code JSONL is. Yesterday ({priorDay.date}):{" "}
+            {t("tokens.yesterday_hint", { date: priorDay.date })}{" "}
             <span className="font-medium text-[color:var(--color-fg)]">
               {formatTokens(priorDay.total_tokens)}
             </span>{" "}
@@ -310,19 +311,19 @@ function OverviewTab({
             onClick={() => onShowPeriod("7d")}
             className="md3-press mt-1.5 rounded-md bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white"
           >
-            Show last 7 days
+            {t("tokens.show_last_7_days")}
           </button>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <Kpi label="Tokens" value={formatTokens(tokens)} />
-        <Kpi label="Cost" value={formatCost(cost)} accent />
-        <Kpi label="Sessions" value={String(o.sessions)} />
-        <Kpi label="Messages" value={formatTokens(o.messages)} />
-        <Kpi label="Active time" value={formatActiveMin(o.total_active_min)} />
+        <Kpi label={t("tokens.tokens")} value={formatTokens(tokens)} />
+        <Kpi label={t("tokens.cost")} value={formatCost(cost)} accent />
+        <Kpi label={t("tokens.sessions")} value={String(o.sessions)} />
+        <Kpi label={t("tokens.messages")} value={formatTokens(o.messages)} />
+        <Kpi label={t("tokens.active_time")} value={formatActiveMin(o.total_active_min)} />
         <Kpi
-          label="Avg / day"
+          label={t("tokens.avg_day")}
           value={formatActiveMin(o.avg_active_min_per_day)}
         />
       </div>
@@ -335,23 +336,23 @@ function OverviewTab({
             ? "bg-rose-600/15 text-rose-600"
             : "bg-[color:var(--color-surface)] text-[color:var(--color-muted)]"
         }`}
-        title="Include cache-read / cache-create tokens in totals"
+        title={t("tokens.include_cache_read_cache_create")}
       >
-        {includeCache ? "Cache included" : "Cache excluded"}
+        {includeCache ? t("tokens.cache_included") : t("tokens.cache_excluded")}
       </button>
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-[color:var(--color-muted)]">
-        <BreakdownRow label="Input" tokens={o.input_tokens} cost={o.input_cost} />
-        <BreakdownRow label="Output" tokens={o.output_tokens} cost={o.output_cost} />
+        <BreakdownRow label={t("tokens.input")} tokens={o.input_tokens} cost={o.input_cost} />
+        <BreakdownRow label={t("tokens.output")} tokens={o.output_tokens} cost={o.output_cost} />
         {includeCache && (
           <>
             <BreakdownRow
-              label="Cache read"
+              label={t("tokens.cache_read")}
               tokens={o.cache_read_tokens}
               cost={o.cache_read_cost}
             />
             <BreakdownRow
-              label="Cache create"
+              label={t("tokens.cache_create")}
               tokens={o.cache_create_tokens}
               cost={o.cache_create_cost}
             />
@@ -360,9 +361,9 @@ function OverviewTab({
       </div>
 
       <div className="text-[11px] text-[color:var(--color-muted)]">
-        Lines +{formatTokens(o.lines_added)} / −{formatTokens(o.lines_removed)}
+        {t("tokens.lines", { added: formatTokens(o.lines_added), removed: formatTokens(o.lines_removed) })}
         {o.rate_limit_hits > 0
-          ? ` · ${o.rate_limit_hits} rate-limit hit${o.rate_limit_hits === 1 ? "" : "s"}`
+          ? ` · ${tn("tokens.rate_limit_hits", o.rate_limit_hits)}`
           : ""}
         {o.period_from && o.period_to
           ? ` · ${o.period_from} → ${o.period_to}`
@@ -432,6 +433,7 @@ function ProjectsTab({
   includeCache: boolean;
   loadingSessions?: boolean;
 }) {
+  useT();
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-1">
@@ -440,13 +442,13 @@ function ProjectsTab({
             key={m}
             type="button"
             onClick={() => onListMode(m)}
-            className={`md3-press rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${
+            className={`md3-press rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
               listMode === m
                 ? "bg-rose-600 text-white"
                 : "bg-[color:var(--color-surface)] text-[color:var(--color-muted)]"
             }`}
           >
-            {m}
+            {m === "projects" ? t("tokens.tab.projects") : t("tokens.sessions")}
           </button>
         ))}
       </div>
@@ -469,7 +471,7 @@ function ProjectsTab({
                     {shortProject(p.name)}
                   </div>
                   <div className="text-[10px] text-[color:var(--color-muted)]">
-                    {p.sessions} sess · {formatTokens(p.messages)} msg
+                    {t("tokens.sess_msg", { s: p.sessions, m: formatTokens(p.messages) })}
                   </div>
                 </div>
                 <div className="shrink-0 text-right tabular-nums">
@@ -533,6 +535,7 @@ function ModelsTab({
   snap: TokenUsageSnapshot;
   includeCache: boolean;
 }) {
+  useT();
   const total = snap.models.reduce(
     (a, m) => a + (includeCache ? m.total_tokens : m.input_tokens + m.output_tokens),
     0,
@@ -582,9 +585,10 @@ function ModelsTab({
 }
 
 function Empty() {
+  useT();
   return (
     <div className="py-8 text-center text-[12px] text-[color:var(--color-muted)] md3-empty-float">
-      No data for this period
+      {t("tokens.no_data_for_this_period")}
     </div>
   );
 }

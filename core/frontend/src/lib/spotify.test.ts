@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SpotifyPlayRow } from "./ipc";
 import {
   commandLabel,
@@ -13,6 +13,13 @@ import {
   toQuery,
   playedFraction,
 } from "./spotify";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function row(id: number, started: Date): SpotifyPlayRow {
   return {

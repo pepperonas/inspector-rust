@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_TIMEOUT_S,
   MAX_INTERVAL_MIN,
@@ -23,6 +23,13 @@ import {
   type AiTask,
   type AiTaskRun,
 } from "./tasks";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 // Same disk-read pattern as motion-stage.test.ts.
 const readRust = async (rel: string) => {

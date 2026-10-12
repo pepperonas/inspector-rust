@@ -48,6 +48,7 @@ import {
   textSendable,
 } from "../lib/adb";
 import { confirmDialog } from "../lib/confirm";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `adb` — Android device control in the preview column (v0.119.0). The
@@ -69,6 +70,7 @@ export function AdbPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [status, setStatus] = useState<AdbStatus | null>(null);
   const [serial, setSerial] = useState<string | null>(null);
   const [view, setView] = useState<AdbView>(initialView);
@@ -158,7 +160,7 @@ export function AdbPanel({
         <button
           type="button"
           onClick={refreshStatus}
-          title="Geräte neu suchen"
+          title={t("adb.search_for_devices_again")}
           className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
         >
           <RefreshCw size={13} />
@@ -166,11 +168,11 @@ export function AdbPanel({
       </div>
 
       {status === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Suche Geräte…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("adb.searching_for_devices")}</p>
       ) : !status.found ? (
         <SetupCard
-          title="adb ist nicht installiert."
-          body="brew install android-platform-tools — danach hier neu suchen. Details: Settings → Android (adb)."
+          title={t("adb.adb_is_not_installed")}
+          body={t("adb.brew_install_android_platform_tools")}
         />
       ) : (
         <>
@@ -181,14 +183,14 @@ export function AdbPanel({
           />
           {device?.state === "unauthorized" && (
             <SetupCard
-              title="Gerät nicht autorisiert."
-              body="Auf dem Handy den Dialog „USB-Debugging zulassen?“ bestätigen (Haken bei „immer erlauben“), dann neu suchen."
+              title={t("adb.device_not_authorized")}
+              body={t("adb.on_the_phone_confirm_allow")}
             />
           )}
           {status.devices.length === 0 && (
             <SetupCard
-              title="Kein Gerät verbunden."
-              body="Handy per USB anschließen (Entwickleroptionen → USB-Debugging an) — oder unter WLAN per IP verbinden."
+              title={t("adb.no_device_connected")}
+              body={t("adb.connect_the_phone_by_usb")}
             />
           )}
           <ViewChips view={view} onPick={setView} />
@@ -211,7 +213,7 @@ export function AdbPanel({
         </>
       )}
       {focused && (
-        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("adb.esc_closes")}</p>
       )}
     </div>
   );
@@ -249,7 +251,7 @@ function DevicePicker({
       value={serial ?? ""}
       onChange={(e) => onPick(e.target.value)}
       className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[11px] outline-none"
-      aria-label="Gerät wählen"
+      aria-label={t("adb.choose_device")}
     >
       {status.devices.map((d) => (
         <option key={d.serial} value={d.serial}>
@@ -261,11 +263,11 @@ function DevicePicker({
 }
 
 const VIEWS: Array<{ id: AdbView; label: string }> = [
-  { id: "info", label: "Info" },
-  { id: "control", label: "Steuern" },
-  { id: "remote", label: "Remote" },
-  { id: "apps", label: "Apps" },
-  { id: "wifi", label: "WLAN" },
+  { id: "info", get label() { return t("adb.view.info"); } },
+  { id: "control", get label() { return t("adb.view.control"); } },
+  { id: "remote", get label() { return t("adb.view.remote"); } },
+  { id: "apps", get label() { return t("adb.view.apps"); } },
+  { id: "wifi", get label() { return t("adb.view.wifi"); } },
 ];
 
 function ViewChips({ view, onPick }: { view: AdbView; onPick: (v: AdbView) => void }) {
@@ -318,7 +320,7 @@ function InfoView({
   onStatus: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  if (!dash) return <p className="text-[12px] text-[var(--color-muted)]">Lese Gerät…</p>;
+  if (!dash) return <p className="text-[12px] text-[var(--color-muted)]">{t("adb.reading_device")}</p>;
   const memPct = dash.mem_total_kb > 0 ? (dash.mem_used_kb / dash.mem_total_kb) * 100 : 0;
   const stPct =
     dash.storage_total_kb > 0 ? (dash.storage_used_kb / dash.storage_total_kb) * 100 : 0;
@@ -343,7 +345,7 @@ function InfoView({
             {dash.build_id}
           </span>
           <span>{dash.resolution || "—"} · {dash.dpi || "—"} dpi</span>
-          <span className="text-right">Uptime {uptimeHuman(dash.uptime_secs)}</span>
+          <span className="text-right">{t("adb.uptime")} {uptimeHuman(dash.uptime_secs)}</span>
         </div>
       </div>
 
@@ -351,7 +353,7 @@ function InfoView({
         <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
           <div className="mb-1 flex items-center justify-between text-[11px]">
             <span>
-              Akku <span className="font-medium">{dash.battery_level}%</span>{" "}
+              {t("adb.battery")} <span className="font-medium">{dash.battery_level}%</span>{" "}
               <span className="text-[var(--color-muted)]">· {dash.battery_status}</span>
             </span>
             <span className="text-[var(--color-muted)] tabular-nums">
@@ -372,14 +374,14 @@ function InfoView({
         </div>
         <MiniBar pct={memPct} />
         <div className="mb-1 mt-2 flex items-center justify-between text-[11px]">
-          <span>Speicher</span>
+          <span>{t("adb.storage")}</span>
           <span className="text-[var(--color-muted)] tabular-nums">
             {kbHuman(dash.storage_used_kb)} / {kbHuman(dash.storage_total_kb)}
           </span>
         </div>
         <MiniBar pct={stPct} />
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
-          {dash.wifi_ssid ? `WLAN ${dash.wifi_ssid}` : "WLAN —"}
+          {dash.wifi_ssid ? t("adb.wifi_ssid", { ssid: dash.wifi_ssid }) : "WLAN —"}
           {dash.ip ? ` · ${dash.ip}` : ""}
           {dash.rssi_dbm != null ? ` · ${dash.rssi_dbm} dBm` : ""}
         </div>
@@ -392,7 +394,7 @@ function InfoView({
           onClick={() => {
             setBusy(true);
             adbScreenshot(serial)
-              .then(() => onFlash("Screenshot im Mac-Clipboard + Verlauf ✓"))
+              .then(() => onFlash(t("adb.screenshot_in_the_mac_clipboard")))
               .catch((e) => onFlash(String(e)))
               .finally(() => setBusy(false));
           }}
@@ -406,14 +408,14 @@ function InfoView({
             onClick={() => {
               adbRecordStop()
                 .then((p) => {
-                  onFlash(`Aufnahme gespeichert: ${p.split("/").pop()}`);
+                  onFlash(t("adb.rec_saved", { file: p.split("/").pop() ?? p }));
                   onStatus();
                 })
                 .catch((e) => onFlash(String(e)));
             }}
             className="flex items-center gap-1.5 rounded-md border border-red-500 px-2.5 py-1 text-[11px] text-red-500"
           >
-            <Square size={12} /> Aufnahme stoppen
+            <Square size={12} /> {t("adb.stop_recording")}
           </button>
         ) : (
           <button
@@ -421,14 +423,14 @@ function InfoView({
             onClick={() => {
               adbRecordStart(serial)
                 .then(() => {
-                  onFlash("Aufnahme läuft (Geräte-Display)…");
+                  onFlash(t("adb.recording_device_display"));
                   onStatus();
                 })
                 .catch((e) => onFlash(String(e)));
             }}
             className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:text-[var(--color-accent)]"
           >
-            <Video size={12} /> Aufnehmen
+            <Video size={12} /> {t("adb.record")}
           </button>
         )}
       </div>
@@ -462,12 +464,12 @@ function ControlView({
   return (
     <>
       <div className="rounded-xl border border-[var(--color-border)] p-3">
-        <p className="mb-2 text-[11px] font-medium">Funk & Modi</p>
+        <p className="mb-2 text-[11px] font-medium">{t("adb.radios_modes")}</p>
         <div className="grid grid-cols-2 gap-1.5">
           <TogglePair icon={<Wifi size={12} />} label="WLAN" onOn={() => set("wifi", 1, "WLAN an")} onOff={() => set("wifi", 0, "WLAN aus")} />
-          <TogglePair icon={<Bluetooth size={12} />} label="Bluetooth" onOn={() => set("bluetooth", 1, "BT an")} onOff={() => set("bluetooth", 0, "BT aus")} />
-          <TogglePair icon={<Plane size={12} />} label="Flugmodus" onOn={() => set("airplane", 1, "Flugmodus an")} onOff={() => set("airplane", 0, "Flugmodus aus")} />
-          <TogglePair icon={<BellOff size={12} />} label="Nicht stören" onOn={() => set("dnd", 1, "DND an")} onOff={() => set("dnd", 0, "DND aus")} />
+          <TogglePair icon={<Bluetooth size={12} />} label={t("adb.bluetooth")} onOn={() => set("bluetooth", 1, "BT an")} onOff={() => set("bluetooth", 0, "BT aus")} />
+          <TogglePair icon={<Plane size={12} />} label={t("adb.airplane_mode")} onOn={() => set("airplane", 1, "Flugmodus an")} onOff={() => set("airplane", 0, "Flugmodus aus")} />
+          <TogglePair icon={<BellOff size={12} />} label={t("adb.do_not_disturb")} onOn={() => set("dnd", 1, "DND an")} onOff={() => set("dnd", 0, "DND aus")} />
         </div>
       </div>
       <div className="rounded-xl border border-[var(--color-border)] p-3">
@@ -484,7 +486,7 @@ function ControlView({
               debounced(() => set("brightness", v, `Helligkeit ${v}`));
             }}
             className="w-full accent-[var(--color-accent)]"
-            aria-label="Helligkeit"
+            aria-label={t("adb.brightness")}
           />
           <span className="w-8 text-right tabular-nums">{brightness}</span>
         </div>
@@ -501,15 +503,15 @@ function ControlView({
               debounced(() => set("volume_media", v, `Medien-Lautstärke ${v}`));
             }}
             className="w-full accent-[var(--color-accent)]"
-            aria-label="Medien-Lautstärke"
+            aria-label={t("adb.media_volume")}
           />
           <span className="w-8 text-right tabular-nums">{volMedia}</span>
         </div>
       </div>
       <div className="flex items-center gap-1.5">
-        <ActionBtn icon={<Sun size={12} />} label="Wecken" onClick={() => set("screen_wake", 0, "Display an")} />
-        <ActionBtn icon={<Moon size={12} />} label="Display aus" onClick={() => set("screen_sleep", 0, "Display aus")} />
-        <ActionBtn icon={<Lock size={12} />} label="Sperren" onClick={() => set("screen_lock", 0, "Gesperrt")} />
+        <ActionBtn icon={<Sun size={12} />} label={t("adb.wake")} onClick={() => set("screen_wake", 0, "Display an")} />
+        <ActionBtn icon={<Moon size={12} />} label={t("adb.screen_off")} onClick={() => set("screen_sleep", 0, "Display aus")} />
+        <ActionBtn icon={<Lock size={12} />} label={t("adb.lock")} onClick={() => set("screen_lock", 0, "Gesperrt")} />
       </div>
     </>
   );
@@ -532,8 +534,8 @@ function TogglePair({
         {icon} {label}
       </span>
       <span className="flex gap-1">
-        <button type="button" onClick={onOn} className="rounded px-1.5 py-0.5 hover:bg-[var(--color-border)]">an</button>
-        <button type="button" onClick={onOff} className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-border)]">aus</button>
+        <button type="button" onClick={onOn} className="rounded px-1.5 py-0.5 hover:bg-[var(--color-border)]">{t("adb.on")}</button>
+        <button type="button" onClick={onOff} className="rounded px-1.5 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-border)]">{t("adb.off")}</button>
       </span>
     </div>
   );
@@ -604,13 +606,13 @@ function RemoteView({ serial, onFlash }: { serial: string; onFlash: (m: string) 
       </div>
 
       <div className="rounded-xl border border-[var(--color-border)] p-3">
-        <p className="mb-1.5 text-[11px] font-medium">Text senden</p>
+        <p className="mb-1.5 text-[11px] font-medium">{t("adb.send_text")}</p>
         <div className="flex gap-1.5">
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}
-            placeholder="Text (nur ASCII)"
+            placeholder={t("adb.text_ascii_only")}
             className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px]"
           />
           <button
@@ -619,14 +621,14 @@ function RemoteView({ serial, onFlash }: { serial: string; onFlash: (m: string) 
             onClick={() => {
               adbText(serial, text)
                 .then(() => {
-                  onFlash("Text gesendet ✓");
+                  onFlash(t("adb.text_sent"));
                   setText("");
                 })
                 .catch((e) => onFlash(String(e)));
             }}
             className="rounded-md bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            Senden
+            {t("adb.send")}
           </button>
         </div>
         {text.length > 0 && !textSendable(text) && (
@@ -740,7 +742,7 @@ function AppsView({ serial, onFlash }: { serial: string; onFlash: (m: string) =>
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.stopPropagation()}
-          placeholder="Paket suchen…"
+          placeholder={t("adb.search_packages")}
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px]"
         />
         <label className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--color-muted)]">
@@ -750,11 +752,11 @@ function AppsView({ serial, onFlash }: { serial: string; onFlash: (m: string) =>
             onChange={(e) => setSystem(e.target.checked)}
             className="accent-[var(--color-accent)]"
           />
-          System
+          {t("adb.system")}
         </label>
       </div>
       {pkgs === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Lade Pakete…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("adb.loading_packages")}</p>
       ) : (
         <div className="max-h-56 overflow-y-auto rounded-xl border border-[var(--color-border)] [contain:content]">
           {shown.map((p) => (
@@ -773,30 +775,30 @@ function AppsView({ serial, onFlash }: { serial: string; onFlash: (m: string) =>
             </button>
           ))}
           {shown.length === 0 && (
-            <p className="p-2 text-[11px] text-[var(--color-muted)]">Keine Treffer.</p>
+            <p className="p-2 text-[11px] text-[var(--color-muted)]">{t("adb.no_matches")}</p>
           )}
         </div>
       )}
       {sel && (
         <div className="flex flex-wrap items-center gap-1.5">
-          <ActionBtn icon={<Play size={11} />} label="Start" onClick={() => void act("launch")} />
-          <ActionBtn icon={<XCircle size={11} />} label="Stoppen" onClick={() => void act("stop")} />
+          <ActionBtn icon={<Play size={11} />} label={t("adb.launch")} onClick={() => void act("launch")} />
+          <ActionBtn icon={<XCircle size={11} />} label={t("adb.stop")} onClick={() => void act("stop")} />
           <ActionBtn
-            label="Daten löschen"
+            label={t("adb.clear_data")}
             danger
-            onClick={() => void act("clear", `Alle Daten von ${sel} löschen? (App wird zurückgesetzt)`)}
+            onClick={() => void act("clear", t("adb.clear_confirm", { pkg: sel }))}
           />
           <ActionBtn
             icon={<Trash2 size={11} />}
-            label="Deinstallieren"
+            label={t("adb.uninstall")}
             danger
-            onClick={() => void act("uninstall", `${sel} wirklich deinstallieren?`)}
+            onClick={() => void act("uninstall", t("adb.uninstall_confirm", { pkg: sel }))}
           />
         </div>
       )}
       {pkgs !== null && filterPackages(pkgs, query).length > 120 && (
         <p className="text-[10px] text-[var(--color-muted)]">
-          {filterPackages(pkgs, query).length} Treffer — Suche verfeinern (120 angezeigt).
+          {t("adb.too_many", { n: filterPackages(pkgs, query).length })}
         </p>
       )}
     </>
@@ -823,8 +825,7 @@ function WifiView({
         <div key={d.serial} className="rounded-xl border border-[var(--color-border)] p-3">
           <p className="text-[11px] font-medium">{deviceLabel(d)} (USB)</p>
           <p className="mt-0.5 text-[10px] leading-snug text-[var(--color-muted)]">
-            Schaltet adbd auf TCP/IP (Port 5555), holt die WLAN-IP und verbindet — danach kann das
-            Kabel ab.
+            {t("adb.wifi_explain")}
           </p>
           <button
             type="button"
@@ -832,7 +833,7 @@ function WifiView({
               adbWifiTcpip(d.serial, 5555)
                 .then(async (deviceIp) => {
                   if (!deviceIp) {
-                    onFlash("TCP/IP an — IP nicht erkennbar, unten manuell verbinden.");
+                    onFlash(t("adb.tcp_ip_on_ip_not"));
                     return;
                   }
                   // adbd restarts; give it a beat before connecting.
@@ -846,12 +847,12 @@ function WifiView({
             }}
             className="mt-1.5 rounded-md bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-fg)]"
           >
-            WLAN-ADB aktivieren
+            {t("adb.enable_wi_fi_adb")}
           </button>
         </div>
       ))}
       <div className="rounded-xl border border-[var(--color-border)] p-3">
-        <p className="mb-1.5 text-[11px] font-medium">Per IP verbinden</p>
+        <p className="mb-1.5 text-[11px] font-medium">{t("adb.connect_by_ip")}</p>
         <div className="flex gap-1.5">
           <input
             value={ip}
@@ -873,7 +874,7 @@ function WifiView({
             }}
             className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:text-[var(--color-accent)] disabled:opacity-40"
           >
-            Verbinden
+            {t("adb.connect")}
           </button>
         </div>
       </div>
@@ -890,21 +891,21 @@ function WifiView({
             onClick={() => {
               adbWifiDisconnect(d.serial)
                 .then(() => {
-                  onFlash("Getrennt.");
+                  onFlash(t("adb.disconnected"));
                   onChanged();
                 })
                 .catch((e) => onFlash(String(e)));
             }}
             className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-[var(--color-muted)] hover:text-red-500"
           >
-            Trennen
+            {t("adb.disconnect")}
           </button>
         </div>
       ))}
       {usb.length === 0 && wifi.length === 0 && (
         <SetupCard
-          title="Kein Gerät für WLAN-ADB."
-          body="Einmalig per USB anschließen und „WLAN-ADB aktivieren“ — oder direkt eine bekannte IP:Port verbinden (Gerät muss schon im TCP/IP-Modus sein)."
+          title={t("adb.no_device_for_wi_fi")}
+          body={t("adb.connect_by_usb_once_and")}
         />
       )}
     </>

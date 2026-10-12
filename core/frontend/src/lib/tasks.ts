@@ -1,6 +1,8 @@
 // AI tasks (`task` / `ki`) — types mirroring `ai_tasks/*.rs` plus the pure
 // helpers the panel uses. Nothing here talks to the backend.
 
+import { locale, t, t as tr, type MessageKey } from "./i18n";
+
 export type AiProviderId = "anthropic" | "claude_cli" | "gemini" | "openai";
 export type ScriptLanguage = "zsh" | "bash" | "python" | "applescript" | "powershell";
 
@@ -96,19 +98,23 @@ export const LANGUAGE_LABEL: Record<ScriptLanguage, string> = {
   powershell: "PowerShell",
 };
 
+/** Labels read the catalogue on access (getters), so they follow the language. */
 export const TRIGGER_LABEL: Record<TriggerType, string> = {
-  interval: "Intervall",
-  schedule: "Uhrzeit / Wochentag",
-  folder: "Ordner ändert sich",
-  app_start: "App-Start",
-  wake: "Aufwachen aus dem Ruhezustand",
-  manual: "Nur von Hand",
+  get interval() { return t("tasks.trigger.interval"); },
+  get schedule() { return t("tasks.trigger.schedule"); },
+  get folder() { return t("tasks.trigger.folder"); },
+  get app_start() { return t("tasks.trigger.app_start"); },
+  get wake() { return t("tasks.trigger.wake"); },
+  get manual() { return t("tasks.trigger.manual"); },
 };
 
 /** Order of the trigger picker. */
 export const TRIGGER_TYPES: TriggerType[] = ["interval", "schedule", "folder", "app_start", "wake", "manual"];
 
-export const WEEKDAY_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+/** Monday-first short weekday names in the current language. */
+export function weekdayShort(): string[] {
+  return t("common.weekdays_short").split(",");
+}
 
 /** Mirrors `trigger.rs` / `runner.rs` — pinned by a cross-language test. */
 export const MIN_INTERVAL_MIN = 1;
@@ -134,39 +140,40 @@ const pad = (n: number) => String(n).padStart(2, "0");
 /** "werktags", "Mo, Mi, Fr", "täglich" … */
 export function weekdaysLabel(days: number[]): string {
   const d = [...new Set(days.filter((x) => x >= 1 && x <= 7))].sort((a, b) => a - b);
-  if (d.length === 0 || d.length === 7) return "täglich";
-  if (d.join() === "1,2,3,4,5") return "werktags";
-  if (d.join() === "6,7") return "am Wochenende";
-  return d.map((x) => WEEKDAY_SHORT[x - 1]).join(", ");
+  if (d.length === 0 || d.length === 7) return t("tasks.daily");
+  if (d.join() === "1,2,3,4,5") return t("tasks.weekdays");
+  if (d.join() === "6,7") return t("tasks.weekend");
+  const names = weekdayShort();
+  return d.map((x) => names[x - 1]).join(", ");
 }
 
 export function intervalLabel(minutes: number): string {
   if (minutes % (24 * 60) === 0) {
     const d = minutes / (24 * 60);
-    return d === 1 ? "täglich" : `alle ${d} Tage`;
+    return d === 1 ? t("tasks.daily") : t("tasks.every_days", { n: d });
   }
   if (minutes % 60 === 0) {
     const h = minutes / 60;
-    return h === 1 ? "stündlich" : `alle ${h} Stunden`;
+    return h === 1 ? t("tasks.hourly") : t("tasks.every_hours", { n: h });
   }
-  return minutes === 1 ? "jede Minute" : `alle ${minutes} Minuten`;
+  return minutes === 1 ? t("tasks.every_minute") : t("tasks.every_minutes", { n: minutes });
 }
 
-/** One line, German: what makes this task run. */
+/** One line: what makes this task run. */
 export function triggerSummary(t: Trigger): string {
   switch (t.type) {
     case "interval":
       return intervalLabel(t.minutes);
     case "schedule":
-      return `${weekdaysLabel(t.weekdays)} um ${pad(t.hour)}:${pad(t.minute)}`;
+      return tr("tasks.at_time", { days: weekdaysLabel(t.weekdays), time: `${pad(t.hour)}:${pad(t.minute)}` });
     case "folder":
-      return t.path ? `wenn sich ${shortPath(t.path)} ändert` : "wenn sich ein Ordner ändert";
+      return t.path ? tr("tasks.when_folder", { path: shortPath(t.path) }) : tr("tasks.when_any_folder");
     case "app_start":
-      return "beim Start von Inspector Rust";
+      return tr("tasks.on_start");
     case "wake":
-      return "nach dem Aufwachen";
+      return tr("tasks.after_wake");
     case "manual":
-      return "nur von Hand";
+      return tr("tasks.manual_only");
   }
 }
 
@@ -177,13 +184,13 @@ export function shortPath(p: string): string {
 
 /** Why a draft can't be saved yet, or null. */
 export function draftProblem(d: Pick<AiTaskDraft, "name" | "script" | "trigger">): string | null {
-  if (!d.name.trim()) return "Der Task braucht einen Namen.";
-  if (!d.script.trim()) return "Noch kein Skript — erst beschreiben und erzeugen lassen.";
-  const t = d.trigger;
-  if (t.type === "folder" && !/^(\/|[A-Za-z]:[\\/])/.test(t.path.trim()))
-    return "Für den Ordner einen vollständigen Pfad angeben (z. B. /Users/…/Downloads).";
-  if (t.type === "interval" && !(t.minutes >= MIN_INTERVAL_MIN && t.minutes <= MAX_INTERVAL_MIN))
-    return `Intervall zwischen ${MIN_INTERVAL_MIN} Minute und 7 Tagen.`;
+  if (!d.name.trim()) return t("tasks.problem.name");
+  if (!d.script.trim()) return t("tasks.problem.script");
+  const trig = d.trigger;
+  if (trig.type === "folder" && !/^(\/|[A-Za-z]:[\\/])/.test(trig.path.trim()))
+    return t("tasks.problem.folder");
+  if (trig.type === "interval" && !(trig.minutes >= MIN_INTERVAL_MIN && trig.minutes <= MAX_INTERVAL_MIN))
+    return t("tasks.problem.interval", { min: MIN_INTERVAL_MIN });
   return null;
 }
 
@@ -198,20 +205,20 @@ export function runState(r: AiTaskRun): RunState {
 export function runSummary(r: AiTaskRun): string {
   switch (runState(r)) {
     case "ok":
-      return `erfolgreich · ${formatDuration(r.duration_ms)}`;
+      return t("tasks.run.ok", { dur: formatDuration(r.duration_ms) });
     case "failed":
-      return `Fehler (Exit ${r.exit_code ?? "?"}) · ${formatDuration(r.duration_ms)}`;
+      return t("tasks.run.failed", { code: r.exit_code ?? "?", dur: formatDuration(r.duration_ms) });
     case "timeout":
-      return `abgebrochen nach ${formatDuration(r.duration_ms)} (Zeitlimit)`;
+      return t("tasks.run.timeout", { dur: formatDuration(r.duration_ms) });
     case "error":
-      return `nicht gestartet: ${r.error}`;
+      return t("tasks.run.error", { error: r.error ?? "" });
   }
 }
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
   const s = ms / 1000;
-  if (s < 60) return `${s < 10 ? s.toFixed(1).replace(".", ",") : Math.round(s)} s`;
+  if (s < 60) return `${s < 10 ? s.toLocaleString(locale(), { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : Math.round(s)} s`;
   const m = Math.floor(s / 60);
   return `${m} min ${Math.round(s % 60)} s`;
 }
@@ -227,8 +234,8 @@ export function relativeTime(ms: number, now: number): string {
         ? `${Math.round(abs / 60_000)} min`
         : abs < 86_400_000
           ? `${Math.round(abs / 3_600_000)} h`
-          : `${Math.round(abs / 86_400_000)} Tg.`;
-  return diff >= 0 ? `in ${unit}` : `vor ${unit}`;
+          : t("tasks.days_short", { n: Math.round(abs / 86_400_000) });
+  return diff >= 0 ? t("tasks.in", { unit }) : t("tasks.ago", { unit });
 }
 
 export type DiffLine = { kind: "same" | "add" | "del"; text: string };
@@ -283,20 +290,23 @@ export function diffStats(d: DiffLine[]): { added: number; removed: number } {
  * Lines worth a second look before approving: deleting, privilege, network
  * downloads piped into a shell. A hint, not a verdict — the user decides.
  */
-const RISKY: [RegExp, string][] = [
-  [/\brm\s+(-[a-zA-Z]*[rf]|--recursive|--force)/, "löscht Dateien (rm -r/-f)"],
-  [/\bsudo\b/, "verlangt Administratorrechte (sudo)"],
-  [/(curl|wget)[^|\n]*\|\s*(ba|z)?sh\b/, "lädt Code aus dem Netz und führt ihn aus"],
-  [/\bshutil\.rmtree\b|\bos\.remove\b|\bos\.unlink\b/, "löscht Dateien (Python)"],
-  [/\bRemove-Item\b/, "löscht Dateien (PowerShell)"],
-  [/\bdd\s+if=|\bmkfs\b|\bdiskutil\s+(erase|partition)/, "schreibt direkt auf Datenträger"],
-  [/\bchmod\s+(-R\s+)?777\b/, "macht Dateien für alle beschreibbar"],
-  [/\bkillall\b|\bpkill\b/, "beendet Programme"],
+const RISKY: [RegExp, MessageKey][] = [
+  [/\brm\s+(-[a-zA-Z]*[rf]|--recursive|--force)/, "tasks.risk.rm"],
+  [/\bsudo\b/, "tasks.risk.sudo"],
+  [/(curl|wget)[^|\n]*\|\s*(ba|z)?sh\b/, "tasks.risk.curl_sh"],
+  [/\bshutil\.rmtree\b|\bos\.remove\b|\bos\.unlink\b/, "tasks.risk.py_rm"],
+  [/\bRemove-Item\b/, "tasks.risk.ps_rm"],
+  [/\bdd\s+if=|\bmkfs\b|\bdiskutil\s+(erase|partition)/, "tasks.risk.disk"],
+  [/\bchmod\s+(-R\s+)?777\b/, "tasks.risk.chmod"],
+  [/\bkillall\b|\bpkill\b/, "tasks.risk.kill"],
 ];
 
 export function riskHints(script: string): string[] {
   const out: string[] = [];
-  for (const [re, label] of RISKY) if (re.test(script) && !out.includes(label)) out.push(label);
+  for (const [re, key] of RISKY) {
+    const label = t(key);
+    if (re.test(script) && !out.includes(label)) out.push(label);
+  }
   return out;
 }
 

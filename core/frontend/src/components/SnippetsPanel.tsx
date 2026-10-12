@@ -31,6 +31,8 @@ import {
 } from "../lib/ipc";
 import type { Snippet } from "../lib/types";
 import { SnippetEditor } from "./SnippetEditor";
+import { t, tn, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 interface Props {
   snippets: Snippet[];
@@ -53,6 +55,7 @@ type Filter = null | -1 | number;
 const EMPTY_FORM: FormState = { id: null, abbreviation: "", title: "", body: "", categoryId: null };
 
 export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
+  useT();
   const [form, setForm] = useState<FormState | null>(null);
   const [filter, setFilter] = useState<Filter>(null);
   const [managing, setManaging] = useState(false);
@@ -121,8 +124,8 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
   const onRestoreDefaults = async () => {
     if (
       !(await confirmDialog(
-        "Re-import the bundled default AI-prompt templates (~25 prompts).\n\nExisting snippets with the same abbreviation will be overwritten with the latest version. Your other snippets stay untouched.\n\nContinue?",
-        "Restore defaults?",
+        t("snip.restore_confirm"),
+        t("snip.restore_defaults"),
       ))
     ) {
       return;
@@ -162,7 +165,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
         multiple: false,
         directory: false,
         filters: [{ name: "JSON", extensions: ["json"] }],
-        title: "Select snippets JSON file",
+        title: t("snip.select_snippets_json_file"),
       });
       if (!selected) return;
       await importPath(selected);
@@ -178,7 +181,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
     await setSuppressHide(true).catch(() => {});
     try {
       const target = await saveDialog({
-        title: "Export snippets",
+        title: t("snip.export_snippets"),
         defaultPath: `ir-snippets-${new Date().toISOString().slice(0, 10)}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
@@ -237,9 +240,9 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
         <div className="md3-overlay-in absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-bg)]/85">
           <div className="md3-pop-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-[var(--color-accent)] px-8 py-6">
             <Upload size={22} className="text-[var(--color-accent)]" />
-            <div className="text-[13px] font-semibold text-[var(--color-fg)]">Drop to import snippets</div>
+            <div className="text-[13px] font-semibold text-[var(--color-fg)]">{t("snip.drop_to_import_snippets")}</div>
             <div className="text-[11px] text-[var(--color-muted)]">
-              Snippet JSON or an Inspector Rust backup — groups included
+              {t("snip.snippet_json_or_an_inspector")}
             </div>
           </div>
         </div>
@@ -249,7 +252,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
         <div className="flex h-10 items-center justify-between border-b border-[var(--color-border)] px-2">
           {confirmingRestore ? (
             <div className="flex w-full items-center gap-1 text-[11px]">
-              <span className="text-red-400">Restore defaults?</span>
+              <span className="text-red-400">{t("snip.restore_defaults")}</span>
               <button
                 onClick={() => {
                   setConfirmingRestore(false);
@@ -257,22 +260,22 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                 }}
                 className="ml-auto rounded px-2 py-0.5 text-red-400 hover:bg-red-400/10"
               >
-                Yes
+                {t("common.yes")}
               </button>
               <button
                 onClick={() => setConfirmingRestore(false)}
                 className="rounded px-2 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           ) : (
             <>
               <button
                 onClick={openNew}
-                title="New snippet"
+                title={t("snip.new_snippet")}
                 className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-accent)] hover:bg-[var(--color-surface)]"
-                aria-label="New snippet"
+                aria-label={t("snip.new_snippet")}
               >
                 <Plus size={14} />
               </button>
@@ -281,39 +284,39 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                   setManaging((m) => !m);
                   setForm(null);
                 }}
-                title="Manage groups — create, rename, reorder or delete"
+                title={t("snip.manage_groups_create_rename_reorder")}
                 className={
                   "flex h-7 w-7 items-center justify-center rounded hover:bg-[var(--color-surface)] " +
                   (managing ? "text-[var(--color-accent)]" : "text-[var(--color-muted)] hover:text-[var(--color-accent)]")
                 }
-                aria-label="Manage groups"
+                aria-label={t("snip.manage_groups")}
               >
                 <FolderCog size={14} />
               </button>
               <button
                 onClick={() => void onPickFile()}
                 disabled={importing}
-                title={importing ? "Importing…" : "Import snippets from JSON file"}
+                title={importing ? t("snip.importing") : t("snip.import_snippets_from_json_file")}
                 className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
-                aria-label="Import snippets"
+                aria-label={t("snip.import_snippets")}
               >
                 <Upload size={14} />
               </button>
               <button
                 onClick={() => void onExport()}
                 disabled={importing}
-                title="Export all snippets + groups to a JSON file — edit them elsewhere and drop the file back in"
+                title={t("snip.export_all_snippets_groups_to")}
                 className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
-                aria-label="Export snippets"
+                aria-label={t("snip.export_snippets")}
               >
                 <Download size={14} />
               </button>
               <button
                 onClick={() => setConfirmingRestore(true)}
                 disabled={importing}
-                title="Restore default snippets — re-imports the bundled AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
+                title={t("snip.restore_default_snippets_re_imports")}
                 className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
-                aria-label="Restore default snippets"
+                aria-label={t("snip.restore_default_snippets")}
               >
                 <RotateCcw size={14} />
               </button>
@@ -323,7 +326,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
 
         {/* Group filter chips */}
         <div className="flex items-center gap-1 overflow-x-auto border-b border-[var(--color-border)] px-2 py-1.5">
-          <GroupChip active={filter === null} label="All" count={snippets.length} onClick={() => setFilter(null)} />
+          <GroupChip active={filter === null} label={t("snip.all")} count={snippets.length} onClick={() => setFilter(null)} />
           {categories.map((c) => (
             <GroupChip
               key={c.id}
@@ -336,7 +339,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
           {ungroupedCount > 0 && (
             <GroupChip
               active={filter === -1}
-              label="Ungrouped"
+              label={t("snip.ungrouped")}
               count={ungroupedCount}
               onClick={() => setFilter(-1)}
             />
@@ -352,15 +355,13 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
           >
             {importStatus.kind === "ok" && importStatus.exported ? (
               <>
-                Exported <b>{importStatus.result.imported}</b> snippets (with their groups)
+                <InlineMd text={tn("snip.exported", importStatus.result.imported)} />
               </>
             ) : importStatus.kind === "ok" ? (
               <>
-                Imported <b>{importStatus.result.imported}</b>
+                <InlineMd text={t("snip.imported", { n: importStatus.result.imported })} />
                 {importStatus.result.skipped > 0 && (
-                  <>
-                    , skipped <b>{importStatus.result.skipped}</b>
-                  </>
+                  <InlineMd text={t("snip.skipped", { n: importStatus.result.skipped })} />
                 )}
                 {importStatus.result.errors.length > 0 && (
                   <>
@@ -368,13 +369,13 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                     <span className="text-red-400">
                       {importStatus.result.errors[0]}
                       {importStatus.result.errors.length > 1 &&
-                        ` (+${importStatus.result.errors.length - 1} more)`}
+                        ` ${t("snip.more_errors", { n: importStatus.result.errors.length - 1 })}`}
                     </span>
                   </>
                 )}
               </>
             ) : (
-              <>Import failed: {importStatus.message}</>
+              <>{t("snip.import_failed", { msg: importStatus.message })}</>
             )}
           </div>
         )}
@@ -382,7 +383,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
         <div ref={listRef} className="flex-1 overflow-auto">
           {visible.length === 0 ? (
             <div className="flex h-full items-center justify-center text-[12px] text-[var(--color-muted)]">
-              {snippets.length === 0 ? "No snippets yet" : "No snippets in this group"}
+              {snippets.length === 0 ? t("snip.no_snippets_yet") : t("snip.no_snippets_in_this_group")}
             </div>
           ) : (
             <div
@@ -442,7 +443,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                         "mt-0.5 shrink-0 font-[var(--font-mono)] text-[9px] tabular-nums " +
                         (isActive ? "text-white/60" : "text-[var(--color-muted)]/70")
                       }
-                      title={`Version ${s.version ?? 1}`}
+                      title={t("snip.version", { n: s.version ?? 1 })}
                     >
                       v{s.version ?? 1}
                     </span>
@@ -457,7 +458,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                           ? "text-white/80 hover:bg-white/20"
                           : "text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-red-400")
                       }
-                      title="Delete snippet"
+                      title={t("snip.delete_snippet")}
                     >
                       <Trash2 size={12} />
                     </button>
@@ -482,7 +483,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
           >
             <Zap size={24} className="opacity-30" />
             <span>
-              Select a snippet to edit or click&nbsp;<b>+ New Snippet</b>
+              <InlineMd text={t("snip.select_hint")} />
             </span>
           </div>
         ) : (
@@ -608,13 +609,13 @@ function ManageGroups({
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-          Manage groups
+          {t("snip.manage_groups")}
         </div>
         <button
           onClick={onClose}
           className="rounded px-2 py-0.5 text-[11px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
         >
-          Done
+          {t("snip.done")}
         </button>
       </div>
 
@@ -623,7 +624,7 @@ function ManageGroups({
         <input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          placeholder="New group name"
+          placeholder={t("snip.new_group_name")}
           className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
           onKeyDown={(e) => {
             if (e.key === "Enter") void create();
@@ -634,7 +635,7 @@ function ManageGroups({
           disabled={busy || !newName.trim()}
           className="flex items-center gap-1 rounded bg-[var(--color-accent)] px-2.5 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          <Plus size={13} /> Add
+          <Plus size={13} /> {t("snip.add")}
         </button>
       </div>
 
@@ -642,7 +643,7 @@ function ManageGroups({
       <div className="flex-1 overflow-auto">
         {categories.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[12px] text-[var(--color-muted)]">
-            No groups yet — add one above.
+            {t("snip.no_groups_yet_add_one")}
           </div>
         ) : (
           <div className="flex flex-col">
@@ -656,7 +657,7 @@ function ManageGroups({
                     onClick={() => void move(idx, -1)}
                     disabled={idx === 0 || busy}
                     className="text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-25"
-                    title="Move up"
+                    title={t("snip.move_up")}
                   >
                     <ArrowUp size={12} />
                   </button>
@@ -664,7 +665,7 @@ function ManageGroups({
                     onClick={() => void move(idx, 1)}
                     disabled={idx === categories.length - 1 || busy}
                     className="text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-25"
-                    title="Move down"
+                    title={t("snip.move_down")}
                   >
                     <ArrowDown size={12} />
                   </button>
@@ -686,28 +687,28 @@ function ManageGroups({
                   <button
                     onClick={() => setEditing({ id: c.id, name: c.name })}
                     className="flex-1 truncate text-left text-[13px] hover:text-[var(--color-accent)]"
-                    title="Click to rename"
+                    title={t("snip.click_to_rename")}
                   >
                     {c.name}
                   </button>
                 )}
 
                 <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
-                  {c.count} snippet{c.count === 1 ? "" : "s"}
+                  {tn("snip.count", c.count)}
                 </span>
 
                 {confirmDel === c.id ? (
                   <div className="flex shrink-0 items-center gap-0.5">
                     <button
                       onClick={() => void del(c.id)}
-                      title="Delete group (snippets are kept, just ungrouped)"
+                      title={t("snip.delete_group_snippets_are_kept")}
                       className="rounded p-1 text-red-400 hover:bg-red-400/10"
                     >
                       <Check size={13} />
                     </button>
                     <button
                       onClick={() => setConfirmDel(null)}
-                      title="Cancel"
+                      title={t("common.cancel")}
                       className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
                     >
                       <X size={13} />
@@ -716,7 +717,7 @@ function ManageGroups({
                 ) : (
                   <button
                     onClick={() => setConfirmDel(c.id)}
-                    title="Delete group — its snippets are kept and simply ungrouped"
+                    title={t("snip.delete_group_its_snippets_are")}
                     className="shrink-0 rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-red-400"
                   >
                     <Trash2 size={12} />
@@ -729,8 +730,7 @@ function ManageGroups({
       </div>
 
       <p className="text-[10px] leading-snug text-[var(--color-muted)]">
-        Deleting a group keeps its snippets — they just become <b>Ungrouped</b>. Click a name to rename;
-        use the arrows to reorder.
+        <InlineMd text={t("snip.groups_note")} />
       </p>
     </div>
   );

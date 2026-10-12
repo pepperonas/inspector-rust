@@ -8,6 +8,7 @@ import {
   shortDayLabel,
   weekBounds,
 } from "../lib/timesheet";
+import { t, tSplit, useT } from "../lib/i18n";
 
 /**
  * Week overview: per-day stacked-by-category bars, an hours × days activity
@@ -22,6 +23,7 @@ export function TimesheetWeek({
   date: string;
   onPickDay: (date: string) => void;
 }) {
+  useT();
   const [report, setReport] = useState<RangeReport | null>(null);
   const [prev, setPrev] = useState<RangeReport | null>(null);
   useEffect(() => {
@@ -32,7 +34,7 @@ export function TimesheetWeek({
   }, [date]);
 
   if (!report) {
-    return <div className="flex flex-1 items-center justify-center text-[var(--color-muted)]">Loading…</div>;
+    return <div className="flex flex-1 items-center justify-center text-[var(--color-muted)]">{t("common.loading")}</div>;
   }
 
   const total = report.total_active_s + report.total_idle_s;
@@ -49,20 +51,20 @@ export function TimesheetWeek({
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="grid grid-cols-3 gap-3">
         <Stat
-          label="Active (week)"
+          label={t("ts.active_week")}
           value={formatDuration(report.total_active_s)}
           accent
           delta={prev ? durationDelta(report.total_active_s - prev.total_active_s) : undefined}
         />
-        <Stat label="Idle (week)" value={formatDuration(report.total_idle_s)} />
+        <Stat label={t("ts.idle_week")} value={formatDuration(report.total_idle_s)} />
         <Stat
-          label="Productive"
+          label={t("ts.productive")}
           value={`${productivePct}%`}
           delta={prevPct != null ? pointDelta(productivePct - prevPct) : undefined}
         />
       </div>
 
-      <Card title="Per day">
+      <Card title={t("ts.per_day")}>
         <div className="flex flex-col gap-1.5">
           {report.days.map((d) => {
             return (
@@ -71,7 +73,7 @@ export function TimesheetWeek({
                 type="button"
                 onClick={() => onPickDay(d.date)}
                 className="md3-press flex items-center gap-2 rounded-lg px-1 py-1 text-left text-[12px] hover:bg-[var(--color-surface)]"
-                title="Open this day"
+                title={t("ts.open_this_day")}
               >
                 <span className="w-[96px] shrink-0 text-[var(--color-muted)]">{shortDayLabel(d.date)}</span>
                 <div className="flex h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--color-surface)]">
@@ -87,7 +89,7 @@ export function TimesheetWeek({
                   <div
                     className="h-full bg-[var(--color-border)]"
                     style={{ width: `${(d.idle_s / maxDay) * 100}%` }}
-                    title={`Idle · ${formatDuration(d.idle_s)}`}
+                    title={t("ts.idle_dur", { time: formatDuration(d.idle_s) })}
                   />
                 </div>
                 <span className="w-[58px] shrink-0 text-right tabular-nums">{formatDuration(d.active_s)}</span>
@@ -96,26 +98,25 @@ export function TimesheetWeek({
           })}
         </div>
         <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-          stacked by category · <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-border)]" /> idle ·
-          click a day to open it
+          {tSplit("ts.week_legend", "dot")[0]}<span className="inline-block h-2 w-2 rounded-full bg-[var(--color-border)]" />{tSplit("ts.week_legend", "dot")[1]}
         </p>
       </Card>
 
-      <Card title="Activity heatmap">
+      <Card title={t("ts.activity_heatmap")}>
         <Heatmap days={report.days} maxHour={maxHour} />
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
-        <Card title="By category (week)">
+        <Card title={t("ts.by_category_week")}>
           <Bars buckets={report.by_category} total={report.total_active_s} colorByKey={categoryColor} />
         </Card>
-        <Card title="By app (week)">
+        <Card title={t("ts.by_app_week")}>
           <Bars buckets={report.by_app.slice(0, 8)} total={report.total_active_s} />
         </Card>
       </div>
 
       {report.by_project.length > 0 && (
-        <Card title="By project (week)">
+        <Card title={t("ts.by_project_week")}>
           <Bars buckets={report.by_project} total={report.total_active_s} />
         </Card>
       )}
@@ -201,7 +202,7 @@ function Stat({
               "text-[11px] font-semibold tabular-nums " +
               (delta.positive ? "text-emerald-400" : "text-rose-400")
             }
-            title="vs. previous week"
+            title={t("ts.vs_previous_week")}
           >
             {delta.positive ? "▲" : "▼"} {delta.text}
           </span>
@@ -240,7 +241,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
         type="button"
         onClick={toggle}
         className="md3-press -m-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-lg p-1 text-left text-[12px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-        title={collapsed ? "Expand section" : "Collapse section"}
+        title={collapsed ? t("ts.expand_section") : t("ts.collapse_section")}
         aria-expanded={!collapsed}
       >
         <ChevronRight
@@ -263,7 +264,7 @@ function Bars({
   total: number;
   colorByKey?: (key: string) => string;
 }) {
-  if (buckets.length === 0) return <p className="text-[12px] text-[var(--color-muted)]">No data.</p>;
+  if (buckets.length === 0) return <p className="text-[12px] text-[var(--color-muted)]">{t("ts.no_data")}</p>;
   const max = Math.max(1, ...buckets.map((b) => b.seconds));
   return (
     <div className="flex flex-col gap-1.5">

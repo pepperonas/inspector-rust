@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import type { RepoAnalysis, RepoStats, RangeKey, GithubActivity } from "../lib/ipc";
 
@@ -15,6 +15,13 @@ vi.mock("../lib/ipc", () => ({
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
 import { RepoPanel } from "./RepoPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function stats(commits: number): RepoStats {
   return {

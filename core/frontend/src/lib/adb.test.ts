@@ -59,10 +59,10 @@ describe("formatters", () => {
   it("deviceLabel surfaces transport and the unauthorized warning", () => {
     expect(deviceLabel({ serial: "R5", model: "SM A546B", state: "device", wifi: false })).toBe("SM A546B");
     expect(deviceLabel({ serial: "1.2.3.4:5555", model: "SM A546B", state: "device", wifi: true })).toBe(
-      "SM A546B · WLAN",
+      "SM A546B · Wi-Fi",
     );
     expect(deviceLabel({ serial: "R5", model: "unknown", state: "unauthorized", wifi: false })).toBe(
-      "R5 — nicht autorisiert",
+      "R5 — not authorized",
     );
   });
 });

@@ -21,15 +21,17 @@ import {
   type SlotOrigin,
 } from "../lib/ipc";
 import { formatClock, formatDuration } from "../lib/timesheet";
+import { t, tn, useT, type MessageKey } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /** Wording for how a slot got its project — the user needs to know which rows
  *  are a guess before booking them. */
-const ORIGIN_LABEL: Record<SlotOrigin, string> = {
-  tagged: "manuell zugeordnet",
-  claude: "aus Claude-Projekt",
-  title: "aus Fenstertitel",
-  neighbour: "aus Nachbarschaft",
-  unassigned: "kein Projekt",
+const ORIGIN_LABEL: Record<SlotOrigin, MessageKey> = {
+  tagged: "slots.origin.tagged",
+  claude: "slots.origin.claude",
+  title: "slots.origin.title",
+  neighbour: "slots.origin.neighbour",
+  unassigned: "slots.origin.unassigned",
 };
 
 const ORIGIN_TONE: Record<SlotOrigin, string> = {
@@ -41,6 +43,7 @@ const ORIGIN_TONE: Record<SlotOrigin, string> = {
 };
 
 export function SlotsView({ date }: { date: string }) {
+  useT();
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [cfg, setCfg] = useState<SlotConfig | null>(null);
   const [showParams, setShowParams] = useState(false);
@@ -83,13 +86,13 @@ export function SlotsView({ date }: { date: string }) {
     setNote(null);
     try {
       const r = await trackPushBcsbook(date, null, replace);
-      const parts = [`${r.added} übernommen`];
-      if (r.skipped > 0) parts.push(`${r.skipped} übersprungen (Zeit schon belegt)`);
-      if (r.unmapped.length > 0) parts.push(`ohne Zuordnung: ${r.unmapped.join(", ")}`);
+      const parts = [t("slots.push.added", { n: r.added })];
+      if (r.skipped > 0) parts.push(t("slots.push.skipped", { n: r.skipped }));
+      if (r.unmapped.length > 0) parts.push(t("slots.push.unmapped", { list: r.unmapped.join(", ") }));
       setNote(
         r.added === 0 && r.skipped === 0 && r.unmapped.length > 0
-          ? `Nichts gesendet — ${r.unmapped.join(", ")} braucht einen bcsbook-Shortcut.`
-          : `An bcsbook gesendet (${parts.join(" · ")}).`,
+          ? t("slots.push.nothing", { list: r.unmapped.join(", ") })
+          : t("slots.push.sent", { parts: parts.join(" · ") }),
       );
     } catch (e) {
       setErr(String(e));
@@ -102,7 +105,7 @@ export function SlotsView({ date }: { date: string }) {
     return <p className="py-3 text-[12px] text-[var(--color-negative,#ef4444)]">{err}</p>;
   }
   if (!slots || !cfg) {
-    return <p className="py-3 text-[12px] text-[var(--color-muted)]">Wird berechnet…</p>;
+    return <p className="py-3 text-[12px] text-[var(--color-muted)]">{t("slots.calculating")}</p>;
   }
 
   const totalS = slots.reduce((a, s) => a + s.span_s, 0);
@@ -117,7 +120,7 @@ export function SlotsView({ date }: { date: string }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[12px] text-[var(--color-muted)]">
-          {slots.length} {slots.length === 1 ? "Slot" : "Slots"} · {formatDuration(totalS)}
+          {tn("slots.count", slots.length)} · {formatDuration(totalS)}
         </span>
         <span className="flex-1" />
         <button
@@ -125,23 +128,23 @@ export function SlotsView({ date }: { date: string }) {
           onClick={() => void load()}
           className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
         >
-          <RefreshCw size={13} /> Neu berechnen
+          <RefreshCw size={13} /> {t("slots.recalculate")}
         </button>
         <button
           type="button"
           onClick={() => setShowParams((v) => !v)}
           className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
         >
-          <SlidersHorizontal size={13} /> Regeln
+          <SlidersHorizontal size={13} /> {t("slots.rules")}
         </button>
         <button
           type="button"
           disabled={busy || slots.length === 0}
           onClick={() => void push(false)}
           className="md3-press flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1 text-[12px] font-semibold text-[var(--color-accent-fg)] disabled:opacity-50"
-          title="Ergänzt den Tag in bcsbook; bestehende Einträge bleiben unangetastet."
+          title={t("slots.adds_to_the_day_in")}
         >
-          <Send size={13} /> An bcsbook
+          <Send size={13} /> {t("slots.send_to_bcsbook")}
         </button>
       </div>
 
@@ -151,49 +154,48 @@ export function SlotsView({ date }: { date: string }) {
       {showParams && (
         <div className="flex flex-col gap-3 rounded-xl border border-[var(--color-border)] p-3">
           <p className="text-[11px] leading-relaxed text-[var(--color-muted)]">
-            Diese Regeln bestimmen nur die <strong>Darstellung</strong> — die aufgezeichneten
-            Rohdaten bleiben unverändert und lassen sich jederzeit anders zusammenfassen.
+            <InlineMd text={t("slots.rules_note")} />
           </p>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <NumField
-              label="Lücke überbrücken (s)"
-              hint="Gleiches Projekt nach kurzer Unterbrechung bleibt ein Slot."
+              label={t("slots.bridge_gaps_s")}
+              hint={t("slots.the_same_project_after_a")}
               value={cfg.bridge_gap_s}
               onChange={(v) => void patchCfg({ bridge_gap_s: v })}
             />
             <NumField
-              label="Kurzstörung (s)"
-              hint="Fremde App darunter zerreißt den Block nicht."
+              label={t("slots.short_interruption_s")}
+              hint={t("slots.a_different_app_shorter_than")}
               value={cfg.noise_s}
               onChange={(v) => void patchCfg({ noise_s: v })}
             />
             <NumField
-              label="Echte Pause ab (s)"
-              hint="Leerlauf darüber trennt den Tag."
+              label={t("slots.real_break_from_s")}
+              hint={t("slots.idle_time_above_this_splits")}
               value={cfg.min_break_s}
               onChange={(v) => void patchCfg({ min_break_s: v })}
             />
             <NumField
-              label="Mindestlänge (s)"
-              hint="Kürzere Blöcke werden nicht angeboten."
+              label={t("slots.minimum_length_s")}
+              hint={t("slots.shorter_blocks_are_not_offered")}
               value={cfg.min_slot_s}
               onChange={(v) => void patchCfg({ min_slot_s: v })}
             />
             <NumField
-              label="Raster (min)"
-              hint="0 = exakte Zeiten statt Viertelstunden."
+              label={t("slots.grid_min")}
+              hint={t("slots.0_exact_times_instead_of")}
               value={cfg.grid_min}
               onChange={(v) => void patchCfg({ grid_min: v })}
             />
             <NumField
-              label="Nachbarschaft (s)"
-              hint="Ungetaggte Zeit erbt das Projekt daneben. 0 = aus."
+              label={t("slots.neighbourhood_s")}
+              hint={t("slots.untagged_time_inherits_the_project")}
               value={cfg.neighbour_gap_s}
               onChange={(v) => void patchCfg({ neighbour_gap_s: v })}
             />
           </div>
           <label className="flex flex-col gap-1">
-            <span className="text-[12px] font-medium">Projekt → bcsbook-Shortcut</span>
+            <span className="text-[12px] font-medium">{t("slots.project_bcsbook_shortcut")}</span>
             <textarea
               rows={4}
               spellCheck={false}
@@ -204,7 +206,7 @@ export function SlotsView({ date }: { date: string }) {
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-[12px]"
             />
             <span className="text-[11px] text-[var(--color-muted)]">
-              Eine Zeile je Projekt. Nur zugeordnete Projekte werden an bcsbook gesendet.
+              {t("slots.one_line_per_project_only")}
             </span>
           </label>
           <label className="flex items-center gap-2">
@@ -213,10 +215,10 @@ export function SlotsView({ date }: { date: string }) {
               checked={cfg.private_filter}
               onChange={(e) => void patchCfg({ private_filter: e.target.checked })}
             />
-            <span className="text-[12px] font-medium">Private Apps ausblenden</span>
+            <span className="text-[12px] font-medium">{t("slots.hide_private_apps")}</span>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[12px] font-medium">Private Apps / Hosts (aus Slots + Export gefiltert)</span>
+            <span className="text-[12px] font-medium">{t("slots.private_apps_hosts_filtered_from")}</span>
             <textarea
               rows={5}
               spellCheck={false}
@@ -228,8 +230,7 @@ export function SlotsView({ date }: { date: string }) {
               className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-[12px] disabled:opacity-50"
             />
             <span className="text-[11px] text-[var(--color-muted)]">
-              Ein Muster je Zeile (App-Name oder Host, Teilstring). Eine Zeile entfernen = App wieder
-              erfassen. Die Roh-Timeline bleibt vollständig.
+              {t("slots.one_pattern_per_line_app")}
             </span>
           </label>
           <button
@@ -237,17 +238,16 @@ export function SlotsView({ date }: { date: string }) {
             disabled={busy || slots.length === 0}
             onClick={() => void push(true)}
             className="md3-press self-start rounded-full border border-[var(--color-negative,#ef4444)] px-3 py-1 text-[12px] text-[var(--color-negative,#ef4444)] disabled:opacity-50"
-            title="Ersetzt den kompletten Tag in bcsbook — auch dort bereits vorhandene Einträge."
+            title={t("slots.replaces_the_whole_day_in")}
           >
-            Tag in bcsbook ersetzen
+            {t("slots.replace_the_day_in_bcsbook")}
           </button>
         </div>
       )}
 
       {slots.length === 0 ? (
         <p className="py-2 text-[12px] text-[var(--color-muted)]">
-          Keine Slots für diesen Tag — entweder wurde nichts aufgezeichnet, oder alle Blöcke liegen
-          unter der Mindestlänge.
+          {t("slots.no_slots_for_this_day")}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -268,22 +268,22 @@ export function SlotsView({ date }: { date: string }) {
                   </span>
                   <span className="font-semibold">{s.label}</span>
                   <span className={"rounded-full px-2 py-0.5 text-[10px] " + ORIGIN_TONE[s.origin]}>
-                    {ORIGIN_LABEL[s.origin]}
+                    {t(ORIGIN_LABEL[s.origin])}
                   </span>
                   {s.confidence < 0.75 && (
                     <span
                       className="flex items-center gap-1 text-[10px] text-amber-500"
-                      title={`Nur ${Math.round(s.confidence * 100)} % der Zeit entfallen auf das führende Projekt — gemischter Block, vor dem Buchen prüfen.`}
+                      title={t("slots.mixed_title", { pct: Math.round(s.confidence * 100) })}
                     >
-                      <AlertTriangle size={11} /> gemischt
+                      <AlertTriangle size={11} /> {t("slots.mixed")}
                     </span>
                   )}
                   {needsMapping && (
                     <span
                       className="text-[10px] text-[var(--color-muted)]"
-                      title="Für dieses Projekt fehlt ein bcsbook-Shortcut — es wird nicht gesendet."
+                      title={t("slots.this_project_has_no_bcsbook")}
                     >
-                      kein Shortcut
+                      {t("slots.no_shortcut")}
                     </span>
                   )}
                 </div>
@@ -299,7 +299,7 @@ export function SlotsView({ date }: { date: string }) {
                     </span>
                   ))}
                   <span className="px-1 text-[10px] text-[var(--color-muted)]">
-                    aus {s.event_ids.length} Einträgen
+                    {tn("slots.from_events", s.event_ids.length)}
                   </span>
                 </div>
               </div>

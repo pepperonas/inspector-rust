@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint, windowsComplete, bucketLabel as bl, churnGeometry as cg, rangeTitle as rt } from "./repo";
 import {
-  WEEKDAY_LABELS,
+  weekdayLabels,
   categoryColor,
   formatNum,
   shortDate,
@@ -32,8 +32,8 @@ describe("repo display helpers", () => {
   });
 
   it("peakLabel finds the busiest bucket", () => {
-    expect(peakLabel([1, 5, 2], WEEKDAY_LABELS)).toBe("Di");
-    expect(peakLabel([], WEEKDAY_LABELS)).toBe("—");
+    expect(peakLabel([1, 5, 2], weekdayLabels())).toBe("Di");
+    expect(peakLabel([], weekdayLabels())).toBe("—");
     // First max wins on ties.
     expect(peakLabel([3, 3, 1], ["a", "b", "c"])).toBe("a");
   });
@@ -81,6 +81,13 @@ describe("repo ranges + heat + calendar", () => {
 });
 
 import { rangeTitle, bucketLabel, churnGeometry, netTotal } from "./repo";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 describe("timeline display (v0.183.x)", () => {
   it("titles the activity by the RANGE, never by a month count", () => {

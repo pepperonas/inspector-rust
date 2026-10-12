@@ -4,6 +4,8 @@
  * side enforces (adb.rs validators) so the UI can reject before the IPC.
  */
 
+import { t } from "./i18n";
+
 export interface AdbKeyDef {
   label: string;
   code: string;
@@ -11,14 +13,14 @@ export interface AdbKeyDef {
 
 /** Navigation keys — the ADBOSS Input-Remote set. */
 export const NAV_KEYS: AdbKeyDef[] = [
-  { label: "Home", code: "KEYCODE_HOME" },
-  { label: "Back", code: "KEYCODE_BACK" },
-  { label: "Recents", code: "KEYCODE_APP_SWITCH" },
-  { label: "Menu", code: "KEYCODE_MENU" },
-  { label: "Power", code: "KEYCODE_POWER" },
-  { label: "Vol −", code: "KEYCODE_VOLUME_DOWN" },
-  { label: "Vol +", code: "KEYCODE_VOLUME_UP" },
-  { label: "Mute", code: "KEYCODE_VOLUME_MUTE" },
+  { get label() { return t("adb.key.home"); }, code: "KEYCODE_HOME" },
+  { get label() { return t("adb.key.back"); }, code: "KEYCODE_BACK" },
+  { get label() { return t("adb.key.recents"); }, code: "KEYCODE_APP_SWITCH" },
+  { get label() { return t("adb.key.menu"); }, code: "KEYCODE_MENU" },
+  { get label() { return t("adb.key.power"); }, code: "KEYCODE_POWER" },
+  { get label() { return t("adb.key.vol_down"); }, code: "KEYCODE_VOLUME_DOWN" },
+  { get label() { return t("adb.key.vol_up"); }, code: "KEYCODE_VOLUME_UP" },
+  { get label() { return t("adb.key.mute"); }, code: "KEYCODE_VOLUME_MUTE" },
 ];
 
 /** D-pad (grid positions handled by the component). */
@@ -75,9 +77,9 @@ export function uptimeHuman(secs: number): string {
 /** Device row label: model + transport + state warning. */
 export function deviceLabel(d: { serial: string; model: string; state: string; wifi: boolean }): string {
   const base = d.model !== "unknown" ? d.model : d.serial;
-  const transport = d.wifi ? " · WLAN" : "";
-  if (d.state === "unauthorized") return `${base}${transport} — nicht autorisiert`;
-  if (d.state === "offline") return `${base}${transport} — offline`;
+  const transport = d.wifi ? ` · ${t("adb.view.wifi")}` : "";
+  if (d.state === "unauthorized") return `${base}${transport} — ${t("adb.unauthorized")}`;
+  if (d.state === "offline") return `${base}${transport} — ${t("adb.offline")}`;
   return `${base}${transport}`;
 }
 

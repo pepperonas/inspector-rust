@@ -6,8 +6,12 @@
  */
 
 import type { RangeKey } from "./ipc";
+import { t, type MessageKey } from "./i18n";
 
-export const WEEKDAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] as const;
+/** Monday-first short weekday names in the current language. */
+export function weekdayLabels(): string[] {
+  return t("common.weekdays_short").split(",");
+}
 
 /** Category → colour (repo2viz-ish palette). Unknowns fall back to grey. */
 export const CATEGORY_COLORS: Readonly<Record<string, string>> = {
@@ -82,11 +86,11 @@ export function totalChurn(insertions: number, deletions: number): number {
 }
 
 export const RANGES: readonly { key: RangeKey; label: string }[] = [
-  { key: "d30", label: "30 T" },
-  { key: "d90", label: "90 T" },
-  { key: "d180", label: "180 T" },
-  { key: "y1", label: "1 J" },
-  { key: "all", label: "Gesamt" },
+  { key: "d30", get label() { return t("repo.range.d30"); } },
+  { key: "d90", get label() { return t("repo.range.d90"); } },
+  { key: "d180", get label() { return t("repo.range.d180"); } },
+  { key: "y1", get label() { return t("repo.range.y1"); } },
+  { key: "all", get label() { return t("repo.range.all"); } },
 ];
 
 /** 0 (none) … 4 (max) — four visible steps like GitHub's calendar. */
@@ -121,40 +125,34 @@ export function calendarCells(days: readonly { date: string; commits: number }[]
 
 export function repoErrorHint(err: string): { title: string; body: string } {
   if (err.includes("repo.no_target"))
-    return {
-      title: "Kein Repository.",
-      body: "Eine GitHub-URL einfügen — oder im Finder einen Ordner mit .git auswählen.",
-    };
+    return { title: t("repo.err.no_target"), body: t("repo.err.no_target_body") };
   if (err.startsWith("repo.auth"))
-    return {
-      title: "Kein Zugriff auf das Repository.",
-      body: "Privat oder nicht vorhanden. `gh auth login` im Terminal ausführen oder ein Token in Settings → Repositories hinterlegen.",
-    };
+    return { title: t("repo.err.auth"), body: t("repo.err.auth_body") };
   if (err.startsWith("repo.network"))
-    return { title: "Keine Verbindung zu GitHub.", body: "Netz prüfen und erneut versuchen." };
-  return { title: "Analyse fehlgeschlagen", body: err.replace(/^repo\.git:\s*/, "") };
+    return { title: t("repo.err.network"), body: t("repo.err.network_body") };
+  return { title: t("repo.err.failed"), body: err.replace(/^repo\.git:\s*/, "") };
 }
 
-const RANGE_TITLES: Record<RangeKey, string> = {
-  d30: "letzte 30 Tage",
-  d90: "letzte 90 Tage",
-  d180: "letzte 180 Tage",
-  y1: "letztes Jahr",
-  all: "gesamt",
+const RANGE_TITLES: Record<RangeKey, MessageKey> = {
+  d30: "repo.title.d30",
+  d90: "repo.title.d90",
+  d180: "repo.title.d180",
+  y1: "repo.title.y1",
+  all: "repo.title.all",
 };
 
 /** Activity heading names the RANGE — counting touched calendar months made a
  *  30-day window read "2 Monate". Mirrors Rust `RangeKey::label`. */
 export function rangeTitle(range: RangeKey): string {
-  return RANGE_TITLES[range];
+  return t(RANGE_TITLES[range]);
 }
 
 /** Short bucket label: `25.09.` (day) · `ab 21.09.` (week) · `09/2026` (month). */
 export function bucketLabel(start: string, granularity: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(start);
   if (!m) return start;
-  if (granularity === "day") return `${m[3]}.${m[2]}.`;
-  if (granularity === "week") return `ab ${m[3]}.${m[2]}.`;
+  if (granularity === "day") return t("repo.bucket_day", { d: m[3], m: m[2] });
+  if (granularity === "week") return t("repo.bucket_week", { d: m[3], m: m[2] });
   return `${m[2]}/${m[1]}`;
 }
 
@@ -222,15 +220,15 @@ export function churnGeometry(
 /** Neutral change vs the previous period — fewer isn't automatically worse. */
 export function deltaLabel(cur: number, prev: number): { text: string; title: string } {
   const text = cur > prev ? `↑ ${cur - prev}` : cur < prev ? `↓ ${prev - cur}` : "±0";
-  return { text, title: `Vorperiode: ${prev}` };
+  return { text, title: t("repo.prev_period", { n: prev }) };
 }
 
 export function githubErrorHint(err: string): string {
-  if (err.startsWith("github.rate_limit")) return "GitHub-Abfragelimit erreicht — `gh auth login` oder ein Token in Settings → Repositories erhöht es.";
-  if (err.startsWith("github.not_found")) return "Repo bei GitHub nicht gefunden oder kein Zugriff (privat?).";
-  if (err.startsWith("repo.auth")) return "GitHub lehnt das Token ab — Token in Settings → Repositories prüfen.";
-  if (err.startsWith("github.network")) return "GitHub nicht erreichbar — Git-Werte oben sind trotzdem aktuell.";
-  return "GitHub-Werte nicht verfügbar.";
+  if (err.startsWith("github.rate_limit")) return t("repo.gh.rate");
+  if (err.startsWith("github.not_found")) return t("repo.gh.not_found");
+  if (err.startsWith("repo.auth")) return t("repo.gh.token");
+  if (err.startsWith("github.network")) return t("repo.gh.network");
+  return t("repo.gh.unavailable");
 }
 
 /**

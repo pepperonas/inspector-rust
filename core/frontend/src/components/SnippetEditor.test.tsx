@@ -257,12 +257,12 @@ describe("SnippetEditor — keyboard", () => {
 describe("SnippetEditor — header", () => {
   it("distinguishes a new snippet from an edit", () => {
     setup(EMPTY_DRAFT);
-    expect(screen.getByText("New Snippet")).toBeTruthy();
+    expect(screen.getByText("New snippet")).toBeTruthy();
     expect(screen.queryByText(/^v\d/)).toBeNull(); // no revision for a new one
     cleanup();
 
     setup(EXISTING);
-    expect(screen.getByText("Edit Snippet")).toBeTruthy();
+    expect(screen.getByText("Edit snippet")).toBeTruthy();
     expect(screen.getByText("v3")).toBeTruthy();
   });
 

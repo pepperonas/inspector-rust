@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   Copy,
@@ -30,6 +30,8 @@ import {
 import { matchTotpEntries, msUntilNextRollover, sameCodes } from "../lib/totp";
 import { TotpBrandIcon } from "./TotpBrandIcon";
 import type { TotpCode, TotpEntry } from "../lib/totp";
+import { t, tn, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Full-overlay TOTP / 2FA management. Replaces the popup body, owns
@@ -66,15 +68,14 @@ function importSummary(
   r: { added: number; skipped?: number; failed?: number },
   from?: string,
 ): string {
-  const src = from ? ` from ${from}` : "";
-  const skip = r.skipped ? `, ${r.skipped} duplicate(s) skipped` : "";
-  const fail = r.failed
-    ? `, ${r.failed} invalid entr${r.failed === 1 ? "y" : "ies"} dropped`
-    : "";
-  return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}${fail}.`;
+  const parts = [from ? tn("totp.imported_from", r.added, { from }) : tn("totp.imported", r.added)];
+  if (r.skipped) parts.push(tn("totp.dupes_skipped", r.skipped));
+  if (r.failed) parts.push(tn("totp.invalid_dropped", r.failed));
+  return `${parts.join(", ")}.`;
 }
 
 export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: Props) {
+  useT();
   const [tab, setTab] = useState<Tab>(initialTab ?? "list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
   const [codes, setCodes] = useState<Map<number, TotpCode>>(new Map());
@@ -198,7 +199,7 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
   const doAdd = async () => {
     // On edit, a blank secret keeps the current one; on add it's required.
     if (!addIssuer.trim() || (editingId === null && !addSecret.trim())) {
-      setToast({ kind: "err", message: "Issuer and Secret are required." });
+      setToast({ kind: "err", message: t("totp.issuer_and_secret_are_required") });
       return;
     }
     setBusy(true);
@@ -226,7 +227,7 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
       }
       const wasEdit = editingId !== null;
       resetAddForm();
-      setToast({ kind: "ok", message: wasEdit ? "Entry updated." : "Entry added." });
+      setToast({ kind: "ok", message: wasEdit ? t("totp.entry_updated") : t("totp.entry_added") });
       await refreshList();
       setTab("list");
     } catch (e) {
@@ -306,7 +307,7 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
       setToast({
         kind: "ok",
         message:
-          removed > 0 ? `${removed} duplicate(s) removed.` : "No duplicates found.",
+          removed > 0 ? tn("totp.dupes_removed", removed) : t("totp.no_duplicates_found"),
       });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -322,7 +323,7 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
       await refreshList();
       setToast({
         kind: "ok",
-        message: `${removed} entr${removed === 1 ? "y" : "ies"} deleted.`,
+        message: tn("totp.deleted", removed),
       });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -404,7 +405,7 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
 
   const doImport = async () => {
     if (!importText.trim()) {
-      setToast({ kind: "err", message: "Nothing to import." });
+      setToast({ kind: "err", message: t("totp.nothing_to_import") });
       return;
     }
     setBusy(true);
@@ -429,14 +430,14 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
     try {
       const uris = await totpExport();
       if (!uris.trim()) {
-        setToast({ kind: "err", message: "No entries to export." });
+        setToast({ kind: "err", message: t("totp.no_entries_to_export") });
         return;
       }
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(uris);
       setToast({
         kind: "ok",
-        message: `${entries.length} entries exported as otpauth URIs to clipboard. Caution: plaintext!`,
+        message: tn("totp.exported", entries.length),
       });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -449,9 +450,9 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
       {dragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-bg)]/85 backdrop-blur-sm">
           <Upload size={28} className="text-[var(--color-accent)]" />
-          <span className="text-[13px] font-semibold">Drop to import</span>
+          <span className="text-[13px] font-semibold">{t("totp.drop_to_import")}</span>
           <span className="text-[11px] text-[var(--color-muted)]">
-            otpauth URIs · Aegis / 2FAS / OTPManager JSON · migration QR
+            {t("totp.otpauth_uris_aegis_2fas_otpmanager")}
           </span>
         </div>
       )}
@@ -462,13 +463,13 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
           <span className="font-semibold">2FA · TOTP</span>
           <span className="text-[var(--color-muted)]">·</span>
           <TabButton active={tab === "list"} onClick={() => setTab("list")}>
-            List {entries.length > 0 ? `(${entries.length})` : ""}
+            {t("totp.list")} {entries.length > 0 ? `(${entries.length})` : ""}
           </TabButton>
           <TabButton active={tab === "add"} onClick={() => setTab("add")}>
-            {editingId !== null ? "Edit" : "Add"}
+            {editingId !== null ? t("common.edit") : t("totp.add")}
           </TabButton>
           <TabButton active={tab === "import"} onClick={() => setTab("import")}>
-            Import / Export
+            {t("totp.import_export")}
           </TabButton>
         </div>
         <button
@@ -691,9 +692,9 @@ function ListTab({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[var(--color-muted)]">
         <KeyRound size={32} className="opacity-50" />
-        <div className="text-[14px]">No 2FA entries yet.</div>
+        <div className="text-[14px]">{t("totp.no_2fa_entries_yet")}</div>
         <div className="text-[12px]">
-          Switch to <b>Add</b> or <b>Import</b> to set up your authenticator accounts.
+          <InlineMd text={t("totp.empty_hint")} />
         </div>
       </div>
     );
@@ -716,7 +717,7 @@ function ListTab({
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Type to filter — Enter copies the top match"
+          placeholder={t("totp.type_to_filter_enter_copies")}
           className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--color-muted)]"
         />
         {filtering && (
@@ -726,7 +727,7 @@ function ListTab({
             </span>
             <button
               onClick={() => setFilter("")}
-              title="Clear filter (Esc)"
+              title={t("totp.clear_filter_esc")}
               className="shrink-0 rounded-full p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
             >
               <X size={12} />
@@ -739,19 +740,19 @@ function ListTab({
       <div className="mb-1 flex items-center gap-2 text-[11px]">
         <span className="mr-auto text-[var(--color-muted)]">
           {filtering
-            ? "Enter copies the highlighted match."
-            : "Drag the ⠿ handle to reorder."}
+            ? t("totp.enter_copies_the_highlighted_match")
+            : t("totp.drag_the_handle_to_reorder")}
         </span>
         <button
           onClick={onRemoveDuplicates}
           disabled={busy}
           className="rounded border border-[var(--color-border)] px-2 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
         >
-          Remove duplicates
+          {t("totp.remove_duplicates")}
         </button>
         {confirmClear ? (
           <span className="flex items-center gap-1">
-            <span className="text-rose-500">Delete all?</span>
+            <span className="text-rose-500">{t("totp.delete_all")}</span>
             <button
               onClick={() => {
                 setConfirmClear(false);
@@ -759,13 +760,13 @@ function ListTab({
               }}
               className="rounded border border-rose-500/60 px-2 py-1 text-rose-500 hover:bg-rose-500/10"
             >
-              Yes
+              {t("common.yes")}
             </button>
             <button
               onClick={() => setConfirmClear(false)}
               className="rounded border border-[var(--color-border)] px-2 py-1"
             >
-              No
+              {t("totp.no")}
             </button>
           </span>
         ) : (
@@ -774,15 +775,15 @@ function ListTab({
             disabled={busy}
             className="rounded border border-[var(--color-border)] px-2 py-1 hover:border-rose-500/60 hover:text-rose-500 disabled:opacity-40"
           >
-            Clear all
+            {t("totp.clear_all")}
           </button>
         )}
       </div>
 
       {filtering && visible.length === 0 && (
         <div className="flex flex-col items-center gap-1 py-8 text-center text-[var(--color-muted)]">
-          <div className="text-[13px]">No entries match “{filter.trim()}”.</div>
-          <div className="text-[11px]">Esc clears the filter.</div>
+          <div className="text-[13px]">{t("totp.no_match", { q: filter.trim() })}</div>
+          <div className="text-[11px]">{t("totp.esc_clears_the_filter")}</div>
         </div>
       )}
       {visible.map((e, idx) => {
@@ -810,7 +811,7 @@ function ListTab({
             <button
               onPointerDown={filtering ? undefined : (ev) => beginDrag(ev, e.id)}
               title={
-                filtering ? "Reordering is disabled while filtering" : "Drag to reorder"
+                filtering ? t("totp.reordering_is_disabled_while_filtering") : t("totp.drag_to_reorder")
               }
               className={
                 filtering
@@ -828,7 +829,7 @@ function ListTab({
             <TotpBrandIcon issuer={e.issuer} />
             <div className="flex flex-1 flex-col overflow-hidden">
               <div className="truncate text-[13px] font-semibold">
-                {e.issuer || "(no issuer)"}
+                {e.issuer || t("totp.no_issuer")}
               </div>
               {e.account && (
                 <div className="truncate text-[11px] text-[var(--color-muted)]">
@@ -840,7 +841,7 @@ function ListTab({
               onClick={() => onCopy(e.id, label)}
               disabled={busy || !c}
               className="rounded border border-[var(--color-border)] px-3 py-1.5 font-[var(--font-mono)] text-[20px] font-semibold tracking-[0.15em] tabular-nums hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
-              title="Copy code to clipboard"
+              title={t("totp.copy_code_to_clipboard")}
             >
               {c?.code ?? "…"}
             </button>
@@ -851,14 +852,14 @@ function ListTab({
                     setConfirmId(null);
                     onDelete(e.id, label);
                   }}
-                  title="Confirm delete"
+                  title={t("totp.confirm_delete")}
                   className="rounded border border-rose-500/60 p-1.5 text-rose-500 hover:bg-rose-500/10"
                 >
                   <Check size={14} />
                 </button>
                 <button
                   onClick={() => setConfirmId(null)}
-                  title="Cancel"
+                  title={t("common.cancel")}
                   className={iconBtn + " hover:text-[var(--color-fg)]"}
                 >
                   <X size={14} />
@@ -869,7 +870,7 @@ function ListTab({
                 <button
                   onClick={() => onCopy(e.id, label)}
                   disabled={busy || !c}
-                  title="Copy"
+                  title={t("common.copy")}
                   className={
                     iconBtn +
                     " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
@@ -880,7 +881,7 @@ function ListTab({
                 <button
                   onClick={() => onEdit(e)}
                   disabled={busy}
-                  title="Edit"
+                  title={t("common.edit")}
                   className={
                     iconBtn +
                     " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
@@ -891,7 +892,7 @@ function ListTab({
                 <button
                   onClick={() => setConfirmId(e.id)}
                   disabled={busy}
-                  title="Delete"
+                  title={t("common.delete")}
                   className={iconBtn + " hover:border-rose-500/60 hover:text-rose-500"}
                 >
                   <Trash2 size={14} />
@@ -1002,17 +1003,17 @@ function AddTab(props: {
     <div className="mx-auto flex max-w-md flex-col gap-3">
       {props.editing && (
         <div className="flex items-center justify-between text-[12px]">
-          <span className="font-semibold text-[var(--color-accent)]">Editing entry</span>
+          <span className="font-semibold text-[var(--color-accent)]">{t("totp.editing_entry")}</span>
           <button
             onClick={props.onCancel}
             className="rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:text-[var(--color-fg)]"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       )}
       <label className="flex flex-col gap-1 text-[12px]">
-        <span className="font-semibold">Issuer / Service</span>
+        <span className="font-semibold">{t("totp.issuer_service")}</span>
         <input
           type="text"
           value={props.issuer}
@@ -1027,7 +1028,7 @@ function AddTab(props: {
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
-        <span className="font-semibold">Account (optional)</span>
+        <span className="font-semibold">{t("totp.account_optional")}</span>
         <input
           type="text"
           value={props.account}
@@ -1039,14 +1040,14 @@ function AddTab(props: {
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
         <span className="font-semibold">
-          Secret (Base32){props.editing ? " — optional" : ""}
+          {t("totp.secret_base32")}{props.editing ? " — optional" : ""}
         </span>
         <textarea
           value={props.secret}
           onChange={(e) => props.setSecret(e.target.value)}
           placeholder={
             props.editing
-              ? "Leave blank to keep the current secret"
+              ? t("totp.leave_blank_to_keep_the")
               : "JBSW Y3DP EHPK 3PXP"
           }
           rows={2}
@@ -1054,8 +1055,8 @@ function AddTab(props: {
         />
         <span className="text-[10px] text-[var(--color-muted)]">
           {props.editing
-            ? "Enter a new secret to replace it, or leave blank to keep the current one."
-            : "Spaces and hyphens are stripped automatically; padding (=) is optional."}
+            ? t("totp.enter_a_new_secret_to")
+            : t("totp.spaces_and_hyphens_are_stripped")}
         </span>
       </label>
 
@@ -1064,12 +1065,12 @@ function AddTab(props: {
         onClick={() => props.setAdvanced(!props.advanced)}
         className="self-start text-[11px] text-[var(--color-muted)] hover:text-[var(--color-accent)]"
       >
-        {props.advanced ? "▾ Hide advanced" : "▸ Advanced (Digits / Period / Algorithm)"}
+        {props.advanced ? t("totp.hide_advanced") : t("totp.advanced_digits_period_algorithm")}
       </button>
       {props.advanced && (
         <div className="grid grid-cols-3 gap-3">
           <label className="flex flex-col gap-1 text-[12px]">
-            <span className="font-semibold">Digits</span>
+            <span className="font-semibold">{t("totp.digits")}</span>
             <select
               value={props.digits}
               onChange={(e) => props.setDigits(Number(e.target.value))}
@@ -1081,7 +1082,7 @@ function AddTab(props: {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[12px]">
-            <span className="font-semibold">Period (s)</span>
+            <span className="font-semibold">{t("totp.period_s")}</span>
             <select
               value={props.period}
               onChange={(e) => props.setPeriod(Number(e.target.value))}
@@ -1093,7 +1094,7 @@ function AddTab(props: {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-[12px]">
-            <span className="font-semibold">Algorithm</span>
+            <span className="font-semibold">{t("totp.algorithm")}</span>
             <select
               value={props.algorithm}
               onChange={(e) => props.setAlgorithm(e.target.value)}
@@ -1115,7 +1116,7 @@ function AddTab(props: {
         className="mt-2 flex items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2 text-[13px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
       >
         {props.editing ? <Check size={14} /> : <Plus size={14} />}
-        {props.editing ? "Save changes" : "Add"}
+        {props.editing ? t("totp.save_changes") : t("totp.add")}
       </button>
     </div>
   );
@@ -1138,33 +1139,29 @@ function ImportExportTab({
   entryCount: number;
   busy: boolean;
 }) {
-  const supportedFormats = useMemo(
-    () => [
-      "otpauth://totp/… (single QR code URI)",
-      "otpauth-migration://offline?data=… (Google Authenticator bulk export)",
-      "Aegis JSON (Android Aegis Authenticator, unencrypted)",
-      "2FAS JSON (2FAS Auth)",
-      "OTPManager JSON (macOS OTP Manager app export)",
-      "Plain text: one otpauth:// URI per line",
-    ],
-    [],
-  );
+  const supportedFormats = [
+    t("totp.fmt.otpauth"),
+    t("totp.fmt.migration"),
+    t("totp.fmt.aegis"),
+    t("totp.fmt.2fas"),
+    t("totp.fmt.otpmanager"),
+    t("totp.fmt.plain"),
+  ];
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5">
       <section>
         <h3 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
           <Upload size={14} className="text-[var(--color-accent)]" />
-          Import
+          {t("totp.import")}
         </h3>
         <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-          Paste below, or <strong>drag a file anywhere onto this window</strong> to import
-          it (otpauth URIs · Aegis / 2FAS / OTPManager JSON · Google-Auth migration).
+          <InlineMd text={t("totp.import_hint")} />
         </p>
         <textarea
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
-          placeholder="otpauth://totp/...  or paste JSON export here"
+          placeholder={t("totp.otpauth_totp_or_paste_a")}
           rows={8}
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-[var(--font-mono)] text-[12px] focus:border-[var(--color-accent)] focus:outline-none"
         />
@@ -1175,15 +1172,15 @@ function ImportExportTab({
             className="flex items-center gap-2 rounded bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
           >
             <Upload size={12} />
-            Import
+            {t("totp.import")}
           </button>
           <span className="text-[11px] text-[var(--color-muted)]">
-            Format is detected automatically.
+            {t("totp.format_is_detected_automatically")}
           </span>
         </div>
         <details className="mt-3 text-[11px] text-[var(--color-muted)]">
           <summary className="cursor-pointer hover:text-[var(--color-fg)]">
-            Supported formats
+            {t("totp.supported_formats")}
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {supportedFormats.map((f, i) => (
@@ -1196,19 +1193,13 @@ function ImportExportTab({
       <section>
         <h3 className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
           <Download size={14} className="text-[var(--color-accent)]" />
-          Export
+          {t("totp.export")}
         </h3>
         <p className="mb-2 text-[12px] text-[var(--color-muted)]">
-          Exports all {entryCount} entries as a list of{" "}
-          <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[11px]">
-            otpauth://
-          </code>{" "}
-          URIs to the clipboard.
+          <InlineMd text={tn("totp.export_hint", entryCount)} />
         </p>
         <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
-          <b>Caution:</b> Plaintext. The secrets are the long-term root of your 2FA —
-          store the export encrypted (e.g. password manager, encrypted archive) and clear
-          the clipboard afterwards.
+          <InlineMd text={t("totp.export_caution")} />
         </div>
         <button
           onClick={onExport}
@@ -1216,7 +1207,7 @@ function ImportExportTab({
           className="flex items-center gap-2 rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
         >
           <Download size={12} />
-          Export to clipboard
+          {t("totp.export_to_clipboard")}
         </button>
       </section>
     </div>

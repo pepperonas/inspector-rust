@@ -64,6 +64,8 @@ import {
 } from "../lib/timesheet";
 import { TimesheetWeek } from "./TimesheetWeek";
 import { SlotsView } from "./SlotsView";
+import { t, tn, tSplit, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Timesheet tab — a day-navigable, charted view of tracked time (read-only in
@@ -83,6 +85,7 @@ interface EventDraft {
 }
 
 export function TimesheetPanel() {
+  useT();
   const [date, setDate] = useState(() => localDateStr());
   const [mode, setMode] = useState<"day" | "week">("day");
   const [report, setReport] = useState<DayReport | null>(null);
@@ -210,7 +213,7 @@ export function TimesheetPanel() {
     timelineColorBy === "category"
       ? e.category && e.category !== ""
         ? e.category
-        : "Uncategorized"
+        : t("ts.uncategorized")
       : timelineColorBy === "project"
         ? e.project && e.project !== ""
           ? e.project
@@ -311,7 +314,7 @@ export function TimesheetPanel() {
         // span resolves against the same day) instead of persisting a
         // nonsensical reversed row that silently aggregates as 0s.
         if (endedAt <= startedAt) {
-          setPanelErr("End must be after start — edit not saved.");
+          setPanelErr(t("ts.end_must_be_after_start"));
           return;
         }
         patch.ended_at = endedAt;
@@ -469,7 +472,7 @@ export function TimesheetPanel() {
                   : "hover:bg-[var(--color-surface)]")
               }
             >
-              {mo === "day" ? "Day" : "Week"}
+              {mo === "day" ? t("ts.day") : t("ts.week")}
             </button>
           ))}
         </div>
@@ -477,7 +480,7 @@ export function TimesheetPanel() {
           type="button"
           onClick={() => setDate((d) => (mode === "week" ? shiftWeek(d, -1) : shiftDay(d, -1)))}
           className="md3-press rounded-lg border border-[var(--color-border)] p-1 hover:bg-[var(--color-surface)]"
-          title={mode === "week" ? "Previous week" : "Previous day (←)"}
+          title={mode === "week" ? t("ts.previous_week") : t("ts.previous_day")}
         >
           <ChevronLeft size={16} />
         </button>
@@ -499,7 +502,7 @@ export function TimesheetPanel() {
           onClick={() => setDate((d) => (mode === "week" ? shiftWeek(d, 1) : shiftDay(d, 1)))}
           disabled={mode === "day" && isToday}
           className="md3-press rounded-lg border border-[var(--color-border)] p-1 enabled:hover:bg-[var(--color-surface)] disabled:opacity-40"
-          title={mode === "week" ? "Next week" : "Next day (→)"}
+          title={mode === "week" ? t("ts.next_week") : t("ts.next_day")}
         >
           <ChevronRight size={16} />
         </button>
@@ -507,9 +510,9 @@ export function TimesheetPanel() {
           type="button"
           onClick={() => setDate(localDateStr())}
           className="md3-press rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-          title="Jump to today (t)"
+          title={t("ts.jump_to_today_t")}
         >
-          Today
+          {t("ts.today")}
         </button>
 
         {(mode === "week" || (report && report.events.length > 0)) && (
@@ -518,7 +521,7 @@ export function TimesheetPanel() {
               type="button"
               onClick={() => doExport("csv")}
               className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-              title={mode === "week" ? "Export this week (Mon–Sun) as CSV → Downloads" : "Export this day as CSV → Downloads"}
+              title={mode === "week" ? t("ts.export_this_week_mon_sun") : t("ts.export_this_day_as_csv")}
             >
               <Download size={13} /> CSV
             </button>
@@ -526,7 +529,7 @@ export function TimesheetPanel() {
               type="button"
               onClick={() => doExport("html")}
               className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-              title={mode === "week" ? "Export this week (Mon–Sun) as a self-contained HTML report → Downloads" : "Export this day as a self-contained HTML report → Downloads"}
+              title={mode === "week" ? t("ts.export_this_week_mon_sun_2") : t("ts.export_this_day_as_a")}
             >
               <Download size={13} /> HTML
             </button>
@@ -534,7 +537,7 @@ export function TimesheetPanel() {
               type="button"
               onClick={() => doExport("pdf")}
               className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-              title={mode === "week" ? "Diese Woche (Mo–So) als PDF → Downloads" : "Diesen Tag als PDF → Downloads"}
+              title={mode === "week" ? t("ts.export_this_week_mon_sun_3") : t("ts.export_this_day_as_pdf")}
             >
               <Download size={13} /> PDF
             </button>
@@ -543,9 +546,9 @@ export function TimesheetPanel() {
                 type="button"
                 onClick={() => void doCleanup()}
                 className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-                title="Delete idle spans + sub-15s fragments for the whole week"
+                title={t("ts.delete_idle_spans_sub_15s")}
               >
-                <Sparkles size={13} /> Clean up week
+                <Sparkles size={13} /> {t("ts.clean_up_week")}
               </button>
             )}
           </div>
@@ -556,16 +559,16 @@ export function TimesheetPanel() {
             <>
               {status.manual_paused ? (
                 <span className="flex items-center gap-1 text-amber-500">
-                  <Pause size={13} /> paused
+                  <Pause size={13} /> {t("ts.paused")}
                 </span>
               ) : status.paused ? (
                 <span className="flex items-center gap-1 text-[var(--color-muted)]">
-                  <Pause size={13} /> paused (idle)
+                  <Pause size={13} /> {t("ts.paused_idle")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1 text-rose-400">
                   <Circle size={11} className="animate-pulse fill-rose-500 text-rose-500" />
-                  recording{status.active_app ? ` · ${status.active_app}` : ""}
+                  {t("ts.recording")}{status.active_app ? ` · ${status.active_app}` : ""}
                 </span>
               )}
               <button
@@ -574,23 +577,23 @@ export function TimesheetPanel() {
                 className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:bg-[var(--color-surface)]"
                 title={
                   status.manual_paused
-                    ? "Resume recording"
-                    : "Pause recording (session stays active; nothing is recorded until resume)"
+                    ? t("ts.resume_recording")
+                    : t("ts.pause_recording_session_stays_active")
                 }
               >
                 {status.manual_paused ? (
                   <>
-                    <Play size={12} /> Resume
+                    <Play size={12} /> {t("ts.resume")}
                   </>
                 ) : (
                   <>
-                    <Pause size={12} /> Pause
+                    <Pause size={12} /> {t("ts.pause")}
                   </>
                 )}
               </button>
             </>
           ) : (
-            <span className="text-[var(--color-muted)]">not tracking</span>
+            <span className="text-[var(--color-muted)]">{t("ts.not_tracking")}</span>
           )}
         </div>
       </div>
@@ -607,10 +610,9 @@ export function TimesheetPanel() {
       ) : !report || report.events.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-[var(--color-muted)]">
           <Clock size={28} className="opacity-50" />
-          <p className="text-[13px]">No tracked time on this day.</p>
+          <p className="text-[13px]">{t("ts.no_tracked_time_on_this")}</p>
           <p className="text-[12px]">
-            Type <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">track on</kbd>{" "}
-            to start tracking.
+            {tSplit("ts.empty_hint", "cmd")[0]}<kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">track on</kbd>{tSplit("ts.empty_hint", "cmd")[1]}
           </p>
         </div>
       ) : (
@@ -622,8 +624,8 @@ export function TimesheetPanel() {
             const top = report.by_app[0];
             return (
               <p className="text-[13px] leading-snug">
-                <span className="font-semibold">{isToday ? "Today" : shortDayLabel(date)}:</span>{" "}
-                {formatDuration(report.total_active_s)} active
+                <span className="font-semibold">{isToday ? t("ts.today") : shortDayLabel(date)}:</span>{" "}
+                {formatDuration(report.total_active_s)} {t("ts.active")}
                 {total > 0 ? `, ${pct}% productive` : ""}
                 {top ? `, top: ${top.key} (${formatDuration(top.seconds)})` : ""}.
               </p>
@@ -645,30 +647,30 @@ export function TimesheetPanel() {
             return (
               <div className="grid grid-cols-2 gap-3">
                 <Stat
-                  label="Active"
+                  label={t("ts.active_2")}
                   value={formatDuration(report.total_active_s)}
                   accent
                   delta={prevDay ? durationDelta(report.total_active_s - prevDay.active) : undefined}
                 />
-                <Stat label="Idle" value={formatDuration(report.total_idle_s)} />
+                <Stat label={t("ts.idle")} value={formatDuration(report.total_idle_s)} />
                 <Stat
-                  label="Productive"
+                  label={t("ts.productive")}
                   value={`${pct}%`}
                   delta={prevPct != null ? pointDelta(pct - prevPct) : undefined}
                 />
                 <Stat
-                  label="Focus"
+                  label={t("ts.focus")}
                   value={formatDuration(report.longest_focus_s)}
-                  sub={`longest · ${report.focus_segments} segment${report.focus_segments === 1 ? "" : "s"}`}
+                  sub={tn("ts.focus_sub", report.focus_segments)}
                 />
               </div>
             );
           })()}
 
           {/* Day timeline (24h gantt) — drag a window to assign a project */}
-          <Card title="Day timeline">
+          <Card title={t("ts.day_timeline")}>
             <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
-              <span>Colour</span>
+              <span>{t("ts.colour")}</span>
               <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
                 {(["app", "category", "project"] as const).map((c) => (
                   <button
@@ -722,7 +724,7 @@ export function TimesheetPanel() {
 
           {/* App + category donuts (stable category colours) */}
           <div className="grid grid-cols-2 gap-3">
-            <Card title="By app">
+            <Card title={t("ts.by_app")}>
               <Donut
                 buckets={report.by_app}
                 colors={appColors}
@@ -732,7 +734,7 @@ export function TimesheetPanel() {
                 }}
               />
             </Card>
-            <Card title="By category">
+            <Card title={t("ts.by_category")}>
               <Donut
                 buckets={report.by_category}
                 colors={catColors}
@@ -745,7 +747,7 @@ export function TimesheetPanel() {
           </div>
 
           {report.by_host.length > 0 && (
-            <Card title="Top hosts">
+            <Card title={t("ts.top_hosts")}>
               <Bars buckets={report.by_host.slice(0, 6)} total={report.total_active_s} />
             </Card>
           )}
@@ -757,10 +759,10 @@ export function TimesheetPanel() {
             <Card title="Claude Code">
               <div className="flex flex-col">
                 <div className="flex items-center gap-2 border-b border-[var(--color-border)]/60 pb-1 text-[11px] text-[var(--color-muted)]">
-                  <span className="min-w-0 flex-1">Project</span>
-                  <span className="w-[58px] text-right">Time</span>
-                  <span className="w-[70px] text-right">Tokens in</span>
-                  <span className="w-[70px] text-right">Tokens out</span>
+                  <span className="min-w-0 flex-1">{t("ts.project")}</span>
+                  <span className="w-[58px] text-right">{t("ts.time")}</span>
+                  <span className="w-[70px] text-right">{t("ts.tokens_in")}</span>
+                  <span className="w-[70px] text-right">{t("ts.tokens_out")}</span>
                 </div>
                 {report.claude.map((c) => (
                   <div key={c.project} className="flex items-center gap-2 py-1 text-[12px]">
@@ -781,7 +783,7 @@ export function TimesheetPanel() {
           {/* View toggle: grouped by app (expandable detail) vs the editable
               chronological timeline. */}
           <div className="flex items-center gap-2">
-            <span className="text-[12px] font-medium text-[var(--color-muted)]">View</span>
+            <span className="text-[12px] font-medium text-[var(--color-muted)]">{t("ts.view")}</span>
             <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
               {(["slots", "grouped", "timeline"] as const).map((v) => (
                 <button
@@ -795,7 +797,7 @@ export function TimesheetPanel() {
                       : "hover:bg-[var(--color-surface)]")
                   }
                 >
-                  {v === "slots" ? "Slots" : v === "grouped" ? "By app" : "Timeline"}
+                  {v === "slots" ? t("ts.slots") : v === "grouped" ? t("ts.by_app") : t("ts.timeline")}
                 </button>
               ))}
             </div>
@@ -803,7 +805,7 @@ export function TimesheetPanel() {
 
           {/* Slots — the consolidated, bookable blocks (derived, non-destructive). */}
           {eventsView === "slots" && (
-            <Card id="slots" title="Slots">
+            <Card id="slots" title={t("ts.slots")}>
               <SlotsView date={date} />
             </Card>
           )}
@@ -812,11 +814,11 @@ export function TimesheetPanel() {
               else window titles). */}
           {eventsView === "grouped" &&
             (report.app_breakdown.length === 0 ? (
-              <Card id="by-app-grouped" title="By app">
-                <p className="text-[12px] text-[var(--color-muted)]">No activity.</p>
+              <Card id="by-app-grouped" title={t("ts.by_app")}>
+                <p className="text-[12px] text-[var(--color-muted)]">{t("ts.no_activity")}</p>
               </Card>
             ) : (
-              <Card id="by-app-grouped" title={`By app (${report.app_breakdown.length})`}>
+              <Card id="by-app-grouped" title={t("ts.by_app_n", { n: report.app_breakdown.length })}>
                 {/* Native <details> so the toggle is browser-driven — no React
                     state to lose across the live-refresh re-renders. */}
                 <div className="flex flex-col gap-1">
@@ -882,12 +884,12 @@ export function TimesheetPanel() {
 
           {/* Timeline view — selectable (merge) + inline-editable event list */}
           {eventsView === "timeline" && (
-          <Card id="events" title={`Events (${shownEvents.length}${shownEvents.length !== report.events.length ? ` / ${report.events.length}` : ""})`}>
+          <Card id="events" title={shownEvents.length !== report.events.length ? t("ts.events_filtered", { n: shownEvents.length, total: report.events.length }) : t("ts.events_n", { n: shownEvents.length })}>
             {/* Search + active drill-down filter chip */}
             <div className="mb-2 flex items-center gap-2">
               <input
                 value={search}
-                placeholder="Search app / title / host…"
+                placeholder={t("ts.search_app_title_host")}
                 onChange={(e) => setSearch(e.target.value)}
                 className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px]"
               />
@@ -896,7 +898,7 @@ export function TimesheetPanel() {
                   type="button"
                   onClick={() => setListFilter(null)}
                   className="md3-press flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-accent)]/15 px-2 py-1 text-[11px] text-[var(--color-accent)]"
-                  title="Clear filter"
+                  title={t("ts.clear_filter")}
                 >
                   {listFilter.kind}: {listFilter.key} <X size={12} />
                 </button>
@@ -909,15 +911,15 @@ export function TimesheetPanel() {
                 onClick={() => setAdding((a) => !a)}
                 className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
               >
-                <Plus size={13} /> Add entry
+                <Plus size={13} /> {t("ts.add_entry")}
               </button>
               <button
                 type="button"
                 onClick={() => void doCleanup()}
                 className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-                title="Delete idle spans + sub-15s fragments for this day"
+                title={t("ts.delete_idle_spans_sub_15s_2")}
               >
-                <Sparkles size={13} /> Clean up
+                <Sparkles size={13} /> {t("ts.clean_up")}
               </button>
             </div>
             {adding && (
@@ -938,14 +940,14 @@ export function TimesheetPanel() {
                   onClick={() => void mergeSelected()}
                   className="md3-press flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1 text-[12px] font-semibold text-[var(--color-accent-fg)]"
                 >
-                  <GitMerge size={13} /> Merge {selected.size}
+                  <GitMerge size={13} /> {t("ts.merge")} {selected.size}
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelected(new Set())}
                   className="text-[12px] text-[var(--color-muted)] hover:underline"
                 >
-                  Clear
+                  {t("ts.clear")}
                 </button>
               </div>
             )}
@@ -962,7 +964,7 @@ export function TimesheetPanel() {
                 />
               )}
               {shownEvents.length === 0 && (
-                <p className="py-2 text-[12px] text-[var(--color-muted)]">No matching events.</p>
+                <p className="py-2 text-[12px] text-[var(--color-muted)]">{t("ts.no_matching_events")}</p>
               )}
               {shownEvents.map((e) => (
                 <div key={e.id} className="border-t border-[var(--color-border)]/60 first:border-t-0">
@@ -973,14 +975,14 @@ export function TimesheetPanel() {
                       "group flex cursor-default items-center gap-2 py-1.5 text-[12px] " +
                       (selected.has(e.id) ? "bg-[var(--color-accent)]/8 -mx-1 rounded px-1" : "")
                     }
-                    title="Double-click to edit · drag to select"
+                    title={t("ts.double_click_to_edit_drag")}
                   >
                     <input
                       type="checkbox"
                       checked={selected.has(e.id)}
                       onChange={() => toggleSelect(e.id)}
                       className="shrink-0 accent-[var(--color-accent)]"
-                      title="Select (for merge)"
+                      title={t("ts.select_for_merge")}
                     />
                     <span className="w-[92px] shrink-0 tabular-nums text-[var(--color-muted)]">
                       {formatClock(e.started_at)}–{e.ended_at ? formatClock(e.ended_at) : "…"}
@@ -1005,7 +1007,7 @@ export function TimesheetPanel() {
                     )}
                     {e.is_idle && (
                       <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-1.5 text-[10px] text-[var(--color-muted)]">
-                        idle
+                        {t("ts.idle_2")}
                       </span>
                     )}
                     <span className="w-[58px] shrink-0 text-right tabular-nums">
@@ -1015,7 +1017,7 @@ export function TimesheetPanel() {
                       type="button"
                       onClick={() => (editingId === e.id ? refresh() : beginEdit(e))}
                       className="shrink-0 rounded p-1 text-[var(--color-muted)] opacity-0 hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] group-hover:opacity-100"
-                      title="Edit"
+                      title={t("common.edit")}
                     >
                       <Pencil size={13} />
                     </button>
@@ -1031,7 +1033,7 @@ export function TimesheetPanel() {
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-1">
-                          App
+                          {t("ts.app")}
                           <input
                             value={draft.app}
                             onChange={(ev) => setDraft({ ...draft, app: ev.target.value })}
@@ -1039,7 +1041,7 @@ export function TimesheetPanel() {
                           />
                         </label>
                         <label className="flex items-center gap-1">
-                          Category
+                          {t("ts.category")}
                           <input
                             value={draft.category}
                             placeholder="—"
@@ -1048,7 +1050,7 @@ export function TimesheetPanel() {
                           />
                         </label>
                         <label className="flex items-center gap-1">
-                          Start
+                          {t("ts.start")}
                           <input
                             type="time"
                             value={draft.start}
@@ -1058,7 +1060,7 @@ export function TimesheetPanel() {
                         </label>
                         {!draft.wasOpen && (
                           <label className="flex items-center gap-1">
-                            End
+                            {t("ts.end")}
                             <input
                               type="time"
                               value={draft.end}
@@ -1076,7 +1078,7 @@ export function TimesheetPanel() {
                             onChange={(ev) => setDraft({ ...draft, idle: ev.target.checked })}
                             className="accent-[var(--color-accent)]"
                           />
-                          Idle
+                          {t("ts.idle")}
                         </label>
                         <label className="flex cursor-pointer items-center gap-1.5">
                           <input
@@ -1085,7 +1087,7 @@ export function TimesheetPanel() {
                             onChange={(ev) => setDraft({ ...draft, applyAll: ev.target.checked })}
                             className="accent-[var(--color-accent)]"
                           />
-                          Apply category to all “{draft.app}”
+                          {t("ts.apply_all", { app: draft.app })}
                         </label>
                         <div className="ml-auto flex items-center gap-1.5">
                           <button
@@ -1093,13 +1095,13 @@ export function TimesheetPanel() {
                             onClick={() => void delEvent(e.id)}
                             className="md3-press flex items-center gap-1 rounded-full border border-rose-500/40 px-2.5 py-1 text-rose-400 hover:bg-rose-500/10"
                           >
-                            <Trash2 size={13} /> Delete
+                            <Trash2 size={13} /> {t("common.delete")}
                           </button>
                           <button
                             type="button"
                             onClick={refresh}
                             className="md3-press rounded-full border border-[var(--color-border)] p-1.5"
-                            title="Cancel"
+                            title={t("common.cancel")}
                           >
                             <X size={13} />
                           </button>
@@ -1108,7 +1110,7 @@ export function TimesheetPanel() {
                             onClick={() => void saveEdit(e)}
                             className="md3-press flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
                           >
-                            <Check size={13} /> Save
+                            <Check size={13} /> {t("common.save")}
                           </button>
                         </div>
                       </div>
@@ -1120,10 +1122,10 @@ export function TimesheetPanel() {
           </Card>
           )}
           <p className="text-center text-[11px] text-[var(--color-muted)]">
-            ← → change day · t today
+            {t("ts.footer_keys")}
             {eventsView === "grouped"
-              ? " · ▸ expand an app for its detail"
-              : " · double-click to edit · drag to select (⇧ adds)"}
+              ? t("ts.expand_an_app_for_its")
+              : t("ts.double_click_to_edit_drag_2")}
           </p>
         </div>
       )}
@@ -1165,18 +1167,16 @@ function ProjectExportFooter() {
       className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]"
       onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer text-[var(--color-muted)]">Project export (for a client)</summary>
+      <summary className="cursor-pointer text-[var(--color-muted)]">{t("ts.project_export_for_a_client")}</summary>
       <div className="mt-2 flex flex-col gap-2">
         <p className="text-[var(--color-muted)]">
-          Per-project list of when · how long · on what. Pick a single client so others
-          aren't exposed, and a detail level. Assign time to projects by dragging a window
-          on the day timeline.
+          {t("ts.per_project_list_of_when")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1">
-            Project
+            {t("ts.project")}
             <select value={project} onChange={(e) => setProject(e.target.value)} className={selCls}>
-              <option value="">All projects</option>
+              <option value="">{t("ts.all_projects")}</option>
               {projects.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -1185,21 +1185,21 @@ function ProjectExportFooter() {
             </select>
           </label>
           <label className="flex items-center gap-1">
-            Detail
+            {t("ts.detail")}
             <select
               value={detail}
               onChange={(e) => setDetail(e.target.value as "summary" | "daily" | "full")}
               className={selCls}
             >
-              <option value="full">Full entries</option>
-              <option value="daily">Per day</option>
-              <option value="summary">Summary (totals)</option>
+              <option value="full">{t("ts.full_entries")}</option>
+              <option value="daily">{t("ts.per_day")}</option>
+              <option value="summary">{t("ts.summary_totals")}</option>
             </select>
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1">
-            From
+            {t("ts.from")}
             <input
               type="date"
               value={from}
@@ -1209,7 +1209,7 @@ function ProjectExportFooter() {
             />
           </label>
           <label className="flex items-center gap-1">
-            To
+            {t("ts.to")}
             <input
               type="date"
               value={to}
@@ -1232,7 +1232,7 @@ function ProjectExportFooter() {
           >
             <Download size={13} /> CSV
           </button>
-          {saved && <span className="text-[var(--color-accent)]">Saved ✓</span>}
+          {saved && <span className="text-[var(--color-accent)]">{t("ts.saved")}</span>}
         </div>
       </div>
     </details>
@@ -1251,11 +1251,11 @@ function BridgeFooter() {
       className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]"
       onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer text-[var(--color-muted)]">Browser extension</summary>
+      <summary className="cursor-pointer text-[var(--color-muted)]">{t("ts.browser_extension")}</summary>
       {info ? (
         <div className="mt-2 flex flex-col gap-1.5">
           <p className="text-[var(--color-muted)]">
-            Paste these into the extension's Options (loopback only):
+            {t("ts.paste_these_into_the_extension")}
           </p>
           <div className="flex items-center gap-2">
             <span className="w-[52px] text-[var(--color-muted)]">Port</span>
@@ -1271,7 +1271,7 @@ function BridgeFooter() {
               onClick={() => void navigator.clipboard?.writeText(info.token)}
               className="md3-press rounded-lg border border-[var(--color-border)] px-2 py-0.5"
             >
-              Copy
+              {t("common.copy")}
             </button>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -1280,25 +1280,23 @@ function BridgeFooter() {
               onClick={() => void trackBridgeRegenerate().then((t) => setInfo({ ...info, token: t }))}
               className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
             >
-              Regenerate token
+              {t("ts.regenerate_token")}
             </button>
             <button
               type="button"
               onClick={() => void trackExportExtension().then(setSavedPath).catch(() => undefined)}
               className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
             >
-              Save extension to Downloads
+              {t("ts.save_extension_to_downloads")}
             </button>
           </div>
           <p className="text-[11px] text-[var(--color-muted)]">
-            Chrome can't auto-install it — save the folder, then in{" "}
-            <code className="rounded bg-[var(--color-surface)] px-1">chrome://extensions</code>{" "}
-            enable Developer mode → <strong>Load unpacked</strong> → pick the folder.
-            {savedPath && <span className="text-[var(--color-accent)]"> Saved ✓</span>}
+            <InlineMd text={t("ts.ext_install")} />
+            {savedPath && <span className="text-[var(--color-accent)]"> {t("ts.saved_check")}</span>}
           </p>
         </div>
       ) : (
-        <p className="mt-2 text-[var(--color-muted)]">Loading…</p>
+        <p className="mt-2 text-[var(--color-muted)]">{t("common.loading")}</p>
       )}
     </details>
   );
@@ -1326,9 +1324,9 @@ function AddEntryForm({
   const submit = () => {
     const s = timeInputToMs(dayStart, start);
     const e = timeInputToMs(dayStart, end);
-    if (!app.trim()) return setErr("App name required");
-    if (s == null || e == null) return setErr("Invalid time");
-    if (e <= s) return setErr("End must be after start");
+    if (!app.trim()) return setErr(t("ts.app_name_required"));
+    if (s == null || e == null) return setErr(t("ts.invalid_time"));
+    if (e <= s) return setErr(t("ts.end_must_be_after_start_2"));
     void trackAddEvent({
       appName: app.trim(),
       category: category.trim() || null,
@@ -1338,7 +1336,7 @@ function AddEntryForm({
       .then(onAdded)
       .catch((x) => {
         console.error("add entry failed", x);
-        setErr("Failed to add");
+        setErr(t("ts.failed_to_add"));
       });
   };
 
@@ -1354,14 +1352,14 @@ function AddEntryForm({
         <input
           autoFocus
           value={app}
-          placeholder="App / activity"
+          placeholder={t("ts.app_activity")}
           onChange={(e) => setApp(e.target.value)}
           className="w-[150px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
         />
         <input
           list="add-entry-cats"
           value={category}
-          placeholder="Category"
+          placeholder={t("ts.category")}
           onChange={(e) => setCategory(e.target.value)}
           className="w-[110px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
         />
@@ -1371,7 +1369,7 @@ function AddEntryForm({
           ))}
         </datalist>
         <label className="flex items-center gap-1">
-          Start
+          {t("ts.start")}
           <input
             type="time"
             value={start}
@@ -1380,7 +1378,7 @@ function AddEntryForm({
           />
         </label>
         <label className="flex items-center gap-1">
-          End
+          {t("ts.end")}
           <input
             type="time"
             value={end}
@@ -1397,14 +1395,14 @@ function AddEntryForm({
             onClick={onCancel}
             className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
             onClick={submit}
             className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
           >
-            Add
+            {t("ts.add")}
           </button>
         </div>
       </div>
@@ -1440,14 +1438,13 @@ function ProjectAssign({
       }}
     >
       <span className="text-[var(--color-muted)]">
-        {formatClock(pending.t1)}–{formatClock(pending.t2)} · {pending.ids.length} entr
-        {pending.ids.length === 1 ? "y" : "ies"} · {formatDuration(secs)}
+        {formatClock(pending.t1)}–{formatClock(pending.t2)} · {tn("ts.entries", pending.ids.length)} · {formatDuration(secs)}
       </span>
       <input
         autoFocus
         list="proj-assign-cats"
         value={value}
-        placeholder="Project / client"
+        placeholder={t("ts.project_client")}
         onChange={(e) => setValue(e.target.value)}
         className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
       />
@@ -1461,7 +1458,7 @@ function ProjectAssign({
         onClick={onCancel}
         className="md3-press rounded-full border border-[var(--color-border)] px-2.5 py-0.5"
       >
-        Cancel
+        {t("common.cancel")}
       </button>
       <button
         type="button"
@@ -1469,7 +1466,7 @@ function ProjectAssign({
         disabled={pending.ids.length === 0 || value.trim() === ""}
         className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-0.5 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
       >
-        Assign
+        {t("ts.assign")}
       </button>
     </div>
   );
@@ -1498,7 +1495,7 @@ function CategoryAssign({
   };
   return (
     <div className="flex items-center gap-1.5 py-1 text-[12px]">
-      <span className="text-[var(--color-muted)]">Category</span>
+      <span className="text-[var(--color-muted)]">{t("ts.category")}</span>
       <input
         list={listId}
         value={value}
@@ -1520,7 +1517,7 @@ function CategoryAssign({
         disabled={!dirty || value.trim() === ""}
         className="md3-press rounded-full bg-[var(--color-accent)] px-2.5 py-0.5 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
       >
-        Set
+        {t("ts.set")}
       </button>
     </div>
   );
@@ -1548,7 +1545,7 @@ function ProjectEntries({ events, now }: { events: TrackEvent[]; now: number }) 
 
   if (groups.length === 0) return null;
   return (
-    <Card title="By project">
+    <Card title={t("ts.by_project")}>
       <div className="flex flex-col gap-1">
         {groups.map((g) => (
           <details key={g.project} className="ts-app-group">
@@ -1557,7 +1554,7 @@ function ProjectEntries({ events, now }: { events: TrackEvent[]; now: number }) 
               <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: projectColor(g.project) }} />
               <span className="min-w-0 flex-1 truncate text-left font-medium">{g.project}</span>
               <span className="shrink-0 text-[var(--color-muted)]">
-                {g.events.length} entr{g.events.length === 1 ? "y" : "ies"}
+                {tn("ts.entries", g.events.length)}
               </span>
               <span className="w-[58px] shrink-0 text-right tabular-nums">{formatDuration(g.seconds)}</span>
             </summary>
@@ -1624,7 +1621,7 @@ function Stat({
               "text-[11px] font-semibold tabular-nums " +
               (delta.positive ? "text-emerald-400" : "text-rose-400")
             }
-            title="vs. previous day"
+            title={t("ts.vs_previous_day")}
           >
             {delta.positive ? "▲" : "▼"} {delta.text}
           </span>
@@ -1652,13 +1649,13 @@ function GoalBar({ activeSec, goalMin }: { activeSec: number; goalMin: number })
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
       <div className="mb-1 flex items-center justify-between text-[12px]">
-        <span className="font-medium text-[var(--color-muted)]">Daily goal</span>
+        <span className="font-medium text-[var(--color-muted)]">{t("ts.daily_goal")}</span>
         <span className="tabular-nums">
           {formatDuration(activeSec)} / {formatDuration(goalSec)}
           {done ? (
-            <span className="ml-1 text-emerald-400">reached ✓</span>
+            <span className="ml-1 text-emerald-400">{t("ts.reached")}</span>
           ) : (
-            <span className="ml-1 text-[var(--color-muted)]">· {formatDuration(remain)} to go</span>
+            <span className="ml-1 text-[var(--color-muted)]">· {t("ts.to_go", { time: formatDuration(remain) })}</span>
           )}
         </span>
       </div>
@@ -1708,7 +1705,7 @@ function Card({
         type="button"
         onClick={toggle}
         className="md3-press -m-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-lg p-1 text-left text-[12px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-        title={collapsed ? "Expand section" : "Collapse section"}
+        title={collapsed ? t("ts.expand_section") : t("ts.collapse_section")}
         aria-expanded={!collapsed}
       >
         <ChevronRight
@@ -1801,7 +1798,7 @@ function Timeline({
           "relative h-7 w-full select-none overflow-hidden rounded-md bg-[var(--color-surface)] " +
           (onSelectRange ? "cursor-crosshair" : "")
         }
-        title={onSelectRange ? "Drag to select a time window → assign a project" : undefined}
+        title={onSelectRange ? t("ts.drag_to_select_a_time") : undefined}
       >
         {events.map((e) => {
           const band = timelineBand(e.started_at, e.ended_at, dayStart, now, dayEnd);
@@ -1859,7 +1856,7 @@ function Donut({
   const entries = rest > 0 ? [...top, { key: "Other", seconds: rest }] : top;
   const segs = donutSegments(entries.map((e) => e.seconds));
   const total = entries.reduce((a, b) => a + b.seconds, 0);
-  if (total <= 0) return <p className="text-[12px] text-[var(--color-muted)]">No active time.</p>;
+  if (total <= 0) return <p className="text-[12px] text-[var(--color-muted)]">{t("ts.no_active_time")}</p>;
   return (
     <div className="flex items-center gap-3">
       <svg viewBox="0 0 100 100" className="h-[110px] w-[110px] shrink-0">
@@ -1882,7 +1879,7 @@ function Donut({
                 "flex items-center gap-1.5 rounded text-[11px] " +
                 (pickable ? "cursor-pointer hover:bg-[var(--color-surface)]" : "")
               }
-              title={pickable ? `Show only ${e.key}` : undefined}
+              title={pickable ? t("ts.show_only", { name: e.key }) : undefined}
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -1908,7 +1905,7 @@ function Bars({
   total: number;
 }) {
   if (buckets.length === 0)
-    return <p className="text-[12px] text-[var(--color-muted)]">No data.</p>;
+    return <p className="text-[12px] text-[var(--color-muted)]">{t("ts.no_data")}</p>;
   const max = Math.max(1, ...buckets.map((b) => b.seconds));
   return (
     <div className="flex flex-col gap-1.5">

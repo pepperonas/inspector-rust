@@ -2977,7 +2977,9 @@ function App() {
   // [issuer]` (v0.104.0) makes the ADD form the primary row instead, the
   // sub-row pointing back at the manager. The which-rows-for-which-query
   // logic is the pure, unit-tested `lib/totp.ts::totpCommandRows`.
-  const totpRows = useMemo(() => totpCommandRows(query), [query]);
+  // The rows carry translated labels; `t` changes per language.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const totpRows = useMemo(() => totpCommandRows(query), [query, t]);
   const totpManageEntry: ListEntry | null = useMemo(
     () => (totpRows.manage ? { kind: "totp-manage", data: totpRows.manage } : null),
     [totpRows],

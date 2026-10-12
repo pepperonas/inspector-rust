@@ -21,6 +21,8 @@ import {
 } from "../lib/ipc";
 import type { ContentType, Note } from "../lib/types";
 import { relativeTime, truncateOneLine } from "../lib/format";
+import { t, tn, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 interface Props {
   notes: Note[];
@@ -68,6 +70,7 @@ function ContentTypeIcon({ type }: { type: ContentType }) {
 }
 
 export function NotesPanel({ notes, categories, onRefresh }: Props) {
+  useT();
   const [activeCategory, setActiveCategory] = useState<string>(ALL);
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -138,7 +141,7 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
     if (form.id === null) {
       // From-scratch text note
       if (!form.body.trim()) {
-        setError("Body text is required.");
+        setError(t("notes.body_text_is_required"));
         return;
       }
       setSaving(true);
@@ -184,8 +187,8 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
   const onClearAll = async () => {
     if (notes.length === 0) return;
     const ok = await confirmDialog(
-      `Delete all ${notes.length} note${notes.length === 1 ? "" : "s"}? This cannot be undone.`,
-      "Delete all notes?",
+      tn("notes.delete_all_confirm", notes.length),
+      t("notes.delete_all_notes"),
     );
     if (!ok) return;
     await clearNotes();
@@ -201,17 +204,17 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
       {/* Sidebar — categories + actions */}
       <div className="flex w-1/4 min-w-[180px] flex-col border-r border-[var(--color-border)]">
         <div className="border-b border-[var(--color-border)] px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-          Categories
+          {t("notes.categories")}
         </div>
         <div className="flex-1 overflow-auto">
           <CategoryRow
-            label="All"
+            label={t("notes.all")}
             count={counts.all}
             active={activeCategory === ALL}
             onClick={() => setActiveCategory(ALL)}
           />
           <CategoryRow
-            label="Uncategorized"
+            label={t("notes.uncategorized")}
             count={counts.uncategorized}
             active={activeCategory === UNCATEGORIZED}
             onClick={() => setActiveCategory(UNCATEGORIZED)}
@@ -228,10 +231,10 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
           ))}
         </div>
         <div className="border-t border-[var(--color-border)]">
-          <SidebarAction icon={<Plus size={13} />} label="New Note" onClick={openNew} />
+          <SidebarAction icon={<Plus size={13} />} label={t("notes.new_note")} onClick={openNew} />
           <SidebarAction
             icon={<Trash2 size={13} />}
-            label="Clear All"
+            label={t("notes.clear_all")}
             onClick={() => void onClearAll()}
             danger
             disabled={notes.length === 0}
@@ -245,8 +248,8 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
           {filtered.length === 0 ? (
             <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[var(--color-muted)]">
               {notes.length === 0
-                ? "No notes yet. Star a clipboard entry or click + New Note."
-                : "No notes in this category."}
+                ? t("notes.no_notes_yet_star_a")
+                : t("notes.no_notes_in_this_category")}
             </div>
           ) : (
             filtered.map((n) => {
@@ -296,7 +299,7 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
                         ? "text-white/80 hover:bg-white/20"
                         : "text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-red-400")
                     }
-                    title="Delete note"
+                    title={t("notes.delete_note")}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -312,7 +315,7 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
         {form === null ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-[12px] text-[var(--color-muted)]">
             <Bookmark size={24} className="opacity-30" />
-            <span>Select a note or click&nbsp;<b>+ New Note</b></span>
+            <span><InlineMd text={t("notes.select_hint")} /></span>
           </div>
         ) : (
           <NoteEditor
@@ -442,16 +445,16 @@ function NoteEditor({
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
         <ContentTypeIcon type={form.contentType} />
         <span>{form.contentType}</span>
-        <span className="ml-auto">{form.id === null ? "New Note" : `Note #${form.id}`}</span>
+        <span className="ml-auto">{form.id === null ? t("notes.new_note") : t("notes.note_n", { n: form.id ?? "" })}</span>
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] text-[var(--color-muted)]">Title (optional)</span>
+        <span className="text-[11px] text-[var(--color-muted)]">{t("notes.title_optional")}</span>
         <input
           autoFocus={form.id === null}
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
-          placeholder="e.g. Server credentials, API key"
+          placeholder={t("notes.e_g_server_credentials_api")}
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
           onKeyDown={(e) => {
             if (e.key === "Escape") onCancel();
@@ -461,13 +464,13 @@ function NoteEditor({
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] text-[var(--color-muted)]">
-          Category (free-form, autocomplete from existing)
+          {t("notes.category_free_form_suggestions_from")}
         </span>
         <input
           list="note-categories"
           value={form.category}
           onChange={(e) => setForm({ ...form, category: e.target.value })}
-          placeholder="e.g. Work, Snippets, …"
+          placeholder={t("notes.e_g_work_snippets")}
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
           onKeyDown={(e) => {
             if (e.key === "Escape") onCancel();
@@ -482,13 +485,13 @@ function NoteEditor({
 
       <label className="flex min-h-0 flex-1 flex-col gap-1">
         <span className="text-[11px] text-[var(--color-muted)]">
-          Body {editable ? (form.contentType !== "text" ? `(raw ${form.contentType})` : "") : "(read-only)"}
+          {t("notes.body")} {editable ? (form.contentType !== "text" ? t("notes.raw", { type: form.contentType }) : "") : t("notes.read_only")}
         </span>
         {isImage ? (
           <div className="flex flex-1 items-center justify-center overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-surface)]">
             <img
               src={`data:image/png;base64,${form.contentData}`}
-              alt="note image"
+              alt={t("notes.note_image")}
               className="max-h-full max-w-full object-contain"
             />
           </div>
@@ -505,7 +508,7 @@ function NoteEditor({
             value={form.body}
             readOnly={!editable}
             onChange={(e) => setForm({ ...form, body: e.target.value })}
-            placeholder={editable ? "Note text…" : ""}
+            placeholder={editable ? t("notes.note_text") : ""}
             className={
               "flex-1 resize-none rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[12px] leading-5 outline-none focus:border-[var(--color-accent)] " +
               (!editable ? "cursor-default" : "")
@@ -523,7 +526,7 @@ function NoteEditor({
         {onDelete && (
           <button
             onClick={onDelete}
-            title="Delete note"
+            title={t("notes.delete_note")}
             className="mr-auto rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-red-400"
           >
             <Trash2 size={14} />
@@ -533,24 +536,24 @@ function NoteEditor({
           <button
             onClick={onPaste}
             className="flex items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-            title="Paste this note into the previously focused app"
+            title={t("notes.paste_this_note_into_the")}
           >
             <Send size={12} />
-            Paste
+            {t("notes.paste")}
           </button>
         )}
         <button
           onClick={onCancel}
           className="rounded px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
         >
-          {form.id === null ? "Cancel" : "Close"}
+          {form.id === null ? t("common.cancel") : t("common.close")}
         </button>
         <button
           onClick={onSave}
           disabled={saving}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
         >
-          {saving ? "Saving…" : form.id === null ? "Create" : "Save"}
+          {saving ? t("notes.saving") : form.id === null ? t("notes.create") : t("common.save")}
         </button>
       </div>
     </div>

@@ -39,6 +39,8 @@ import { filterShazamHistory } from "../lib/shazam-filter";
 import { formatBilingualForCopy } from "../lib/shazam-lyrics";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { t, useT } from "../lib/i18n";
+import { relativeTime } from "../lib/format";
 
 type Phase = "listening" | "searching" | "result" | "nomatch" | "error" | "noperm";
 const RECORD_SECONDS = 10;
@@ -97,17 +99,7 @@ function BrandButton({
   );
 }
 
-function timeAgo(ms: number): string {
-  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(ms).toLocaleDateString();
-}
+const timeAgo = relativeTime;
 
 /** Small round icon link button (history rows). */
 function LinkChip({
@@ -152,6 +144,7 @@ export function ShazamPanel({
   viewSignal?: number;
   onExit: () => void;
 }) {
+  useT();
   const [view, setView] = useState<"recognize" | "history" | "lyrics">(initialView);
   /** Where the lyrics view returns to on ←. */
   const [lyricsBack, setLyricsBack] = useState<"recognize" | "history">("recognize");
@@ -446,7 +439,7 @@ export function ShazamPanel({
   /** Browser fallback when the lyrics catalogue has no entry. */
   const searchLyricsInBrowser = useCallback(() => {
     if (!lyricsMeta) return;
-    const q = encodeURIComponent(`songtext ${lyricsMeta.artist} ${lyricsMeta.title}`);
+    const q = encodeURIComponent(`${t("shazam.lyrics_search_word")} ${lyricsMeta.artist} ${lyricsMeta.title}`);
     void openUrl(`https://www.google.com/search?q=${q}`);
   }, [lyricsMeta]);
 
@@ -518,7 +511,7 @@ export function ShazamPanel({
               (view === "recognize" ? "bg-rose-600 text-white" : "text-[var(--color-muted)]")
             }
           >
-            Listen
+            {t("shazam.listen")}
           </button>
           <button
             type="button"
@@ -566,11 +559,11 @@ export function ShazamPanel({
                 />
               </div>
               <div className="text-xs text-[var(--color-muted)]">
-                Play the song near the mic · {Math.ceil(RECORD_SECONDS * (1 - progress))}s
+                {t("shazam.play_near", { n: Math.ceil(RECORD_SECONDS * (1 - progress)) })}
               </div>
             </>
           ) : (
-            <div className="text-xs text-[var(--color-muted)]">Matching the fingerprint…</div>
+            <div className="text-xs text-[var(--color-muted)]">{t("shazam.matching_the_fingerprint")}</div>
           )}
         </div>
       )}
@@ -603,49 +596,49 @@ export function ShazamPanel({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {match.shazam_url && (
-              <BrandButton title="Open in Shazam" color={SHAZAM_BLUE} onClick={() => void openUrl(match.shazam_url)}>
+              <BrandButton title={t("shazam.open_in_shazam")} color={SHAZAM_BLUE} onClick={() => void openUrl(match.shazam_url)}>
                 <ShazamIcon size={18} />
               </BrandButton>
             )}
             <BrandButton
-              title="Open in Spotify (app if installed, else web)"
+              title={t("shazam.open_in_spotify_app_if")}
               color={SPOTIFY_GREEN}
               onClick={() => void openSpotify(match.spotify_url, match.title, match.artist)}
             >
               <SpotifyIcon size={18} />
             </BrandButton>
-            <BrandButton title="Open on YouTube" color={YT_RED} onClick={() => void openUrl(match.youtube_url)}>
+            <BrandButton title={t("shazam.open_on_youtube")} color={YT_RED} onClick={() => void openUrl(match.youtube_url)}>
               <YoutubeIcon size={18} />
             </BrandButton>
             <button
               type="button"
               onClick={() => openLyrics(match.title, match.artist, match.cover_url, "recognize")}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
-              title="Show the lyrics (L)"
+              title={t("shazam.show_the_lyrics_l")}
             >
-              <ScrollText size={13} /> Lyrics
+              <ScrollText size={13} /> {t("shazam.lyrics")}
             </button>
             <button
               type="button"
               onClick={() => openLyrics(match.title, match.artist, match.cover_url, "recognize", "bi")}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
-              title="Lyrics with a German translation under each line"
+              title={t("shazam.lyrics_with_a_german_translation")}
             >
-              <Languages size={13} /> Lyrics DE
+              <Languages size={13} /> {t("shazam.lyrics_de")}
             </button>
             <button
               type="button"
               onClick={() => void copyTitle()}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
             >
-              <Copy size={13} /> {copied ? <span className="md3-success-pop">Copied!</span> : "Copy"}
+              <Copy size={13} /> {copied ? <span className="md3-success-pop">{t("shazam.copied")}</span> : t("common.copy")}
             </button>
             <button
               type="button"
               onClick={() => void run()}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
             >
-              <RefreshCw size={13} /> Again
+              <RefreshCw size={13} /> {t("shazam.again")}
             </button>
           </div>
         </div>
@@ -661,16 +654,16 @@ export function ShazamPanel({
             )}
             <div className="text-[var(--color-fg)]">
               {phase === "nomatch"
-                ? "No match found"
+                ? t("shazam.no_match_found")
                 : phase === "noperm"
-                  ? "Microphone access needed"
-                  : "Recognition failed"}
+                  ? t("shazam.microphone_access_needed")
+                  : t("shazam.recognition_failed")}
             </div>
             <div className="text-xs text-[var(--color-muted)]">
               {phase === "nomatch"
-                ? "Try again with the music louder / clearer."
+                ? t("shazam.try_again_with_the_music")
                 : phase === "noperm"
-                  ? "Grant microphone access in System Settings → Privacy."
+                  ? t("shazam.grant_microphone_access_in_system")
                   : error}
             </div>
             <button
@@ -678,7 +671,7 @@ export function ShazamPanel({
               onClick={() => void run()}
               className="mt-1 flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500"
             >
-              <RefreshCw size={13} /> Listen again
+              <RefreshCw size={13} /> {t("shazam.listen_again")}
             </button>
           </div>
         )}
@@ -691,9 +684,9 @@ export function ShazamPanel({
               type="button"
               onClick={() => setView(lyricsBack)}
               className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
-              title="Back (Esc)"
+              title={t("shazam.back_esc")}
             >
-              <ArrowLeft size={12} /> Back
+              <ArrowLeft size={12} /> {t("shazam.back")}
             </button>
             {lyricsMeta.cover ? (
               <img src={lyricsMeta.cover} alt="" className="h-8 w-8 shrink-0 rounded object-cover" />
@@ -713,7 +706,7 @@ export function ShazamPanel({
                   type="button"
                   onClick={() => switchLyricsMode("orig")}
                   className={`rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "orig" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
-                  title="Original lyrics"
+                  title={t("shazam.original_lyrics")}
                 >
                   Original
                 </button>
@@ -721,7 +714,7 @@ export function ShazamPanel({
                   type="button"
                   onClick={() => switchLyricsMode("bi")}
                   className={`flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "bi" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
-                  title="German translation under each line"
+                  title={t("shazam.german_translation_under_each_line")}
                 >
                   <Languages size={11} /> +DE
                 </button>
@@ -731,9 +724,9 @@ export function ShazamPanel({
                 onClick={() => void copyLyrics()}
                 disabled={!lyricsClipboardText()}
                 className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[11px] font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)] disabled:cursor-not-allowed disabled:opacity-40"
-                title="Copy lyrics to clipboard (C)"
+                title={t("shazam.copy_lyrics_to_clipboard_c")}
               >
-                <Copy size={11} /> {copied ? "Copied!" : "Copy"}
+                <Copy size={11} /> {copied ? t("shazam.copied") : t("common.copy")}
               </button>
             </div>
           </div>
@@ -741,7 +734,7 @@ export function ShazamPanel({
           {/* ── Original lyrics ── */}
           {lyricsMode === "orig" && lyrics.status === "loading" && (
             <div className="flex flex-1 items-center justify-center gap-2 text-xs text-[var(--color-muted)]">
-              <Loader2 size={14} className="animate-spin" /> Loading lyrics…
+              <Loader2 size={14} className="animate-spin" /> {t("shazam.loading_lyrics")}
             </div>
           )}
           {lyricsMode === "orig" && lyrics.status === "ok" && (
@@ -749,7 +742,7 @@ export function ShazamPanel({
               <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-relaxed text-[var(--color-fg)]">
                 {lyrics.text}
               </pre>
-              <div className="mt-3 text-[10px] text-[var(--color-muted)]">Lyrics via lrclib.net</div>
+              <div className="mt-3 text-[10px] text-[var(--color-muted)]">{t("shazam.lyrics_via_lrclib_net")}</div>
             </div>
           )}
           {lyricsMode === "orig" && (lyrics.status === "none" || lyrics.status === "error") && (
@@ -757,7 +750,7 @@ export function ShazamPanel({
               <ScrollText size={22} className="text-[var(--color-muted)]" />
               <div className="text-xs text-[var(--color-muted)]">
                 {lyrics.status === "none"
-                  ? "No lyrics in the catalogue for this track."
+                  ? t("shazam.no_lyrics_in_the_catalogue")
                   : lyrics.text}
               </div>
               <button
@@ -765,7 +758,7 @@ export function ShazamPanel({
                 onClick={searchLyricsInBrowser}
                 className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
               >
-                <Search size={12} /> Search in the browser
+                <Search size={12} /> {t("shazam.search_in_the_browser")}
               </button>
             </div>
           )}
@@ -773,7 +766,7 @@ export function ShazamPanel({
           {/* ── Bilingual lyrics (+DE) ── */}
           {lyricsMode === "bi" && translated.status === "loading" && (
             <div className="flex flex-1 items-center justify-center gap-2 text-xs text-[var(--color-muted)]">
-              <Loader2 size={14} className="animate-spin" /> Übersetze Songtext…
+              <Loader2 size={14} className="animate-spin" /> {t("shazam.translating_lyrics")}
             </div>
           )}
           {lyricsMode === "bi" && translated.status === "ok" && translated.data && (
@@ -781,7 +774,7 @@ export function ShazamPanel({
               {translated.data.src_lang === "de" ? (
                 <>
                   <div className="mb-2 text-[11px] text-[var(--color-muted)]">
-                    Dieser Song ist bereits auf Deutsch.
+                    {t("shazam.this_song_is_already_in")}
                   </div>
                   <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-relaxed text-[var(--color-fg)]">
                     {translated.data.segments.map((s) => s.orig).join("\n")}
@@ -802,7 +795,7 @@ export function ShazamPanel({
                 </div>
               )}
               <div className="mt-3 text-[10px] text-[var(--color-muted)]">
-                Lyrics via lrclib.net · Übersetzung via Google Translate
+                {t("shazam.lyrics_via_lrclib_net_translation")}
               </div>
             </div>
           )}
@@ -811,7 +804,7 @@ export function ShazamPanel({
               <ScrollText size={22} className="text-[var(--color-muted)]" />
               <div className="text-xs text-[var(--color-muted)]">
                 {translated.status === "none"
-                  ? "No lyrics in the catalogue for this track."
+                  ? t("shazam.no_lyrics_in_the_catalogue")
                   : translated.error}
               </div>
               <button
@@ -819,7 +812,7 @@ export function ShazamPanel({
                 onClick={searchLyricsInBrowser}
                 className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
               >
-                <Search size={12} /> Search in the browser
+                <Search size={12} /> {t("shazam.search_in_the_browser")}
               </button>
             </div>
           )}
@@ -836,7 +829,7 @@ export function ShazamPanel({
                 type="text"
                 value={histQuery}
                 onChange={(e) => setHistQuery(e.target.value)}
-                placeholder="Search title · artist · album · genre…"
+                placeholder={t("shazam.search_title_artist_album_genre")}
                 className="w-full bg-transparent text-xs text-[var(--color-fg)] outline-none placeholder:text-[var(--color-muted)]"
               />
               {histQuery !== "" && (
@@ -844,7 +837,7 @@ export function ShazamPanel({
                   type="button"
                   onClick={() => setHistQuery("")}
                   className="shrink-0 rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                  title="Clear search"
+                  title={t("shazam.clear_search")}
                 >
                   <X size={12} />
                 </button>
@@ -855,15 +848,15 @@ export function ShazamPanel({
             <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
               <span>
                 {histQuery
-                  ? `${filteredHistory.length} of ${history.length}`
-                  : `${history.length} recognized`}
+                  ? t("shazam.n_of", { n: filteredHistory.length, total: history.length })
+                  : t("shazam.n_recognized", { n: history.length })}
               </span>
               <button
                 type="button"
                 onClick={() => void clearHistory()}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--color-surface)]"
               >
-                <Trash2 size={12} /> Clear all
+                <Trash2 size={12} /> {t("shazam.clear_all")}
               </button>
             </div>
           )}
@@ -890,28 +883,28 @@ export function ShazamPanel({
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   {e.shazam_url && (
-                    <LinkChip title="Open in Shazam" color={SHAZAM_BLUE} onClick={() => void openUrl(e.shazam_url)}>
+                    <LinkChip title={t("shazam.open_in_shazam")} color={SHAZAM_BLUE} onClick={() => void openUrl(e.shazam_url)}>
                       <ShazamIcon size={13} />
                     </LinkChip>
                   )}
                   <LinkChip
-                    title="Open in Spotify"
+                    title={t("shazam.open_in_spotify")}
                     color={SPOTIFY_GREEN}
                     onClick={() => void openSpotify(e.spotify_url, e.title, e.artist)}
                   >
                     <SpotifyIcon size={13} />
                   </LinkChip>
-                  <LinkChip title="Open on YouTube" color={YT_RED} onClick={() => void openUrl(e.youtube_url)}>
+                  <LinkChip title={t("shazam.open_on_youtube")} color={YT_RED} onClick={() => void openUrl(e.youtube_url)}>
                     <YoutubeIcon size={13} />
                   </LinkChip>
-                  <LinkChip title="Show lyrics" onClick={() => openLyrics(e.title, e.artist, e.cover_url, "history")}>
+                  <LinkChip title={t("shazam.show_lyrics")} onClick={() => openLyrics(e.title, e.artist, e.cover_url, "history")}>
                     <ScrollText size={12} />
                   </LinkChip>
                   <button
                     type="button"
                     onClick={() => void deleteEntry(e.id)}
                     className="rounded p-0.5 text-[var(--color-muted)] opacity-0 hover:text-rose-400 group-hover:opacity-100"
-                    title="Remove"
+                    title={t("common.remove")}
                   >
                     <X size={13} />
                   </button>
@@ -920,12 +913,12 @@ export function ShazamPanel({
             ))}
             {history.length === 0 && (
               <div className="md3-empty-float pt-8 text-center text-[var(--color-muted)]">
-                No songs recognized yet.
+                {t("shazam.no_songs_recognized_yet")}
               </div>
             )}
             {history.length > 0 && filteredHistory.length === 0 && (
               <div className="pt-8 text-center text-[var(--color-muted)]">
-                No match for “{histQuery}”.
+                {t("shazam.no_match_q", { q: histQuery })}
               </div>
             )}
           </div>
@@ -934,10 +927,10 @@ export function ShazamPanel({
 
       <div className="text-center text-[11px] text-[var(--color-muted)]">
         {view === "recognize"
-          ? `Records ~${RECORD_SECONDS}s from the mic · R = again · L = lyrics · Esc to exit`
+          ? t("shazam.footer_listen", { n: RECORD_SECONDS })
           : view === "lyrics"
-            ? "C = copy lyrics · Esc = back"
-            : "History is stored locally · Esc to exit"}
+            ? t("shazam.c_copy_lyrics_esc_back")
+            : t("shazam.history_is_stored_locally_esc")}
       </div>
     </div>
   );

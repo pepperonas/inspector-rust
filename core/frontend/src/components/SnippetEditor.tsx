@@ -19,6 +19,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { createSnippetCategory, upsertSnippet, type SnippetCategory } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 export interface SnippetDraft {
   /** null = a new snippet. */
@@ -56,6 +58,7 @@ export function SnippetEditor({
    *  where the body is what you came to change. */
   autoFocus?: "abbreviation" | "body";
 }) {
+  useT();
   const [form, setForm] = useState<SnippetDraft>(initial);
   const [newGroupName, setNewGroupName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,11 +66,11 @@ export function SnippetEditor({
 
   const save = async () => {
     if (!form.abbreviation.trim()) {
-      setError("Abbreviation is required.");
+      setError(t("snip.abbreviation_is_required"));
       return;
     }
     if (!form.body.trim()) {
-      setError("Body text is required.");
+      setError(t("snip.body_text_is_required"));
       return;
     }
     setSaving(true);
@@ -103,11 +106,11 @@ export function SnippetEditor({
   return (
     <div className="flex h-full flex-col gap-3" onKeyDown={onFormKeyDown}>
       <div className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-        <span>{form.id === null ? "New Snippet" : "Edit Snippet"}</span>
+        <span>{form.id === null ? t("snip.new_snippet") : t("snip.edit_snippet")}</span>
         {form.id !== null && (
           <span
             className="font-[var(--font-mono)] normal-case tracking-normal text-[var(--color-muted)]/70"
-            title={`Content revision ${form.version ?? 1} — bumps only when abbreviation, title or body change`}
+            title={t("snip.revision_title", { n: form.version ?? 1 })}
           >
             v{form.version ?? 1}
           </span>
@@ -115,7 +118,7 @@ export function SnippetEditor({
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] text-[var(--color-muted)]">Abbreviation *</span>
+        <span className="text-[11px] text-[var(--color-muted)]">{t("snip.abbreviation")}</span>
         <input
           autoFocus={autoFocus === "abbreviation"}
           value={form.abbreviation}
@@ -130,11 +133,11 @@ export function SnippetEditor({
 
       <div className="flex gap-2">
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-[11px] text-[var(--color-muted)]">Title (optional)</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("snip.title_optional")}</span>
           <input
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="e.g. Signing off"
+            placeholder={t("snip.e_g_signing_off")}
             className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) void save();
@@ -143,14 +146,14 @@ export function SnippetEditor({
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] text-[var(--color-muted)]">Group</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("snip.group")}</span>
           {newGroupName !== null ? (
             <div className="flex items-center gap-1">
               <input
                 autoFocus
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
-                placeholder="New group name"
+                placeholder={t("snip.new_group_name")}
                 className="w-32 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
                 onKeyDown={(e) => {
                   // Esc here only cancels the inline group input, not the form.
@@ -162,7 +165,7 @@ export function SnippetEditor({
               />
               <button
                 onClick={() => setNewGroupName(null)}
-                title="Cancel new group"
+                title={t("snip.cancel_new_group")}
                 className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               >
                 <X size={13} />
@@ -181,38 +184,29 @@ export function SnippetEditor({
               }}
               className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
             >
-              <option value="">No group</option>
+              <option value="">{t("snip.no_group")}</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
-              <option value="__new__">＋ New group…</option>
+              <option value="__new__">{t("snip.new_group")}</option>
             </select>
           )}
         </label>
       </div>
 
       <label className="flex min-h-0 flex-1 flex-col gap-1">
-        <span className="text-[11px] text-[var(--color-muted)]">Body *</span>
+        <span className="text-[11px] text-[var(--color-muted)]">{t("snip.text")}</span>
         <textarea
           autoFocus={autoFocus === "body"}
           value={form.body}
           onChange={(e) => setForm({ ...form, body: e.target.value })}
-          placeholder="Template text that gets pasted…"
+          placeholder={t("snip.template_text_that_gets_pasted")}
           className="flex-1 resize-none rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[12px] leading-5 outline-none focus:border-[var(--color-accent)]"
         />
         <span className="text-[10px] leading-snug text-[var(--color-muted)]">
-          Placeholders (expanded on paste):{" "}
-          <code className="text-[var(--color-fg)]">{"{date}"}</code>{" "}
-          <code className="text-[var(--color-fg)]">{"{time}"}</code>{" "}
-          <code className="text-[var(--color-fg)]">{"{datetime}"}</code>{" "}
-          <code className="text-[var(--color-fg)]">{"{clipboard}"}</code>{" "}
-          <code className="text-[var(--color-fg)]">{"{cursor}"}</code>
-          {" — "}custom format e.g.{" "}
-          <code className="text-[var(--color-fg)]">{"{date:%d.%m.%Y}"}</code>;{" "}
-          <code className="text-[var(--color-fg)]">{"{{"}</code>/
-          <code className="text-[var(--color-fg)]">{"}}"}</code> for literal braces.
+          <InlineMd text={t("snip.placeholders")} />
         </span>
       </label>
 
@@ -220,20 +214,20 @@ export function SnippetEditor({
 
       <div className="flex items-center justify-end gap-2">
         <span className="mr-auto text-[10px] text-[var(--color-muted)]">
-          ⌘/Ctrl+↵ save · Esc cancel
+          {t("snip.ctrl_save_esc_cancel")}
         </span>
         <button
           onClick={onCancel}
           className="rounded px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
         >
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           onClick={() => void save()}
           disabled={saving}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("snip.saving") : t("common.save")}
         </button>
       </div>
     </div>

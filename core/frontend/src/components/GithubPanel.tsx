@@ -52,17 +52,18 @@ import {
 } from "../lib/github";
 import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
 import { donutSegments } from "../lib/loc";
+import { locale, t, tn, useT, type MessageKey } from "../lib/i18n";
 
 /** Signals already handled — module-level so a remount never replays one. */
 let lastHandledRun = 0;
 /** The range survives closing the panel (per session). */
 let rememberedRange: GithubRange = "30d";
 
-const KPI_LABEL: Record<GithubKpi["key"], string> = {
-  followers: "Followers",
-  stars: "Total Stars",
-  repos: "Repositories",
-  forks: "Forks",
+const KPI_LABEL: Record<GithubKpi["key"], MessageKey> = {
+  followers: "github.kpi.followers",
+  stars: "github.kpi.stars",
+  repos: "github.kpi.repos",
+  forks: "github.kpi.forks",
 };
 const LINE_COLORS = ["var(--color-accent)", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6"];
 
@@ -92,7 +93,7 @@ function Delta({ label, d }: { label: string; d: number | null }) {
         ? "text-rose-500"
         : "text-[var(--color-muted)]";
   return (
-    <span className="tabular-nums" title={d == null ? "Insufficient history" : undefined}>
+    <span className="tabular-nums" title={d == null ? t("github.insufficient_history") : undefined}>
       <span className="text-[var(--color-muted)]">{label} </span>
       <span className={cls}>{formatDelta(d)}</span>
     </span>
@@ -101,7 +102,7 @@ function Delta({ label, d }: { label: string; d: number | null }) {
 
 function DeltaRow({ d }: { d: GithubDeltas }) {
   if (historyCollecting(d)) {
-    return <div className="text-[10px] text-[var(--color-muted)]">History collecting…</div>;
+    return <div className="text-[10px] text-[var(--color-muted)]">{t("github.history_collecting")}</div>;
   }
   return (
     <div className="flex flex-wrap gap-x-2 text-[10px]">
@@ -117,10 +118,10 @@ function KpiCard({ kpi }: { kpi: GithubKpi }) {
   const d30 = kpi.deltas.d30d;
   return (
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid="gh-kpi">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{KPI_LABEL[kpi.key]}</div>
+      <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{t(KPI_LABEL[kpi.key])}</div>
       <div className="flex items-baseline gap-2">
         <span className="text-lg font-semibold tabular-nums text-[var(--color-fg)]">
-          {kpi.value.toLocaleString("en-US")}
+          {kpi.value.toLocaleString(locale())}
         </span>
         {d30 != null && (
           <span className={`text-xs tabular-nums ${deltaTone(d30) === "down" ? "text-rose-500" : "text-emerald-500"}`}>
@@ -159,11 +160,11 @@ function LineChart({
     <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid="gh-chart">
       <div className="mb-1 flex items-center justify-between text-xs">
         <span className="text-[var(--color-muted)]">{title}</span>
-        {current != null && <span className="tabular-nums text-[var(--color-fg)]">{current.toLocaleString("en-US")}</span>}
+        {current != null && <span className="tabular-nums text-[var(--color-fg)]">{current.toLocaleString(locale())}</span>}
       </div>
       {!enough || !domain ? (
         <div className="flex h-[70px] items-center justify-center text-xs text-[var(--color-muted)]">
-          History collecting… ({values.length} {values.length === 1 ? "snapshot" : "snapshots"})
+          {tn("github.collecting_n", values.length)}
         </div>
       ) : (
         <div className="relative">
@@ -204,10 +205,10 @@ function LineChart({
             />
           )}
           <span className="pointer-events-none absolute left-0 top-0 rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] tabular-nums text-[var(--color-muted)]">
-            max {fmtAxis(dataMax)}
+            {t("github.max")} {fmtAxis(dataMax)}
           </span>
           <span className="pointer-events-none absolute bottom-0 right-0 rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] tabular-nums text-[var(--color-muted)]">
-            min {fmtAxis(dataMin)}
+            {t("github.min")} {fmtAxis(dataMin)}
           </span>
         </div>
       )}
@@ -283,7 +284,7 @@ function MetricBars({
                 style={{ width: `${Math.max(3, b.frac * 100)}%`, background: `linear-gradient(90deg, ${color}99, ${color})` }}
               />
             </div>
-            <span className="w-10 shrink-0 text-right tabular-nums">{b.value.toLocaleString("en-US")}</span>
+            <span className="w-10 shrink-0 text-right tabular-nums">{b.value.toLocaleString(locale())}</span>
           </button>
         ))}
       </div>
@@ -292,6 +293,11 @@ function MetricBars({
 }
 
 /** Language mix as a donut, by repositories or by stars. */
+/** `NO_LANGUAGE` is a grouping key; show it in the current language. */
+function langLabel(name: string): string {
+  return name === NO_LANGUAGE ? t("github.no_language") : name;
+}
+
 function LanguageDonut({ rows }: { rows: GithubRepoRow[] }) {
   const [by, setBy] = useState<"repos" | "stars">("repos");
   const shares = languageShares(rows, by);
@@ -302,7 +308,7 @@ function LanguageDonut({ rows }: { rows: GithubRepoRow[] }) {
   const total = shares.reduce((a, s) => a + s.value, 0);
   return (
     <Card
-      title="Languages"
+      title={t("github.languages")}
       testId="gh-languages"
       aside={
         <span className="flex gap-1 text-[10px]">
@@ -313,26 +319,26 @@ function LanguageDonut({ rows }: { rows: GithubRepoRow[] }) {
               onClick={() => setBy(k)}
               className={`rounded px-1 ${by === k ? "bg-[var(--color-accent)]/20 text-[var(--color-fg)]" : "text-[var(--color-muted)]"}`}
             >
-              {k === "repos" ? "Repos" : "Stars"}
+              {k === "repos" ? t("github.repos") : t("github.sort.stars")}
             </button>
           ))}
         </span>
       }
     >
       {segs.length === 0 ? (
-        <div className="flex h-[96px] items-center justify-center text-xs text-[var(--color-muted)]">No stars yet.</div>
+        <div className="flex h-[96px] items-center justify-center text-xs text-[var(--color-muted)]">{t("github.no_stars_yet")}</div>
       ) : (
         <div className="flex items-center gap-2">
           <div className="relative h-[96px] w-[96px] shrink-0">
             <svg viewBox="0 0 100 100" className="h-full w-full">
               {segs.map((seg) => (
                 <path key={seg.name} d={seg.d} fill={seg.color}>
-                  <title>{`${seg.name} · ${seg.pct.toFixed(0)} %`}</title>
+                  <title>{`${langLabel(seg.name)} · ${seg.pct.toFixed(0)} %`}</title>
                 </path>
               ))}
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
-              <span className="text-sm font-semibold tabular-nums text-[var(--color-fg)]">{total.toLocaleString("en-US")}</span>
+              <span className="text-sm font-semibold tabular-nums text-[var(--color-fg)]">{total.toLocaleString(locale())}</span>
               <span className="text-[9px] text-[var(--color-muted)]">{by === "repos" ? "repos" : "stars"}</span>
             </div>
           </div>
@@ -340,7 +346,7 @@ function LanguageDonut({ rows }: { rows: GithubRepoRow[] }) {
             {segs.slice(0, 6).map((seg) => (
               <div key={seg.name} className="flex items-center gap-1.5 text-[11px]">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.color }} />
-                <span className="truncate text-[var(--color-fg)]">{seg.name}</span>
+                <span className="truncate text-[var(--color-fg)]">{langLabel(seg.name)}</span>
                 <span className="ml-auto tabular-nums text-[var(--color-muted)]">{seg.pct.toFixed(0)}%</span>
               </div>
             ))}
@@ -358,9 +364,9 @@ function ActivityColumns({ rows, now }: { rows: GithubRepoRow[]; now: number }) 
   const active = months.reduce((a, m) => a + m.count, 0);
   return (
     <Card
-      title="Last push"
+      title={t("github.last_push")}
       testId="gh-activity"
-      aside={<span className="text-[10px] tabular-nums text-[var(--color-muted)]">{active} active · 12 mo</span>}
+      aside={<span className="text-[10px] tabular-nums text-[var(--color-muted)]">{t("github.active_12mo", { n: active })}</span>}
     >
       <div className="flex h-[78px] items-stretch gap-[3px]">
         {months.map((m, i) => (
@@ -383,18 +389,18 @@ function ActivityColumns({ rows, now }: { rows: GithubRepoRow[]; now: number }) 
 }
 
 function RepoTable({ rows, onOpen }: { rows: GithubRepoRow[]; onOpen: (name: string) => void }) {
-  if (rows.length === 0) return <div className="text-xs text-[var(--color-muted)]">No repositories.</div>;
+  if (rows.length === 0) return <div className="text-xs text-[var(--color-muted)]">{t("github.no_repositories")}</div>;
   return (
     <table className="w-full text-xs" data-testid="gh-repos">
       <thead className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
         <tr>
-          <th className="text-left font-normal">Repository</th>
-          <th className="text-right font-normal">Stars</th>
-          <th className="text-right font-normal">Forks</th>
-          <th className="text-right font-normal">Watch</th>
-          <th className="text-right font-normal">Issues</th>
-          <th className="pl-2 text-left font-normal">Language</th>
-          <th className="text-right font-normal">Updated</th>
+          <th className="text-left font-normal">{t("github.repository")}</th>
+          <th className="text-right font-normal">{t("github.sort.stars")}</th>
+          <th className="text-right font-normal">{t("github.sort.forks")}</th>
+          <th className="text-right font-normal">{t("github.watch")}</th>
+          <th className="text-right font-normal">{t("github.issues")}</th>
+          <th className="pl-2 text-left font-normal">{t("github.language")}</th>
+          <th className="text-right font-normal">{t("github.updated")}</th>
         </tr>
       </thead>
       <tbody>
@@ -408,7 +414,7 @@ function RepoTable({ rows, onOpen }: { rows: GithubRepoRow[]; onOpen: (name: str
             <td className="max-w-[10rem] truncate py-0.5 text-[var(--color-fg)]">
               {r.private && <Lock size={10} className="mr-1 inline text-[var(--color-muted)]" aria-label="private" />}
               {r.name}
-              {r.archived && <span className="ml-1 rounded px-1 text-[9px] uppercase text-amber-500">archived</span>}
+              {r.archived && <span className="ml-1 rounded px-1 text-[9px] uppercase text-amber-500">{t("github.archived")}</span>}
             </td>
             <td className="text-right tabular-nums">
               {r.stars}
@@ -467,7 +473,7 @@ function ConnectCard({ status, onConnect }: { status: GithubStatus; onConnect: (
   if (dev.state === "waiting") {
     return (
       <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3" data-testid="gh-device">
-        <div className="text-xs text-[var(--color-muted)]">Enter this code on GitHub:</div>
+        <div className="text-xs text-[var(--color-muted)]">{t("github.enter_this_code_on_github")}</div>
         <div className="my-1 font-mono text-2xl tracking-widest text-[var(--color-fg)]">{dev.user_code}</div>
         <div className="flex flex-wrap gap-2 text-xs">
           <button
@@ -475,7 +481,7 @@ function ConnectCard({ status, onConnect }: { status: GithubStatus; onConnect: (
             className="flex items-center gap-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[var(--color-accent-fg)]"
             onClick={() => void openUrl(dev.verification_uri)}
           >
-            <ExternalLink size={12} /> Open {dev.verification_uri.replace(/^https?:\/\//, "")}
+            <ExternalLink size={12} /> {t("common.open")} {dev.verification_uri.replace(/^https?:\/\//, "")}
           </button>
           <button
             type="button"
@@ -484,14 +490,14 @@ function ConnectCard({ status, onConnect }: { status: GithubStatus; onConnect: (
               void writeText(dev.user_code).then(() => setCopied(true));
             }}
           >
-            <Copy size={12} /> {copied ? "Copied" : "Copy code"}
+            <Copy size={12} /> {copied ? t("common.copied") : t("github.copy_code")}
           </button>
           <button type="button" className="rounded px-2 py-1 text-[var(--color-muted)]" onClick={() => void githubDeviceCancel()}>
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
         <div className="mt-2 flex items-center gap-1 text-[10px] text-[var(--color-muted)]">
-          <Loader2 size={10} className="animate-spin" /> Waiting for GitHub…
+          <Loader2 size={10} className="animate-spin" /> {t("github.waiting_for_github")}
         </div>
       </div>
     );
@@ -504,21 +510,21 @@ function ConnectCard({ status, onConnect }: { status: GithubStatus; onConnect: (
         onClick={onConnect}
         className="flex items-center gap-1 rounded bg-[var(--color-accent)] px-3 py-1.5 text-[var(--color-accent-fg)] disabled:opacity-50"
       >
-        <GithubMark size={14} /> Connect GitHub
+        <GithubMark size={14} /> {t("github.connect")}
       </button>
       {dev.state === "failed" && <div className="mt-2 text-rose-500">{errorText(dev.message)}</div>}
       <div className="mt-2 text-[var(--color-muted)]">
         {status.client_id_configured
-          ? "Opens github.com in your browser — read-only, public data unless you allow private repositories in Settings."
+          ? t("github.opens_github_com_in_your")
           : errorText("github.no_client_id")}{" "}
-        Alternatively: a personal access token in Settings → GitHub
-        {status.gh_available ? ", or log in with `gh auth login`." : "."}
+        {status.gh_available ? t("github.alt_gh") : t("github.alt")}
       </div>
     </div>
   );
 }
 
 export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props) {
+  useT();
   const [status, setStatus] = useState<GithubStatus | null>(null);
   const [dash, setDash] = useState<GithubDashboard | null>(null);
   const [detail, setDetail] = useState<GithubRepoDetail | null>(null);
@@ -620,7 +626,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
       run(async () => {
         const r = await githubRefresh(true);
         if (r.gate.kind === "rate_limited") return null; // the status line says when
-        if (r.gate.kind === "too_soon") return "Refreshed less than a minute ago.";
+        if (r.gate.kind === "too_soon") return t("github.refreshed_less_than_a_minute");
         return null;
       }),
     [run],
@@ -681,12 +687,12 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
           <GithubMark size={16} />
         )}
         <span className="font-semibold">
-          {status?.connected && status.login ? `Connected as @${status.login}` : "GitHub"}
+          {status?.connected && status.login ? t("github.connected_as", { login: status.login }) : "GitHub"}
         </span>
-        {status?.source && <span className="text-[10px] text-[var(--color-muted)]">{SOURCE_LABEL[status.source]}</span>}
+        {status?.source && <span className="text-[10px] text-[var(--color-muted)]">{SOURCE_LABEL[status.source] ? t(SOURCE_LABEL[status.source]) : status.source}</span>}
         <button
           type="button"
-          title="Refresh now"
+          title={t("github.refresh_now")}
           disabled={busy || !status?.connected || !!status?.rate_limited_until}
           onClick={() => void refreshNow()}
           className="ml-auto rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-40"
@@ -716,11 +722,10 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
           {cmd.kind === "export" ? (
             <>
               <Download size={11} className="mr-1 inline" />
-              Enter writes {cmd.format.toUpperCase()} to Downloads
-              {cmd.includePrivate ? " — including private repositories." : " — private repositories left out (add `private`)."}
+              {t(cmd.includePrivate ? "github.export_hint_private" : "github.export_hint", { format: cmd.format.toUpperCase() })}
             </>
           ) : (
-            "Enter runs it."
+            t("github.enter_runs_it")
           )}
         </div>
       )}
@@ -731,7 +736,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
 
         {!dash && status?.connected && (
           <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
-            <Loader2 size={12} className="animate-spin" /> Loading your GitHub statistics…
+            <Loader2 size={12} className="animate-spin" /> {t("github.loading_your_github_statistics")}
           </div>
         )}
 
@@ -741,7 +746,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
               {/* The ranking uses fixed 7/30-day growth — a range would do nothing there. */}
               {view !== "repos" && view !== "trending" ? <Chips items={RANGES} value={range} onPick={setRange} /> : <span />}
               {dash.history_since_ms && (
-                <span className="text-[10px] text-[var(--color-muted)]">since {formatDate(dash.history_since_ms)}</span>
+                <span className="text-[10px] text-[var(--color-muted)]">{t("github.since", { date: formatDate(dash.history_since_ms) })}</span>
               )}
             </div>
 
@@ -753,21 +758,21 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
                   ))}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <LineChart title="Followers" lines={[{ name: "followers", points: dash.followers }]} />
-                  <LineChart title="Total stars" lines={[{ name: "stars", points: dash.stars }]} />
+                  <LineChart title={t("github.followers")} lines={[{ name: "followers", points: dash.followers }]} />
+                  <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <LanguageDonut rows={dash.rows} />
                   <ActivityColumns rows={dash.rows} now={now} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <MetricBars title="Stars by repository" rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
-                  <MetricBars title="Forks by repository" rows={dash.rows} metric="forks" color="#38bdf8" onOpen={openRepo} />
+                  <MetricBars title={t("github.stars_by_repository")} rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
+                  <MetricBars title={t("github.forks_by_repository")} rows={dash.rows} metric="forks" color="#38bdf8" onOpen={openRepo} />
                 </div>
                 <RepoTable rows={rows.slice(0, 5)} onOpen={openRepo} />
                 {dash.rows.length > 5 && (
                   <button type="button" className="text-xs text-[var(--color-accent)]" onClick={() => onQuery("github repos")}>
-                    All {dash.rows.length} repositories →
+                    {t("github.all_repos", { n: dash.rows.length })}
                   </button>
                 )}
               </>
@@ -777,7 +782,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
               <>
                 {view === "repos" && <Chips items={SORTS} value={sort} onPick={setSortPick} />}
                 {view === "trending" && rows.length === 0 && (
-                  <div className="text-xs text-[var(--color-muted)]">No repository gained stars in the last 7 days.</div>
+                  <div className="text-xs text-[var(--color-muted)]">{t("github.no_repository_gained_stars_in")}</div>
                 )}
                 <RepoTable rows={rows} onOpen={openRepo} />
               </>
@@ -786,16 +791,16 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
             {view === "followers" && followersKpi && (
               <>
                 <KpiCard kpi={followersKpi} />
-                <LineChart title="Followers" lines={[{ name: "followers", points: dash.followers }]} />
+                <LineChart title={t("github.followers")} lines={[{ name: "followers", points: dash.followers }]} />
               </>
             )}
 
             {view === "stars" && starsKpi && (
               <>
                 <KpiCard kpi={starsKpi} />
-                <LineChart title="Total stars" lines={[{ name: "stars", points: dash.stars }]} />
-                <MetricBars title="Stars by repository" rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
-                <LineChart title="Top repositories — stars over time" lines={dash.growth} />
+                <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} />
+                <MetricBars title={t("github.stars_by_repository")} rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
+                <LineChart title={t("github.top_repositories_stars_over_time")} lines={dash.growth} />
               </>
             )}
           </>
@@ -807,19 +812,19 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
               <div className="flex items-center gap-1 font-semibold text-[var(--color-fg)]">
                 {detail.repo.private && <Lock size={12} />}
                 {detail.repo.full_name}
-                {detail.repo.archived && <span className="text-[10px] uppercase text-amber-500">archived</span>}
+                {detail.repo.archived && <span className="text-[10px] uppercase text-amber-500">{t("github.archived")}</span>}
                 <button
                   type="button"
                   className="ml-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
                   onClick={() => void openUrl(detail.repo.html_url)}
-                  title="Open on GitHub"
+                  title={t("github.open_on_github")}
                 >
                   <ExternalLink size={12} />
                 </button>
               </div>
               {detail.repo.description && <div className="text-xs text-[var(--color-muted)]">{detail.repo.description}</div>}
               <div className="text-[10px] text-[var(--color-muted)]">
-                {[detail.repo.language, detail.repo.license, `observed since ${formatDate(detail.first_seen_ms)}`]
+                {[detail.repo.language, detail.repo.license, t("github.observed_since", { date: formatDate(detail.first_seen_ms) })]
                   .filter(Boolean)
                   .join(" · ")}
               </div>
@@ -827,44 +832,43 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
                 <div className="flex items-center gap-1 text-[10px] uppercase text-[var(--color-muted)]">
-                  <Star size={10} /> Stars
+                  <Star size={10} /> {t("github.sort.stars")}
                 </div>
                 <div className="text-lg font-semibold tabular-nums">{detail.repo.stars}</div>
                 <DeltaRow d={detail.star_deltas} />
               </div>
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-                <div className="text-[10px] uppercase text-[var(--color-muted)]">Forks</div>
+                <div className="text-[10px] uppercase text-[var(--color-muted)]">{t("github.sort.forks")}</div>
                 <div className="text-lg font-semibold tabular-nums">{detail.repo.forks}</div>
                 <DeltaRow d={detail.fork_deltas} />
               </div>
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
-                Watchers <span className="float-right tabular-nums">{detail.repo.watchers ?? "—"}</span>
+                {t("github.watchers")} <span className="float-right tabular-nums">{detail.repo.watchers ?? "—"}</span>
               </div>
               <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
-                Open issues <span className="float-right tabular-nums">{detail.repo.open_issues}</span>
+                {t("github.open_issues")} <span className="float-right tabular-nums">{detail.repo.open_issues}</span>
               </div>
             </div>
-            <LineChart title="Stars" lines={[{ name: "stars", points: detail.stars }]} />
+            <LineChart title={t("github.sort.stars")} lines={[{ name: "stars", points: detail.stars }]} />
             <div className="grid grid-cols-2 gap-2">
-              <LineChart title="Forks" lines={[{ name: "forks", points: detail.forks }]} />
-              <LineChart title="Open issues" lines={[{ name: "issues", points: detail.open_issues }]} />
+              <LineChart title={t("github.sort.forks")} lines={[{ name: "forks", points: detail.forks }]} />
+              <LineChart title={t("github.open_issues")} lines={[{ name: "issues", points: detail.open_issues }]} />
             </div>
           </div>
         )}
         {status?.connected && status.last_ok_ms == null && !status.last_error && !dash && (
-          <div className="text-[10px] text-[var(--color-muted)]">First refresh — this takes a few seconds.</div>
+          <div className="text-[10px] text-[var(--color-muted)]">{t("github.first_refresh_this_takes_a")}</div>
         )}
         {dash && dash.private_count > 0 && (
           <div className="text-[10px] text-[var(--color-muted)]">
             <Lock size={9} className="mr-1 inline" />
-            {dash.private_count} private {dash.private_count === 1 ? "repository" : "repositories"} — never exported
-            unless you add `private`.
+            {tn("github.private_note", dash.private_count)}
           </div>
         )}
         {status && (
           <div className="text-[10px] text-[var(--color-muted)]">
-            {status.rate && `API: ${status.rate.remaining}/${status.rate.limit} requests left · `}
-            {status.next_refresh_ms && !status.rate_limited_until && status.config.auto_refresh && `next automatic refresh ${formatIn(status.next_refresh_ms, now)}`}
+            {status.rate && `${t("github.rate_left", { left: status.rate.remaining, limit: status.rate.limit })} · `}
+            {status.next_refresh_ms && !status.rate_limited_until && status.config.auto_refresh && t("github.next_refresh", { when: formatIn(status.next_refresh_ms, now) })}
           </div>
         )}
       </div>

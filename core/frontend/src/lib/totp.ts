@@ -6,6 +6,7 @@
  */
 
 import { is2faTrigger, parse2faAdd } from "./commands";
+import { t } from "./i18n";
 
 export interface TotpEntry {
   id: number;
@@ -59,25 +60,25 @@ export function totpCommandRows(query: string): {
   if (add) {
     return {
       manage: {
-        label: add.issuer ? `2FA · Add "${add.issuer}"` : "2FA · Add new account",
+        label: add.issuer ? t("totp.row.add_issuer", { issuer: add.issuer }) : t("totp.row.add"),
         mode: "add",
         issuer: add.issuer,
       },
       sub: {
         keyword: "2fa",
         syntax: "2fa",
-        description: "Manage TOTP entries (list · import · export)",
+        description: t("totp.row.manage_desc"),
         completion: "2fa",
       },
     };
   }
   if (is2faTrigger(query)) {
     return {
-      manage: { label: "2FA · Manage TOTP", mode: "list" },
+      manage: { label: t("totp.row.manage"), mode: "list" },
       sub: {
         keyword: "2fa add",
         syntax: "2fa add [issuer]",
-        description: "Add a new 2FA account (issuer · login · secret)",
+        description: t("totp.row.add_desc"),
         completion: "2fa add ",
       },
     };

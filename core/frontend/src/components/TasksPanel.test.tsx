@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import type { AiTask, AiTasksState } from "../lib/tasks";
 
@@ -41,6 +41,13 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../lib/ipc", () => ipc);
 
 import { TasksPanel, resetTasksSession } from "./TasksPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function state(tasks: AiTask[], over: Partial<AiTasksState> = {}): AiTasksState {
   return { tasks, running: [], paused: false, languages: ["zsh", "bash", "python"], next_due: {}, ...over };

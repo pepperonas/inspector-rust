@@ -15,7 +15,7 @@ import {
 } from "../lib/ipc";
 import { ExportRow, type ExportFormat } from "./ExportRow";
 import {
-  WEEKDAY_LABELS,
+  weekdayLabels,
   categoryColor,
   formatNum,
   shortDate,
@@ -35,6 +35,7 @@ import {
   githubErrorHint,
   windowsComplete,
 } from "../lib/repo";
+import { t, tn, useT } from "../lib/i18n";
 
 /**
  * `repo` / `export` — git repository activity stats in the preview column
@@ -56,12 +57,13 @@ export function RepoPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [analysis, setAnalysis] = useState<RepoAnalysis | null>(null);
   const [range, setRange] = useState<RangeKey>("all");
   const stats = analysis?.ranges.find((r) => r.range === range)?.stats ?? null;
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
-  const [phase, setPhase] = useState("Analysiere…");
+  const [phase, setPhase] = useState(t("repo.analysing"));
   const [note, setNote] = useState<string | null>(null);
   const aliveRef = useRef(true);
   const seqRef = useRef(0);
@@ -73,7 +75,7 @@ export function RepoPanel({
     const seq = ++seqRef.current;
     setBusy(true);
     setErr(null);
-    setPhase(target && /:\/\//.test(target) ? "Klone & analysiere…" : "Analysiere…");
+    setPhase(target && /:\/\//.test(target) ? t("repo.cloning_analysing") : t("repo.analysing"));
     repoAnalyze(target)
       .then((s) => {
         if (!aliveRef.current || seq !== seqRef.current) return;
@@ -142,7 +144,7 @@ export function RepoPanel({
     (fmt: ExportFormat = "html") => {
       if (!stats) return;
       setExporting(fmt);
-      setNote("Exportiere…");
+      setNote(t("repo.exporting"));
       repoExport(stats, range, fmt === "pdf" ? "pdf" : "html", analysis?.recent, gh)
         .then((path) => setNote(`Gespeichert: ${path.split("/").pop()}`))
         .catch((e) => setNote(String(e)))
@@ -156,9 +158,9 @@ export function RepoPanel({
     const url = analysis?.github?.web_url;
     if (!url || cloning) return;
     setCloning(true);
-    setNote("Klone…");
+    setNote(t("repo.cloning"));
     repoClone(url)
-      .then((path) => setNote(`Geklont nach ${path}`))
+      .then((path) => setNote(t("repo.cloned_to", { path })))
       .catch((e) => setNote(repoErrorHint(String(e)).title))
       .finally(() => {
         setCloning(false);
@@ -220,7 +222,7 @@ export function RepoPanel({
           {progress?.op === "analyze" ? (
             <p className="text-[11px] tabular-nums text-[var(--color-muted)]">{progress.phase} · {progress.percent} %</p>
           ) : (
-            <p className="text-[11px] text-[var(--color-muted)]">Große Repos brauchen einen Moment.</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("repo.large_repos_take_a_moment")}</p>
           )}
         </div>
       </Shell>
@@ -238,7 +240,7 @@ export function RepoPanel({
             onClick={run}
             className="mt-2 flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
           >
-            <RefreshCw size={12} /> Erneut versuchen
+            <RefreshCw size={12} /> {t("repo.try_again")}
           </button>
         </div>
       </Shell>
@@ -261,7 +263,7 @@ export function RepoPanel({
           <span className="truncate" title={stats.source}>{stats.name}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={run} title="Neu analysieren" className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
+          <button type="button" onClick={run} title={t("repo.analyse_again")} className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
             <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
           </button>
         </div>
@@ -270,7 +272,7 @@ export function RepoPanel({
         {shortDate(stats.first_commit)} → {shortDate(stats.last_commit)}
       </p>
       <RecentCard recent={analysis.recent} gh={gh} ghErr={ghErr} isGithub={!!analysis.github} />
-      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Zeitraum">
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t("repo.range")}>
         {RANGES.map((r) => (
           <button
             key={r.key}
@@ -289,7 +291,7 @@ export function RepoPanel({
         ))}
       </div>
       <p className="-mt-1 text-[10px] text-[var(--color-muted)]">
-        Zeiträume zählen ab dem letzten Commit ({shortDate(analysis.ranges.find((r) => r.range === "all")?.stats.last_commit ?? "")}).
+        {t("repo.ranges_from", { date: shortDate(analysis.ranges.find((r) => r.range === "all")?.stats.last_commit ?? "") })}
       </p>
       {stats.commits > 0 && <CodeChanges stats={stats} />}
       {analysis.github && (
@@ -303,8 +305,8 @@ export function RepoPanel({
           {cloning
             ? progress?.op === "clone"
               ? `${progress.phase} · ${progress.percent} %`
-              : "Klone…"
-            : `Klonen (${analysis.github.owner}/${analysis.github.repo})`}
+              : t("repo.cloning")
+            : t("repo.clone_btn", { repo: `${analysis.github.owner}/${analysis.github.repo}` })}
         </button>
       )}
       {note && <p className="break-all text-[11px] text-emerald-500">{note}</p>}
@@ -317,24 +319,24 @@ export function RepoPanel({
 
       {stats.commits === 0 ? (
         <p className="rounded-xl border border-[var(--color-border)] p-4 text-[12px] text-[var(--color-muted)]">
-          Keine Commits in diesem Zeitraum.
+          {t("repo.no_commits_in_this_range")}
         </p>
       ) : (
         <>
       {/* KPI tiles. */}
       <div className="grid grid-cols-4 gap-1.5">
-        <Kpi icon={<GitCommit size={12} />} value={formatNum(stats.commits)} label="Commits" />
-        <Kpi icon={<Users size={12} />} value={formatNum(stats.contributors)} label="Mitwirkende" />
-        <Kpi icon={<CalendarDays size={12} />} value={formatNum(stats.active_days)} label="Aktive Tage" />
-        <Kpi icon={<Flame size={12} />} value={formatNum(stats.longest_streak)} label="Längste Serie" />
-        <Kpi value={`+${formatNum(stats.insertions)}`} label="Zeilen ein" tone="pos" />
-        <Kpi value={`−${formatNum(stats.deletions)}`} label="Zeilen aus" tone="neg" />
-        <Kpi value={String(stats.bus_factor)} label="Bus-Faktor" />
+        <Kpi icon={<GitCommit size={12} />} value={formatNum(stats.commits)} label={t("repo.commits")} />
+        <Kpi icon={<Users size={12} />} value={formatNum(stats.contributors)} label={t("repo.contributors")} />
+        <Kpi icon={<CalendarDays size={12} />} value={formatNum(stats.active_days)} label={t("repo.active_days")} />
+        <Kpi icon={<Flame size={12} />} value={formatNum(stats.longest_streak)} label={t("repo.longest_streak")} />
+        <Kpi value={`+${formatNum(stats.insertions)}`} label={t("repo.lines_in")} tone="pos" />
+        <Kpi value={`−${formatNum(stats.deletions)}`} label={t("repo.lines_out")} tone="neg" />
+        <Kpi value={String(stats.bus_factor)} label={t("repo.bus_factor")} />
       </div>
 
       {/* Activity over the range — buckets follow the range (days/weeks/months). */}
       {stats.timeline.length > 1 && (
-        <Card title={`Aktivität · ${rangeTitle(range)}`}>
+        <Card title={t("repo.activity_title", { range: rangeTitle(range) })}>
           <svg viewBox="0 0 300 44" preserveAspectRatio="none" className="h-11 w-full">
             <polyline
               points={sparkPoints(stats.timeline.map((b) => b.commits), 300, 44)}
@@ -352,7 +354,7 @@ export function RepoPanel({
       )}
 
       {/* Weekday + hour. */}
-      <Card title={`Wochentag · Spitze ${peakLabel(stats.by_weekday, WEEKDAY_LABELS)}`}>
+      <Card title={t("repo.weekday_peak", { peak: peakLabel(stats.by_weekday, weekdayLabels()) })}>
         {/* ⚠️ NICHT `items-end`: das ließe jede Spalte auf Inhaltshöhe
             schrumpfen, und die Prozenthöhe des Balkens hätte keinen definiten
             Bezug mehr — sie fiel auf 0, das Diagramm war leer (seit ≤ v0.138.0,
@@ -360,11 +362,11 @@ export function RepoPanel({
             unten ausgerichtet wird INNERHALB von `Column`. */}
         <div className="flex gap-1" style={{ height: 56 }}>
           {stats.by_weekday.map((v, i) => (
-            <Column key={i} pct={barPct(v, wdMax)} label={WEEKDAY_LABELS[i]} value={v} color="#8ab4f8" />
+            <Column key={i} pct={barPct(v, wdMax)} label={weekdayLabels()[i]} value={v} color="#8ab4f8" />
           ))}
         </div>
       </Card>
-      <Card title={`Uhrzeit · Spitze ${peakLabel(stats.by_hour, HOUR_LABELS)} Uhr`}>
+      <Card title={t("repo.hour_peak", { peak: peakLabel(stats.by_hour, HOUR_LABELS) })}>
         <div className="flex gap-[2px]" style={{ height: 48 }}>
           {stats.by_hour.map((v, i) => (
             <Column key={i} pct={barPct(v, hrMax)} label={i % 6 === 0 ? String(i) : ""} value={v} color="#c58af9" thin />
@@ -372,15 +374,15 @@ export function RepoPanel({
         </div>
       </Card>
 
-      <Card title="Heatmap Wochentag × Stunde">
+      <Card title={t("repo.heatmap_weekday_hour")}>
         <div className="grid gap-[2px]" style={{ gridTemplateColumns: "18px repeat(24, 1fr)" }}>
           {stats.heatmap.map((row, d) => {
             return [
-              <span key={`l${d}`} className="text-[9px] text-[var(--color-muted)]">{WEEKDAY_LABELS[d]}</span>,
+              <span key={`l${d}`} className="text-[9px] text-[var(--color-muted)]">{weekdayLabels()[d]}</span>,
               ...row.map((v, h) => (
                 <span
                   key={`${d}-${h}`}
-                  title={`${WEEKDAY_LABELS[d]} ${h} Uhr: ${v}`}
+                  title={t("repo.heat_cell", { day: weekdayLabels()[d], h, n: v })}
                   className="aspect-square rounded-[2px]"
                   style={{ background: "var(--color-accent)", opacity: [0.07, 0.3, 0.5, 0.75, 1][heatLevel(v, heatMax)] }}
                 />
@@ -390,13 +392,13 @@ export function RepoPanel({
         </div>
       </Card>
       {(range === "y1" || range === "all") && stats.calendar.length > 0 && (
-        <Card title="Beitragskalender">
+        <Card title={t("repo.contribution_calendar")}>
           {(() => {
             const cells = calendarCells(stats.calendar);
             const cols = Math.max(...cells.map((c) => c.col)) + 1;
             const max = Math.max(1, ...cells.map((c) => c.commits));
             return (
-              <svg viewBox={`0 0 ${cols * 10} 70`} className="w-full" role="img" aria-label="Beitragskalender">
+              <svg viewBox={`0 0 ${cols * 10} 70`} className="w-full" role="img" aria-label={t("repo.contribution_calendar")}>
                 {cells.map((c) => (
                   <rect key={c.date} x={c.col * 10} y={c.row * 10} width={8} height={8} rx={1.5} fill="#2e9e5b" fillOpacity={[0.07, 0.3, 0.5, 0.75, 1][heatLevel(c.commits, max)]}>
                     <title>{`${c.date}: ${c.commits}`}</title>
@@ -408,27 +410,27 @@ export function RepoPanel({
         </Card>
       )}
       {stats.hotspots.length > 0 && (
-        <Card title="Hotspots · viel geändert, ≤ 2 Autoren">
+        <Card title={t("repo.hotspots_changed_a_lot_2")}>
           <RankList
-            rows={stats.hotspots.map((h) => ({ label: h.path, bar: barPct(h.changes, stats.hotspots[0].changes), value: `${h.changes}× · ${h.authors} Autor${h.authors === 1 ? "" : "en"}` }))}
+            rows={stats.hotspots.map((h) => ({ label: h.path, bar: barPct(h.changes, stats.hotspots[0].changes), value: `${h.changes}× · ${tn("repo.authors", h.authors)}` }))}
             mono
           />
         </Card>
       )}
       {stats.dir_bus_factor.length > 0 && (
-        <Card title={`Bus-Faktor · gesamt ${stats.bus_factor}`}>
+        <Card title={t("repo.bus_total", { n: stats.bus_factor })}>
           <div className="flex flex-col gap-0.5 text-[11px]">
             {stats.dir_bus_factor.map((d) => (
               <div key={d.dir} className="flex justify-between gap-2">
                 <span className="truncate font-[var(--font-mono)]">{d.dir}</span>
-                <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatNum(d.commits)} · {d.authors} Autoren · BF {d.bus_factor}</span>
+                <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatNum(d.commits)} · {tn("repo.authors", d.authors)} · BF {d.bus_factor}</span>
               </div>
             ))}
           </div>
         </Card>
       )}
       {stats.co_change.length > 0 && (
-        <Card title="Co-Change · oft zusammen geändert">
+        <Card title={t("repo.co_change_often_changed_together")}>
           <div className="flex flex-col gap-0.5 text-[11px]">
             {stats.co_change.map((p) => (
               <div key={`${p.a}|${p.b}`} className="flex justify-between gap-2">
@@ -441,7 +443,7 @@ export function RepoPanel({
       )}
       {/* Commit categories. */}
       {stats.categories.length > 0 && (
-        <Card title="Commit-Kategorien">
+        <Card title={t("repo.commit_categories")}>
           <div className="flex flex-col gap-1">
             {stats.categories.map((c) => (
               <div key={c.cat} className="flex items-center gap-2 text-[11px]">
@@ -457,7 +459,7 @@ export function RepoPanel({
       )}
 
       {/* Top files. */}
-      <Card title="Aktivste Dateien">
+      <Card title={t("repo.most_active_files")}>
         <RankList
           rows={stats.top_files.slice(0, 10).map((f) => ({ label: f.path, bar: barPct(f.changes, fileMax), value: `${f.changes}× · ${formatNum(f.churn)}` }))}
           mono
@@ -466,7 +468,7 @@ export function RepoPanel({
 
       {/* Extensions + authors, two compact tables. */}
       <div className="grid grid-cols-2 gap-2">
-        <Card title="Dateitypen">
+        <Card title={t("repo.file_types")}>
           <div className="flex flex-col gap-0.5 text-[11px]">
             {stats.top_exts.slice(0, 8).map((e) => (
               <div key={e.ext} className="flex justify-between gap-2">
@@ -476,7 +478,7 @@ export function RepoPanel({
             ))}
           </div>
         </Card>
-        <Card title="Mitwirkende">
+        <Card title={t("repo.contributors")}>
           <div className="flex flex-col gap-0.5 text-[11px]">
             {stats.top_authors.slice(0, 8).map((a) => (
               <div key={a.name} className="flex justify-between gap-2">
@@ -492,11 +494,11 @@ export function RepoPanel({
       )}
 
       <p className="text-[10px] text-[var(--color-muted)]">
-        {formatNum(churn)} Zeilen bewegt · ⌀ {stats.avg_msg_len} Zeichen/Message · orientiert an repo2viz
+        {t("repo.footer_stats", { lines: formatNum(churn), avg: stats.avg_msg_len })}
       </p>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          ⌘E HTML · ⌘P PDF{analysis.github ? " · ⌘K klonen" : ""} · Esc schließen
+          {analysis.github ? t("repo.keys_clone") : t("repo.keys")}
         </p>
       )}
     </div>
@@ -515,7 +517,7 @@ function DeltaCell({ cur, prev, ok = true, prevOk = true }: { cur: number; prev:
       {formatNum(cur)}{" "}
       <span
         className="text-[10px] text-[var(--color-muted)]"
-        title={showDelta ? d.title : "Vorperiode unvollständig (GitHub-Abfragegrenze)"}
+        title={showDelta ? d.title : t("repo.previous_period_incomplete_github_query")}
       >
         {showDelta ? d.text : "—"}
       </span>
@@ -525,31 +527,31 @@ function DeltaCell({ cur, prev, ok = true, prevOk = true }: { cur: number; prev:
 
 function RecentCard({ recent, gh, ghErr, isGithub }: { recent: RecentActivity; gh: GithubActivity | null; ghErr: string | null; isGithub: boolean }) {
   const git: [string, (c: RecentActivity["day"]) => number][] = [
-    ["Commits", (c) => c.commits],
-    ["Zeilen +", (c) => c.insertions],
-    ["Zeilen −", (c) => c.deletions],
-    ["Dateien", (c) => c.files],
-    ["Mitwirkende", (c) => c.authors],
-    ["Tags", (c) => c.tags],
+    [t("repo.commits"), (c) => c.commits],
+    [t("repo.lines"), (c) => c.insertions],
+    [t("repo.lines_2"), (c) => c.deletions],
+    [t("repo.files"), (c) => c.files],
+    [t("repo.contributors"), (c) => c.authors],
+    [t("repo.tags"), (c) => c.tags],
   ];
   const hub: [string, (c: GithubActivity["day"]) => number, [boolean, boolean, boolean, boolean]][] = gh
     ? [
-        ["Pushes", (c) => c.pushes, windowsComplete(gh.coverage.pushes, recent.now)],
-        ["PRs geöffnet", (c) => c.prs_opened, windowsComplete(gh.coverage.prs, recent.now)],
-        ["PRs gemergt", (c) => c.prs_merged, windowsComplete(gh.coverage.prs, recent.now)],
-        ["Issues geöffnet", (c) => c.issues_opened, windowsComplete(gh.coverage.issues, recent.now)],
-        ["Issues geschlossen", (c) => c.issues_closed, windowsComplete(gh.coverage.issues, recent.now)],
+        [t("repo.pushes"), (c) => c.pushes, windowsComplete(gh.coverage.pushes, recent.now)],
+        [t("repo.prs_opened"), (c) => c.prs_opened, windowsComplete(gh.coverage.prs, recent.now)],
+        [t("repo.prs_merged"), (c) => c.prs_merged, windowsComplete(gh.coverage.prs, recent.now)],
+        [t("repo.issues_opened"), (c) => c.issues_opened, windowsComplete(gh.coverage.issues, recent.now)],
+        [t("repo.issues_closed"), (c) => c.issues_closed, windowsComplete(gh.coverage.issues, recent.now)],
       ]
     : [];
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
-      <p className="mb-1 text-[11px] font-medium">Aktivität 24 h / 7 Tage</p>
+      <p className="mb-1 text-[11px] font-medium">{t("repo.activity_24_h_7_days")}</p>
       <table className="w-full text-[11px]">
         <thead>
           <tr className="text-[10px] text-[var(--color-muted)]">
             <th className="text-left font-normal" />
             <th className="text-right font-normal">24 h</th>
-            <th className="text-right font-normal">7 Tage</th>
+            <th className="text-right font-normal">{t("repo.7_days")}</th>
           </tr>
         </thead>
         <tbody>
@@ -569,11 +571,11 @@ function RecentCard({ recent, gh, ghErr, isGithub }: { recent: RecentActivity; g
           ))}
         </tbody>
       </table>
-      {isGithub && !gh && !ghErr && <p className="mt-1 text-[10px] text-[var(--color-muted)]">GitHub-Werte werden geladen…</p>}
+      {isGithub && !gh && !ghErr && <p className="mt-1 text-[10px] text-[var(--color-muted)]">{t("repo.loading_github_values")}</p>}
       {ghErr && <p className="mt-1 text-[10px] text-[var(--color-muted)]">{githubErrorHint(ghErr)}</p>}
       <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-        Vergleich zur gleich langen Vorperiode · Git: Haupt-Branch ohne Merges
-        {isGithub ? " · Pushes: alle Branches, GitHub meldet sie mit bis zu einigen Stunden Verzögerung" : ""}
+        {t("repo.compared_with_the_previous_period")}
+        {isGithub ? t("repo.pushes_all_branches_github_reports") : ""}
       </p>
     </div>
   );
@@ -589,17 +591,17 @@ function CodeChanges({ stats }: { stats: RepoStats }) {
   const g = churnGeometry(stats.timeline, 300, 70);
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
-      <p className="mb-1 text-[11px] font-medium">Code-Änderungen</p>
+      <p className="mb-1 text-[11px] font-medium">{t("repo.code_changes")}</p>
       <div className="flex items-baseline gap-3 text-[15px] font-semibold tabular-nums">
         <span style={{ color: "#81c995" }}>+{formatNum(stats.insertions)}</span>
         <span style={{ color: "#f28b82" }}>−{formatNum(stats.deletions)}</span>
         <span className="text-[12px] font-medium text-[var(--color-muted)]">
           {net >= 0 ? "+" : "−"}
-          {formatNum(Math.abs(net))} netto
+          {t("repo.net", { n: formatNum(Math.abs(net)) })}
         </span>
       </div>
       {g.bars.length > 1 && (
-        <svg viewBox="0 0 300 70" preserveAspectRatio="none" className="mt-1.5 h-[70px] w-full" role="img" aria-label="Zeilen hinzugefügt und gelöscht">
+        <svg viewBox="0 0 300 70" preserveAspectRatio="none" className="mt-1.5 h-[70px] w-full" role="img" aria-label={t("repo.lines_added_and_deleted")}>
           <line x1={0} x2={300} y1={g.zeroY} y2={g.zeroY} stroke="var(--color-border)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
           {g.bars.map((b, i) => (
             <g key={i}>
@@ -626,10 +628,10 @@ function Shell({ focused, children }: { focused: boolean; children: React.ReactN
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]">
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <GitBranch size={15} className="text-[var(--color-accent)]" /> Repository
+        <GitBranch size={15} className="text-[var(--color-accent)]" /> {t("repo.repository")}
       </div>
       {children}
-      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>}
+      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("repo.esc_closes")}</p>}
     </div>
   );
 }

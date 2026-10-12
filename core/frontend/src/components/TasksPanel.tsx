@@ -35,7 +35,7 @@ import {
   LANGUAGE_LABEL,
   TRIGGER_LABEL,
   TRIGGER_TYPES,
-  WEEKDAY_SHORT,
+  weekdayShort,
   MAX_TIMEOUT_S,
   defaultTrigger,
   diffStats,
@@ -58,6 +58,7 @@ import {
   type AiTasksState,
   type Trigger,
 } from "../lib/tasks";
+import { t, tn, useT } from "../lib/i18n";
 
 /**
  * The `task` / `ki` panel: list of AI tasks, the editor (describe → the AI
@@ -152,6 +153,7 @@ export function TasksPanel({
   onExit: () => void;
   onOpenSettings: () => void;
 }) {
+  useT();
   const s = useSession();
   const [state, setState] = useState<AiTasksState | null>(null);
   const [providers, setProviders] = useState<AiProviderStatus[] | null>(null);
@@ -224,29 +226,29 @@ export function TasksPanel({
     <div className="flex h-full flex-col overflow-hidden text-[12px]" data-testid="tasks-panel">
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
         {s.view.kind !== "list" && (
-          <button className="rounded p-1 hover:bg-[var(--color-surface)]" title="Zurück (Esc)" onClick={() => patch({ view: { kind: "list" } })}>
+          <button className="rounded p-1 hover:bg-[var(--color-surface)]" title={t("tasks.back_esc")} onClick={() => patch({ view: { kind: "list" } })}>
             <ArrowLeft size={14} />
           </button>
         )}
         <Bot size={15} className="text-[var(--color-accent)]" />
-        <span className="font-semibold">KI-Tasks</span>
+        <span className="font-semibold">{t("tasks.ai_tasks")}</span>
         {state?.paused && (
-          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-500">alle pausiert</span>
+          <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-500">{t("tasks.all_paused")}</span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {state && s.view.kind === "list" && (
             <button
               className={btn}
-              title={state.paused ? "Automatische Läufe wieder erlauben" : "Alle automatischen Läufe anhalten"}
+              title={state.paused ? t("tasks.allow_automatic_runs_again") : t("tasks.stop_all_automatic_runs")}
               onClick={() => void aiTasksSetPaused(!state.paused).then(refresh)}
             >
               {state.paused ? <Play size={11} /> : <Pause size={11} />}
-              {state.paused ? "Fortsetzen" : "Alle pausieren"}
+              {state.paused ? t("tasks.resume") : t("tasks.pause_all")}
             </button>
           )}
           {s.view.kind === "list" && (
             <button className={primary} onClick={startNew}>
-              <Plus size={11} /> Neuer Task
+              <Plus size={11} /> {t("tasks.new_task")}
             </button>
           )}
         </div>
@@ -256,9 +258,9 @@ export function TasksPanel({
 
       {!anyProvider && (
         <div className="m-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px]">
-          Noch kein KI-Anbieter eingerichtet. Hinterlege einen API-Schlüssel (Claude, Gemini, ChatGPT) oder installiere Claude Code.{" "}
+          {t("tasks.no_provider")}{" "}
           <button className="underline" onClick={onOpenSettings}>
-            Einstellungen → KI-Anbieter
+            {t("tasks.settings_ai_providers")}
           </button>
         </div>
       )}
@@ -332,47 +334,47 @@ function TaskList({
       <div className="flex flex-col items-center gap-3 px-6 py-10 text-center text-[var(--color-muted)]">
         <Sparkles size={22} className="text-[var(--color-accent)]" />
         <p>
-          Beschreibe in eigenen Worten, was automatisch passieren soll — die KI schreibt das Skript, du prüfst es und gibst es frei.
+          {t("tasks.describe_in_your_own_words")}
         </p>
-        <p className="text-[11px]">z. B. „Verschiebe jeden Montag um 9 Uhr Screenshots vom Schreibtisch in ~/Bilder/Screenshots"</p>
+        <p className="text-[11px]">{t("tasks.example")}</p>
         <button className={primary} onClick={onNew}>
-          <Plus size={11} /> Ersten Task anlegen
+          <Plus size={11} /> {t("tasks.create_the_first_task")}
         </button>
       </div>
     );
   }
   return (
     <ul className="divide-y divide-[var(--color-border)]">
-      {state.tasks.map((t) => {
-        const running = state.running.includes(t.id);
-        const due = state.next_due[String(t.id)];
+      {state.tasks.map((task) => {
+        const running = state.running.includes(task.id);
+        const due = state.next_due[String(task.id)];
         return (
-          <li key={t.id} className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--color-surface)]">
-            <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpen(t.id)}>
-              <StatusDot task={t} running={running} />
+          <li key={task.id} className="flex items-center gap-2 px-3 py-2 hover:bg-[var(--color-surface)]">
+            <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onOpen(task.id)}>
+              <StatusDot task={task} running={running} />
               <div className="min-w-0 flex-1">
-                <div className="truncate font-medium">{t.name}</div>
+                <div className="truncate font-medium">{task.name}</div>
                 <div className="truncate text-[11px] text-[var(--color-muted)]">
-                  {triggerSummary(t.trigger)}
-                  {!t.approved
-                    ? " · Freigabe nötig"
+                  {triggerSummary(task.trigger)}
+                  {!task.approved
+                    ? ` · ${t("tasks.needs_approval")}`
                     : running
-                      ? " · läuft"
-                      : due && t.enabled && !state.paused
-                        ? ` · nächster Lauf ${relativeTime(due, now)}`
-                        : t.last_run
-                          ? ` · zuletzt ${relativeTime(t.last_run.started_ms, now)}`
+                      ? ` · ${t("tasks.running")}`
+                      : due && task.enabled && !state.paused
+                        ? ` · ${t("tasks.next_run", { when: relativeTime(due, now) })}`
+                        : task.last_run
+                          ? ` · ${t("tasks.last_run", { when: relativeTime(task.last_run.started_ms, now) })}`
                           : ""}
                 </div>
               </div>
             </button>
-            <label className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--color-muted)]" title="Automatisch ausführen">
+            <label className="flex shrink-0 items-center gap-1 text-[10px] text-[var(--color-muted)]" title={t("tasks.run_automatically")}>
               <input
                 type="checkbox"
-                checked={t.enabled}
-                onChange={(e) => void aiTaskSetEnabled(t.id, e.target.checked).then(refresh)}
+                checked={task.enabled}
+                onChange={(e) => void aiTaskSetEnabled(task.id, e.target.checked).then(refresh)}
               />
-              aktiv
+              {t("tasks.active")}
             </label>
           </li>
         );
@@ -385,20 +387,20 @@ function TriggerEditor({ value, onChange }: { value: Trigger; onChange: (t: Trig
   return (
     <div className="flex flex-col gap-2">
       <select
-        aria-label="Auslöser"
+        aria-label={t("tasks.trigger")}
         value={value.type}
         onChange={(e) => onChange(defaultTrigger(e.target.value as Trigger["type"]))}
         className={field}
       >
-        {TRIGGER_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {TRIGGER_LABEL[t]}
+        {TRIGGER_TYPES.map((tt) => (
+          <option key={tt} value={tt}>
+            {TRIGGER_LABEL[tt]}
           </option>
         ))}
       </select>
       {value.type === "interval" && (
         <label className="flex items-center gap-2">
-          alle
+          {t("tasks.every")}
           <input
             type="number"
             min={1}
@@ -406,12 +408,12 @@ function TriggerEditor({ value, onChange }: { value: Trigger; onChange: (t: Trig
             onChange={(e) => onChange({ type: "interval", minutes: Math.max(1, Number(e.target.value) || 1) })}
             className={`${field} w-20`}
           />
-          Minuten
+          {t("tasks.minutes")}
         </label>
       )}
       {value.type === "schedule" && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {WEEKDAY_SHORT.map((d, i) => {
+          {weekdayShort().map((d, i) => {
             const n = i + 1;
             const on = value.weekdays.includes(n);
             return (
@@ -435,7 +437,7 @@ function TriggerEditor({ value, onChange }: { value: Trigger; onChange: (t: Trig
           })}
           <input
             type="time"
-            aria-label="Uhrzeit"
+            aria-label={t("tasks.time")}
             value={`${String(value.hour).padStart(2, "0")}:${String(value.minute).padStart(2, "0")}`}
             onChange={(e) => {
               const [h, m] = e.target.value.split(":").map(Number);
@@ -466,7 +468,7 @@ function ScriptDiff({ before, after }: { before: string; after: string }) {
   return (
     <details className="rounded-md border border-[var(--color-border)]">
       <summary className="cursor-pointer px-2 py-1 text-[11px]">
-        Änderungen zur freigegebenen Fassung: <span className="text-emerald-500">+{st.added}</span>{" "}
+        {t("tasks.changes_vs_approved")} <span className="text-emerald-500">+{st.added}</span>{" "}
         <span className="text-red-500">−{st.removed}</span>
       </summary>
       <pre className="max-h-48 overflow-auto px-2 pb-2 font-mono text-[11px] leading-snug">
@@ -490,7 +492,7 @@ function RiskHints({ script }: { script: string }) {
   return (
     <div className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px]">
       <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
-      <span>Bitte genau ansehen — das Skript {hints.join(", ")}.</span>
+      <span>{t("tasks.risk_hint", { list: hints.join(", ") })}</span>
     </div>
   );
 }
@@ -528,9 +530,9 @@ function Editor({
     setSaving(true);
     setSaveError(null);
     try {
-      let t = await aiTaskSave(d);
-      if (approve && !t.approved) t = await aiTaskApprove(t.id, t.script_hash);
-      onSaved(t);
+      let saved = await aiTaskSave(d);
+      if (approve && !saved.approved) saved = await aiTaskApprove(saved.id, saved.script_hash);
+      onSaved(saved);
     } catch (e) {
       setSaveError(String(e));
     } finally {
@@ -541,12 +543,12 @@ function Editor({
   return (
     <div className="flex flex-col gap-3 p-3">
       <label className="flex flex-col gap-1">
-        <span className="font-medium">Was soll passieren?</span>
+        <span className="font-medium">{t("tasks.what_should_happen")}</span>
         <textarea
           ref={descRef}
           rows={3}
           value={d.prompt}
-          placeholder="z. B. Lösche im Downloads-Ordner .dmg-Dateien, die älter als 14 Tage sind (in den Papierkorb)."
+          placeholder={t("tasks.e_g_move_dmg_files")}
           onChange={(e) => set({ prompt: e.target.value })}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -567,19 +569,19 @@ function Editor({
           {providers.map((p) => (
             <option key={p.id} value={p.id} disabled={!p.configured}>
               {p.label}
-              {p.configured ? "" : " (nicht eingerichtet)"}
+              {p.configured ? "" : t("tasks.not_set_up")}
             </option>
           ))}
         </select>
         <button className={primary} disabled={s.generating || !d.prompt.trim()} onClick={() => void generate(null)}>
           {s.generating ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-          {hasScript ? "Neu erzeugen" : "Skript erzeugen"}
+          {hasScript ? t("tasks.generate_again") : t("tasks.generate_script")}
         </button>
         <span className="text-[10px] text-[var(--color-muted)]">⌘⏎</span>
       </div>
       {s.generating && (
         <p className="text-[11px] text-[var(--color-muted)]">
-          Die KI schreibt das Skript … das dauert meist 10–60 s. Das Fenster darf dabei zugehen.
+          {t("tasks.the_ai_is_writing_the")}
         </p>
       )}
       {s.genError && <p className="rounded-md bg-red-500/10 px-2 py-1.5 text-[11px] text-red-500">{s.genError}</p>}
@@ -588,14 +590,14 @@ function Editor({
         <>
           <div className="flex items-center gap-2">
             <input
-              aria-label="Name"
+              aria-label={t("tasks.name")}
               value={d.name}
-              placeholder="Name"
+              placeholder={t("tasks.name")}
               onChange={(e) => set({ name: e.target.value })}
               className={`${field} min-w-0 flex-1 font-medium`}
             />
             <select
-              aria-label="Sprache"
+              aria-label={t("tasks.language")}
               value={d.language}
               onChange={(e) => set({ language: e.target.value as AiTaskDraft["language"] })}
               className={field}
@@ -610,7 +612,7 @@ function Editor({
           {d.explanation && <p className="text-[11px] leading-snug text-[var(--color-muted)]">{d.explanation}</p>}
           <RiskHints script={d.script} />
           <textarea
-            aria-label="Skript"
+            aria-label={t("tasks.script")}
             value={d.script}
             spellCheck={false}
             rows={Math.min(18, Math.max(6, d.script.split("\n").length + 1))}
@@ -622,7 +624,7 @@ function Editor({
           <div className="flex items-center gap-2">
             <input
               value={s.feedback}
-              placeholder="Änderungswunsch an die KI, z. B. „auch .pkg-Dateien“"
+              placeholder={t("tasks.change_request_for_the_ai")}
               onChange={(e) => patch({ feedback: e.target.value })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && s.feedback.trim()) void generate(s.feedback);
@@ -630,15 +632,15 @@ function Editor({
               className={`${field} min-w-0 flex-1`}
             />
             <button className={btn} disabled={s.generating || !s.feedback.trim()} onClick={() => void generate(s.feedback)}>
-              <RefreshCw size={11} /> Überarbeiten
+              <RefreshCw size={11} /> {t("tasks.revise")}
             </button>
           </div>
 
           <div className="rounded-md border border-[var(--color-border)] p-2.5">
-            <div className="mb-1.5 font-medium">Wann ausführen?</div>
+            <div className="mb-1.5 font-medium">{t("tasks.when_to_run")}</div>
             <TriggerEditor value={d.trigger} onChange={(trigger) => set({ trigger })} />
             <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--color-muted)]">
-              Zeitlimit
+              {t("tasks.time_limit")}
               <input
                 type="number"
                 min={5}
@@ -647,7 +649,7 @@ function Editor({
                 onChange={(e) => set({ timeout_s: Math.min(MAX_TIMEOUT_S, Math.max(5, Number(e.target.value) || 5)) })}
                 className={`${field} w-20`}
               />
-              Sekunden
+              {t("tasks.seconds")}
             </label>
           </div>
 
@@ -656,16 +658,15 @@ function Editor({
           <div className="flex flex-wrap items-center gap-2">
             {!keepsApproval && (
               <button className={primary} disabled={!!problem || saving} onClick={() => void save(true)}>
-                <ShieldCheck size={11} /> Speichern &amp; freigeben
+                <ShieldCheck size={11} /> {t("tasks.save_approve")}
               </button>
             )}
             <button className={keepsApproval ? primary : btn} disabled={!!problem || saving} onClick={() => void save(false)}>
-              <Check size={11} /> {keepsApproval ? "Speichern" : "Nur speichern (ohne Freigabe)"}
+              <Check size={11} /> {keepsApproval ? t("common.save") : t("tasks.save_only_without_approval")}
             </button>
           </div>
           <p className="text-[10px] leading-snug text-[var(--color-muted)]">
-            Freigeben heißt: dieses Skript in genau dieser Fassung darf automatisch laufen. Jede spätere Änderung am Skript braucht
-            eine neue Freigabe.
+            {t("tasks.approving_means_this_exact_version")}
           </p>
         </>
       )}
@@ -688,7 +689,7 @@ function RunRow({ run, now }: { run: AiTaskRun; now: number }) {
       </button>
       {open && (
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-2 pb-2 font-mono text-[10.5px] leading-snug">
-          {run.output || run.error || "(keine Ausgabe)"}
+          {run.output || run.error || t("tasks.no_output")}
         </pre>
       )}
     </li>
@@ -724,7 +725,7 @@ function Detail({
       .catch(() => setRuns([]));
   }, [id, lastRunMs, running]);
 
-  if (!task) return <p className="p-3 text-[var(--color-muted)]">Dieser Task existiert nicht mehr.</p>;
+  if (!task) return <p className="p-3 text-[var(--color-muted)]">{t("tasks.this_task_no_longer_exists")}</p>;
 
   const act = async (f: () => Promise<unknown>) => {
     setBusy(true);
@@ -750,14 +751,14 @@ function Detail({
         <p className="mt-1 text-[11px] text-[var(--color-muted)]">
           {triggerSummary(task.trigger)}
           {task.trigger.type === "folder" ? ` (${shortPath(task.trigger.path)})` : ""}
-          {nextDue && task.approved && task.enabled && !paused ? ` · nächster Lauf ${relativeTime(nextDue, now)}` : ""}
+          {nextDue && task.approved && task.enabled && !paused ? ` · ${t("tasks.next_run", { when: relativeTime(nextDue, now) })}` : ""}
         </p>
       </div>
 
       {!task.approved ? (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px]">
           <p className="mb-2">
-            Noch nicht freigegeben — läuft nicht automatisch. Skript ansehen und freigeben, wenn es tut, was es soll.
+            {t("tasks.not_approved_yet_doesn_t")}
           </p>
           <RiskHints script={task.script} />
           <button
@@ -765,61 +766,61 @@ function Detail({
             disabled={busy}
             onClick={() => void act(() => aiTaskApprove(task.id, task.script_hash))}
           >
-            <ShieldCheck size={11} /> Diese Fassung freigeben
+            <ShieldCheck size={11} /> {t("tasks.approve_this_version")}
           </button>
         </div>
       ) : (
         <div className="flex items-center gap-1.5 text-[11px] text-emerald-500">
-          <ShieldCheck size={12} /> Freigegeben
+          <ShieldCheck size={12} /> {t("tasks.approved")}
           <button className="ml-1 text-[var(--color-muted)] underline" disabled={busy} onClick={() => void act(() => aiTaskRevoke(task.id))}>
-            Freigabe zurückziehen
+            {t("tasks.withdraw_approval")}
           </button>
         </div>
       )}
 
       {task.explanation && <p className="text-[11px] leading-snug">{task.explanation}</p>}
       <details className="rounded-md border border-[var(--color-border)]" open={!task.approved}>
-        <summary className="cursor-pointer px-2 py-1 text-[11px]">Skript ({task.script.split("\n").length} Zeilen)</summary>
+        <summary className="cursor-pointer px-2 py-1 text-[11px]">{tn("tasks.script_lines", task.script.split("\n").length)}</summary>
         <pre className="max-h-64 overflow-auto px-2 pb-2 font-mono text-[11px] leading-snug">{task.script}</pre>
       </details>
       {task.prompt && (
         <p className="text-[11px] text-[var(--color-muted)]">
-          <span className="font-medium">Beschreibung:</span> {task.prompt}
+          <span className="font-medium">{t("tasks.description")}</span> {task.prompt}
         </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button className={primary} disabled={busy || running || !task.approved} onClick={() => void act(() => aiTaskRunNow(task.id))}>
-          {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />} Jetzt ausführen
+          {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />} {t("tasks.run_now")}
         </button>
         <button
           className={btn}
           onClick={() => patch({ view: { kind: "edit" }, draft: draftFromTask(task), base: task, genError: null, feedback: "" })}
         >
-          <Pencil size={11} /> Bearbeiten
+          <Pencil size={11} /> {t("common.edit")}
         </button>
         <label className="flex items-center gap-1 text-[11px]">
           <input type="checkbox" checked={task.enabled} onChange={(e) => void act(() => aiTaskSetEnabled(task.id, e.target.checked))} />
-          automatisch ausführen
+          {t("tasks.run_automatically_2")}
         </label>
         <div className="ml-auto">
           {confirmDel ? (
             <span className="flex items-center gap-1 text-[11px]">
-              Löschen?
+              {t("tasks.delete")}
               <button className="rounded bg-red-500 px-2 py-0.5 text-white" onClick={() =>
                   void act(async () => {
                     await aiTaskDelete(task.id);
                     patch({ view: { kind: "list" } });
                   })
                 }>
-                Ja
+                {t("common.yes")}
               </button>
               <button className="rounded border border-[var(--color-border)] px-2 py-0.5" onClick={() => setConfirmDel(false)}>
-                Nein
+                {t("tasks.no")}
               </button>
             </span>
           ) : (
-            <button className={btn} onClick={() => setConfirmDel(true)} title="Task löschen">
+            <button className={btn} onClick={() => setConfirmDel(true)} title={t("tasks.delete_task")}>
               <Trash2 size={11} />
             </button>
           )}
@@ -828,9 +829,9 @@ function Detail({
       {err && <p className="text-[11px] text-red-500">{err}</p>}
 
       <div>
-        <div className="mb-1 font-medium">Läufe</div>
+        <div className="mb-1 font-medium">{t("tasks.runs")}</div>
         {runs.length === 0 ? (
-          <p className="text-[11px] text-[var(--color-muted)]">Noch keine.</p>
+          <p className="text-[11px] text-[var(--color-muted)]">{t("tasks.none_yet")}</p>
         ) : (
           <ul className="rounded-md border border-[var(--color-border)]">
             {runs.map((r) => (

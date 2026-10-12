@@ -4,7 +4,7 @@
 // ids and aliases.
 import paletteFile from "./retro-palettes.json";
 import type { RetroConfig, RetroModeSettings, RetroDither } from "./ipc";
-import { t } from "./i18n";
+import { locale, t } from "./i18n";
 
 export type RetroMode = "8bit" | "16bit";
 
@@ -152,7 +152,7 @@ function withSlot(cfg: RetroConfig, s: RetroModeSettings): RetroConfig {
   return cfg.mode === "8bit" ? { ...cfg, eight: s } : { ...cfg, sixteen: s };
 }
 
-const fmtNum = (v: number) => v.toLocaleString("de-DE", { maximumFractionDigits: 1 });
+const fmtNum = (v: number) => v.toLocaleString(locale(), { maximumFractionDigits: 1 });
 const onOff = (b: boolean) => (b ? t("retro.on") : t("retro.off"));
 
 /** Is a row's parent switched off (row shown dimmed)? */

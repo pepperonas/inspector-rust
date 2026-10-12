@@ -19,6 +19,8 @@
 
 // ── Steuerkonstanten 2025 ────────────────────────────────────────
 
+import { locale } from "./i18n";
+
 export const TC = {
   grundfreibetrag: 12096,
   childAllowance: 6672,
@@ -432,13 +434,13 @@ export interface BrunoBreakdownView {
  * Soli/Kirchensteuer rows are omitted, like in the preview. Pure + unit-tested.
  */
 export function formatBrunoBreakdown(d: BrunoBreakdownView): string {
-  const eur = new Intl.NumberFormat("de-DE", {
+  const eur = new Intl.NumberFormat(locale(), {
     style: "currency", currency: "EUR", maximumFractionDigits: 0,
   });
-  const eurExact = new Intl.NumberFormat("de-DE", {
+  const eurExact = new Intl.NumberFormat(locale(), {
     style: "currency", currency: "EUR", maximumFractionDigits: 2,
   });
-  const pct = new Intl.NumberFormat("de-DE", {
+  const pct = new Intl.NumberFormat(locale(), {
     style: "percent", maximumFractionDigits: 1,
   });
 
@@ -681,13 +683,13 @@ export interface BrunoSelfBreakdownView extends BrunoSelfResult {
 }
 
 export function formatBrunoSelfBreakdown(d: BrunoSelfBreakdownView): string {
-  const eur = new Intl.NumberFormat("de-DE", {
+  const eur = new Intl.NumberFormat(locale(), {
     style: "currency", currency: "EUR", maximumFractionDigits: 0,
   });
-  const eurExact = new Intl.NumberFormat("de-DE", {
+  const eurExact = new Intl.NumberFormat(locale(), {
     style: "currency", currency: "EUR", maximumFractionDigits: 2,
   });
-  const pct = new Intl.NumberFormat("de-DE", {
+  const pct = new Intl.NumberFormat(locale(), {
     style: "percent", maximumFractionDigits: 1,
   });
 

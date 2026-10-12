@@ -1,3 +1,4 @@
+import { locale } from "./i18n";
 /**
  * Pure helpers for the `clock` world-clock panel (v0.121.0): the IANA
  * timezone/city catalogue, autocomplete matching, and time formatting via the
@@ -175,7 +176,7 @@ export interface ZoneTime {
  *  post-normalize) fall back to a dashy placeholder. */
 export function zoneTime(date: Date, tz: string): ZoneTime {
   try {
-    const parts = new Intl.DateTimeFormat("de-DE", {
+    const parts = new Intl.DateTimeFormat(locale(), {
       timeZone: tz,
       hour: "2-digit",
       minute: "2-digit",

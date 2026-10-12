@@ -6,7 +6,7 @@
  */
 
 import type { RangeKey } from "./ipc";
-import { t, type MessageKey } from "./i18n";
+import { locale, t, type MessageKey } from "./i18n";
 
 /** Monday-first short weekday names in the current language. */
 export function weekdayLabels(): string[] {
@@ -34,7 +34,7 @@ export function categoryColor(cat: string): string {
 
 /** Human integer with de-style thousands separators. */
 export function formatNum(n: number): string {
-  return new Intl.NumberFormat("de-DE").format(n);
+  return new Intl.NumberFormat(locale()).format(n);
 }
 
 /** ISO timestamp → "24.08.2026" (date only, robust to a bad string). */

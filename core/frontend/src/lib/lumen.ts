@@ -1,3 +1,4 @@
+import { locale } from "./i18n";
 export type LightBand = {
   label: string;
   description: string;
@@ -28,5 +29,5 @@ export function lightBand(lux: number): LightBand {
 
 export function formatLux(lux: number): string {
   if (lux < 100) return lux.toFixed(1);
-  return Math.round(lux).toLocaleString("en-US");
+  return Math.round(lux).toLocaleString(locale());
 }

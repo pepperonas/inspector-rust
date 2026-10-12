@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   computeBruno,
   formatBrunoBreakdown,
@@ -341,6 +341,13 @@ describe("formatBrunoBreakdown", () => {
 // ── Selbständigen-Kalkulation (Suffix `f`) ──────────────────────────────────
 
 import { computeBrunoSelf, formatBrunoSelfBreakdown, TCF, type BrunoSelfInput } from "./bruno";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const SELF_BASE: BrunoSelfInput = {
   yearlyProfit: 80000,

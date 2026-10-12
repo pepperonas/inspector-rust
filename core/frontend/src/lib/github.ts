@@ -5,7 +5,7 @@
  */
 import type { GithubDeltas, GithubPoint, GithubSortKey, GithubStatus } from "./ipc";
 import type { SeriesPoint } from "./stats-chart";
-import { t, type MessageKey } from "./i18n";
+import { locale, t, type MessageKey } from "./i18n";
 
 export type GithubView = "dashboard" | "repos" | "repo" | "followers" | "stars" | "trending";
 export type GithubRange = "7d" | "30d" | "90d" | "1y" | "all";
@@ -124,7 +124,7 @@ export function toSeries(points: GithubPoint[]): SeriesPoint[] {
 export function formatDelta(d: number | null): string {
   if (d == null) return "—";
   if (d === 0) return "±0";
-  return d > 0 ? `+${d.toLocaleString("en-US")}` : `−${Math.abs(d).toLocaleString("en-US")}`;
+  return d > 0 ? `+${d.toLocaleString(locale())}` : `−${Math.abs(d).toLocaleString(locale())}`;
 }
 
 export function deltaTone(d: number | null): "up" | "down" | "flat" | "none" {
@@ -262,7 +262,7 @@ export function activityByMonth(
     const d = new Date(end.getFullYear(), end.getMonth() - i, 1);
     buckets.push({
       start: d.getTime(),
-      label: d.toLocaleDateString("en-US", { month: "short" }),
+      label: d.toLocaleDateString(locale(), { month: "short" }),
       count: 0,
     });
   }

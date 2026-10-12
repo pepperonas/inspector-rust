@@ -7,6 +7,7 @@ import { commitTransformedText } from "../lib/ipc";
 import { TRANSFORMS, applyTransform, feedbackPreview, transformLabel, type TransformKind } from "../lib/text-transform";
 import { useModifierHeld } from "../hooks/useModifierHeld";
 import { IS_MAC } from "../lib/platform";
+import { t, tSplit, useT } from "../lib/i18n";
 
 /** String-manipulation toolbar for the selected *text* entry. Each chip
  *  applies a transform from `lib/text-transform.ts`; the result is
@@ -33,6 +34,7 @@ export function TransformBar({
   /** Show the chips straight away (the typed-text row exists to transform). */
   initiallyOpen?: boolean;
 }) {
+  useT();
   const modHeld = useModifierHeld();
   // Clicking the hint keeps the chips open without holding the modifier — the
   // options stay reachable for mouse users (and while reading a long label).
@@ -64,7 +66,7 @@ export function TransformBar({
       showFlash(true, transformLabel(kind), feedbackPreview(result));
     } catch (e) {
       console.error("transform commit failed", e);
-      showFlash(false, transformLabel(kind), "Clipboard write failed");
+      showFlash(false, transformLabel(kind), t("transform.write_failed"));
     }
   };
 
@@ -81,7 +83,7 @@ export function TransformBar({
       }
     >
       {flash.ok ? <Check size={12} className="shrink-0" /> : <X size={12} className="shrink-0" />}
-      <span className="shrink-0 font-semibold">{flash.ok ? `Copied · ${flash.label}` : flash.label}</span>
+      <span className="shrink-0 font-semibold">{flash.ok ? t("transform.copied", { label: flash.label }) : flash.label}</span>
       <span className="truncate font-[var(--font-mono)] opacity-80">{flash.preview}</span>
     </div>
   );
@@ -107,7 +109,7 @@ export function TransformBar({
       // !@#$… on US) doesn't trigger a transform.
       if (e.shiftKey) return;
       if (!/^[1-9]$/.test(e.key)) return;
-      const spec = TRANSFORMS.find((t) => t.digit === Number(e.key));
+      const spec = TRANSFORMS.find((s) => s.digit === Number(e.key));
       if (!spec) return;
       e.preventDefault();
       void run(spec.kind);
@@ -131,16 +133,16 @@ export function TransformBar({
       <button
         type="button"
         onClick={() => setPinned(true)}
-        title="Copy this entry in another shape — plain text, UPPERCASE, Base64, …"
+        title={t("transform.hint_title")}
         className="md3-press mt-2 flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-dashed border-[var(--color-border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
       >
         <Type size={11} />
         <span>
-          Hold{" "}
+          {tSplit("transform.hold", "key")[0]}
           <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] normal-case">
             {modKey}
-          </kbd>{" "}
-          for formatting options
+          </kbd>
+          {tSplit("transform.hold", "key")[1]}
         </span>
       </button>
       </>
@@ -152,13 +154,13 @@ export function TransformBar({
       {feedback}
       <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
         <Type size={12} className="text-[var(--color-accent)]" />
-        Transform → new entry + clipboard
+        {t("transform.header")}
         {pinned && (
           <button
             type="button"
             onClick={() => setPinned(false)}
-            title="Hide the formatting options"
-            aria-label="Hide the formatting options"
+            title={t("transform.hide")}
+            aria-label={t("transform.hide")}
             className="ml-auto rounded px-1 text-[12px] leading-none hover:text-[var(--color-accent)]"
           >
             ×
@@ -166,19 +168,19 @@ export function TransformBar({
         )}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {TRANSFORMS.map((t) => {
+        {TRANSFORMS.map((spec) => {
           // Special-case the plain-text transform — it carries no digit
           // but is bound to Cmd/Ctrl+^ via the keyboard handler above.
           const badge =
-            t.digit != null
-              ? `${mod}${t.digit}`
-              : t.kind === "plain-text"
+            spec.digit != null
+              ? `${mod}${spec.digit}`
+              : spec.kind === "plain-text"
                 ? `${mod}^`
                 : null;
           return (
             <button
-              key={t.kind}
-              onClick={() => void run(t.kind)}
+              key={spec.kind}
+              onClick={() => void run(spec.kind)}
               title={badge ?? undefined}
               className="md3-press flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
             >
@@ -187,7 +189,7 @@ export function TransformBar({
                   {badge}
                 </kbd>
               )}
-              {t.label}
+              {transformLabel(spec.kind)}
             </button>
           );
         })}

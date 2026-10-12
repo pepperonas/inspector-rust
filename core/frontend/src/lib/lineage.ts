@@ -12,7 +12,8 @@
  * list per entry id out. The rendering (`HistoryItem`) only draws what this
  * returns, so the layout logic is fully unit-testable.
  */
-import { TRANSFORMS } from "./text-transform";
+import { TRANSFORMS, transformLabel } from "./text-transform";
+import { t } from "./i18n";
 
 /**
  * The only thing a row needs to expose to be laid out — `ClipEntry` satisfies
@@ -195,7 +196,7 @@ export function visibleRails(rails: Rail[] | undefined): Rail[] {
  * transform is renamed.
  */
 export function derivedKindLabel(kind: string | null | undefined): string {
-  if (!kind) return "Copied from another entry";
-  const spec = TRANSFORMS.find((t) => t.kind === kind);
-  return spec ? spec.label : kind;
+  if (!kind) return t("lineage.copied_from");
+  const spec = TRANSFORMS.find((s) => s.kind === kind);
+  return spec ? transformLabel(spec.kind) : kind;
 }

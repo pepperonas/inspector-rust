@@ -7,6 +7,8 @@
  * by `Cmd/Ctrl+1…9` or the numbered toolbar chips.
  */
 
+import { t, type MessageKey } from "./i18n";
+
 export type TransformKind =
   | "remove-vowels"
   | "upper"
@@ -23,8 +25,11 @@ export type TransformKind =
 
 export interface TransformSpec {
   kind: TransformKind;
-  /** Toolbar / cheat-sheet label. */
+  /** Toolbar / cheat-sheet label. Format names (UPPERCASE, camelCase …)
+   *  show their own spelling and stay untranslated; descriptive labels carry
+   *  a `labelKey` — read them through `transformLabel`, never `.label`. */
   label: string;
+  labelKey?: MessageKey;
   /** 1–9 → bound to `Cmd/Ctrl+<digit>`. Undefined → click-only. */
   digit?: number;
 }
@@ -33,20 +38,20 @@ export interface TransformSpec {
  *  nine carry a `digit` and get a `Cmd/Ctrl+<n>` keyboard shortcut;
  *  the decode pair is click-only. */
 export const TRANSFORMS: ReadonlyArray<TransformSpec> = [
-  { kind: "remove-vowels", label: "Remove vowels", digit: 1 },
+  { kind: "remove-vowels", label: "Remove vowels", labelKey: "transform.remove_vowels", digit: 1 },
   { kind: "upper", label: "UPPERCASE", digit: 2 },
   { kind: "lower", label: "lowercase", digit: 3 },
   { kind: "title", label: "Title Case", digit: 4 },
   { kind: "camel", label: "camelCase", digit: 5 },
   { kind: "snake", label: "snake_case", digit: 6 },
   { kind: "kebab", label: "kebab-case", digit: 7 },
-  { kind: "base64-encode", label: "Base64 encode", digit: 8 },
-  { kind: "url-encode", label: "URL encode", digit: 9 },
-  { kind: "base64-decode", label: "Base64 decode" },
-  { kind: "url-decode", label: "URL decode" },
+  { kind: "base64-encode", label: "Base64 encode", labelKey: "transform.base64_encode", digit: 8 },
+  { kind: "url-encode", label: "URL encode", labelKey: "transform.url_encode", digit: 9 },
+  { kind: "base64-decode", label: "Base64 decode", labelKey: "transform.base64_decode" },
+  { kind: "url-decode", label: "URL decode", labelKey: "transform.url_decode" },
   // No digit — bound to Cmd/Ctrl+^ in TransformBar (digit-shortcuts
   // top out at 9, and `^` reads as "strip styling" intuitively).
-  { kind: "plain-text", label: "Plain text" },
+  { kind: "plain-text", label: "Plain text", labelKey: "transform.plain_text" },
 ];
 
 // ── word tokeniser (shared by camel / snake / kebab) ──────────────────
@@ -170,5 +175,7 @@ export { feedbackPreview, FEEDBACK_PREVIEW_MAX } from "./copy-feedback";
 
 /** Human label of a transform kind (the chip label). */
 export function transformLabel(kind: TransformKind): string {
-  return TRANSFORMS.find((t) => t.kind === kind)?.label ?? kind;
+  const spec = TRANSFORMS.find((s) => s.kind === kind);
+  if (!spec) return kind;
+  return spec.labelKey ? t(spec.labelKey) : spec.label;
 }

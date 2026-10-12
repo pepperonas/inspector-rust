@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Keyboard } from "lucide-react";
+import { useT } from "../lib/i18n";
 
 /**
  * Map WebKit-on-macOS quirks back to the layout-stable W3C code.
@@ -77,6 +78,7 @@ interface Props {
  * shortcut is recorded.
  */
 export function HotkeyCapture({ value, onChange, pending, disabled }: Props) {
+  const t = useT();
   const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
@@ -111,10 +113,10 @@ export function HotkeyCapture({ value, onChange, pending, disabled }: Props) {
   }, [capturing, onChange]);
 
   const label = capturing
-    ? "Press a key combination… (Esc cancel · Backspace clear)"
+    ? t("hotkey.capturing")
     : pending
-      ? "Saving…"
-      : value || "(no hotkey set)";
+      ? t("common.saving")
+      : value || t("hotkey.none");
 
   return (
     <button
@@ -127,7 +129,7 @@ export function HotkeyCapture({ value, onChange, pending, disabled }: Props) {
           ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
           : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg)] hover:border-[var(--color-accent)]/60")
       }
-      title="Click to start / stop recording. Backspace clears, Esc cancels."
+      title={t("hotkey.capture_title")}
     >
       <Keyboard size={12} />
       <span className="truncate">{label}</span>

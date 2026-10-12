@@ -222,7 +222,8 @@ function countMetrics() {
 
   // Sections in the Settings registry (the ones with search names — the
   // category list below it has `sections:` instead).
-  const settings = (read("core/frontend/src/lib/settings-sections.ts").match(/\{ id: "[^"]+", label: "[^"]+", names: \[/g) ?? []).length;
+  // One `sec("id", [names])` call per section (labels come from the catalogue).
+  const settings = (read("core/frontend/src/lib/settings-sections.ts").match(/^\s*sec\("[^"]+", \[/gm) ?? []).length;
 
   // Commands whose arguments Tab completes: the keys of ARG_TREES.
   const argSrc = read("core/frontend/src/lib/arg-complete.ts");

@@ -36,6 +36,7 @@ import {
   rollDirection,
   waveIntensity,
 } from "../lib/volume-hud";
+import { t } from "../lib/i18n";
 
 /**
  * `status-toast` window — a brief, click-through, centred-on-screen
@@ -575,7 +576,7 @@ function VolumeOverlay({
                 onPointerUp={onUp}
                 onPointerCancel={onUp}
                 role={hasLevel ? "slider" : undefined}
-                aria-label={hasLevel ? "Lautstärke" : undefined}
+                aria-label={hasLevel ? t("toast.volume_aria") : undefined}
                 aria-valuemin={hasLevel ? 0 : undefined}
                 aria-valuemax={hasLevel ? 100 : undefined}
                 aria-valuenow={hasLevel ? level : undefined}

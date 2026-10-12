@@ -167,7 +167,7 @@ describe("SETTINGS_CATEGORIES", () => {
   });
   // Layout facts only a browser shows — pinned so they can't silently regress.
   it("the category bar stays readable and flush with the header", () => {
-    const nav = panelSrc.match(/aria-label="Einstellungs-Kategorien"\s+className="([^"]+)"/)?.[1] ?? "";
+    const nav = panelSrc.match(/aria-label=\{t\("set.categories_aria"\)\}\s+className="([^"]+)"/)?.[1] ?? "";
     // A flex-column scroller shrinks an overflow-x child to a sliver.
     expect(nav.split(" ")).toContain("shrink-0");
     // Sticky offsets count from inside the scroller's 24 px padding.

@@ -530,13 +530,23 @@ const SPEED_RUNS = [
   ip: null,
 }));
 
+// `?lang=de` renders the mockup in German; Settings → Language switches live.
+let mockLang: "system" | "en" | "de" =
+  typeof location !== "undefined" && new URLSearchParams(location.search).get("lang") === "de" ? "de" : "system";
+const mockLanguage = () => ({
+  setting: mockLang,
+  effective: mockLang === "de" ? "de" : "en",
+  system: "en",
+});
+
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     // ── boot ──────────────────────────────────────────────────────────────
     case "get_animation_stage": return "reduced";
     case "get_crt_animation": return { ms: 0, min: 80, max: 900, default_ms: 250 };
     case "get_theme_preference": return "dark";
-    case "get_language": return { setting: "system", effective: "en", system: "en" };
+    case "get_language": return mockLanguage();
+    case "set_language": mockLang = (args.setting as typeof mockLang) ?? "system"; return mockLanguage();
     case "get_lineage_highlight": return true;
     case "get_history": return CLIPS;
     case "search_history": return CLIPS.filter((c) => sameFuzzy(String(args.query ?? ""), c.content_text));

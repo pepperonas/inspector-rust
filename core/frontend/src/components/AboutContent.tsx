@@ -1,4 +1,5 @@
 import { ExternalLink, Heart } from "lucide-react";
+import { tSplit, useT } from "../lib/i18n";
 
 interface Props {
   /** App version, e.g. "0.53.0". Pulled from `getVersion()` in the parent. */
@@ -12,6 +13,7 @@ interface Props {
  * author, license, workflow pitch, tech stack, project links.
  */
 export function AboutContent({ version }: Props) {
+  const t = useT();
   return (
     <div className="text-[12px]">
       {/* Identity block */}
@@ -25,50 +27,42 @@ export function AboutContent({ version }: Props) {
           )}
         </div>
         <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-muted)]">
-          Clipboard productivity toolkit for power users — searchable history,
-          snippets with auto-expansion, calculator, color picker + eyedropper,
-          image tools, OCR + screenshots (capture modes, annotate, pin),
-          cleaning, and monitor brightness.
+          {t("about.tagline")}
         </div>
       </div>
 
       {/* Meta table */}
       <table className="mb-3 w-full">
         <tbody>
-          <Meta label="Developer" value="Martin Pfeffer" />
-          <Meta label="License" value="MIT" />
-          <Meta label="Year" value="2026" />
-          <Meta label="Audience" value="Keyboard-driven power users" />
+          <Meta label={t("about.developer")} value="Martin Pfeffer" />
+          <Meta label={t("about.license")} value="MIT" />
+          <Meta label={t("about.year")} value="2026" />
+          <Meta label={t("about.audience")} value={t("about.audience_value")} />
         </tbody>
       </table>
 
       {/* Workflow pitch */}
       <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] leading-relaxed">
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
-          Workflow optimization
+          {t("about.workflow_title")}
         </div>
-        One hotkey, no mouse. Search clipboard history fuzzy, expand snippets
-        system-wide (passive auto-expansion or a hotkey), calculate inline,
-        sample colors, recolor and cut out images, capture &amp; annotate
-        screenshots, free up disk space, dim your monitors — without leaving
-        the keyboard. Local SQLite, AES-256 encrypted at rest, no telemetry,
-        no cloud.
+        {t("about.workflow")}
       </div>
 
       {/* Tech-stack mini table */}
       <div className="mb-3">
         <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-          Tech stack
+          {t("about.tech")}
         </div>
         <table className="w-full text-[11px]">
           <tbody>
             <Tech label="Shell" value="Tauri 2 · Wry / WebView" />
             <Tech label="Backend" value="Rust (stable) · rusqlite · clipboard-rs · enigo" />
-            <Tech label="Storage" value="SQLite · AES-256-GCM · OS keychain" />
+            <Tech label={t("about.tech_storage")} value="SQLite · AES-256-GCM · OS keychain" />
             <Tech label="Frontend" value="React 19 · TypeScript 5 · Vite 7 · Tailwind v4" />
-            <Tech label="Image" value="image 0.25 · ort (ONNX) · Apple Vision" />
-            <Tech label="Displays" value="ddc-hi (DDC/CI brightness)" />
-            <Tech label="Formats" value="PNG · JPEG · WebP · GIF · BMP" />
+            <Tech label={t("about.tech_image")} value="image 0.25 · ort (ONNX) · Apple Vision" />
+            <Tech label={t("about.tech_displays")} value="ddc-hi (DDC/CI brightness)" />
+            <Tech label={t("about.tech_formats")} value="PNG · JPEG · WebP · GIF · BMP" />
           </tbody>
         </table>
       </div>
@@ -85,7 +79,7 @@ export function AboutContent({ version }: Props) {
           github.com/pepperonas/inspector-rust
         </a>
         <span className="flex items-center gap-1 leading-none">
-          made with <Heart size={10} className="shrink-0 text-red-400" /> by Martin Pfeffer
+          {tSplit("about.made_with", "heart")[0]}<Heart size={10} className="shrink-0 text-red-400" />{tSplit("about.made_with", "heart")[1]}
         </span>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { t, type MessageKey } from "./i18n";
 /**
  * Animation stage — Full / Reduced / Off (v0.163.0).
  *
@@ -55,14 +56,7 @@ export function applyAnimationStage(
 
 /** Settings-UI label for a stage. */
 export function stageLabel(stage: AnimationStage): string {
-  switch (stage) {
-    case "full":
-      return "Full";
-    case "reduced":
-      return "Reduced";
-    case "off":
-      return "Off";
-  }
+  return t(`anim.stage.${stage}` as MessageKey);
 }
 
 // ── Runtime singleton ────────────────────────────────────────────────────────

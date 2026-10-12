@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Bot, Check, KeyRound, Loader2, Terminal, X } from "lucide-react";
 import { aiGetConfig, aiProviderStatus, aiSetConfig, aiSetKey, aiTestProvider } from "../lib/ipc";
 import type { AiConfig, AiProviderId, AiProviderStatus } from "../lib/tasks";
+import { useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Settings → KI-Anbieter: API keys (keychain, never shown again — only a
@@ -10,6 +12,7 @@ import type { AiConfig, AiProviderId, AiProviderStatus } from "../lib/tasks";
  * or through the local `claude` program with its own login.
  */
 export function AiProvidersSection() {
+  const t = useT();
   const [list, setList] = useState<AiProviderStatus[] | null>(null);
   const [cfg, setCfg] = useState<AiConfig | null>(null);
   const [keys, setKeys] = useState<Record<string, string>>({});
@@ -42,7 +45,7 @@ export function AiProvidersSection() {
     try {
       await aiSetKey(id, value);
       setKeys((k) => ({ ...k, [id]: "" }));
-      setResult((r) => ({ ...r, [id]: { ok: true, msg: value.trim() ? "Schlüssel gespeichert." : "Schlüssel entfernt." } }));
+      setResult((r) => ({ ...r, [id]: { ok: true, msg: value.trim() ? t("ai.key_saved") : t("ai.key_removed") } }));
       await refresh();
     } catch (e) {
       setResult((r) => ({ ...r, [id]: { ok: false, msg: String(e) } }));
@@ -72,16 +75,14 @@ export function AiProvidersSection() {
     <div id="settings-ai" className="scroll-mt-3 rounded-lg">
       <div className="mb-1 flex items-center gap-2">
         <Bot size={16} className="text-[var(--color-accent)]" />
-        <h2 className="text-[14px] font-semibold">KI-Anbieter</h2>
+        <h2 className="text-[14px] font-semibold">{t("ai.title")}</h2>
       </div>
       <p className="mb-4 text-[12px] text-[var(--color-muted)]">
-        Für KI-Tasks (Befehl <code>task</code> bzw. <code>ki</code>). Schlüssel liegen im Schlüsselbund und werden nur an
-        den jeweiligen Anbieter geschickt. Claude geht entweder per API-Schlüssel oder über das lokale Programm{" "}
-        <code>claude</code> mit seinem eigenen Login.
+        <InlineMd text={t("ai.description")} />
       </p>
       <div className="rounded-lg border border-[var(--color-border)] p-4">
         <label className="mb-4 flex items-center gap-2 text-[12px]">
-          <span className="font-medium">Standard für neue Tasks</span>
+          <span className="font-medium">{t("ai.default")}</span>
           <select
             value={cfg.provider}
             onChange={(e) => void saveConfig({ ...cfg, provider: e.target.value as AiProviderId })}
@@ -90,7 +91,7 @@ export function AiProvidersSection() {
             {list.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
-                {p.configured ? "" : " (nicht eingerichtet)"}
+                {p.configured ? "" : ` ${t("ai.not_set_up")}`}
               </option>
             ))}
           </select>
@@ -110,12 +111,12 @@ export function AiProvidersSection() {
                       p.configured ? "bg-emerald-500/15 text-emerald-500" : "bg-[var(--color-surface)] text-[var(--color-muted)]"
                     }`}
                   >
-                    {p.configured ? (isCli ? "gefunden" : "Schlüssel hinterlegt") : isCli ? "nicht installiert" : "kein Schlüssel"}
+                    {p.configured ? (isCli ? t("ai.found") : t("ai.key_stored")) : isCli ? t("ai.not_installed") : t("ai.no_key")}
                   </span>
                 </div>
                 {isCli ? (
                   <p className="mb-2 break-all text-[11px] text-[var(--color-muted)]">
-                    {p.hint ?? "Programm `claude` nicht gefunden — Claude Code installieren und einmal anmelden."}
+                    {p.hint ?? t("ai.cli_missing")}
                   </p>
                 ) : (
                   <div className="mb-2 flex items-center gap-2">
@@ -124,7 +125,7 @@ export function AiProvidersSection() {
                       autoComplete="off"
                       spellCheck={false}
                       value={keys[p.id] ?? ""}
-                      placeholder={p.hint ? `${p.hint} (gespeichert — zum Ersetzen tippen)` : "API-Schlüssel einfügen"}
+                      placeholder={p.hint ? t("ai.key_placeholder_stored", { hint: p.hint }) : t("ai.key_placeholder")}
                       onChange={(e) => setKeys((k) => ({ ...k, [p.id]: e.target.value }))}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && (keys[p.id] ?? "").trim()) void saveKey(p.id, keys[p.id]);
@@ -136,26 +137,26 @@ export function AiProvidersSection() {
                       onClick={() => void saveKey(p.id, keys[p.id] ?? "")}
                       className="rounded-md bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
                     >
-                      Speichern
+                      {t("common.save")}
                     </button>
                     {p.configured && (
                       <button
                         disabled={busy === p.id}
                         onClick={() => void saveKey(p.id, "")}
-                        title="Schlüssel entfernen"
+                        title={t("ai.remove_key")}
                         className="rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] disabled:opacity-40"
                       >
-                        Entfernen
+                        {t("common.remove")}
                       </button>
                     )}
                   </div>
                 )}
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-[var(--color-muted)]">Modell</span>
+                  <span className="text-[11px] text-[var(--color-muted)]">{t("ai.model")}</span>
                   <input
                     value={cfg.models[p.id] ?? p.default_model}
                     spellCheck={false}
-                    placeholder={p.default_model || "Standard von Claude Code"}
+                    placeholder={p.default_model || t("ai.model_default")}
                     onChange={(e) => setCfg({ ...cfg, models: { ...cfg.models, [p.id]: e.target.value } })}
                     onBlur={() => void saveConfig(cfg)}
                     className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[11px]"
@@ -166,7 +167,7 @@ export function AiProvidersSection() {
                     className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] disabled:opacity-40"
                   >
                     {busy === p.id ? <Loader2 size={11} className="animate-spin" /> : null}
-                    Testen
+                    {t("common.test")}
                   </button>
                 </div>
                 {r && (

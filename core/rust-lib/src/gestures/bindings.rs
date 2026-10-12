@@ -750,7 +750,7 @@ mod tests {
         ];
         for k in kinds {
             let name = serde_json::to_value(k).unwrap();
-            assert!(ts.contains(&format!("{{ kind: {name}, label:")), "no editor entry for {name}");
+            assert!(ts.contains(&format!("{{ kind: {name}, get label()")), "no editor entry for {name}");
         }
         let actions = [
             BindingAction::VolumeUp,
@@ -765,7 +765,7 @@ mod tests {
         ];
         for a in actions {
             let ty = serde_json::to_value(&a).unwrap()["type"].clone();
-            assert!(ts.contains(&format!("{{ type: {ty}, label:")), "no editor entry for {ty}");
+            assert!(ts.contains(&format!("{{ type: {ty}, get label()")), "no editor entry for {ty}");
         }
     }
 

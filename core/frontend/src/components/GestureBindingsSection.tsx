@@ -34,6 +34,8 @@ import {
   type GestureBinding,
 } from "../lib/gesture-bindings";
 import { HotkeyCapture } from "./HotkeyCapture";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /** How often "show the gesture" polls the live log. */
 const CAPTURE_POLL_MS = 150;
@@ -49,6 +51,7 @@ const input =
  * the running capture — no restart.
  */
 export function GestureBindingsSection() {
+  useT();
   const [list, setList] = useState<GestureBinding[] | null>(null);
   const [customised, setCustomised] = useState(false);
   const [ctx, setCtx] = useState<ActionContext>({});
@@ -155,7 +158,7 @@ export function GestureBindingsSection() {
   };
 
   if (!list) {
-    return <p className="text-[12px] text-[var(--color-muted)]">{error ?? "Lädt …"}</p>;
+    return <p className="text-[12px] text-[var(--color-muted)]">{error ?? t("common.loading")}</p>;
   }
 
   return (
@@ -170,7 +173,7 @@ export function GestureBindingsSection() {
           >
             <input
               type="checkbox"
-              aria-label={`${triggerLabel(b.trigger)} aktiv`}
+              aria-label={t("gesture.row_active", { name: triggerLabel(b.trigger) })}
               checked={b.enabled}
               disabled={busy}
               onChange={() => toggle(i)}
@@ -182,22 +185,22 @@ export function GestureBindingsSection() {
               <span>{actionLabel(b.action, ctx)}</span>
               {b.app && (
                 <span className="ml-1.5 rounded bg-[var(--color-surface)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]">
-                  nur {b.app_name ?? b.app}
+                  {t("gesture.only_in", { app: b.app_name ?? b.app })}
                 </span>
               )}
               {!b.typing_guard && (
                 <span
-                  title="Wirkt auch direkt nach dem Tippen"
+                  title={t("gesture.no_guard_title")}
                   className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--color-muted)]"
                 >
-                  <Keyboard size={10} /> ohne Tipp-Schutz
+                  <Keyboard size={10} /> {t("gesture.no_guard")}
                 </span>
               )}
             </span>
             <button
               type="button"
-              title="Bearbeiten"
-              aria-label="Bearbeiten"
+              title={t("common.edit")}
+              aria-label={t("common.edit")}
               disabled={busy}
               onClick={() => startEdit(i)}
               className="md3-press rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
@@ -206,8 +209,8 @@ export function GestureBindingsSection() {
             </button>
             <button
               type="button"
-              title={armedDelete === b.id ? "Wirklich löschen?" : "Löschen"}
-              aria-label={armedDelete === b.id ? "Wirklich löschen" : "Löschen"}
+              title={armedDelete === b.id ? t("common.really_delete") : t("common.delete")}
+              aria-label={armedDelete === b.id ? t("common.really_delete") : t("common.delete")}
               disabled={busy}
               onClick={() => remove(b.id)}
               onBlur={() => setArmedDelete((a) => (a === b.id ? null : a))}
@@ -220,14 +223,14 @@ export function GestureBindingsSection() {
           </li>
         ))}
         {list.length === 0 && (
-          <li className="text-[12px] text-[var(--color-muted)]">Keine Zuordnungen — Gesten tun gerade nichts.</li>
+          <li className="text-[12px] text-[var(--color-muted)]">{t("gesture.empty")}</li>
         )}
       </ul>
 
       {conflicts.size > 0 && (
         <p className="mt-2 flex items-start gap-1 text-[11px] text-amber-500">
           <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-          Zwei aktive Zuordnungen teilen sich eine Geste — beim Speichern wird das abgelehnt.
+          {t("gesture.conflict")}
         </p>
       )}
 
@@ -253,7 +256,7 @@ export function GestureBindingsSection() {
             onClick={() => startEdit(list.length)}
             className="md3-press flex items-center gap-1 rounded-md bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            <Plus size={11} /> Neue Zuordnung
+            <Plus size={11} /> {t("gesture.new")}
           </button>
           {customised && (
             <button
@@ -265,7 +268,7 @@ export function GestureBindingsSection() {
                 armedReset ? "border-red-500 text-red-500" : "border-[var(--color-border)] text-[var(--color-muted)]"
               }`}
             >
-              <RotateCcw size={11} /> {armedReset ? "Wirklich alle eigenen Zuordnungen verwerfen?" : "Standard wiederherstellen"}
+              <RotateCcw size={11} /> {armedReset ? t("gesture.reset_confirm") : t("gesture.reset")}
             </button>
           )}
         </div>
@@ -296,10 +299,10 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
 
   return (
     <div className="mt-3 rounded-md border border-[var(--color-accent)]/40 p-3 text-[12px]" data-testid="gesture-binding-editor">
-      <div className="mb-1 font-medium">Geste</div>
+      <div className="mb-1 font-medium">{t("gesture.field.gesture")}</div>
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <select
-          aria-label="Geste"
+          aria-label={t("gesture.field.gesture")}
           value={draft.trigger.kind}
           onChange={(e) => {
             const kind = e.target.value as GestureBinding["trigger"]["kind"];
@@ -315,14 +318,14 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
         </select>
         {!isTipTap(draft.trigger.kind) && (
           <select
-            aria-label="Finger"
+            aria-label={t("gesture.field.fingers")}
             value={draft.trigger.fingers}
             onChange={(e) => set({ trigger: { ...draft.trigger, fingers: Number(e.target.value) } })}
             className={input}
           >
             {Array.from({ length: MAX_FINGERS - MIN_FINGERS + 1 }, (_, i) => MIN_FINGERS + i).map((n) => (
               <option key={n} value={n}>
-                {n} Finger
+                {t("gesture.n_fingers", { n })}
               </option>
             ))}
           </select>
@@ -334,33 +337,32 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
       )}
       {mayCollideWithSystem(draft.trigger) && (
         <p className="mb-1 text-[11px] text-[var(--color-muted)]">
-          Belegt das System dieselbe Geste (Systemeinstellungen → Trackpad → Weitere Gesten), lösen beide aus — dort
-          abschalten.
+          {t("gesture.system_collision")}
         </p>
       )}
 
-      <div className="mb-1 mt-3 font-medium">Aktion</div>
+      <div className="mb-1 mt-3 font-medium">{t("gesture.field.action")}</div>
       <div className="flex flex-wrap items-center gap-2">
         <select
-          aria-label="Aktion"
+          aria-label={t("gesture.field.action")}
           value={a.type}
           onChange={(e) => setActionType(e.target.value as BindingActionType)}
           className={input}
         >
-          {ACTION_TYPES.map((t) => (
-            <option key={t.type} value={t.type}>
-              {t.label}
+          {ACTION_TYPES.map((at) => (
+            <option key={at.type} value={at.type}>
+              {at.label}
             </option>
           ))}
         </select>
         {a.type === "hotkey" && (
           <select
-            aria-label="Inspector-Rust-Aktion"
+            aria-label={t("gesture.action.hotkey")}
             value={a.action}
             onChange={(e) => set({ action: { type: "hotkey", action: e.target.value } })}
             className={input}
           >
-            <option value="">— auswählen —</option>
+            <option value="">{t("common.choose_dash")}</option>
             {hotkeys.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.label}
@@ -373,26 +375,26 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
         )}
         {a.type === "open" && (
           <input
-            aria-label="Adresse oder Pfad"
+            aria-label={t("gesture.field.target")}
             value={a.target}
             spellCheck={false}
-            placeholder="https://… oder /Applications/…"
+            placeholder={t("gesture.field.target_placeholder")}
             onChange={(e) => set({ action: { type: "open", target: e.target.value } })}
             className={`${input} min-w-0 flex-1 font-mono`}
           />
         )}
         {a.type === "task" && (
           <select
-            aria-label="KI-Task"
+            aria-label={t("gesture.field.task")}
             value={a.id}
             onChange={(e) => set({ action: { type: "task", id: Number(e.target.value) } })}
             className={input}
           >
-            <option value={0}>— auswählen —</option>
-            {tasks.map((t) => (
-              <option key={t.id} value={t.id} disabled={!t.approved}>
-                {t.name}
-                {t.approved ? "" : " (nicht freigegeben)"}
+            <option value={0}>{t("common.choose_dash")}</option>
+            {tasks.map((task) => (
+              <option key={task.id} value={task.id} disabled={!task.approved}>
+                {task.name}
+                {task.approved ? "" : ` ${t("gesture.task_unapproved")}`}
               </option>
             ))}
           </select>
@@ -400,11 +402,11 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
       </div>
       {a.type === "task" && tasks.length === 0 && (
         <p className="mt-1 text-[11px] text-[var(--color-muted)]">
-          Noch keine KI-Tasks — mit <code>task</code> in der Suche anlegen.
+          <InlineMd text={t("gesture.no_tasks")} />
         </p>
       )}
 
-      <div className="mb-1 mt-3 font-medium">Wo</div>
+      <div className="mb-1 mt-3 font-medium">{t("gesture.field.where")}</div>
       <AppScope
         app={draft.app}
         appName={draft.app_name}
@@ -418,7 +420,7 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
           onChange={(e) => set({ typing_guard: e.target.checked })}
           className="accent-[var(--color-accent)]"
         />
-        <span className="text-[var(--color-muted)]">Tipp-Schutz: direkt nach dem Tippen ignorieren</span>
+        <span className="text-[var(--color-muted)]">{t("gesture.guard_label")}</span>
       </label>
 
       <div className="mt-3 flex items-center gap-2">
@@ -428,14 +430,14 @@ function BindingEditor({ draft, onChange, hotkeys, tasks, busy, onSave, onCancel
           onClick={onSave}
           className="md3-press flex items-center gap-1 rounded-md bg-[var(--color-accent)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
         >
-          <Check size={11} /> Speichern
+          <Check size={11} /> {t("common.save")}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="md3-press flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[11px]"
         >
-          <X size={11} /> Abbrechen
+          <X size={11} /> {t("common.cancel")}
         </button>
         {missing && <span className="text-[11px] text-[var(--color-muted)]">{missing}</span>}
       </div>
@@ -475,7 +477,7 @@ function CaptureButton({ onCaptured }: { onCaptured: (t: GestureBinding["trigger
             setState(r.error);
           } else if (Date.now() - began > CAPTURE_MAX_MS) {
             stop();
-            setState("Keine Geste erkannt. Sind Gesten eingeschaltet?");
+            setState(t("gesture.capture.none"));
           }
         });
       }, CAPTURE_POLL_MS);
@@ -497,7 +499,7 @@ function CaptureButton({ onCaptured }: { onCaptured: (t: GestureBinding["trigger
         }`}
       >
         <Hand size={11} className={state === "waiting" ? "animate-pulse motion-reduce:animate-none" : ""} />
-        {state === "waiting" ? "Jetzt auf dem Trackpad ausführen …" : "Geste vormachen"}
+        {state === "waiting" ? t("gesture.capture.waiting") : t("gesture.capture.button")}
       </button>
       {state !== "idle" && state !== "waiting" && <span className="text-[11px] text-amber-500">{state}</span>}
     </span>
@@ -527,7 +529,7 @@ function AppScope({
     setErr(null);
     const id = await appBundleId(entry.path).catch(() => null);
     if (!id) {
-      setErr(`Kennung von ${entry.name} nicht lesbar.`);
+      setErr(t("gesture.app_id_unreadable", { name: entry.name }));
       return;
     }
     onChange(id, entry.name);
@@ -545,7 +547,7 @@ function AppScope({
       <div className="flex items-center gap-3">
         <label className="flex cursor-pointer items-center gap-1.5">
           <input type="radio" checked={!scoped} onChange={() => onChange(null, null)} className="accent-[var(--color-accent)]" />
-          Überall
+          {t("gesture.scope.everywhere")}
         </label>
         <label className="flex cursor-pointer items-center gap-1.5">
           <input
@@ -554,7 +556,7 @@ function AppScope({
             onChange={() => onChange(app ?? "", appName)}
             className="accent-[var(--color-accent)]"
           />
-          Nur in einer App
+          {t("gesture.scope.one_app")}
         </label>
       </div>
       {scoped && (
@@ -564,12 +566,12 @@ function AppScope({
               {appName ?? app} <span className="font-mono text-[10px]">({app})</span>
             </span>
           ) : (
-            <span className="text-[11px] text-[var(--color-muted)]">App suchen und auswählen:</span>
+            <span className="text-[11px] text-[var(--color-muted)]">{t("gesture.scope.search_hint")}</span>
           )}
           <input
-            aria-label="App suchen"
+            aria-label={t("gesture.scope.search")}
             value={query}
-            placeholder="App suchen …"
+            placeholder={t("gesture.scope.search_placeholder")}
             onChange={(e) => setQuery(e.target.value)}
             className={`${input} mt-1 block w-full`}
           />

@@ -8,6 +8,7 @@ import {
   setActionHotkey,
   type ActionHotkey,
 } from "../lib/ipc";
+import { useT } from "../lib/i18n";
 
 /**
  * Settings → "Global shortcuts": rebind every global *action* hotkey (OCR,
@@ -18,6 +19,7 @@ import {
  * the row to its built-in default; "Off" disables it (empty binding).
  */
 export function GlobalShortcutsSection() {
+  const t = useT();
   const [rows, setRows] = useState<ActionHotkey[] | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function GlobalShortcutsSection() {
   };
 
   if (!rows) {
-    return <div className="text-[12px] text-[var(--color-muted)]">Loading…</div>;
+    return <div className="text-[12px] text-[var(--color-muted)]">{t("common.loading")}</div>;
   }
 
   return (
@@ -78,24 +80,24 @@ export function GlobalShortcutsSection() {
               type="button"
               onClick={() => void reset(r.id)}
               disabled={busy === r.id || r.is_default}
-              title={`Reset to ${formatHotkey(r.default)}`}
+              title={t("hotkey.reset_to", { key: formatHotkey(r.default) })}
               className="md3-press flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
             >
               <RotateCcw size={11} />
-              Reset
+              {t("common.reset")}
             </button>
             {r.shortcut ? (
               <button
                 type="button"
                 onClick={() => void apply(r.id, "")}
                 disabled={busy === r.id}
-                title="Disable this shortcut"
+                title={t("hotkey.disable")}
                 className="md3-press rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-rose-500 hover:text-rose-400 disabled:opacity-40"
               >
-                Off
+                {t("common.off")}
               </button>
             ) : (
-              <span className="text-[11px] italic text-[var(--color-muted)]">disabled</span>
+              <span className="text-[11px] italic text-[var(--color-muted)]">{t("hotkey.disabled")}</span>
             )}
           </div>
           {errors[r.id] && (

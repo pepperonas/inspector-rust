@@ -51,6 +51,7 @@ import {
   brunoExport,
 } from "../lib/ipc";
 import { InlineMd } from "./InlineMd";
+import { locale, t, tn, tSplit, useT, type MessageKey } from "../lib/i18n";
 
 interface Props {
   entry: ListEntry | null;
@@ -138,7 +139,7 @@ function BrunoExportRow({ data }: { data: Parameters<typeof buildBrunoExport>[0]
     setDone(null);
     void brunoExport(buildBrunoExport(data), fmt)
       .then((p) => setDone(p.split(/[/\\]/).pop() ?? p))
-      .catch((e) => setDone(`Fehler: ${String(e)}`))
+      .catch((e) => setDone(t("common.error_detail", { detail: String(e) })))
       .finally(() => setBusy(null));
   };
   return <ExportRow formats={["html", "pdf"]} busy={busy} done={done} onExport={run} />;
@@ -171,14 +172,18 @@ function BrunoRow({
 }
 
 /** Human-readable names for the language codes used by the `tr*` commands. */
-const LANG_NAMES: Record<string, string> = {
-  auto: "Auto-detect",
-  en: "English",
-  de: "German",
-  it: "Italian",
-  es: "Spanish",
-  pl: "Polish",
+const LANG_NAME_KEYS: Record<string, MessageKey> = {
+  auto: "tr.lang.auto",
+  en: "tr.lang.en",
+  de: "tr.lang.de",
+  it: "tr.lang.it",
+  es: "tr.lang.es",
+  pl: "tr.lang.pl",
 };
+function langName(code: string): string {
+  const key = LANG_NAME_KEYS[code];
+  return key ? t(key) : code;
+}
 
 /**
  * Live-translation preview for the `tr*` commands (v0.93.0; Enter=copy v0.101.5).
@@ -195,11 +200,11 @@ function TranslatePreview({
   live: PreviewLiveTranslation | null | undefined;
 }) {
   const pair = TRANSLATE_LANGS[kind];
-  const srcName = pair ? (LANG_NAMES[pair.sl] ?? pair.sl) : "";
-  const tgtName = pair ? (LANG_NAMES[pair.tl] ?? pair.tl) : "";
+  const srcName = pair ? langName(pair.sl) : "";
+  const tgtName = pair ? langName(pair.tl) : "";
   const detected =
     live?.status === "ok" && live.detectedSource
-      ? (LANG_NAMES[live.detectedSource] ?? live.detectedSource)
+      ? langName(live.detectedSource)
       : null;
   const [copiedSide, setCopiedSide] = useState<"src" | "tgt" | null>(null);
 
@@ -217,19 +222,19 @@ function TranslatePreview({
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
       <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-        Translate · {detected ?? srcName} → {tgtName}
+        {t("tr.header", { src: detected ?? srcName, tgt: tgtName })}
       </div>
 
       {text.length === 0 ? (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[12px] text-[var(--color-muted)]">
-          Type something to translate…
+          {t("tr.empty")}
         </div>
       ) : (
         <>
           <button
             type="button"
             onClick={() => void copySide("src", text)}
-            title="Click to copy source text"
+            title={t("tr.copy_source")}
             className="group w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left transition-colors hover:border-[var(--color-accent)]/50"
           >
             <div className="flex items-center justify-between">
@@ -238,9 +243,9 @@ function TranslatePreview({
               </div>
               <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
                 {copiedSide === "src" ? (
-                  <span className="md3-success-pop items-center gap-1"><Check size={11} /> Copied</span>
+                  <span className="md3-success-pop items-center gap-1"><Check size={11} /> {t("common.copied")}</span>
                 ) : (
-                  <><Copy size={11} /> Copy</>
+                  <><Copy size={11} /> {t("common.copy")}</>
                 )}
               </span>
             </div>
@@ -255,8 +260,8 @@ function TranslatePreview({
             disabled={live?.status !== "ok"}
             title={
               live?.status === "ok"
-                ? "Click to copy translation"
-                : "Translation not ready yet"
+                ? t("tr.copy_target")
+                : t("tr.not_ready")
             }
             className="group w-full rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4 text-left transition-colors hover:border-[var(--color-accent)] disabled:cursor-default disabled:hover:border-[var(--color-accent)]/40"
           >
@@ -269,9 +274,9 @@ function TranslatePreview({
               ) : live?.status === "ok" ? (
                 <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
                   {copiedSide === "tgt" ? (
-                    <span className="md3-success-pop items-center gap-1"><Check size={11} /> Copied</span>
+                    <span className="md3-success-pop items-center gap-1"><Check size={11} /> {t("common.copied")}</span>
                   ) : (
-                    <><Copy size={11} /> Copy</>
+                    <><Copy size={11} /> {t("common.copy")}</>
                   )}
                 </span>
               ) : null}
@@ -280,16 +285,16 @@ function TranslatePreview({
               <>
                 <div className="mt-1 text-[15px] font-semibold leading-snug">{live.text}</div>
                 <div className="mt-2 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
-                  via {live.provider}
+                  {t("tr.via", { provider: live.provider })}
                 </div>
               </>
             ) : live?.status === "error" ? (
               <div className="mt-1 text-[12px] text-[var(--color-muted)]">
-                Live translation unavailable — press ⇧⏎ to open Google Translate.
+                {t("tr.unavailable")}
               </div>
             ) : (
               <div className="mt-1 text-[13px] italic text-[var(--color-muted)]">
-                {live?.status === "loading" ? "Translating…" : "…"}
+                {live?.status === "loading" ? t("tr.translating") : "…"}
               </div>
             )}
           </button>
@@ -297,7 +302,7 @@ function TranslatePreview({
       )}
 
       <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-        ⏎ copies translation · ⇧⏎ opens Google Translate · click a box to copy
+        {t("tr.footer")}
       </div>
     </div>
   );
@@ -332,6 +337,8 @@ export function PreviewPanel({
   liveTranslation,
   onTotpAdd,
 }: Props) {
+  // Subscribes the panel (and its non-memo children) to language switches.
+  useT();
   // Stable identity of the selected CLIP for the memos below. `[entry]` deps
   // were an identity trap: App rebuilds `combined` per keystroke, so the SAME
   // selected clip arrives in a fresh `{kind, data}` wrapper every key — the
@@ -405,7 +412,7 @@ export function PreviewPanel({
   if (!entry) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-[var(--color-muted)]">
-        Select an entry
+        {t("preview.select")}
       </div>
     );
   }
@@ -417,13 +424,12 @@ export function PreviewPanel({
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           <GitBranch size={12} className="text-rose-500" />
-          <span>GitHub-Repository</span>
+          <span>{t("preview.repo.title")}</span>
         </div>
         <p className="text-[15px] font-medium">{entry.data.owner}/{entry.data.repo}</p>
         <p className="break-all font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">{entry.data.web_url}</p>
         <p className="text-[12px] leading-snug text-[var(--color-muted)]">
-          Enter analysiert die Historie: Commits, Zeiträume, Heatmap, Hotspots, Bus-Faktor —
-          danach Export als HTML/PDF und Klonen mit ⌘K.
+          {t("preview.repo.hint")}
         </p>
       </div>
     );
@@ -434,7 +440,7 @@ export function PreviewPanel({
       <div className="flex h-full flex-col p-4">
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           <Download size={12} className="text-rose-500" />
-          <span>{platformLabel(entry.data.platform)} download</span>
+          <span>{t("preview.social.title", { platform: platformLabel(entry.data.platform) })}</span>
         </div>
         <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           {entry.data.url}
@@ -464,9 +470,9 @@ export function PreviewPanel({
       <div className="flex h-full flex-col p-4">
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           <Palette size={12} className="text-[var(--color-accent)]" />
-          <span>color</span>
+          <span>{t("preview.color.title")}</span>
           <span>·</span>
-          <span>press Enter to paste hex</span>
+          <span>{t("preview.color.hint")}</span>
         </div>
         <div
           className="flex h-32 items-center justify-center rounded-lg border border-[var(--color-border)] font-[var(--font-mono)] text-[24px] font-semibold tracking-wider"
@@ -503,9 +509,9 @@ export function PreviewPanel({
       <div className="flex h-full flex-col p-4">
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           <Calculator size={12} className="text-[var(--color-accent)]" />
-          <span>calculator</span>
+          <span>{t("preview.calc.title")}</span>
           <span>·</span>
-          <span>press Enter to paste result</span>
+          <span>{t("preview.calc.hint")}</span>
         </div>
         <div className="flex flex-1 flex-col items-stretch justify-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
           <div className="text-center font-[var(--font-mono)] text-[14px] text-[var(--color-muted)]">
@@ -556,7 +562,7 @@ export function PreviewPanel({
       <div className="flex h-full flex-col p-4">
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           <Zap size={12} className="text-[var(--color-accent)]" />
-          <span>snippet</span>
+          <span>{t("preview.snippet.title")}</span>
           <span>·</span>
           <span>{formatBytes(body.length)}</span>
           {category && (
@@ -566,7 +572,7 @@ export function PreviewPanel({
             </>
           )}
           <span>·</span>
-          <span className="font-[var(--font-mono)]" title={`Content revision ${version ?? 1}`}>
+          <span className="font-[var(--font-mono)]" title={t("preview.snippet.revision", { n: version ?? 1 })}>
             v{version ?? 1}
           </span>
         </div>
@@ -579,12 +585,12 @@ export function PreviewPanel({
           )}
           <button
             onClick={() => onSnippetEdit?.()}
-            title="Edit this snippet (⌘/Ctrl+E)"
-            aria-label="Edit snippet"
+            title={t("preview.snippet.edit_title")}
+            aria-label={t("preview.snippet.edit_aria")}
             className="md3-press ml-auto flex shrink-0 items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
           >
             <Pencil size={12} />
-            Edit
+            {t("common.edit")}
           </button>
         </div>
         <pre className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
@@ -667,7 +673,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Power command
+          {t("preview.command.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="text-[14px] font-semibold leading-snug">{entry.data.label}</div>
@@ -675,14 +681,14 @@ export function PreviewPanel({
             <InlineMd text={entry.data.hint} />
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter to {isQr ? "copy the QR PNG" : "run"}
+            {isQr ? t("preview.command.enter_qr") : t("preview.command.enter_run")}
           </div>
         </div>
         {isQr && <QrPreview key={entry.data.arg} text={entry.data.arg} />}
         {fileWrite?.content && (
           <div className="flex min-h-0 flex-col gap-1.5">
             <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-              {fileWrite.append ? "Wird angehängt" : "Dateiinhalt"} · {fileWrite.name}
+              {fileWrite.append ? t("preview.file.append") : t("preview.file.content")} · {fileWrite.name}
             </div>
             <pre
               data-testid="file-write-preview"
@@ -698,30 +704,30 @@ export function PreviewPanel({
   }
 
   if (entry.kind === "kill-target") {
-    const sig = entry.data.force ? "SIGKILL (force quit)" : "SIGTERM (graceful)";
+    const sig = entry.data.force ? t("preview.kill.sigkill") : t("preview.kill.sigterm");
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Kill process
+          {t("preview.kill.title")}
         </div>
         <div className="rounded-xl border border-red-500/40 bg-red-500/5 p-4">
           <div className="text-[14px] font-semibold leading-snug">{entry.data.name}</div>
           <div className="mt-2 grid grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-[12px]">
             <span className="text-[var(--color-muted)]">PID</span>
             <span className="font-[var(--font-mono)] tabular-nums">{entry.data.pid}</span>
-            <span className="text-[var(--color-muted)]">Memory</span>
+            <span className="text-[var(--color-muted)]">{t("preview.kill.memory")}</span>
             <span className="font-[var(--font-mono)] tabular-nums">{entry.data.memory_mb.toFixed(2)} MB</span>
             <span className="text-[var(--color-muted)]">Signal</span>
             <span className="font-[var(--font-mono)]">{sig}</span>
             {entry.data.exe && (
               <>
-                <span className="text-[var(--color-muted)]">Path</span>
+                <span className="text-[var(--color-muted)]">{t("preview.kill.path")}</span>
                 <span className="break-all font-[var(--font-mono)] text-[11px]">{entry.data.exe}</span>
               </>
             )}
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter to confirm and kill
+            {t("preview.kill.enter")}
           </div>
         </div>
       </div>
@@ -732,7 +738,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Command suggestion
+          {t("preview.suggestion.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="font-[var(--font-mono)] text-[14px] font-semibold leading-snug">
@@ -742,7 +748,7 @@ export function PreviewPanel({
             <InlineMd text={entry.data.description} />
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter completes into the search bar
+            {t("preview.suggestion.enter")}
           </div>
         </div>
       </div>
@@ -756,15 +762,14 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Random opener · ← → switches
+          {t("preview.opener.title")}
         </div>
         <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div key={entry.data.text} className={`text-[14px] italic leading-snug ${slide}`}>
             {entry.data.text}
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter pastes into the focused app &nbsp;·&nbsp; ← → cycles to the
-            previous / next opener
+            {t("preview.opener.hint")}
           </div>
         </div>
       </div>
@@ -774,85 +779,85 @@ export function PreviewPanel({
   if (entry.kind === "bruno" && entry.data.self) {
     // Selbständigen-Variante (`f`-Suffix) — eigene Aufstellung.
     const d = entry.data.self;
-    const eur = new Intl.NumberFormat("de-DE", {
+    const eur = new Intl.NumberFormat(locale(), {
       style: "currency", currency: "EUR", maximumFractionDigits: 0,
     });
-    const eurExact = new Intl.NumberFormat("de-DE", {
+    const eurExact = new Intl.NumberFormat(locale(), {
       style: "currency", currency: "EUR", maximumFractionDigits: 2,
     });
-    const pct = new Intl.NumberFormat("de-DE", {
+    const pct = new Intl.NumberFormat(locale(), {
       style: "percent", maximumFractionDigits: 1,
     });
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Gewinn → Netto (selbständig) · Steuerjahr 2025 (vereinfacht)
+          {t("bruno.self.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-            Annahmen
+            {t("bruno.assumptions")}
           </div>
           <div className="text-[12px] leading-tight text-[var(--color-fg)]">
             {brunoSelfAssumptions(d)}
           </div>
           <div className="mt-1 text-[11px] text-[var(--color-muted)]">
-            Über Settings → Bruno anpassen.
+            {t("bruno.adjust")}
           </div>
         </div>
 
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           {d.expenses !== undefined && (
             <>
-              <BrunoRow k="Einnahmen / Jahr" v={eur.format(d.yearlyProfit + d.expenses)} />
-              <BrunoRow k="Betriebsausgaben" v={"− " + eur.format(d.expenses)} />
+              <BrunoRow k={t("bruno.row.revenue_year")} v={eur.format(d.yearlyProfit + d.expenses)} />
+              <BrunoRow k={t("bruno.row.expenses")} v={"− " + eur.format(d.expenses)} />
             </>
           )}
-          <BrunoRow k="Gewinn / Jahr" v={eur.format(d.yearlyProfit)} />
-          <BrunoRow k="Gewinn / Monat" v={eur.format(d.yearlyProfit / 12)} />
-          <BrunoRow k="Krankenversicherung" v={"− " + eurExact.format(d.health)} />
-          {d.care > 0 && <BrunoRow k="Pflegeversicherung" v={"− " + eurExact.format(d.care)} />}
+          <BrunoRow k={t("bruno.row.profit_year")} v={eur.format(d.yearlyProfit)} />
+          <BrunoRow k={t("bruno.row.profit_month")} v={eur.format(d.yearlyProfit / 12)} />
+          <BrunoRow k={t("bruno.row.health")} v={"− " + eurExact.format(d.health)} />
+          {d.care > 0 && <BrunoRow k={t("bruno.row.care")} v={"− " + eurExact.format(d.care)} />}
           {d.gewerbesteuer > 0 && (
             <>
-              <BrunoRow k="Gewerbesteuer" v={"− " + eurExact.format(d.gewerbesteuer)} />
-              <BrunoRow k="§ 35-Anrechnung auf ESt" v={"+ " + eurExact.format(d.gewerbeAnrechnung)} />
+              <BrunoRow k={t("bruno.row.trade_tax")} v={"− " + eurExact.format(d.gewerbesteuer)} />
+              <BrunoRow k={t("bruno.row.trade_credit")} v={"+ " + eurExact.format(d.gewerbeAnrechnung)} />
             </>
           )}
-          <BrunoRow k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
-          {d.soli > 0 && <BrunoRow k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
-          {d.churchTax > 0 && <BrunoRow k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
-          <BrunoRow k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
-          <BrunoRow k="Abgabenquote" v={pct.format(d.deductionRate)} />
-          <BrunoRow k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+          <BrunoRow k={t("bruno.row.income_tax")} v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <BrunoRow k={t("bruno.row.soli")} v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <BrunoRow k={t("bruno.row.church")} v={"− " + eurExact.format(d.churchTax)} />}
+          <BrunoRow k={t("bruno.row.total")} v={eur.format(d.totalDeductions)} />
+          <BrunoRow k={t("bruno.row.rate")} v={pct.format(d.deductionRate)} />
+          <BrunoRow k={t("bruno.row.marginal")} v={pct.format(d.marginalRate)} />
         </div>
 
         <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
-          <BrunoRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent animate />
-          <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
+          <BrunoRow k={t("bruno.row.net_month")} v={eurExact.format(d.netMonth)} accent animate />
+          <BrunoRow k={t("bruno.row.net_year")} v={eurExact.format(d.netYear)} accent animate />
         </div>
 
         <BrunoExportRow data={entry.data} />
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter kopiert {entry.data.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
-          {" "}· ⇧⏎ kopiert die komplette Aufstellung ·{" "}
-          ⚠ Ohne RV/AV (keine Pflicht) · USt ist durchlaufender Posten (§ 19 Kleinunternehmer: keine USt) · Vereinfacht, keine Steuerberatung.
+          {entry.data.period === "monthly" ? t("bruno.enter_month") : t("bruno.enter_year")}
+          {" "}· {t("bruno.shift_enter")} ·{" "}
+          {t("bruno.self.caveat")}
         </div>
       </div>
     );
   }
 
   if (entry.kind === "bruno") {
-    const eur = new Intl.NumberFormat("de-DE", {
+    const eur = new Intl.NumberFormat(locale(), {
       style: "currency",
       currency: "EUR",
       maximumFractionDigits: 0,
     });
-    const eurExact = new Intl.NumberFormat("de-DE", {
+    const eurExact = new Intl.NumberFormat(locale(), {
       style: "currency",
       currency: "EUR",
       maximumFractionDigits: 2,
     });
-    const pct = new Intl.NumberFormat("de-DE", {
+    const pct = new Intl.NumberFormat(locale(), {
       style: "percent",
       maximumFractionDigits: 1,
     });
@@ -860,48 +865,48 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Brutto → Netto · Steuerjahr 2025 (vereinfacht)
+          {t("bruno.employee.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-            Annahmen
+            {t("bruno.assumptions")}
           </div>
           <div className="text-[12px] leading-tight text-[var(--color-fg)]">
-            Klasse {d.taxClass} · {STATE_LABELS[d.state] ?? d.state.toUpperCase()} ·{" "}
-            {d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`}{" "}
-            · {d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer"}
+            {t("bruno.class", { n: d.taxClass })} · {STATE_LABELS[d.state] ?? d.state.toUpperCase()} ·{" "}
+            {d.children === 0 ? t("bruno.childless") : tn("bruno.children", d.children)}{" "}
+            · {d.isChurchMember ? t("bruno.church_yes") : t("bruno.church_no")}
           </div>
           <div className="mt-1 text-[11px] text-[var(--color-muted)]">
-            Über Settings → Bruno anpassen.
+            {t("bruno.adjust")}
           </div>
         </div>
 
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <BrunoRow k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
-          <BrunoRow k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
-          <BrunoRow k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
-          <BrunoRow k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
-          <BrunoRow k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
-          <BrunoRow k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
-          <BrunoRow k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
-          {d.soli > 0 && <BrunoRow k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
-          {d.churchTax > 0 && <BrunoRow k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
-          <BrunoRow k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
-          <BrunoRow k="Abgabenquote" v={pct.format(d.deductionRate)} />
-          <BrunoRow k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+          <BrunoRow k={t("bruno.row.gross_year")} v={eur.format(d.yearlyGross)} />
+          <BrunoRow k={t("bruno.row.gross_month")} v={eur.format(d.yearlyGross / 12)} />
+          <BrunoRow k={t("bruno.row.health")} v={"− " + eurExact.format(d.social.health)} />
+          <BrunoRow k={t("bruno.row.care")} v={"− " + eurExact.format(d.social.care)} />
+          <BrunoRow k={t("bruno.row.pension")} v={"− " + eurExact.format(d.social.pension)} />
+          <BrunoRow k={t("bruno.row.unemployment")} v={"− " + eurExact.format(d.social.unemployment)} />
+          <BrunoRow k={t("bruno.row.income_tax")} v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <BrunoRow k={t("bruno.row.soli")} v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <BrunoRow k={t("bruno.row.church")} v={"− " + eurExact.format(d.churchTax)} />}
+          <BrunoRow k={t("bruno.row.total")} v={eur.format(d.totalDeductions)} />
+          <BrunoRow k={t("bruno.row.rate")} v={pct.format(d.deductionRate)} />
+          <BrunoRow k={t("bruno.row.marginal")} v={pct.format(d.marginalRate)} />
         </div>
 
         <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
-          <BrunoRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent animate />
-          <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
+          <BrunoRow k={t("bruno.row.net_month")} v={eurExact.format(d.netMonth)} accent animate />
+          <BrunoRow k={t("bruno.row.net_year")} v={eurExact.format(d.netYear)} accent animate />
         </div>
 
         <BrunoExportRow data={d} />
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
-          {" "}· ⇧⏎ kopiert die komplette Aufstellung ·{" "}
-          ⚠ Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.
+          {d.period === "monthly" ? t("bruno.enter_month") : t("bruno.enter_year")}
+          {" "}· {t("bruno.shift_enter")} ·{" "}
+          {t("bruno.employee.caveat")}
         </div>
       </div>
     );
@@ -912,7 +917,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-4 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          2FA · TOTP-Manager
+          {t("preview.totp.title")}
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
           <Zap size={36} className="text-[var(--color-accent)] opacity-80" />
@@ -920,18 +925,13 @@ export function PreviewPanel({
           <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
             {addMode ? (
               <>
-                Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open
-                the add form directly: Issuer / Service
-                {entry.data.issuer ? <> (pre-filled: <b>{entry.data.issuer}</b>)</> : null},
-                Account / Login, and the Base32 secret from your provider&apos;s
-                2FA setup page.
+                {tSplit("preview.totp.add_open", "key")[0]}<kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd>{tSplit("preview.totp.add_open", "key")[1]}
+                {entry.data.issuer ? <> ({t("preview.totp.prefilled")} <b>{entry.data.issuer}</b>)</> : null}
+                {t("preview.totp.add_rest")}
               </>
             ) : (
               <>
-                Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the full
-                overlay: all entries with live code + countdown, add new
-                entries, import (otpauth://, Google Authenticator Migration,
-                Aegis JSON, 2FAS JSON), export.
+                {tSplit("preview.totp.manage", "key")[0]}<kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd>{tSplit("preview.totp.manage", "key")[1]}
               </>
             )}
           </div>
@@ -943,12 +943,11 @@ export function PreviewPanel({
               className="flex items-center gap-1.5 rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
             >
               <Plus size={12} />
-              Add account
+              {t("preview.totp.add_account")}
             </button>
           )}
           <div className="text-[10px] text-[var(--color-muted)]">
-            Secrets are AES-GCM encrypted in the SQLite DB;
-            key is stored in the OS credential store.
+            {t("preview.totp.secrets_note")}
           </div>
         </div>
       </div>
@@ -960,7 +959,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          TOTP · {e.digits} digits · {e.period}s period
+          {t("preview.totp.meta", { digits: e.digits, period: e.period })}
         </div>
         <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
           <div className="break-all font-[var(--font-mono)] text-[36px] font-bold tracking-[0.15em] tabular-nums">
@@ -970,12 +969,12 @@ export function PreviewPanel({
         <div className="flex flex-col gap-1 text-[13px]">
           <div className="flex items-center gap-2">
             <TotpBrandIcon issuer={e.issuer} size={24} />
-            <b>{e.issuer || "(no issuer)"}</b>
+            <b>{e.issuer || t("preview.totp.no_issuer")}</b>
           </div>
           {e.account && <div className="text-[var(--color-muted)]">{e.account}</div>}
         </div>
         <div className="mt-auto text-[11px] text-[var(--color-muted)]">
-          <TotpSecondsLeft period={e.period} />s until next code · ⏎ kopiert in die Zwischenablage
+          {tSplit("preview.totp.countdown", "secs")[0]}<TotpSecondsLeft period={e.period} />{tSplit("preview.totp.countdown", "secs")[1]}
         </div>
       </div>
     );
@@ -991,12 +990,10 @@ export function PreviewPanel({
           X!
         </div>
         <div className="text-[12px] font-semibold uppercase tracking-[0.3em] text-[var(--color-muted)]">
-          Zündung · Raster · Slop · Brand · Nova · Leere
+          {t("preview.xhype.acts")}
         </div>
         <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-          Ein 15-Sekunden-Stück über den ganzen Bildschirm. ⏎ startet, jede Taste
-          bricht ab. Vollflächen-Blitze bleiben unter der Reizschwelle für
-          Photosensibilität — heftig, aber nicht gefährlich.
+          {t("preview.xhype.hint")}
         </div>
       </div>
     );
@@ -1006,23 +1003,16 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-4 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          BPM detector · microphone
+          {t("preview.bpm.title")}
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
           <Zap size={36} className="text-[var(--color-accent)] opacity-80" />
           <div className="text-[14px] font-semibold">{entry.data.label}</div>
           <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the live overlay. Inspector Rust will ask
-            for microphone access on first use and detect BPM from any
-            audio the mic picks up — play music nearby, hold the mic
-            close to a speaker, or sing along.
+            {tSplit("preview.bpm.hint", "key")[0]}<kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd>{tSplit("preview.bpm.hint", "key")[1]}
           </div>
           <div className="text-[10px] text-[var(--color-muted)]">
-            Algorithm: 30-100 Hz bandpass-filtered (kick-drum band)
-            energy-based onset detection + median IOI clustering,
-            octave-corrected + octave-snapped to 60-200 BPM, displayed
-            as the 4-second rolling mean of raw estimates. Esc inside
-            the overlay to exit + release the mic.
+            {t("preview.bpm.algo")}
           </div>
         </div>
       </div>
@@ -1033,20 +1023,16 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-4 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Equalizer · microphone spectrum
+          {t("preview.eq.title")}
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
           <AudioLines size={36} className="text-[var(--color-accent)] opacity-80" />
           <div className="text-[14px] font-semibold">{entry.data.label}</div>
           <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the live overlay — a 28-band,
-            log-scaled spectrum analyzer with peak-hold markers, driven by
-            the microphone (shared with the BPM detector, so no extra
-            permission prompt). Play music nearby or hold the mic to a speaker.
+            {tSplit("preview.eq.hint", "key")[0]}<kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd>{tSplit("preview.eq.hint", "key")[1]}
           </div>
           <div className="text-[10px] text-[var(--color-muted)]">
-            Inside the overlay: <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">↩</kbd> pins it (keeps it open when you click
-            away), <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">Esc</kbd> exits + releases the mic.
+            {t("preview.eq.keys")}
           </div>
         </div>
       </div>
@@ -1063,17 +1049,17 @@ export function PreviewPanel({
       hint: string;
       digit: 1 | 2 | 3 | 4;
     }> = [
-      { key: "all", label: "All chars", hint: "A-Z a-z 0-9 + symbols", digit: 1 },
-      { key: "alnum", label: "Alphanumeric", hint: "A-Z a-z 0-9 (no symbols)", digit: 2 },
-      { key: "dict", label: "Dictionary", hint: "English words + digit padding", digit: 3 },
-      { key: "leet", label: "Leetspeak", hint: "dict words with a→@, e→3, …", digit: 4 },
+      { key: "all", label: t("pwgen.mode.all"), hint: t("pwgen.mode.all_hint"), digit: 1 },
+      { key: "alnum", label: t("pwgen.mode.alnum"), hint: t("pwgen.mode.alnum_hint"), digit: 2 },
+      { key: "dict", label: t("pwgen.mode.dict"), hint: t("pwgen.mode.dict_hint"), digit: 3 },
+      { key: "leet", label: t("pwgen.mode.leet"), hint: t("pwgen.mode.leet_hint"), digit: 4 },
     ];
     const modPretty = IS_MAC ? "⌘" : "Ctrl+";
     const modWord = IS_MAC ? "Cmd" : "Ctrl";
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Password · {d.length} chars · CSPRNG
+          {t("pwgen.meta", { n: d.length })}
         </div>
         {/* The password itself — large, mono, and editable. Type to tweak
             it; Enter copies the edited value, Esc blurs back. */}
@@ -1085,7 +1071,7 @@ export function PreviewPanel({
             autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
-            aria-label="Generated password (editable)"
+            aria-label={t("pwgen.aria")}
             onChange={(e) => onPwgenEdit?.(e.target.value)}
             onFocus={() => onPwgenEditingChange?.(true)}
             onBlur={() => onPwgenEditingChange?.(false)}
@@ -1101,7 +1087,7 @@ export function PreviewPanel({
             className="w-full break-all border-0 bg-transparent p-1 font-[var(--font-mono)] text-[16px] font-semibold leading-snug text-[var(--color-fg)] outline-none focus:ring-1 focus:ring-[var(--color-accent)]/50"
           />
           <div className="mt-0.5 px-1 text-[10px] text-[var(--color-muted)]">
-            Editable — type to tweak · Enter copies · Esc done
+            {t("pwgen.editable")}
           </div>
         </div>
         {/* Mode picker — radio style, currently-active highlighted.
@@ -1110,7 +1096,7 @@ export function PreviewPanel({
             mode + regenerates. Enter then copies + hides). */}
         <div className="flex flex-col gap-1.5">
           <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-            Mode
+            {t("pwgen.mode")}
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             {MODES.map((m) => {
@@ -1119,7 +1105,7 @@ export function PreviewPanel({
                 <button
                   key={m.key}
                   onClick={() => onPwgenModeChange?.(m.key)}
-                  title={`${modWord}+${m.digit} → switch + regenerate (Enter copies)`}
+                  title={t("pwgen.mode_title", { key: `${modWord}+${m.digit}` })}
                   className={
                     "flex flex-col items-start rounded-md border px-2.5 py-1.5 text-left text-[12px] " +
                     (active
@@ -1145,10 +1131,10 @@ export function PreviewPanel({
             onClick={() => onPwgenReroll?.()}
             className="md3-press rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
           >
-            ↻ Regenerate
+            ↻ {t("pwgen.regenerate")}
           </button>
           <span className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ copy · {modPretty}1–4 switch mode + regenerate
+            {t("pwgen.footer", { mod: modPretty })}
           </span>
         </div>
       </div>
@@ -1159,13 +1145,13 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col p-4">
         <div className="mb-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Typed text
+          {t("preview.typed.title")}
         </div>
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[13px] leading-5">
           {entry.data.text}
         </pre>
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter pastes the text as typed · a transform copies the result and adds it to the history
+          {t("preview.typed.hint")}
         </div>
         <LazyTransformBar text={entry.data.text} initiallyOpen />
       </div>
@@ -1176,7 +1162,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          App launcher
+          {t("preview.app.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="truncate text-[14px] font-semibold leading-snug">
@@ -1186,8 +1172,7 @@ export function PreviewPanel({
             {entry.data.path}
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter launches the app (activates the existing instance if
-            it's already running)
+            {t("preview.app.hint")}
           </div>
         </div>
       </div>
@@ -1198,15 +1183,14 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Einstellung
+          {t("preview.setting.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="truncate text-[14px] font-semibold leading-snug">
             {entry.data.label}
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter öffnet den Settings-Tab und springt zur Sektion
-            (kurz hervorgehoben)
+            {t("preview.setting.hint")}
           </div>
         </div>
       </div>
@@ -1238,7 +1222,7 @@ export function PreviewPanel({
           {entry.data.name}
         </div>
         <div className="text-center font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter copies it to the clipboard
+          {t("preview.meme.hint")}
         </div>
       </div>
     );
@@ -1248,7 +1232,7 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Finder selection
+          {t("preview.finder.title")}
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="truncate text-[14px] font-semibold leading-snug">
@@ -1263,14 +1247,14 @@ export function PreviewPanel({
             </div>
           )}
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter opens the file
+            {t("preview.finder.open")}
             {entry.data.is_image && (
               <>
-                {" "}&nbsp;·&nbsp; type{" "}
+                {" "}&nbsp;·&nbsp; {tSplit("preview.finder.resize", "cmd")[0]}
                 <span className="font-semibold text-[var(--color-fg)]">
                   rz 1200x800
-                </span>{" "}
-                to resize all selected images
+                </span>
+                {tSplit("preview.finder.resize", "cmd")[1]}
               </>
             )}
           </div>
@@ -1297,7 +1281,7 @@ export function PreviewPanel({
         </div>
         <div className="text-[12px] text-[var(--color-muted)]">{entry.data.hint}</div>
         <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter fügt den Text ein
+          {t("preview.clown.hint")}
         </div>
       </div>
     );
@@ -1370,7 +1354,7 @@ export function PreviewPanel({
           sandbox=""
           srcDoc={htmlSrcDoc ?? ""}
           className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
-          title="html preview"
+          title={t("preview.html_title")}
         />
         {/* HTML clips have a text representation in `content_text` —
             offer the same string transforms as plain-text entries. */}
@@ -1389,7 +1373,7 @@ export function PreviewPanel({
           className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5"
         />
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
-          RTF formatting will be preserved on paste.
+          {t("preview.rtf_note")}
         </div>
         {/* RTF clips: same string transforms apply to the plain-text
             representation, like OCR / HTML / plain text. */}
@@ -1433,7 +1417,7 @@ function ClipLinkActions({
           onClick={() => onAnalyzeRepo(gh.web_url)}
           className="mt-2 flex items-center gap-1.5 self-start rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
         >
-          <GitBranch size={12} /> Repo analysieren · {gh.owner}/{gh.repo}
+          <GitBranch size={12} /> {t("preview.repo.analyze", { repo: `${gh.owner}/${gh.repo}` })}
         </button>
       )}
     </>
@@ -1459,7 +1443,7 @@ function CappedPre({ text, className }: { text: string; className: string }) {
         onClick={() => setShowAll(true)}
         className="mt-1 self-start rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
       >
-        Show all ({text.length.toLocaleString()} chars) — may take a moment
+        {t("preview.show_all", { n: text.length.toLocaleString(locale()) })}
       </button>
     </div>
   );
@@ -1531,12 +1515,12 @@ function ImagePreview({ entryId, inline }: { entryId: number; inline: string }) 
     return (
       <div className="flex items-center gap-2 text-[12px] text-[var(--color-muted)]">
         <Loader2 size={14} className="animate-spin" />
-        Loading image…
+        {t("preview.loading_image")}
       </div>
     );
   }
   return (
-    <img src={src} alt="clipboard image" className="max-h-full max-w-full object-contain" />
+    <img src={src} alt={t("preview.image_alt")} className="max-h-full max-w-full object-contain" />
   );
 }
 
@@ -1627,7 +1611,7 @@ function SocialDownloadBar({
       setDone(out.split(/[/\\]/).pop() || out);
     } catch (e) {
       const msg = String(e);
-      setError(msg.includes("no_ytdlp") ? "yt-dlp not installed — run: brew install yt-dlp" : `Failed: ${msg}`);
+      setError(msg.includes("no_ytdlp") ? t("social.no_ytdlp") : t("common.failed_detail", { detail: msg }));
     } finally {
       setBusy(null);
     }
@@ -1647,7 +1631,7 @@ function SocialDownloadBar({
   if (!available) {
     return (
       <div className="mt-3 text-[12px] text-[var(--color-muted)]">
-        yt-dlp not installed — <code className="rounded bg-[var(--color-surface)] px-1">brew install yt-dlp</code> to download {platformLabel(target.platform)} content.
+        {tSplit("social.install_hint", "cmd", { platform: platformLabel(target.platform) })[0]}<code className="rounded bg-[var(--color-surface)] px-1">brew install yt-dlp</code>{tSplit("social.install_hint", "cmd", { platform: platformLabel(target.platform) })[1]}
       </div>
     );
   }
@@ -1655,7 +1639,7 @@ function SocialDownloadBar({
   if (busy) {
     return (
       <DownloadAnimation
-        label={`Downloading ${platformLabel(target.platform)} ${busy === "audio" ? "audio" : "video"}…`}
+        label={t(busy === "audio" ? "social.downloading_audio" : "social.downloading_video", { platform: platformLabel(target.platform) })}
       />
     );
   }
@@ -1679,7 +1663,7 @@ function SocialDownloadBar({
           className={videoActive ? accentBtn : outlineBtn}
         >
           <Download size={13} />
-          Download video
+          {t("social.download_video")}
         </button>
         {isYt && (
           <button
@@ -1690,13 +1674,13 @@ function SocialDownloadBar({
             className={audioActive ? accentBtn : outlineBtn}
           >
             <Music size={13} />
-            Download audio
+            {t("social.download_audio")}
           </button>
         )}
       </div>
       {isYt && controlled && (
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⇥ Tab switches video / audio &nbsp;·&nbsp; ⏎ Enter downloads the selected one
+          {t("social.tab_hint")}
         </div>
       )}
 
@@ -1711,8 +1695,8 @@ function SocialDownloadBar({
             aria-expanded={trimOpen}
           >
             <Scissors size={11} />
-            Ausschnitt
-            {!trimOpen && <span className="opacity-70">— optional, lädt sonst das ganze Video</span>}
+            {t("social.trim")}
+            {!trimOpen && <span className="opacity-70">{t("social.trim_hint")}</span>}
             {trimOpen && !isFullRange(range, durationS) && (
               <span className="font-[var(--font-mono)] text-[var(--color-accent)]">
                 {fmtClock(range.start, durationS >= 3600)}–{fmtClock(range.end, durationS >= 3600)}
@@ -1735,7 +1719,7 @@ function SocialDownloadBar({
       {error && <div className="text-[11px] text-rose-400">{error}</div>}
       {done && (
         <div className="md3-banner-in flex items-center gap-1 text-[11px] text-emerald-400">
-          <Check size={12} /> Saved <b>{done}</b> to Downloads.
+          <Check size={12} /> {tSplit("social.saved", "file")[0]}<b>{done}</b>{tSplit("social.saved", "file")[1]}
         </div>
       )}
     </div>
@@ -1748,6 +1732,16 @@ const SMART_ICON: Record<SmartActionKind, typeof ExternalLink> = {
   call: Phone,
   maps: MapPin,
   qr: QrCode,
+};
+
+/** Button text per action — `SmartAction.label` is the English fallback the
+ *  pure detector carries; the UI shows the translation. */
+const SMART_LABEL: Record<SmartActionKind, MessageKey> = {
+  "open-url": "smart.open_url",
+  email: "smart.email",
+  call: "smart.call",
+  maps: "smart.maps",
+  qr: "smart.qr",
 };
 
 /** Copy the clip's plain-text representation to the clipboard (for rich clips
@@ -1766,16 +1760,16 @@ function CopyPlainButton({ text, sourceId }: { text: string; sourceId?: number }
     <button
       type="button"
       onClick={copy}
-      title="Copy as plain text"
+      title={t("preview.copy_plain_title")}
       className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
     >
       {done ? (
         <span className="md3-success-pop items-center gap-1">
-          <Check size={12} /> Copied
+          <Check size={12} /> {t("common.copied")}
         </span>
       ) : (
         <>
-          <Copy size={12} /> Copy text
+          <Copy size={12} /> {t("preview.copy_text")}
         </>
       )}
     </button>
@@ -1812,7 +1806,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
       <button
         type="button"
         onClick={openMenu}
-        title={has ? "Note" : "Add note"}
+        title={has ? t("note.title") : t("note.add")}
         className={
           "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium " +
           (has
@@ -1821,7 +1815,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
         }
       >
         <StickyNote size={12} fill={has ? "currentColor" : "none"} />
-        {has ? "Note" : "Add note"}
+        {has ? t("note.title") : t("note.add")}
       </button>
       {open && (
         <div className="pop-enter absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[12px] shadow-lg">
@@ -1836,14 +1830,14 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
                   onClick={remove}
                   className="md3-press rounded-full border border-rose-500/40 px-2.5 py-1 text-rose-400 hover:bg-rose-500/10"
                 >
-                  Delete
+                  {t("common.delete")}
                 </button>
                 <button
                   type="button"
                   onClick={() => setEditing(true)}
                   className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
                 >
-                  Edit
+                  {t("common.edit")}
                 </button>
               </div>
             </>
@@ -1852,7 +1846,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
               <textarea
                 autoFocus
                 value={draft}
-                placeholder="Add a note for this clip…"
+                placeholder={t("note.placeholder")}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
@@ -1867,7 +1861,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
                   onClick={() => setOpen(false)}
                   className="md3-press rounded-full border border-[var(--color-border)] px-2.5 py-1"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
                 <button
                   type="button"
@@ -1875,7 +1869,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
                   disabled={draft.trim() === ""}
                   className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
                 >
-                  Save
+                  {t("common.save")}
                 </button>
               </div>
             </>
@@ -1913,7 +1907,7 @@ function SmartActionsBar({ text }: { text: string }) {
             className="md3-press flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-fg)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
           >
             <Icon size={12} />
-            {a.label}
+            {t(SMART_LABEL[a.kind])}
           </button>
         );
       })}
@@ -1925,7 +1919,7 @@ function CopyButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      title="Copy"
+      title={t("common.copy")}
       className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
     >
       <Copy size={11} />
@@ -2006,7 +2000,7 @@ function CutoutButton({ source }: { source: CutoutSource }) {
       <button
         onClick={() => void run()}
         disabled={busy}
-        title="Remove background and save to Downloads (Cmd/Ctrl+B)"
+        title={t("cutout.title")}
         className={
           "md3-press flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
           (busy
@@ -2015,7 +2009,7 @@ function CutoutButton({ source }: { source: CutoutSource }) {
         }
       >
         <Scissors size={12} />
-        {busy ? "Cutting…" : "Cut out background"}
+        {busy ? t("cutout.busy") : t("cutout.label")}
       </button>
       <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]">
         ⌘B
@@ -2023,12 +2017,12 @@ function CutoutButton({ source }: { source: CutoutSource }) {
       {savedTo && (
         <span className="md3-success-pop ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
           <Check size={11} />
-          Saved <span className="font-[var(--font-mono)]">{filename}</span>
+          {t("common.saved")} <span className="font-[var(--font-mono)]">{filename}</span>
         </span>
       )}
       {error && (
         <span className="ml-auto text-[11px] text-red-400" title={error}>
-          failed
+          {t("common.failed_short")}
         </span>
       )}
     </div>
@@ -2088,7 +2082,7 @@ function SaveImageButton({ entryId }: { entryId: number }) {
       <button
         onClick={() => void run()}
         disabled={busy}
-        title="Save current image to Downloads (Cmd/Ctrl+S)"
+        title={t("saveimg.title")}
         className={
           "md3-press flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
           (busy
@@ -2097,7 +2091,7 @@ function SaveImageButton({ entryId }: { entryId: number }) {
         }
       >
         <Download size={12} />
-        {busy ? "Saving…" : "Save to Downloads"}
+        {busy ? t("common.saving") : t("saveimg.label")}
       </button>
       <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]">
         ⌘S
@@ -2105,12 +2099,12 @@ function SaveImageButton({ entryId }: { entryId: number }) {
       {savedTo && (
         <span className="md3-success-pop ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
           <Check size={11} />
-          Saved <span className="font-[var(--font-mono)]">{filename}</span>
+          {t("common.saved")} <span className="font-[var(--font-mono)]">{filename}</span>
         </span>
       )}
       {error && (
         <span className="ml-auto text-[11px] text-red-400" title={error}>
-          failed
+          {t("common.failed_short")}
         </span>
       )}
     </div>
@@ -2119,16 +2113,16 @@ function SaveImageButton({ entryId }: { entryId: number }) {
 
 // ── Recolor toolbar (image entries only) ────────────────────────────────────
 
-const PRESETS: Array<{ hex: string; label: string }> = [
-  { hex: "#CE422B", label: "Rust" },
-  { hex: "#DC2626", label: "Red" },
-  { hex: "#16A34A", label: "Green" },
-  { hex: "#2563EB", label: "Blue" },
-  { hex: "#9333EA", label: "Purple" },
-  { hex: "#F59E0B", label: "Amber" },
-  { hex: "#0891B2", label: "Cyan" },
-  { hex: "#6B7280", label: "Gray" },
-  { hex: "#000000", label: "Black" },
+const PRESETS: Array<{ hex: string; labelKey: MessageKey }> = [
+  { hex: "#CE422B", labelKey: "recolor.rust" },
+  { hex: "#DC2626", labelKey: "recolor.red" },
+  { hex: "#16A34A", labelKey: "recolor.green" },
+  { hex: "#2563EB", labelKey: "recolor.blue" },
+  { hex: "#9333EA", labelKey: "recolor.purple" },
+  { hex: "#F59E0B", labelKey: "recolor.amber" },
+  { hex: "#0891B2", labelKey: "recolor.cyan" },
+  { hex: "#6B7280", labelKey: "recolor.gray" },
+  { hex: "#000000", labelKey: "recolor.black" },
 ];
 
 /** Inline recolor strip rendered below an image preview.
@@ -2197,7 +2191,7 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
     <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
       <Wand2 size={13} className="shrink-0 text-[var(--color-muted)]" />
       <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
-        Recolor
+        {t("recolor.title")}
       </span>
       <div className="flex flex-wrap items-center gap-1">
         {PRESETS.map((p) => (
@@ -2205,10 +2199,10 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
             key={p.hex}
             onClick={() => void apply(p.hex)}
             disabled={busy}
-            title={`${p.label} (${p.hex})`}
+            title={`${t(p.labelKey)} (${p.hex})`}
             className="md3-press h-5 w-5 shrink-0 rounded border border-[var(--color-border)] disabled:opacity-50"
             style={{ backgroundColor: p.hex }}
-            aria-label={`Recolor to ${p.label}`}
+            aria-label={t("recolor.aria", { color: t(p.labelKey) })}
           />
         ))}
       </div>
@@ -2235,7 +2229,7 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
       />
       {error && (
         <span className="text-[10px] text-red-400" title={error}>
-          failed
+          {t("common.failed_short")}
         </span>
       )}
     </div>

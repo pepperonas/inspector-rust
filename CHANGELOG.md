@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.212.0] - 2026-10-12
+
+### Added
+- **German translation, part 2: the main window.** Search bar, history list and its toolbar, the whole preview column (translation, colour, calculator, snippets, commands, Bruno, 2FA, password generator, social download, notes, image tools), the text transforms, every command row's label and hint, banners, toasts and confirmation dialogs, the tab bar, the footer, and all of Settings (incl. global shortcuts, gesture bindings, AI providers, Linux shortcuts, About) now follow the language setting. Numbers, money and dates use the language's format.
+
+### Changed
+- In German the history toolbar uses short labels ("Fixiert", "Farbe", "Leeren") so it fits the default window width.
+- The mockup harness (`mockup.html`) accepts `?lang=de` and handles `set_language`, so screenshots can be taken in either language.
+
+### Fixed
+- The `brightness` row said "DDC monitor (external displays)"; it controls every display (built-in and external).
+- The password generator's leetspeak hint showed `a→@`; it uses `a→4`.
+- The `x!` preview said "15 seconds"; the piece runs 30.
+
 ## [0.211.0] - 2026-10-12
 
 ### Added

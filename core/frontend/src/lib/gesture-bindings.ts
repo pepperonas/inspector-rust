@@ -6,6 +6,7 @@
  */
 import type { GestureKindName, GestureLogEntry } from "./ipc";
 import { formatHotkey } from "./platform";
+import { t as tr } from "./i18n";
 
 /** Swipes and taps take 3–5 fingers (mirrors `MIN_FINGERS`/`MAX_FINGERS`). */
 export const MIN_FINGERS = 3;
@@ -52,25 +53,25 @@ export interface GestureBindingsView {
 }
 
 export const TRIGGER_KINDS: { kind: GestureKindName; label: string }[] = [
-  { kind: "swipe_up", label: "Wischen nach oben" },
-  { kind: "swipe_down", label: "Wischen nach unten" },
-  { kind: "swipe_left", label: "Wischen nach links" },
-  { kind: "swipe_right", label: "Wischen nach rechts" },
-  { kind: "tap", label: "Tippen" },
-  { kind: "tip_tap_left", label: "Tip-Tap links" },
-  { kind: "tip_tap_right", label: "Tip-Tap rechts" },
+  { kind: "swipe_up", get label() { return tr("gesture.kind.swipe_up"); } },
+  { kind: "swipe_down", get label() { return tr("gesture.kind.swipe_down"); } },
+  { kind: "swipe_left", get label() { return tr("gesture.kind.swipe_left"); } },
+  { kind: "swipe_right", get label() { return tr("gesture.kind.swipe_right"); } },
+  { kind: "tap", get label() { return tr("gesture.kind.tap"); } },
+  { kind: "tip_tap_left", get label() { return tr("gesture.kind.tip_tap_left"); } },
+  { kind: "tip_tap_right", get label() { return tr("gesture.kind.tip_tap_right"); } },
 ];
 
 export const ACTION_TYPES: { type: BindingActionType; label: string }[] = [
-  { type: "volume_up", label: "Lauter" },
-  { type: "volume_down", label: "Leiser" },
-  { type: "mute_toggle", label: "Stumm an/aus" },
-  { type: "next_tab", label: "Nächster Tab" },
-  { type: "prev_tab", label: "Vorheriger Tab" },
-  { type: "shortcut", label: "Tastenkürzel senden" },
-  { type: "hotkey", label: "Inspector-Rust-Aktion" },
-  { type: "open", label: "Adresse oder Datei öffnen" },
-  { type: "task", label: "KI-Task ausführen" },
+  { type: "volume_up", get label() { return tr("gesture.action.volume_up"); } },
+  { type: "volume_down", get label() { return tr("gesture.action.volume_down"); } },
+  { type: "mute_toggle", get label() { return tr("gesture.action.mute_toggle"); } },
+  { type: "next_tab", get label() { return tr("gesture.action.next_tab"); } },
+  { type: "prev_tab", get label() { return tr("gesture.action.prev_tab"); } },
+  { type: "shortcut", get label() { return tr("gesture.action.shortcut"); } },
+  { type: "hotkey", get label() { return tr("gesture.action.hotkey"); } },
+  { type: "open", get label() { return tr("gesture.action.open"); } },
+  { type: "task", get label() { return tr("gesture.action.task"); } },
 ];
 
 export function isTipTap(kind: GestureKindName): boolean {
@@ -80,13 +81,13 @@ export function isTipTap(kind: GestureKindName): boolean {
 export function triggerLabel(t: Trigger): string {
   const name = TRIGGER_KINDS.find((k) => k.kind === t.kind)?.label ?? t.kind;
   if (isTipTap(t.kind)) return name;
-  return `${t.fingers} Finger · ${name}`;
+  return tr("gesture.fingers_kind", { n: t.fingers, name });
 }
 
 /** What a tip-tap is, in one line — the editor shows it under the picker. */
 export function tipTapHint(kind: GestureKindName): string | null {
-  if (kind === "tip_tap_left") return "Ein Finger ruht, ein zweiter tippt links daneben.";
-  if (kind === "tip_tap_right") return "Ein Finger ruht, ein zweiter tippt rechts daneben.";
+  if (kind === "tip_tap_left") return tr("gesture.tiptap_left_hint");
+  if (kind === "tip_tap_right") return tr("gesture.tiptap_right_hint");
   return null;
 }
 
@@ -102,11 +103,11 @@ export function actionLabel(a: BindingAction, ctx: ActionContext = {}): string {
     case "hotkey":
       return ctx.hotkeys?.[a.action] ?? a.action;
     case "shortcut":
-      return a.keys ? `Kürzel ${formatHotkey(a.keys)}` : "Kürzel (leer)";
+      return a.keys ? tr("gesture.label.shortcut", { keys: formatHotkey(a.keys) }) : tr("gesture.label.shortcut_empty");
     case "open":
-      return a.target ? `Öffnen: ${shortTarget(a.target)}` : "Öffnen (leer)";
+      return a.target ? tr("gesture.label.open", { target: shortTarget(a.target) }) : tr("gesture.label.open_empty");
     case "task":
-      return `KI-Task: ${ctx.tasks?.[a.id] ?? `#${a.id}`}`;
+      return tr("gesture.label.task", { name: ctx.tasks?.[a.id] ?? `#${a.id}` });
     default:
       return ACTION_TYPES.find((t) => t.type === a.type)?.label ?? a.type;
   }
@@ -184,13 +185,13 @@ export function conflictingIds(list: GestureBinding[]): Set<string> {
 /** What still has to be filled in before a binding can be saved, or null. */
 export function missingField(b: GestureBinding): string | null {
   const a = b.action;
-  if (b.app !== null && !b.app.trim()) return "App auswählen";
-  if (a.type === "hotkey" && !a.action) return "Aktion auswählen";
-  if (a.type === "shortcut" && !a.keys) return "Tastenkürzel aufnehmen";
-  if (a.type === "open" && !a.target.trim()) return "Adresse oder Pfad eingeben";
-  if (a.type === "task" && a.id <= 0) return "KI-Task auswählen";
+  if (b.app !== null && !b.app.trim()) return tr("gesture.missing.app");
+  if (a.type === "hotkey" && !a.action) return tr("gesture.missing.action");
+  if (a.type === "shortcut" && !a.keys) return tr("gesture.missing.keys");
+  if (a.type === "open" && !a.target.trim()) return tr("gesture.missing.target");
+  if (a.type === "task" && a.id <= 0) return tr("gesture.missing.task");
   if (!isTipTap(b.trigger.kind) && (b.trigger.fingers < MIN_FINGERS || b.trigger.fingers > MAX_FINGERS))
-    return `${MIN_FINGERS}–${MAX_FINGERS} Finger`;
+    return tr("gesture.missing.fingers", { min: MIN_FINGERS, max: MAX_FINGERS });
   return null;
 }
 
@@ -210,8 +211,8 @@ export function captureFromLog(log: GestureLogEntry[], sinceSeq: number): Captur
   if (isTipTap(hit.kind)) return { trigger: { kind: hit.kind, fingers: TIPTAP_FINGERS } };
   const fingers = hit.fingers ?? 0;
   if (fingers < MIN_FINGERS)
-    return { error: `Erkannt: ${fingers} Finger — zwei Finger sind Scrollen und Rechtsklick, nimm 3 oder mehr.` };
-  if (fingers > MAX_FINGERS) return { error: `Erkannt: ${fingers} Finger — höchstens ${MAX_FINGERS}.` };
+    return { error: tr("gesture.capture.too_few", { n: fingers }) };
+  if (fingers > MAX_FINGERS) return { error: tr("gesture.capture.too_many", { n: fingers, max: MAX_FINGERS }) };
   return { trigger: { kind: hit.kind, fingers } };
 }
 

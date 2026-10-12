@@ -1,3 +1,4 @@
+import { t, type MessageKey } from "./i18n";
 /**
  * Theme application — the bridge between the persisted preference
  * (SQLite `appearance.theme` setting) and the CSS in `styles.css`.
@@ -33,14 +34,7 @@ export function applyTheme(theme: ThemePreference): void {
 /** Human-readable label for a theme preference — used by the Settings
  *  segmented control + any toast copy. */
 export function themeLabel(theme: ThemePreference): string {
-  switch (theme) {
-    case "light":
-      return "Light";
-    case "dark":
-      return "Dark";
-    case "system":
-      return "System";
-  }
+  return t(`theme.${theme}` as MessageKey);
 }
 
 /** Duration the `theme-switching` class stays on <html> — slightly past

@@ -89,7 +89,7 @@ describe("PreviewPanel — long-text cap", () => {
     // popup for hundreds of ms, which is exactly why it is opt-in.
     render(<PreviewPanel entry={textClip("x".repeat(250_000))} />);
     const btn = screen.getByText(/Show all/);
-    expect(btn.textContent).toContain((250_000).toLocaleString());
+    expect(btn.textContent).toContain((250_000).toLocaleString("en-US"));
     expect(btn.textContent).toMatch(/may take a moment/);
   });
 
@@ -336,12 +336,12 @@ describe("touch / echo file preview", () => {
     render(<PreviewPanel entry={cmd("echo", '"# Titel ↵ ↵     eingerückt  zwei" > a.md')} />);
     const pre = screen.getByTestId("file-write-preview");
     expect(pre.textContent).toBe("# Titel\n\n    eingerückt  zwei\n");
-    expect(screen.getByText(/Dateiinhalt · a\.md/)).toBeTruthy();
+    expect(screen.getByText(/File content · a\.md/)).toBeTruthy();
   });
 
   it("says when the text is appended, and shows nothing for an empty touch", () => {
     render(<PreviewPanel entry={cmd("echo", '"x" >> log.txt')} />);
-    expect(screen.getByText(/Wird angehängt · log\.txt/)).toBeTruthy();
+    expect(screen.getByText(/Will be appended · log\.txt/)).toBeTruthy();
     cleanup();
     render(<PreviewPanel entry={cmd("touch", "notes.md")} />);
     expect(screen.queryByTestId("file-write-preview")).toBeNull();

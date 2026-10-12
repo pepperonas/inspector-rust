@@ -201,7 +201,7 @@ export function HistoryList({
     <div className="flex h-full flex-col">
       {/* Toolbar always rendered — the color picker is always available;
           the Clear All / count controls are conditional within. */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-3 py-1 text-[11px] text-[var(--color-muted)]">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] whitespace-nowrap px-3 py-1 text-[11px] text-[var(--color-muted)]">
           <div className="flex items-center gap-1">
             {onTogglePinnedOnly && (
               <button

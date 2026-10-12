@@ -307,6 +307,8 @@ import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
 import { invoke } from "@tauri-apps/api/core";
+import { locale, t, tn, useLang, useT, type MessageKey } from "./lib/i18n";
+import { InlineMd } from "./components/InlineMd";
 
 type Tab = "history" | "snippets" | "notes" | "timesheet" | "features" | "settings";
 
@@ -318,6 +320,9 @@ const FIGLET_MAX_ROWS = 140;
 const FIGLET_SAMPLE_TEXT_CAP = 28;
 
 function App() {
+  // Re-render the whole shell on a language switch. `t` changes identity per
+  // language, so the memos below that build text list it as a dependency.
+  const t = useT();
   const { entries, refresh: refreshHistory } = useClipboardHistory();
   const { snippets, categories: snippetCategories, refresh: refreshSnippets } = useSnippets();
   const { notes, categories: noteCategories, refresh: refreshNotes } = useNotes();
@@ -1949,41 +1954,41 @@ function App() {
       case "translate-de-pl":
       case "translate-pl-de": {
         const pair = TRANSLATE_LANGS[spec.kind]!;
-        label = `Translate to ${pair.target}: "${arg}"`;
-        hint = "⏎ copies translation · ⇧⏎ opens Google Translate";
+        label = t("cmd.tr.label", { target: pair.target, arg });
+        hint = t("cmd.tr.hint");
         break;
       }
       case "websearch": {
         const bang = SEARCH_BANGS[spec.keyword];
-        label = `Search ${bang?.name ?? spec.keyword}: "${arg}"`;
-        hint = `Opens ${bang?.name ?? "the search"} results in your browser`;
+        label = t("cmd.search.label", { site: bang?.name ?? spec.keyword, arg });
+        hint = bang ? t("cmd.search.hint", { site: bang.name }) : t("cmd.search.hint_generic");
         break;
       }
       case "uuid": {
         const n = Math.max(1, Math.min(parseInt(arg, 10) || 1, 100));
-        label = `Generate ${n} UUID${n > 1 ? "s" : ""} → clipboard`;
-        hint = "Random v4 UUIDs (CSPRNG), one per line";
+        label = tn("cmd.uuid.label", n);
+        hint = t("cmd.uuid.hint");
         break;
       }
       case "slug":
         label = `Slugify: "${arg}" → "${slugify(arg)}"`;
-        hint = "URL-safe lowercase slug → clipboard";
+        hint = t("cmd.slug.hint");
         break;
       case "hash":
-        label = `SHA-256: "${arg}" → clipboard`;
-        hint = "Hex SHA-256 digest of the text";
+        label = t("cmd.hash.label", { arg });
+        hint = t("cmd.hash.hint");
         break;
       case "json":
-        label = "Pretty-print clipboard JSON → clipboard";
-        hint = "Parses + re-indents the JSON on your clipboard (2 spaces)";
+        label = t("cmd.json.label");
+        hint = t("cmd.json.hint");
         break;
       case "jwt":
-        label = "Decode clipboard JWT → clipboard";
-        hint = "Base64url-decodes the header + payload (no signature check)";
+        label = t("cmd.jwt.label");
+        hint = t("cmd.jwt.hint");
         break;
       case "qr":
-        label = `QR code: "${arg}"`;
-        hint = "Preview on the right · Enter copies PNG · Save PNG / STL in the preview";
+        label = t("cmd.qr.label", { arg });
+        hint = t("cmd.qr.hint");
         break;
       case "faker": {
         // A complete generator → runnable command row (+ FakerPreview on the
@@ -1994,9 +1999,9 @@ function App() {
         const s = parsed.spec;
         label =
           s.mode === "template"
-            ? `Template · ${s.n}×`
+            ? t("cmd.faker.template", { n: s.n })
             : `${s.n} × ${s.generator} · ${s.format}`;
-        hint = "Preview on the right · Enter → clipboard + paste · ⌘/Ctrl+R rerolls";
+        hint = t("cmd.faker.hint");
         break;
       }
       case "sec": {
@@ -2007,117 +2012,116 @@ function App() {
         if (parsed.kind !== "built") return null;
         label = parsed.command;
         hint = parsed.sharp
-          ? "⏎ Copy · ⌘⏎ Run in terminal (confirms — sharp preset)"
-          : "⏎ Copy · ⌘⏎ Run in terminal";
+          ? t("cmd.sec.hint_sharp")
+          : t("cmd.sec.hint");
         break;
       }
       case "resize": {
         const spec = parseResizeCommand(arg);
         label = spec
-          ? `Resize selected image(s) → ${describeSpec(spec)}`
-          : `rz: invalid size ("${arg}" — one number is percent, two are pixels)`;
+          ? t("cmd.rz.label", { spec: describeSpec(spec) })
+          : t("cmd.rz.invalid", { arg });
         hint = spec
           ? spec.mode === "pct"
-            ? "Each image scaled from ITS own size → <name>-WxH (Lanczos3)"
-            : "Finder/Explorer selection → <name>-WxH (Lanczos3); else the clipboard image"
-          : "e.g. `rz 50` (50 %), `rz 1200x800` (pixels), `rz px 50`, `rz % 150`";
+            ? t("cmd.rz.hint_pct")
+            : t("cmd.rz.hint_px")
+          : t("cmd.rz.example");
         break;
       }
       case "bluetooth":
-        label = "Bluetooth-Geräte verwalten";
-        hint = "Verbinden · Trennen · Entkoppeln — ⏎ übergibt die Pfeiltasten";
+        label = t("cmd.bt.label");
+        hint = t("cmd.bt.hint");
         break;
       case "8bit":
       case "16bit": {
         const a = parseRetroArg(spec.keyword, arg, retroPresetNames);
         switch (a.kind) {
           case "panel":
-            label = spec.kind === "16bit" ? "Retro-Overlay an/aus (16-Bit)" : "Retro-Overlay an/aus";
-            hint = "Enter startet/stoppt · Einstellungen und Vorschau in der Preview";
+            label = spec.kind === "16bit" ? t("cmd.retro.toggle16") : t("cmd.retro.toggle");
+            hint = t("cmd.retro.panel_hint");
             break;
           case "on":
-            label = "Retro-Overlay starten";
-            hint = "⌃⇧⌥8 beendet es von überall";
+            label = t("cmd.retro.on");
+            hint = t("cmd.retro.on_hint");
             break;
           case "off":
-            label = "Retro-Overlay beenden";
-            hint = "Auch über ⌃⇧⌥8 oder das Tray-Menü";
+            label = t("cmd.retro.off");
+            hint = t("cmd.retro.off_hint");
             break;
           case "focus":
-            label = "Fokus-Modus umschalten";
-            hint = "Das aktive Fenster feiner zeichnen (⌃⇧⌥9)";
+            label = t("cmd.retro.focus");
+            hint = t("cmd.retro.focus_hint");
             break;
           case "lens":
-            label = "Cursor-Lupe umschalten";
-            hint = "Bereich unter der Maus im Detail";
+            label = t("cmd.retro.lens");
+            hint = t("cmd.retro.lens_hint");
             break;
           case "palette":
-            label = `Retro-Overlay mit ${findRetroPalette(a.id)?.name ?? a.id} starten`;
-            hint = a.mode === "8bit" ? "8-Bit-Palette" : "16-Bit-Farbtiefe";
+            label = t("cmd.retro.palette", { palette: findRetroPalette(a.id)?.name ?? a.id });
+            hint = a.mode === "8bit" ? t("cmd.retro.8bit") : t("cmd.retro.16bit");
             break;
           case "preset":
-            label = `Preset „${a.name}“ starten`;
-            hint = "Lädt den Preset und startet das Overlay";
+            label = t("cmd.retro.preset", { name: a.name });
+            hint = t("cmd.retro.preset_hint");
             break;
           case "unknown":
-            label = `„${a.text}“ ist weder Palette noch Preset`;
-            hint = "Paletten: nes, c64, pico8, gb, cga, gray, snes, megadrive, amiga";
+            label = t("cmd.retro.unknown", { text: a.text });
+            hint = t("cmd.retro.palettes");
             break;
         }
         break;
       }
       case "dezibel":
-        label = "Lautstärke messen — live in dB";
-        hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
+        label = t("cmd.db.label");
+        hint = t("cmd.db.hint");
         break;
       case "optim":
-        label = "Compress the selected image(s)";
+        label = t("cmd.optim.label");
         hint =
-          "Finder/Explorer selection → <name>-optim (PNG lossless · JPEG re-encoded); else the clipboard PNG";
+          t("cmd.optim.hint");
         break;
       case "rmvvls": {
         const preview = arg.replace(/[aeiouAEIOUäöüÄÖÜ]/g, "");
-        label = `Remove vowels: "${arg}" → "${preview}"`;
-        hint = "Stripped string lands on your clipboard";
+        label = t("cmd.rmvvls.label", { arg, preview });
+        hint = t("cmd.rmvvls.hint");
         break;
       }
       case "reboot":
-        label = "Restart the system";
-        hint = "macOS — confirms before executing (osascript → loginwindow)";
+        label = t("cmd.reboot.label");
+        hint = t("cmd.power.hint");
         break;
       case "shutdown":
-        label = "Power off the system";
-        hint = "macOS — confirms before executing (osascript → loginwindow)";
+        label = t("cmd.shutdown.label");
+        hint = t("cmd.power.hint");
         break;
       case "lock":
-        label = "Lock the screen";
-        hint = "macOS — instant, no confirmation (pmset displaysleepnow)";
+        label = t("cmd.lock.label");
+        hint = t("cmd.lock.hint");
         break;
       case "mute":
-        label = "Toggle system mute";
-        hint = "macOS — mutes if unmuted, unmutes if muted";
+        label = t("cmd.mute.label");
+        hint = t("cmd.mute.hint");
         break;
       case "freeze":
-        label = "Block all input — unlock with the chord";
-        hint =
-          "Press the configured chord (Settings → Input Lock, default i+r) to unlock";
+        label = t("cmd.freeze.label");
+        hint = t("cmd.freeze.hint");
         break;
       case "wakelock": {
         const req = parseWakelockRequest(arg);
         if (req === null) {
-          label = `wakelock: use "on", "off" or "dark" (got "${arg}")`;
-          hint = "e.g. wakelock on · wakelock off · wakelock dark";
+          label = t("cmd.wakelock.invalid", { arg });
+          hint = t("cmd.wakelock.example");
         } else if (req.dark) {
           const turningOn = req.on ?? !darkWake;
           label = turningOn
-            ? "Dark wake: ON — screen may sleep, system stays awake"
-            : "Dark wake: OFF — normal sleep behaviour resumes";
-          hint = turningOn ? "Remote connections stay reachable while the display sleeps" : "";
+            ? t("cmd.wakelock.dark_on")
+            : t("cmd.wakelock.dark_off");
+          hint = turningOn ? t("cmd.wakelock.dark_hint") : "";
         } else {
           label = req.on
-            ? "Keep awake: ON — pause sleep & screen lock"
-            : "Keep awake: OFF — normal sleep behaviour resumes";
-          hint = req.on ? "Stays awake until you run wakelock off" : "";
+            ? t("cmd.wakelock.on")
+            : t("cmd.wakelock.off");
+          hint = req.on ? t("cmd.wakelock.on_hint") : "";
         }
         break;
       }
@@ -2125,49 +2129,49 @@ function App() {
       case "echo": {
         const w = resolveFileWrite(spec.kind, arg);
         if (!w) {
-          label = `${spec.kind} "Text" > Datei — Ziel-Datei fehlt noch`;
-          hint = 'Text in Anführungszeichen, dann > datei.md (neu) oder >> datei.md (anhängen)';
+          label = t("cmd.touch.missing", { cmd: spec.kind });
+          hint = t("cmd.touch.missing_hint");
           break;
         }
         const tlines = touchLineCount(w.content);
-        const lines = tlines > 1 ? `${tlines} Zeilen` : tlines === 1 ? "1 Zeile" : "";
+        const lines = tlines > 0 ? tn("cmd.touch.lines", tlines) : "";
         label = w.append
-          ? `An "${w.name}" anhängen${lines ? ` (${lines})` : ""}`
+          ? lines
+            ? t("cmd.touch.append_lines", { name: w.name, lines })
+            : t("cmd.touch.append", { name: w.name })
           : w.content
-            ? `"${w.name}" mit ${lines || "Inhalt"} anlegen`
-            : `Datei "${w.name}" anlegen`;
-        hint =
-          'Im vordersten Finder/Explorer-Ordner · Formatierung bleibt erhalten · eingefügte Zeilenumbrüche erscheinen als ↵';
+            ? t("cmd.touch.create_with", { name: w.name, what: lines || t("cmd.touch.content") })
+            : t("cmd.touch.create", { name: w.name });
+        hint = t("cmd.touch.hint");
         break;
       }
       case "mkdir":
-        label = `Create folder "${arg}" in the open folder`;
-        hint = "In the frontmost Explorer (Windows) / Finder (macOS) window's directory";
+        label = t("cmd.mkdir.label", { arg });
+        hint = t("cmd.mkdir.hint");
         break;
       case "terminal":
-        label = "Open a terminal in the open folder";
-        hint =
-          "Windows Terminal/PowerShell (Windows) · iTerm2/Terminal (macOS) · frontmost folder";
+        label = t("cmd.terminal.label");
+        hint = t("cmd.terminal.hint");
         break;
       case "timer": {
-        const t = parseTimerArg(arg);
-        if (!t) {
-          label = `Timer: invalid format ("${arg}") — use 12, 30s, 12 min, 2h`;
-          hint = "Default unit is minutes when none given";
+        const tm = parseTimerArg(arg);
+        if (!tm) {
+          label = t("cmd.timer.invalid", { arg });
+          hint = t("cmd.timer.unit");
         } else {
-          label = `Start timer · ${t.label}`;
-          hint = "macOS native notification + Glass sound when it fires";
+          label = t("cmd.timer.label", { label: tm.label });
+          hint = t("cmd.timer.hint");
         }
         break;
       }
       case "alarm": {
         const a = parseAlarmArg(arg);
         if (!a) {
-          label = `Alarm: invalid time ("${arg}") — use HH:MM, e.g. 3:00 or 15:15`;
-          hint = "24-hour clock · fires at the next occurrence";
+          label = t("cmd.alarm.invalid", { arg });
+          hint = t("cmd.alarm.clock");
         } else {
-          label = `Set alarm · ${a.label}`;
-          hint = "Fires at the next occurrence (today or tomorrow)";
+          label = t("cmd.alarm.label", { label: a.label });
+          hint = t("cmd.alarm.hint");
         }
         break;
       }
@@ -2181,272 +2185,268 @@ function App() {
         break;
       case "transcribe":
       case "md2pdf":
-        label = `${spec.keyword}: ${arg || "Finder-Auswahl"}`;
+        label = t("cmd.finder_target", { cmd: spec.keyword, target: arg || t("cmd.finder_selection") });
         hint = spec.description;
         break;
       case "shot-region": {
         const delay = parseShotDelay(arg);
-        label = delay > 0 ? `Screenshot a region in ${delay}s` : "Screenshot a region";
-        hint = "Drag a marquee → floating preview (save / edit / pin)";
+        label = delay > 0 ? t("cmd.shot.region_in", { n: delay }) : t("cmd.shot.region");
+        hint = t("cmd.shot.region_hint");
         break;
       }
       case "shot-full": {
         const delay = parseShotDelay(arg);
         label =
           delay > 0
-            ? `Screenshot the whole screen in ${delay}s`
-            : "Screenshot the whole screen";
-        hint = "Full screen → floating preview";
+            ? t("cmd.shot.full_in", { n: delay })
+            : t("cmd.shot.full");
+        hint = t("cmd.shot.full_hint");
         break;
       }
       case "shot-window": {
         const delay = parseShotDelay(arg);
         label =
           delay > 0
-            ? `Screenshot the active window in ${delay}s`
-            : "Screenshot the active window";
-        hint = "Active window → floating preview";
+            ? t("cmd.shot.window_in", { n: delay })
+            : t("cmd.shot.window");
+        hint = t("cmd.shot.window_hint");
         break;
       }
       case "shot-last":
-        label = "Repeat the last screenshot mode";
-        hint = "Re-runs whichever capture mode you used last";
+        label = t("cmd.shot.last");
+        hint = t("cmd.shot.last_hint");
         break;
       case "clean":
-        label = "Clean caches / logs / temp files";
-        hint = "Enter opens the picker — choose categories, then delete";
+        label = t("cmd.clean.label");
+        hint = t("cmd.clean.hint");
         break;
       case "snitch": {
         const mapMode = /\b(map|conn|show|world)/i.test(arg ?? "");
-        label = mapMode ? "Connections world map" : "Network monitor — block apps";
+        label = mapMode ? t("cmd.snitch.map") : t("cmd.snitch.apps");
         hint = mapMode
-          ? "Live outbound connections plotted on a world map"
-          : "Toggle apps' internet access (best-effort) · `snitch map` for the map";
+          ? t("cmd.snitch.map_hint")
+          : t("cmd.snitch.apps_hint");
         break;
       }
       case "shazam": {
         const histMode = /\b(hist|list)/i.test(arg ?? "");
-        label = histMode ? "Song history" : "Identify the song playing";
+        label = histMode ? t("cmd.shazam.history") : t("cmd.shazam.identify");
         hint = histMode
-          ? "Your recognized songs — open in Shazam / Spotify / YouTube"
-          : "Records ~10 s from the mic · `shazam history` for past songs";
+          ? t("cmd.shazam.history_hint")
+          : t("cmd.shazam.identify_hint");
         break;
       }
       case "brightness":
-        label = "Adjust monitor brightness";
-        hint = "Opens a slider per DDC monitor (external displays)";
+        label = t("cmd.brightness.label");
+        hint = t("cmd.brightness.hint");
         break;
       case "sound":
-        label = "Audio output + volume";
-        hint =
-          "Shown in the preview — Enter to control: ←→ volume ∓5 · ↑↓ device · Enter switch";
+        label = t("cmd.sound.label");
+        hint = t("cmd.sound.hint");
         break;
       case "hue":
-        label = "Control Philips Hue lamps";
-        hint =
-          "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
+        label = t("cmd.hue.label");
+        hint = t("cmd.hue.hint");
         break;
       case "iris": {
         const a = parseIrisArg(arg);
         label = irisRowLabel(a, irisActive);
         hint = irisActive
-          ? "läuft — getippte Zahl stellt live nach · `iris` ohne Zahl + Enter schaltet aus"
-          : "Zahl tippen startet sofort (ohne Enter) · Ränder blitzen rot über der Schwelle";
+          ? t("cmd.iris.running")
+          : t("cmd.iris.idle");
         break;
       }
       case "stats":
-        label = "Live system stats";
-        hint =
-          "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        label = t("cmd.stats.label");
+        hint = t("cmd.stats.hint");
         break;
       case "gestures": {
         const a = parseGesturesArg(arg);
         label =
           a === "on"
-            ? "Touchpad-Gesten einschalten"
+            ? t("cmd.gestures.on")
             : a === "off"
-              ? "Touchpad-Gesten ausschalten"
+              ? t("cmd.gestures.off")
               : a === "calibrate"
-                ? "Gesten kalibrieren (~20 s)"
+                ? t("cmd.gestures.calibrate")
                 : a === "record"
-                  ? "30 s Trackpad aufnehmen"
-                  : "Gesten-Schutz";
+                  ? t("cmd.gestures.record")
+                  : t("cmd.gestures.label");
         hint =
           a === "unknown"
-            ? "Unbekanntes Argument — on, off, calibrate oder record"
-            : "Preview: Live-Trackpad, Schwellen je Gerät, letzte Entscheidungen";
+            ? t("cmd.gestures.unknown")
+            : t("cmd.gestures.hint");
         break;
       }
       case "lumen":
-        label = "Live ambient light";
-        hint = "Current illuminance in lux — when this device exposes a sensor";
+        label = t("cmd.lumen.label");
+        hint = t("cmd.lumen.hint");
         break;
       case "boom":
-        label = "Audio enhancement";
-        hint = "Enter → system EQ, presets & volume boost in the preview";
+        label = t("cmd.boom.label");
+        hint = t("cmd.boom.hint");
         break;
       case "uptime":
-        label = "Live system uptime";
-        hint = "Enter → uptime animated to the microsecond in the preview";
+        label = t("cmd.uptime.label");
+        hint = t("cmd.uptime.hint");
         break;
       case "nosleep": {
         const a = arg.trim().toLowerCase();
-        label = a === "on" ? "Dauerschlaf-Sperre EIN" : a === "off" ? "Dauerschlaf-Sperre AUS" : "Dauerschlaf-Sperre (Netzteil)";
-        hint = "Enter → pmset -c sleep 0/1 mit Admin-Prompt; überlebt Neustarts";
+        label = a === "on" ? t("cmd.nosleep.on") : a === "off" ? t("cmd.nosleep.off") : t("cmd.nosleep.label");
+        hint = t("cmd.nosleep.hint");
         break;
       }
       case "alias": {
-        label = arg ? `Alias anlegen: ${arg}` : "Alias anlegen (geführt)";
-        hint = "Preview: Befehl + Name → Anlege-Befehl je OS, kopieren oder direkt anlegen";
+        label = arg ? t("cmd.alias.label_arg", { arg }) : t("cmd.alias.label");
+        hint = t("cmd.alias.hint");
         break;
       }
       case "repo":
-        label = arg ? `Repo-Statistik: ${arg}` : "Repo-Statistik (Finder-.git-Ordner)";
-        hint = "Enter → Commits, Mitwirkende, Charts; E exportiert HTML";
+        label = arg ? t("cmd.repo.label_arg", { arg }) : t("cmd.repo.label");
+        hint = t("cmd.repo.hint");
         break;
       case "repo-export":
-        label = arg ? `Repo-Export: ${arg}` : "Repo → HTML nach Downloads";
-        hint = "Enter → analysiert + speichert die HTML-Auswertung in ~/Downloads";
+        label = arg ? t("cmd.repoexport.label_arg", { arg }) : t("cmd.repoexport.label");
+        hint = t("cmd.repoexport.hint");
         break;
       case "rickroll":
         label = "🎵 Never Gonna Give You Up";
-        hint = "Enter → Video mit Ton in der Preview";
+        hint = t("cmd.rickroll.hint");
         break;
       case "clock":
-        label = "Weltzeituhr";
-        hint = "Enter → Live-Zeiten; Städte per Autocomplete hinzufügen/entfernen";
+        label = t("cmd.clock.label");
+        hint = t("cmd.clock.hint");
         break;
       case "speedtest":
-        label = "Internet-Speedtest";
-        hint = "Enter → Download, Upload, Latenz messen (Cloudflare, ~10–20 s) · Verlauf";
+        label = t("cmd.speedtest.label");
+        hint = t("cmd.speedtest.hint");
         break;
       case "disk":
-        label = arg ? `Speicher: ${arg}` : "Speicher analysieren (DaisyDisk-Stil)";
-        hint = "Enter → Sunburst der Ordnergrößen, Drill-down, größte Dateien";
+        label = arg ? t("cmd.disk.label_arg", { arg }) : t("cmd.disk.label");
+        hint = t("cmd.disk.hint");
         break;
       case "btsniff":
-        label = "Bluetooth-Analyzer";
-        hint = "Enter → Live-BLE-Scan (macOS) oder .pklg / btsnoop / pcapng importieren; HCI/ATT/GATT, Byte-Diff";
+        label = t("cmd.btsniff.label");
+        hint = t("cmd.btsniff.hint");
         break;
       case "mailcheck":
-        label = arg ? `Mail Check: ${arg}` : "E-Mail-Zustellbarkeit prüfen";
-        hint = "Enter → Syntax · Domain · MX-Records · nicht-invasive SMTP-Prüfung (keine Mail wird gesendet)";
+        label = arg ? t("cmd.mailcheck.label_arg", { arg }) : t("cmd.mailcheck.label");
+        hint = t("cmd.mailcheck.hint");
         break;
       case "adb": {
         const v = arg.trim().toLowerCase();
         label = v.startsWith("remote")
-          ? "Android-Fernbedienung"
+          ? t("cmd.adb.remote")
           : v.startsWith("app")
-            ? "Android-Apps verwalten"
+            ? t("cmd.adb.apps")
             : v.startsWith("wifi") || v.startsWith("wlan")
-              ? "WLAN-ADB verbinden"
-              : "Android-Gerät steuern (adb)";
-        hint = "Enter → Dashboard, Toggles, Remote, Screenshot, Apps & WLAN-ADB im Preview";
+              ? t("cmd.adb.wifi")
+              : t("cmd.adb.label");
+        hint = t("cmd.adb.hint");
         break;
       }
       case "pagespeed":
         label = `PageSpeed: ${arg}`;
-        hint = "Enter → Desktop und Mobil nebeneinander, exportierbar als HTML/PDF";
+        hint = t("cmd.pagespeed.hint");
         break;
       case "loc":
-        label = arg ? `Lines of code: ${arg}` : "Lines of code — Finder-Auswahl";
-        hint = "Enter → Sprachen-Statistik (Code/Kommentare/Leerzeilen) mit Charts";
+        label = arg ? t("cmd.loc.label_arg", { arg }) : t("cmd.loc.label");
+        hint = t("cmd.loc.hint");
         break;
       case "weather":
-        label = arg ? `Weather: ${arg}` : "Weather — your location";
-        hint = "Enter → current conditions + 5-day forecast, animated in the preview";
+        label = arg ? t("cmd.weather.label_arg", { arg }) : t("cmd.weather.label");
+        hint = t("cmd.weather.hint");
         break;
       case "ip":
-        label = "What is my IP?";
-        hint = "Enter → public IP, approximate location, network and map";
+        label = t("cmd.ip.label");
+        hint = t("cmd.ip.hint");
         break;
       case "task":
-        label = arg ? `KI-Task anlegen: ${arg}` : "KI-Tasks";
+        label = arg ? t("cmd.task.label_arg", { arg }) : t("cmd.task.label");
         hint = arg
-          ? "Enter → Editor mit dieser Beschreibung; die KI schreibt das Skript"
-          : "Enter → Tasks verwalten: KI schreibt Skripte, du gibst frei, sie laufen automatisch";
+          ? t("cmd.task.hint_arg")
+          : t("cmd.task.hint");
         break;
       case "pulse":
-        label = "Speicherdruck & SSD-Schreiblast";
-        hint = "Live-Status und Historie — Enter: ←/→ Ansicht, Esc zurück";
+        label = t("cmd.pulse.label");
+        hint = t("cmd.pulse.hint");
         break;
       case "limits":
-        label = "Claude-Limits";
-        hint = "Sitzung, Woche, je Modell — Enter: R aktualisiert, Esc zurück";
+        label = t("cmd.limits.label");
+        hint = t("cmd.limits.hint");
         break;
       case "tokens":
-        label = "Claude Code token usage";
-        hint =
-          "Enter → cost, projects, sessions & models from the local Token Tracker";
+        label = t("cmd.tokens.label");
+        hint = t("cmd.tokens.hint");
         break;
       case "convert": {
         const p = convertParse;
         if (p.kind === "ready") {
           const h = convertHeadline(p, convertRates);
-          label = h ? `${h.from} = ${h.to}` : `${p.unit.name} — Kurse werden geladen…`;
+          label = h ? `${h.from} = ${h.to}` : t("cmd.cv.loading", { unit: p.unit.name });
           hint = p.target
-            ? "Enter fügt die Zahl ein · Vorschau zeigt alle Einheiten"
-            : "Alle Einheiten in der Vorschau · Enter: ↑↓ wählen · `in <ziel>` für eine Zieleinheit";
+            ? t("cmd.cv.target_hint")
+            : t("cmd.cv.all_hint");
         } else if (p.kind === "value") {
-          label = `${arg} — Einheit dahinter tippen (mph, kg, €, …)`;
-          hint = "z. B. cv 165 mph · cv 20 usd in eur";
+          label = t("cmd.cv.need_unit", { arg });
+          hint = t("cmd.cv.example");
         } else if (p.kind === "invalid") {
-          label = "Keine lesbare Zahl";
-          hint = "cv <wert> <einheit> [in <ziel>]";
+          label = t("cmd.cv.invalid");
+          hint = t("cmd.cv.syntax");
         } else {
-          label = "Umrechnen — Einheiten & Währungen";
-          hint = "Kategorie in der Vorschau wählen · oder z. B. cv 165 mph";
+          label = t("cmd.cv.label");
+          hint = t("cmd.cv.hint");
         }
         break;
       }
       case "calendar":
-        label = arg ? `Calendar: ${arg}` : "Calendar — month view";
-        hint = "Enter to navigate: ←→ month · ↑↓ year · T today — or type e.g. märz 1990";
+        label = arg ? t("cmd.calendar.label_arg", { arg }) : t("cmd.calendar.label");
+        hint = t("cmd.calendar.hint");
         break;
       case "track": {
         const m = parseTrackArg(arg);
         label =
           m === "on"
-            ? "Start time tracking"
+            ? t("cmd.track.on")
             : m === "off"
-              ? "Stop time tracking"
+              ? t("cmd.track.off")
               : m === "open"
-                ? "Time tracking — open the timesheet"
-                : `track: use "on" or "off"`;
+                ? t("cmd.track.open")
+                : t("cmd.track.invalid");
         hint = m
-          ? "Records app usage by focus; idle auto-pauses · encrypted at rest"
-          : "e.g. track on · track off";
+          ? t("cmd.track.hint")
+          : t("cmd.track.example");
         break;
       }
       case "settings": {
         const section = matchSettingsSection(arg);
-        label = section ? `Open Settings → ${section.label}` : "Open Settings";
+        label = section ? t("cmd.settings.label_section", { section: section.label }) : t("cmd.settings.label");
         hint = section
-          ? "Jumps straight to the section"
-          : "Optional: section name — e.g. settings cue · settings hotkeys · settings bruno";
+          ? t("cmd.settings.hint_section")
+          : t("cmd.settings.hint");
         break;
       }
       case "trim":
-        label = arg ? `Trim media: "${arg}"` : "Trim a video / audio file";
-        hint = "Opens a file picker → set in/out points (lossless or re-encode)";
+        label = arg ? t("cmd.trim.label_arg", { arg }) : t("cmd.trim.label");
+        hint = t("cmd.trim.hint");
         break;
       case "disco": {
         const on = parseDiscoArg(arg);
         const willRun = on === null ? !discoRunning() : on;
-        label = willRun ? "Beat-sync Hue lamps to the mic" : "Stop the Hue beat-sync";
+        label = willRun ? t("cmd.disco.on") : t("cmd.disco.off");
         hint = willRun
-          ? "Pulses your lamps to music; keeps running after the popup closes"
-          : "disco 1 = on · disco 0 = off · bare disco = toggle";
+          ? t("cmd.disco.on_hint")
+          : t("cmd.disco.off_hint");
         break;
       }
       case "random": {
         const r = parseRandomArg(arg);
         label = r
-          ? `Roll a random number · ${r.min}–${r.max}`
-          : `random: invalid arg ("${arg}") — a number, two numbers, or a-b`;
+          ? t("cmd.random.label", { min: r.min, max: r.max })
+          : t("cmd.random.invalid", { arg });
         hint = r
-          ? "Shown in the preview · Roll again to re-roll · Enter pastes it"
-          : "e.g. rnd · rnd 100 · rnd 5 500 · rnd 1-2";
+          ? t("cmd.random.hint")
+          : t("cmd.random.example");
         break;
       }
       case "pwgen":
@@ -2481,7 +2481,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames, githubCmd, githubMod]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames, githubCmd, githubMod, t]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -2579,7 +2579,10 @@ function App() {
           data: { id: sec.id, label: sec.label },
         }),
       ),
-    [query],
+    // `sec.label` reads the catalogue through a getter; `t` changes identity
+    // per language, which is what has to invalidate this list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query, t],
   );
 
   // The city list loads on the first `weather`: ~13 KB of data that the
@@ -2598,12 +2601,12 @@ function App() {
         data: {
           keyword: c.name,
           syntax: `${c.name} · ${c.country}`,
-          description: `Enter or Tab → weather in ${c.name}`,
+          description: t("cmd.weather.city", { city: c.name }),
           completion: `weather ${c.name}`,
         },
       }),
     );
-  }, [isWeatherCmd, weatherFocus, weatherArg, citiesMod]);
+  }, [isWeatherCmd, weatherFocus, weatherArg, citiesMod, t]);
 
   // `cv` unit autocomplete: an unfinished unit (`cv 165 mp`), the longer
   // units a short one starts (`cv 165 m` → mi, mm, mph …) and an open target
@@ -2651,13 +2654,13 @@ function App() {
         kind: "command-suggestion",
         data: {
           keyword: e.name,
-          syntax: `${e.name}${e.composite ? " (record)" : ""}`,
-          description: `${e.description} — e.g. ${e.sample}`,
+          syntax: `${e.name}${e.composite ? ` ${t("cmd.faker.record")}` : ""}`,
+          description: t("cmd.faker.desc", { desc: e.description, sample: e.sample }),
           completion: `faker ${e.name} `,
         },
       }),
     );
-  }, [parsedCommand, fakerCat, fakerDef]);
+  }, [parsedCommand, fakerCat, fakerDef, t]);
 
   // Security-builder rows: the 4-tool overview (bare `sec`) or a tool's preset
   // list (`nmap`, `sec nmap`, partial preset). Command-suggestion rows — Tab/→
@@ -2669,15 +2672,15 @@ function App() {
     if (parsed.kind === "built" || parsed.kind === "not-command") return [];
     if (parsed.kind === "tool-overview") {
       return secCat.tools
-        .filter((t) => t.name !== "gobuster") // gobuster is the extensibility proof, not a headline tool
+        .filter((tool) => tool.name !== "gobuster") // gobuster is the extensibility proof, not a headline tool
         .map(
-          (t): ListEntry => ({
+          (tool): ListEntry => ({
             kind: "command-suggestion",
             data: {
-              keyword: t.name,
-              syntax: t.name,
-              description: `${t.presets.filter((p) => p.category !== "prepare").length} presets — ${t.binary}`,
-              completion: `sec ${t.name} `,
+              keyword: tool.name,
+              syntax: tool.name,
+              description: t("cmd.sec.tool_desc", { n: tool.presets.filter((p) => p.category !== "prepare").length, binary: tool.binary }),
+              completion: `sec ${tool.name} `,
             },
           }),
         );
@@ -2697,7 +2700,7 @@ function App() {
       );
     }
     return [];
-  }, [parsedCommand, secCat, secDef]);
+  }, [parsedCommand, secCat, secDef, t]);
 
   // In finder-mode (Ctrl+Shift+F just fired), the file list takes the
   // top of the result list. A complete `rz <W>x<H>` command still
@@ -2943,20 +2946,20 @@ function App() {
       data: {
         label:
           mode === "news"
-            ? "X!! — Schlagzeilen als Vollbild-Spektakel"
-            : "X! — Vollbild-Spektakel",
+            ? t("xhype.news")
+            : t("xhype.label"),
         mode,
       },
     };
-  }, [query]);
+  }, [query, t]);
 
   const bpmEntry: ListEntry | null = useMemo(() => {
     if (!isBpmTrigger(query)) return null;
     return {
       kind: "bpm",
-      data: { label: "Detect BPM (microphone)" },
+      data: { label: t("bpm.row") },
     };
-  }, [query]);
+  }, [query, t]);
 
   // equalizer trigger — exact `equalizer`/`eq` surfaces an "Equalizer" row.
   // Enter activates → equalizerMode = true → <EqualizerVisualizer /> takes
@@ -2965,9 +2968,9 @@ function App() {
     if (!isEqualizerTrigger(query)) return null;
     return {
       kind: "equalizer",
-      data: { label: "Equalizer (microphone spectrum)" },
+      data: { label: t("eq.row") },
     };
-  }, [query]);
+  }, [query, t]);
 
   // 2FA command rows — exact `2fa` surfaces the manager row + a visible
   // `2fa add` sub-row (snitch/shazam sub-command pattern); `2fa add
@@ -3095,14 +3098,14 @@ function App() {
   const adbSubEntries: ListEntry[] = useMemo(() => {
     if (!isAdbCmd || (parsedCommand?.arg ?? "").trim() !== "") return [];
     return [
-      { keyword: "adb remote", description: "Fernbedienung: Tasten, D-Pad, Text, Tap/Swipe" },
-      { keyword: "adb apps", description: "Apps suchen, starten, stoppen, deinstallieren" },
-      { keyword: "adb wifi", description: "WLAN-ADB: kabellos verbinden (tcpip + IP)" },
+      { keyword: "adb remote", description: t("cmd.adb.sub_remote") },
+      { keyword: "adb apps", description: t("cmd.adb.sub_apps") },
+      { keyword: "adb wifi", description: t("cmd.adb.sub_wifi") },
     ].map((e) => ({
       kind: "command-suggestion" as const,
       data: { keyword: e.keyword, syntax: e.keyword, description: e.description, completion: e.keyword },
     }));
-  }, [isAdbCmd, parsedCommand]);
+  }, [isAdbCmd, parsedCommand, t]);
 
   const snitchSubEntry: ListEntry | null = useMemo(() => {
     if (!isSnitchCmd) return null;
@@ -3113,7 +3116,7 @@ function App() {
           data: {
             keyword: "snitch",
             syntax: "snitch",
-            description: "Block apps' internet access (best-effort)",
+            description: t("cmd.snitch.sub_apps"),
             completion: "snitch",
           },
         }
@@ -3122,11 +3125,11 @@ function App() {
           data: {
             keyword: "snitch map",
             syntax: "snitch map",
-            description: "Live connections on a world map",
+            description: t("cmd.snitch.sub_map"),
             completion: "snitch map",
           },
         };
-  }, [isSnitchCmd, parsedCommand]);
+  }, [isSnitchCmd, parsedCommand, t]);
 
   // `shazam` has two views (recognize + history). Surface the OTHER as a
   // visible sub-row so `shazam history` is discoverable without knowing the
@@ -3140,7 +3143,7 @@ function App() {
           data: {
             keyword: "shazam",
             syntax: "shazam",
-            description: "Identify the song playing (records from the mic)",
+            description: t("cmd.shazam.sub_identify"),
             completion: "shazam",
           },
         }
@@ -3149,11 +3152,11 @@ function App() {
           data: {
             keyword: "shazam history",
             syntax: "shazam history",
-            description: "Your recognized-songs history",
+            description: t("cmd.shazam.sub_history"),
             completion: "shazam history",
           },
         };
-  }, [isShazamCmd, parsedCommand]);
+  }, [isShazamCmd, parsedCommand, t]);
 
   // Wrapped once per clip-list change, not on every `combined` rebuild
   // (query, snippets, command rows… each rebuilt all ~1000 wrappers).
@@ -3736,8 +3739,8 @@ function App() {
       void (async () => {
         if (parsed.sharp) {
           const ok = await confirmDialog(
-            `Run this ${parsed.tool.name} command in your terminal?\n\n${parsed.command}\n\nThis is a sharp preset (${parsed.tags.join(", ")}). Only against authorized targets.`,
-            "Run in terminal?",
+            t("sec.confirm", { tool: parsed.tool.name, command: parsed.command, tags: parsed.tags.join(", ") }),
+            t("sec.confirm_title"),
           );
           if (!ok) return;
         }
@@ -3753,7 +3756,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [activeTab, combined, selected, secCat, secDef, hidePopup]);
+  }, [activeTab, combined, selected, secCat, secDef, hidePopup, t]);
 
   // Enter-while-unfocused (close_on_blur OFF): the native `esc_watch` tap emits
   // this because the webview can't see the key while another app holds focus.
@@ -3935,7 +3938,7 @@ function App() {
   });
   useTauriEvent<TranscribeDone>("transcribe-done", (e) => {
     if (transcribeModeRef.current || !e.payload) return;
-    void showStatusToast("transcribe", e.payload.ok, "Audio/Video → Text", e.payload.message);
+    void showStatusToast("transcribe", e.payload.ok, t("transcribe.toast"), e.payload.message);
   });
 
   useTauriEvent<CleanDone>("clean-done", (e) => {
@@ -3943,24 +3946,22 @@ function App() {
     const d = e.payload;
     if (!d) return;
     if (d.kind === "execute" && d.result) {
-      const skipped = d.result.errors.length
-        ? ` · ${d.result.errors.length} skipped`
-        : "";
+      const freed = t("clean.toast.freed", { size: formatBytes(d.result.freed_bytes) });
       void showStatusToast(
         "clean",
         true,
-        "Cleaned",
-        `${formatBytes(d.result.freed_bytes)} freed${skipped}`,
+        t("clean.toast.cleaned"),
+        d.result.errors.length ? `${freed} · ${tn("clean.toast.skipped", d.result.errors.length)}` : freed,
       );
     } else if (d.kind === "scan" && d.view) {
       void showStatusToast(
         "clean",
         true,
-        "Scan ready",
-        `${formatBytes(d.view.total_bytes)} · type clean to review`,
+        t("clean.toast.scan_ready"),
+        t("clean.toast.scan_detail", { size: formatBytes(d.view.total_bytes) }),
       );
     } else if (d.error && d.kind === "execute") {
-      void showStatusToast("clean", false, "Clean failed", d.error);
+      void showStatusToast("clean", false, t("clean.toast.failed"), d.error);
     }
   });
 
@@ -4212,7 +4213,7 @@ function App() {
       .catch(() => undefined);
   });
   useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {
-    setTimerFired({ label: e.payload?.label ?? "Timer done" });
+    setTimerFired({ label: e.payload?.label ?? t("timer.done") });
   });
   useEffect(() => {
     if (!timerFired) return;
@@ -4452,10 +4453,10 @@ function App() {
             uuid: "UUID",
             slug: "Slug",
             hash: "SHA-256",
-            json: "JSON formatted",
-            jwt: "JWT decoded",
+            json: t("copy.json_formatted"),
+            jwt: t("copy.jwt_decoded"),
           };
-          await showStatusToast("copy", true, "Copied to clipboard", `${what[commandKind]} · ${feedbackPreview(out)}`);
+          await showStatusToast("copy", true, t("copy.toast"), `${what[commandKind]} · ${feedbackPreview(out)}`);
         } catch (e) {
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
@@ -4594,14 +4595,14 @@ function App() {
       } else if (commandKind === "rmvvls") {
         const out = await removeVowelsToClipboard(arg);
         // The toast hides the popup itself and says what was copied.
-        await showStatusToast("copy", true, "Copied to clipboard", `Remove vowels · ${feedbackPreview(out)}`);
+        await showStatusToast("copy", true, t("copy.toast"), `${t("transform.remove_vowels")} · ${feedbackPreview(out)}`);
       } else if (commandKind === "reboot") {
         // Destructive: real native confirmation (window.confirm is unreliable
         // in the webview — it can auto-pass without showing anything).
         if (
           !(await confirmDialog(
-            "Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
-            "Restart?",
+            t("power.restart_confirm"),
+            t("power.restart_title"),
           ))
         ) {
           return true;
@@ -4611,8 +4612,8 @@ function App() {
       } else if (commandKind === "shutdown") {
         if (
           !(await confirmDialog(
-            "Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
-            "Power off?",
+            t("power.off_confirm"),
+            t("power.off_title"),
           ))
         ) {
           return true;
@@ -4672,7 +4673,7 @@ function App() {
           if (msg.startsWith("touch.exists:")) {
             // `>` never overwrites; say so instead of a generic error.
             const file = msg.slice("touch.exists:".length).split(/[\\/]/).pop() ?? "";
-            await showStatusToast("file", false, `„${file}“ gibt es schon`, "Nicht überschrieben — mit >> anhängen");
+            await showStatusToast("file", false, t("file.exists", { file }), t("file.exists_hint"));
             return true;
           }
           setPasteError("other");
@@ -4710,10 +4711,10 @@ function App() {
         try {
           if (m === "on") {
             await trackStart();
-            await showStatusToast("track", true, "Tracking on", "Recording app usage");
+            await showStatusToast("track", true, t("track.toast.on"), t("track.toast.on_detail"));
           } else if (m === "off") {
             await trackStop();
-            await showStatusToast("track", false, "Tracking off", "Session ended");
+            await showStatusToast("track", false, t("track.toast.off"), t("track.toast.off_detail"));
           } else if (m === "open") {
             // Bare `track` → open the Timesheet tab on today.
             setQuery("");
@@ -4735,15 +4736,15 @@ function App() {
         setActiveTab("settings");
         return true;
       } else if (commandKind === "timer") {
-        const t = parseTimerArg(arg);
-        if (!t) {
+        const tm = parseTimerArg(arg);
+        if (!tm) {
           setPasteError("other");
           return true;
         }
-        await startTimer(t.seconds, t.label);
+        await startTimer(tm.seconds, tm.label);
         // showStatusToast hides the popup + plays the flourish (don't also
         // call hidePopup — that would swallow the toast on macOS).
-        await showStatusToast("timer", true, "Timer set", t.label);
+        await showStatusToast("timer", true, t("toast.timer_set"), tm.label);
       } else if (commandKind === "alarm") {
         const a = parseAlarmArg(arg);
         if (!a) {
@@ -4751,7 +4752,7 @@ function App() {
           return true;
         }
         await startTimer(a.seconds, `Alarm ${a.label}`);
-        await showStatusToast("alarm", true, "Alarm set", a.label);
+        await showStatusToast("alarm", true, t("toast.alarm_set"), a.label);
       } else if (commandKind === "github") {
         // Shown already; Enter hands it the keys and runs refresh / export /
         // connect (a view needs no action).
@@ -4838,7 +4839,7 @@ function App() {
               setIrisMode(false);
               setQuery("");
               // Hides the popup + plays the flourish, so no separate hidePopup().
-              await showStatusToast("iris", false, "Iris aus", "Mikrofon-Überwachung beendet");
+              await showStatusToast("iris", false, t("iris.toast.off"), t("iris.toast.off_detail"));
               break;
             case "retune":
               await irisSetThreshold(action.threshold);
@@ -4856,7 +4857,7 @@ function App() {
               break;
           }
         } catch (e) {
-          await showStatusToast("iris", false, "Iris fehlgeschlagen", String(e));
+          await showStatusToast("iris", false, t("iris.toast.failed"), String(e));
         }
         return true;
       } else if (commandKind === "stats") {
@@ -5144,7 +5145,7 @@ function App() {
         // Typing `bruno 60000` → yearly. German number format (de-DE Intl).
         const v =
           target.data.period === "monthly" ? target.data.netMonth : target.data.netYear;
-        const formatted = new Intl.NumberFormat("de-DE", {
+        const formatted = new Intl.NumberFormat(locale(), {
           style: "currency",
           currency: "EUR",
           maximumFractionDigits: 2,
@@ -5203,8 +5204,8 @@ function App() {
         // exact PID + name so the user can't mistake which process
         // they're terminating.
         const { pid, name, force } = target.data;
-        const sig = force ? "SIGKILL (force quit)" : "SIGTERM (graceful)";
-        if (!(await confirmDialog(`${name}\nPID ${pid}\nSignal: ${sig}`, "Kill process?"))) {
+        const sig = force ? t("preview.kill.sigkill") : t("preview.kill.sigterm");
+        if (!(await confirmDialog(`${name}\nPID ${pid}\nSignal: ${sig}`, t("kill.confirm_title")))) {
           return;
         }
         await killProcess(pid, force);
@@ -5572,8 +5573,8 @@ function App() {
         <div className={"flex shrink-0 items-center " + (collapsed ? "h-full justify-center" : "h-[22px]")}>
           <button
             onClick={() => void toggleCollapsed()}
-            title={collapsed ? "Ausklappen" : "Einklappen"}
-            aria-label={collapsed ? "Overlay ausklappen" : "Overlay einklappen"}
+            title={collapsed ? t("shell.expand") : t("shell.collapse")}
+            aria-label={collapsed ? t("shell.expand_aria") : t("shell.collapse_aria")}
             className={
               "flex items-center justify-center text-[var(--color-muted)] hover:text-[var(--color-fg)] " +
               (collapsed ? "h-full w-full" : "h-full shrink-0 px-1.5")
@@ -5605,13 +5606,9 @@ function App() {
           >
             <span className="flex-1">
               {pasteError === "ax" ? (
-                <>
-                  <b>Paste failed — macOS Accessibility access not granted.</b> Open the{" "}
-                  <b>Settings</b> tab and click <b>Force re-grant</b> in the amber banner.
-                  After granting in System Settings, click <b>Restart now</b>.
-                </>
+                <InlineMd text={t("banner.paste_ax")} />
               ) : (
-                <b>Paste failed.</b>
+                <b>{t("banner.paste_failed")}</b>
               )}
             </span>
             {pasteError === "ax" && (
@@ -5622,13 +5619,13 @@ function App() {
                 }}
                 className="rounded bg-amber-500/30 px-2 py-0.5 text-[11px] font-medium hover:bg-amber-500/40"
               >
-                Open Settings
+                {t("cmd.settings.label")}
               </button>
             )}
             <button
               onClick={() => setPasteError(null)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5638,16 +5635,12 @@ function App() {
         {ocrPermissionMissing && (
           <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
-              <b>OCR failed — macOS Screen Recording access not granted.</b> Without it,{" "}
-              <code>screencapture</code> is denied and the region marquee never appears.
-              Grant it in{" "}
-              <b>System Settings → Privacy &amp; Security → Screen Recording</b> for
-              Inspector Rust, then relaunch.
+              <InlineMd text={t("banner.ocr")} />
             </span>
             <button
               onClick={() => setOcrPermissionMissing(false)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5657,15 +5650,12 @@ function App() {
         {expanderPermissionMissing && (
           <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
-              <b>Text expansion failed — macOS Accessibility access not granted.</b>{" "}
-              Inspector Rust can&apos;t read the focused field or type the snippet without
-              it. Use <b>Force re-grant</b> in the amber banner below, then click{" "}
-              <b>Restart now</b>.
+              <InlineMd text={t("banner.expander_ax")} />
             </span>
             <button
               onClick={() => setExpanderPermissionMissing(false)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5675,17 +5665,12 @@ function App() {
         {finderAutomationDenied && (
           <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
-              <b>Finder selection unavailable — macOS Automation access not granted.</b>{" "}
-              Open{" "}
-              <b>
-                System Settings → Privacy &amp; Security → Automation → Inspector Rust
-              </b>{" "}
-              and toggle <b>Finder</b> on. Then press <b>Ctrl+Shift+F</b> again.
+              <InlineMd text={t("banner.finder")} />
             </span>
             <button
               onClick={() => setFinderAutomationDenied(false)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5696,42 +5681,19 @@ function App() {
           <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               {expanderBlocked === "password" ? (
-                <>
-                  <b>Text expansion blocked — focused field is a password input.</b>{" "}
-                  Refusing on purpose: pasting a snippet into a credential field would
-                  leak the body into your password manager / sudo prompt / OS password
-                  dialog.
-                </>
+                <InlineMd text={t("banner.expander_password")} />
               ) : expanderBlocked === "secure_input" ? (
-                <>
-                  <b>Text expansion blocked — secure event input is active.</b> macOS is
-                  suppressing synthetic input (typically because a password field is the
-                  keyboard responder). Try again after leaving the secure field.
-                </>
+                <InlineMd text={t("banner.expander_secure")} />
               ) : expanderBlocked === "terminal-empty" ? (
-                <>
-                  <b>Nothing to expand — no freshly typed abbreviation.</b> In terminals
-                  the expander works from the keys you <b>just typed</b> (it can't read
-                  the input line); a click, arrow key, Enter or Esc right before the
-                  hotkey clears that buffer. Type the abbreviation and press the hotkey
-                  immediately — or <b>type it here in the search bar</b> and press{" "}
-                  <b>⏎</b> to paste, or use a <b>Direct hotkey → snippet</b> (Settings).
-                </>
+                <InlineMd text={t("banner.expander_empty")} />
               ) : (
-                <>
-                  <b>What you just typed matches no snippet abbreviation.</b> In
-                  terminals the expander works from the keys you just typed — the last
-                  word didn't match any abbreviation (check the exact spelling in the
-                  Snippets tab). You can also <b>type the abbreviation here in the
-                  search bar</b> and press <b>⏎</b> to paste, or use a{" "}
-                  <b>Direct hotkey → snippet</b> (Settings) — both work in any app.
-                </>
+                <InlineMd text={t("banner.expander_nomatch")} />
               )}
             </span>
             <button
               onClick={() => setExpanderBlocked(null)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5741,15 +5703,15 @@ function App() {
         {timerFiredLabel && (
           <Banner className="flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
             <span className="flex-1">
-              ⏰ <b>Timer done — {timerFiredLabel}</b>{" "}
+              ⏰ <b>{t("banner.timer_done", { label: timerFiredLabel })}</b>{" "}
               <span className="text-[var(--color-muted)]">
-                · also fired a macOS notification + Glass sound
+                {t("banner.timer_done_hint")}
               </span>
             </span>
             <button
               onClick={() => setTimerFired(null)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              title="Dismiss"
+              title={t("common.dismiss")}
             >
               ×
             </button>
@@ -5782,15 +5744,7 @@ function App() {
           ) : (
             <div className="flex h-14 items-center border-b border-[var(--color-border)] pl-4 pr-[var(--tab-reserve,260px)]">
               <span className="text-[15px] font-semibold">
-                {activeTab === "snippets"
-                  ? "Snippets"
-                  : activeTab === "notes"
-                    ? "Notes"
-                    : activeTab === "timesheet"
-                      ? "Timesheet"
-                      : activeTab === "features"
-                        ? "Features"
-                        : "Settings"}
+                {t(TAB_KEYS[activeTab])}
               </span>
             </div>
           )}
@@ -6489,15 +6443,16 @@ function App() {
 }
 
 const TAB_ITEMS = [
-  ["history", "History"],
-  ["snippets", "Snippets"],
-  ["notes", "Notes"],
-  ["timesheet", "Timesheet"],
-  ["features", "Features"],
-  ["settings", "Settings"],
-] as const;
+  ["history", "tab.history"],
+  ["snippets", "tab.snippets"],
+  ["notes", "tab.notes"],
+  ["timesheet", "tab.timesheet"],
+  ["features", "tab.features"],
+  ["settings", "tab.settings"],
+] as const satisfies ReadonlyArray<readonly [string, MessageKey]>;
 
 type TabId = (typeof TAB_ITEMS)[number][0];
+const TAB_KEYS = Object.fromEntries(TAB_ITEMS) as Record<TabId, MessageKey>;
 
 /** Header tab bar with a SLIDING pill indicator (v0.88.0): the accent pill is
  *  one shared element that glides under the active tab (measured left/width,
@@ -6527,6 +6482,8 @@ function TabBar({
       much room for the input/title — no hard-coded number to keep in sync. */
   onWidth?: (w: number) => void;
 }) {
+  // The labels change width with the language — re-measure the pill then.
+  const lang = useLang();
   const btnRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
   const rootRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
@@ -6535,7 +6492,7 @@ function TabBar({
     const el = btnRefs.current[active];
     if (!el) return;
     setPill({ x: el.offsetLeft, w: el.offsetWidth });
-  }, [active]);
+  }, [active, lang]);
 
   // Measure pre-paint + keep it fresh (font load / DPI / window resize). A
   // ResizeObserver re-reporting the same width is a no-op setState (React
@@ -6560,7 +6517,7 @@ function TabBar({
           style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
         />
       )}
-      {TAB_ITEMS.map(([id, label]) => (
+      {TAB_ITEMS.map(([id, labelKey]) => (
         <button
           key={id}
           ref={(el) => {
@@ -6574,7 +6531,7 @@ function TabBar({
               : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]")
           }
         >
-          {label}
+          {t(labelKey)}
         </button>
       ))}
     </div>

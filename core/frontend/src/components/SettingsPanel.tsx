@@ -49,6 +49,8 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AboutContent } from "./AboutContent";
 import { LanguageSection } from "./LanguageSection";
+import { InlineMd } from "./InlineMd";
+import { locale, useT, tn, tSplit, type MessageKey } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
 import { crtOffMs } from "../lib/md3-motion";
 import { IS_LINUX, IS_MAC } from "../lib/platform";
@@ -268,6 +270,7 @@ interface Props {
 }
 
 export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
+  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   // `settings <section>` deep-link: scroll the target section into view and
   // flash a highlight ring. Re-triggers on every jump via the nonce.
@@ -296,9 +299,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     for (const ev of userInput) root?.addEventListener(ev, release, { passive: true });
     const stop = window.setTimeout(release, 1200);
     el.classList.add("settings-jump-highlight");
-    const t = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
+    const flash = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(flash);
       window.clearTimeout(stop);
       ro?.disconnect();
       for (const ev of userInput) root?.removeEventListener(ev, release);
@@ -428,8 +431,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         kind: "ok",
         message:
           applied.length === 0
-            ? "No direct slots."
-            : `${applied.length} direct slot${applied.length === 1 ? "" : "s"} registered.`,
+            ? t("set.slots.none")
+            : tn("set.slots.registered", applied.length),
       });
     } catch (e) {
       setSlotsStatus({ kind: "err", message: String(e) });
@@ -897,7 +900,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       setInputLockChord(keys);
       setInputLockStatus({
         kind: "ok",
-        message: `Saved chord: ${keys.join(" + ")}`,
+        message: t("set.inputlock.saved", { chord: keys.join(" + ") }),
       });
     } catch (e) {
       setInputLockStatus({ kind: "err", message: String(e) });
@@ -931,12 +934,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       if (backupPassword.length < 4) {
         setBackupStatus({
           kind: "err",
-          message: "Password must be at least 4 characters.",
+          message: t("set.backup.pw_short"),
         });
         return;
       }
       if (backupPassword !== backupPassword2) {
-        setBackupStatus({ kind: "err", message: "Passwords don't match." });
+        setBackupStatus({ kind: "err", message: t("set.backup.pw_mismatch") });
         return;
       }
     }
@@ -946,7 +949,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     try {
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       const path = await saveDialog({
-        title: "Save Inspector Rust backup",
+        title: t("set.backup.save_title"),
         defaultPath: `inspector-rust-backup-${stamp}.json`,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
@@ -958,7 +961,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       const filename = path.split("/").pop() ?? path;
       setBackupStatus({
         kind: "ok",
-        message: `Exported ${formatBytes(bytes)} to ${filename}${encryptBackup ? " (encrypted)" : ""}`,
+        message: t(encryptBackup ? "set.backup.exported_enc" : "set.backup.exported", { size: formatBytes(bytes), file: filename }),
       });
     } catch (e) {
       setBackupStatus({ kind: "err", message: String(e) });
@@ -995,7 +998,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         multiple: false,
         directory: false,
         filters: [{ name: "JSON", extensions: ["json"] }],
-        title: "Select Inspector Rust backup file",
+        title: t("set.backup.open_title"),
       });
       if (!path) return;
       if (await isBackupEncrypted(path)) {
@@ -1252,8 +1255,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       setStatus({
         kind: "ok",
         message: applied.enabled
-          ? `Expander armed: ${prettyHotkey(applied.hotkey)}`
-          : "Expander disabled.",
+          ? t("set.expander.armed", { hotkey: prettyHotkey(applied.hotkey) })
+          : t("set.expander.disabled"),
       });
     } catch (e) {
       setStatus({ kind: "err", message: String(e) });
@@ -1283,10 +1286,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Volume2 size={16} className="text-[var(--color-accent)]" />}
             id="sounds"
-      title="Sounds"
-            subtitle="Play short feedback cues for actions: snippet expansion, OCR recognised, screenshot captured, recording start/stop, and copy to clipboard."
+      title={t("settings.section.sounds")}
+            subtitle={t("set.sounds.subtitle")}
           >
-            <Row label="Feedback sounds">
+            <Row label={t("set.sounds.feedback")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -1297,14 +1300,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {soundEnabled === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : soundEnabled
-                      ? "On — actions play a short sound"
-                      : "Off — the app stays silent"}
+                      ? t("set.sounds.on")
+                      : t("set.sounds.off")}
                 </span>
               </label>
             </Row>
-            <Row label="Screenshot sound">
+            <Row label={t("set.sounds.shot")}>
               <div className="flex flex-col gap-1 text-[12px]">
                 <select
                   value={shotSound ?? "snap"}
@@ -1312,14 +1315,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   onChange={(e) => void changeShotSound(e.target.value as ScreenshotSoundStyle)}
                   className="w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
                 >
-                  <option value="snap">Snap — sharp finger snap (default)</option>
-                  <option value="dslr">DSLR shutter — mirror slap + double curtain</option>
-                  <option value="switch">Switch — mechanical click</option>
-                  <option value="off">Off — screenshots stay silent</option>
+                  <option value="snap">{t("set.sounds.snap")}</option>
+                  <option value="dslr">{t("set.sounds.dslr")}</option>
+                  <option value="switch">{t("set.sounds.switch")}</option>
+                  <option value="off">{t("set.sounds.shot_off")}</option>
                 </select>
                 <span className="text-[var(--color-muted)]">
-                  Picking a style plays it once as a preview. From the
-                  procedurally synthesized sound-effects library.
+                  {t("set.sounds.preview")}
                 </span>
               </div>
             </Row>
@@ -1332,10 +1334,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
             id="gestures"
-      title="Touchpad gestures"
-            subtitle="Bind trackpad gestures (3–5-finger swipes and taps, tip-taps) to actions: volume, mute, tabs, any key shortcut, an Inspector Rust action, a URL or file, or an AI task — everywhere or per app. Starts with 3-finger swipe up / down → volume and 3-finger tap → mute. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+      title={t("settings.section.gestures")}
+            subtitle={t("set.gestures.subtitle")}
           >
-            <Row label="Enable gestures">
+            <Row label={t("set.gestures.enable")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -1346,22 +1348,22 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {gestureCfg === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : gestureCfg.enabled
-                      ? "On — gestures run the bindings below"
-                      : "Off"}
+                      ? t("set.gestures.on")
+                      : t("common.off")}
                 </span>
               </label>
             </Row>
             {gestureCfg?.enabled && (
               <>
-                <Row label="Zuordnungen">
+                <Row label={t("set.gestures.bindings")}>
                   <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-                    Welche Geste was tut — frei belegbar, wirkt ab der nächsten Geste.
+                    {t("set.gestures.bindings_help")}
                   </p>
                   <GestureBindingsSection />
                 </Row>
-                <Row label="Typing guard">
+                <Row label={t("set.gestures.typing_guard")}>
                   <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                     <input
                       type="checkbox"
@@ -1371,22 +1373,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       className="accent-[var(--color-accent)]"
                     />
                     <span className="text-[var(--color-muted)]">
-                      Ignore gestures for 250 ms after a single keystroke and
-                      600 ms while you type — palms brushing the trackpad while
-                      typing are the most common accidental trigger. Applies to
-                      every binding with "Tipp-Schutz" on (switch it per binding
-                      in the table above). Shortcuts (⌘/⌃ + key) don't count;
-                      unmuting is never blocked. Uses the app's keyboard monitor
-                      (Accessibility) for the key timing — only when, never
-                      which key.
+                      {t("set.gestures.typing_guard_help")}
                     </span>
                   </label>
                 </Row>
-                <Row label="Live view, calibration, recordings">
+                <Row label={t("set.gestures.live")}>
                   <span className="text-[var(--color-muted)]">
-                    Type <code>gestures</code> in the search bar: live trackpad, thresholds per
-                    device, the last decisions, <code>gestures calibrate</code> and{" "}
-                    <code>gestures record</code>. Saved recordings are listed and deleted there.
+                    <InlineMd text={t("set.gestures.live_help")} />
                   </span>
                 </Row>
               </>
@@ -1401,10 +1394,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
               id="window"
-      title="Window snapping"
-              subtitle="Drag a window to a screen edge to snap it: top → maximize, left/right → half. A preview shows the target zone; release to snap. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+      title={t("set.snap.title")}
+              subtitle={t("set.snap.subtitle")}
             >
-              <Row label="Enable snapping">
+              <Row label={t("set.snap.enable")}>
                 <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                   <input
                     type="checkbox"
@@ -1415,15 +1408,15 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   />
                   <span className="text-[var(--color-muted)]">
                     {snapCfg === null
-                      ? "Loading…"
+                      ? t("common.loading")
                       : snapCfg.enabled
-                        ? "On — drag a window to an edge to snap it"
-                        : "Off"}
+                        ? t("set.snap.on")
+                        : t("common.off")}
                   </span>
                 </label>
               </Row>
               {snapCfg?.enabled && (
-                <Row label="Suggestion delay">
+                <Row label={t("set.snap.delay")}>
                   <div className="flex flex-col gap-1.5 text-[12px]">
                     <select
                       value={String(snapCfg.dwell_ms)}
@@ -1431,16 +1424,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       onChange={(e) => void patchSnap({ dwell_ms: Number(e.target.value) })}
                       className="w-56 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
                     >
-                      <option value="0">Instant (classic)</option>
+                      <option value="0">{t("set.snap.instant")}</option>
                       <option value="200">200 ms</option>
-                      <option value="350">350 ms (default)</option>
+                      <option value="350">{t("set.snap.default_ms")}</option>
                       <option value="500">500 ms</option>
                       <option value="800">800 ms</option>
                     </select>
                     <span className="text-[var(--color-muted)]">
-                      The zone preview only appears after the cursor RESTS at the
-                      edge this long — placing a window near an edge no longer
-                      triggers snapping; pausing there does. Esc still cancels.
+                      {t("set.snap.delay_help")}
                     </span>
                   </div>
                 </Row>
@@ -1456,10 +1447,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <Section
               icon={<MousePointerClick size={16} className="text-[var(--color-accent)]" />}
               id="cursor-wrap"
-              title="Cursor wrap-around"
-              subtitle="When the pointer is pushed past an outer edge of your display arrangement, it reappears on the opposite side (Pac-Man wrap) — so you never have to swipe all the way back across a wide or multi-monitor desktop. Inspired by Infinity Monitor. On by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+              title={t("settings.section.cursor-wrap")}
+              subtitle={t("set.wrap.subtitle")}
             >
-              <Row label="Enable wrap-around">
+              <Row label={t("set.wrap.enable")}>
                 <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                   <input
                     type="checkbox"
@@ -1470,23 +1461,23 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   />
                   <span className="text-[var(--color-muted)]">
                     {wrapCfg === null
-                      ? "Loading…"
+                      ? t("common.loading")
                       : wrapCfg.enabled
-                        ? "On — the pointer wraps at the outer edges"
-                        : "Off"}
+                        ? t("set.wrap.on")
+                        : t("common.off")}
                   </span>
                 </label>
               </Row>
               {wrapCfg?.enabled && (
                 <>
-                  <Row label="Active edges">
+                  <Row label={t("set.wrap.edges")}>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px]">
                       {(
                         [
-                          ["left", "Left"],
-                          ["right", "Right"],
-                          ["top", "Top"],
-                          ["bottom", "Bottom"],
+                          ["left", t("set.wrap.left")],
+                          ["right", t("set.wrap.right")],
+                          ["top", t("set.wrap.top")],
+                          ["bottom", t("set.wrap.bottom")],
                         ] as const
                       ).map(([key, label]) => (
                         <label key={key} className="flex cursor-pointer items-center gap-1.5">
@@ -1502,7 +1493,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       ))}
                     </div>
                   </Row>
-                  <Row label="Corner dead-zone">
+                  <Row label={t("set.wrap.deadzone")}>
                     <div className="flex flex-col gap-1.5 text-[12px]">
                       <select
                         value={String(wrapCfg.corner_deadzone_px)}
@@ -1512,19 +1503,18 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         }
                         className="w-56 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
                       >
-                        <option value="0">Off — corners wrap too</option>
-                        <option value="8">8 px (default)</option>
+                        <option value="0">{t("set.wrap.deadzone_off")}</option>
+                        <option value="8">{t("set.wrap.deadzone_default")}</option>
                         <option value="16">16 px</option>
                         <option value="24">24 px</option>
                         <option value="40">40 px</option>
                       </select>
                       <span className="text-[var(--color-muted)]">
-                        Near a corner the pointer does NOT wrap, so macOS Hot
-                        Corners stay reachable.
+                        {t("set.wrap.deadzone_help")}
                       </span>
                     </div>
                   </Row>
-                  <Row label="While dragging">
+                  <Row label={t("set.wrap.drag")}>
                     <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                       <input
                         type="checkbox"
@@ -1535,8 +1525,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       />
                       <span className="text-[var(--color-muted)]">
                         {wrapCfg.wrap_during_drag
-                          ? "Wraps even mid-drag"
-                          : "Off — won't wrap while a button is held (won't drop a drag)"}
+                          ? t("set.wrap.drag_on")
+                          : t("set.wrap.drag_off")}
                       </span>
                     </label>
                   </Row>
@@ -1553,10 +1543,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
               id="window-palette"
-              title="Window palette"
-              subtitle="A palette with preset layouts and a hex grid you drag a region over to snap the window there. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+              title={t("set.palette.title")}
+              subtitle={t("set.palette.subtitle")}
             >
-              <Row label="Enable palette">
+              <Row label={t("set.palette.enable")}>
                 <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                   <input
                     type="checkbox"
@@ -1567,15 +1557,15 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   />
                   <span className="text-[var(--color-muted)]">
                     {paletteCfg === null
-                      ? "Loading…"
+                      ? t("common.loading")
                       : paletteCfg.enabled
-                        ? "On"
-                        : "Off"}
+                        ? t("common.on")
+                        : t("common.off")}
                   </span>
                 </label>
               </Row>
               {paletteCfg?.enabled && (
-                <Row label="Summon by">
+                <Row label={t("set.palette.summon")}>
                   <div className="flex flex-col gap-1.5 text-[12px]">
                     <select
                       value={paletteCfg.trigger}
@@ -1584,20 +1574,20 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         void updatePalette({ trigger: e.target.value as PaletteTrigger })
                       }
                       className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[var(--color-fg)]"
-                      aria-label="Palette trigger"
+                      aria-label={t("set.palette.trigger")}
                     >
-                      <option value="zoom_hover">Green zoom button (hover, recommended)</option>
-                      <option value="titlebar_modifier">Title bar + ⌃⌥</option>
-                      <option value="hotkey">Global shortcut only</option>
+                      <option value="zoom_hover">{t("set.palette.zoom_hover")}</option>
+                      <option value="titlebar_modifier">{t("set.palette.titlebar")}</option>
+                      <option value="hotkey">{t("set.palette.hotkey")}</option>
                     </select>
                     <span className="text-[var(--color-muted)]">
                       {paletteCfg.trigger === "titlebar_modifier"
-                        ? "Hold Control+Option and point at a window's title bar."
+                        ? t("set.palette.help_titlebar")
                         : paletteCfg.trigger === "hotkey"
-                          ? "Opens for the focused window — bind it under Global shortcuts."
+                          ? t("set.palette.help_hotkey")
                           : paletteCfg.hide_system_menu
-                            ? "Only the Inspector Rust palette appears at the button. Running apps usually follow at once; an app that still shows the macOS menu picks it up after a restart."
-                            : "macOS opens its own tiling menu at the button too; the palette places itself beside it, so the two never stack."}
+                            ? t("set.palette.help_hidden")
+                            : t("set.palette.help_beside")}
                     </span>
                     {paletteCfg.trigger === "zoom_hover" && (
                       <label className="flex items-center gap-2">
@@ -1611,31 +1601,31 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                           className="accent-[var(--color-accent)]"
                         />
                         <span className="text-[var(--color-fg)]">
-                          Hide macOS&apos;s tiling menu at the green button
+                          {t("set.palette.hide_menu")}
                         </span>
                       </label>
                     )}
                     <span className="text-[var(--color-muted)]">
-                      The global shortcut works in every mode.
+                      {t("set.palette.shortcut_always")}
                     </span>
                   </div>
                 </Row>
               )}
               {paletteCfg?.enabled && (
-                <Row label="Hex grid density">
+                <Row label={t("set.palette.density")}>
                   <div className="flex items-center gap-1.5 text-[12px]">
                     <CellCountField
                       value={paletteCfg.cols}
                       onCommit={(cols) => void updatePalette({ cols })}
-                      label="Hex grid columns"
+                      label={t("set.palette.cols")}
                     />
                     <span className="text-[var(--color-muted)]">×</span>
                     <CellCountField
                       value={paletteCfg.rows}
                       onCommit={(rows) => void updatePalette({ rows })}
-                      label="Hex grid rows"
+                      label={t("set.palette.rows")}
                     />
-                    <span className="text-[var(--color-muted)]">cells</span>
+                    <span className="text-[var(--color-muted)]">{t("set.palette.cells")}</span>
                   </div>
                 </Row>
               )}
@@ -1649,10 +1639,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<AlarmClock size={16} className="text-[var(--color-accent)]" />}
             id="timer-alarm"
-      title="Timer alarm"
-            subtitle="How a finished timer / countdown / alarm alerts you."
+      title={t("settings.section.timer-alarm")}
+            subtitle={t("set.alarm.subtitle")}
           >
-            <Row label="Style">
+            <Row label={t("set.alarm.style")}>
               <div className="flex flex-col gap-1.5 text-[12px]">
                 <label className="flex cursor-pointer items-start gap-2">
                   <input
@@ -1664,9 +1654,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     className="mt-0.5 accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    <span className="text-[var(--color-fg)]">Alarm overlay</span>{" "}
-                    (default) — a loud sound (system volume is raised while it rings) + a
-                    fullscreen overlay you click to stop.
+                    <span className="text-[var(--color-fg)]">{t("set.alarm.overlay")}</span>{" "}
+                    {t("set.alarm.overlay_help")}
                   </span>
                 </label>
                 <label className="flex cursor-pointer items-start gap-2">
@@ -1679,8 +1668,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     className="mt-0.5 accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    <span className="text-[var(--color-fg)]">OS notification</span> — the
-                    classic quiet system notification + a short sound.
+                    <span className="text-[var(--color-fg)]">{t("set.alarm.notification")}</span>{" "}
+                    {t("set.alarm.notification_help")}
                   </span>
                 </label>
               </div>
@@ -1694,8 +1683,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
             id="global-shortcuts"
-      title="Global shortcuts"
-            subtitle="Rebind the global action hotkeys. Press a combo to set it (Backspace clears, Esc cancels); a conflict with any other binding is rejected. Note for Windows: Ctrl+Shift+T is the browser's 'reopen closed tab' — rebind Timesheet here to avoid the clash."
+      title={t("settings.section.global-shortcuts")}
+            subtitle={t("set.shortcuts.subtitle")}
           >
             <GlobalShortcutsSection />
           </Section>
@@ -1707,8 +1696,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
             id="expander"
-      title="Text expander"
-            subtitle="Type a snippet abbreviation in any text field, then press your hotkey to replace it with the snippet body. Like aText / TextExpander."
+      title={t("settings.section.expander")}
+            subtitle={t("set.expander.subtitle")}
           >
             {/* Granted state — shown inline since it's not actionable.
               Special case: if we *just* detected the false→true edge
@@ -1720,11 +1709,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 <div className="flex items-start gap-2">
                   <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
                   <div className="flex-1">
-                    <div className="font-medium">Access detected — one more step</div>
+                    <div className="font-medium">{t("set.ax.detected")}</div>
                     <div className="mt-0.5 text-[var(--color-muted)]">
-                      macOS caches the trust check per-process, so the running Inspector
-                      Rust can't actually use the just-granted permission until it
-                      relaunches. The new instance will take ~1 second to start.
+                      {t("set.ax.detected_help")}
                     </div>
                   </div>
                 </div>
@@ -1743,14 +1730,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     disabled={restarting}
                     className="rounded bg-emerald-500 px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    {restarting ? "Restarting…" : "Restart now"}
+                    {restarting ? t("set.ax.restarting") : t("set.ax.restart")}
                   </button>
                   <button
                     onClick={() => setJustGranted(false)}
                     className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                    title="Dismiss this prompt — the expander will work next time you launch Inspector Rust"
+                    title={t("set.ax.later_title")}
                   >
-                    Later
+                    {t("set.ax.later")}
                   </button>
                 </div>
               </div>
@@ -1758,11 +1745,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             {accessibility === true && !justGranted && (
               <div className="confirm-enter mb-4 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px]">
                 <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />
-                <span className="font-medium">Accessibility access granted</span>
+                <span className="font-medium">{t("set.ax.granted")}</span>
               </div>
             )}
 
-            <Row label="Enable">
+            <Row label={t("set.expander.enable")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -1771,14 +1758,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   className="accent-[var(--color-accent)]"
                 />
                 <span className="text-[var(--color-muted)]">
-                  {enabled ? "Hotkey is registered globally" : "Hotkey is unregistered"}
+                  {enabled ? t("set.expander.registered") : t("set.expander.unregistered")}
                 </span>
               </label>
             </Row>
 
             <Row
-              label="Hotkey"
-              help="Press a key combination, or pick a preset. Backspace clears, Esc cancels. Names match the W3C KeyboardEvent.code spec (Digit1, KeyE, Backquote, …). Tip: digit keys (Alt+1 …) are the most reliable — they're in the same place on every keyboard layout."
+              label={t("set.expander.hotkey")}
+              help={t("set.expander.hotkey_help")}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <HotkeyCapture value={hotkey} onChange={setHotkey} disabled={busy} />
@@ -1786,11 +1773,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   onClick={reset}
                   disabled={busy || hotkey === DEFAULT_HOTKEY}
                   className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
-                  title={`Reset to ${prettyHotkey(DEFAULT_HOTKEY)}`}
+                  title={t("set.reset_to", { value: prettyHotkey(DEFAULT_HOTKEY) })}
                 >
-                  Reset
+                  {t("common.reset")}
                 </button>
-                <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
+                <span className="text-[11px] text-[var(--color-muted)]">{t("set.expander.presets")}</span>
                 {QUICK_HOTKEYS.map((q) => {
                   const active = hotkey === q.value;
                   return (
@@ -1804,7 +1791,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                           ? "border-[var(--color-accent)] text-[var(--color-accent)]"
                           : "border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]")
                       }
-                      title={`Use ${q.label}`}
+                      title={t("set.expander.use", { label: q.label })}
                     >
                       {q.label}
                     </button>
@@ -1819,7 +1806,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 disabled={!dirty || busy || !hotkey}
                 className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
               >
-                {busy ? "Saving…" : dirty ? "Save & re-register" : "No changes"}
+                {busy ? t("common.saving") : dirty ? t("set.expander.save") : t("common.no_changes")}
               </button>
               {status && (
                 <span
@@ -1841,14 +1828,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <div className="flex-1 text-[11px] text-[var(--color-muted)]">
                   <div className="text-[var(--color-fg)]">
-                    Diagnose expansion (no paste)
+                    {t("set.diag.title")}
                   </div>
                   <p className="mt-0.5">
-                    Type a snippet abbreviation in any text field, place the cursor right
-                    after it, then click <b>Diagnose</b>. Inspector Rust will hide its
-                    popup, capture the word before your cursor, look it up — and report
-                    what it found, without pasting. This isolates the lookup from the
-                    paste step so you can see exactly where expansion is breaking.
+                    <InlineMd text={t("set.diag.help")} />
                   </p>
                 </div>
                 <button
@@ -1864,35 +1847,34 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   disabled={diagnose?.kind === "running"}
                   className="rounded border border-[var(--color-border)] px-3 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
                 >
-                  {diagnose?.kind === "running" ? "Capturing…" : "Diagnose"}
+                  {diagnose?.kind === "running" ? t("set.diag.capturing") : t("set.diag.button")}
                 </button>
               </div>
 
               {diagnose?.kind === "result" && (
                 <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[11px]">
                   <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
-                    <span className="text-[var(--color-muted)]">Capture path</span>
+                    <span className="text-[var(--color-muted)]">{t("set.diag.path")}</span>
                     <span>
                       {diagnose.data.path === "ax" ? (
                         <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
-                          macOS AX (clean — no clipboard touch)
+                          {t("set.diag.ax")}
                         </span>
                       ) : diagnose.data.path === "uia" ? (
                         <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
-                          Windows UIA (clean — no clipboard touch)
+                          {t("set.diag.uia")}
                         </span>
                       ) : (
                         <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-400">
-                          Clipboard fallback — focused app didn&apos;t expose
-                          accessibility info
+                          {t("set.diag.fallback")}
                         </span>
                       )}
                     </span>
-                    <span className="text-[var(--color-muted)]">Captured</span>
+                    <span className="text-[var(--color-muted)]">{t("set.diag.captured")}</span>
                     <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
-                      {diagnose.data.captured || "(empty)"}
+                      {diagnose.data.captured || t("list.empty_clip")}
                     </code>
-                    <span className="text-[var(--color-muted)]">Snippet match</span>
+                    <span className="text-[var(--color-muted)]">{t("set.diag.match")}</span>
                     <span>
                       {diagnose.data.matched_abbreviation ? (
                         <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-emerald-400">
@@ -1900,13 +1882,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         </code>
                       ) : (
                         <span className="text-amber-400">
-                          no match — add a snippet with this abbreviation
+                          {t("set.diag.no_match")}
                         </span>
                       )}
                     </span>
                     {diagnose.data.paste_preview && (
                       <>
-                        <span className="text-[var(--color-muted)]">Would paste</span>
+                        <span className="text-[var(--color-muted)]">{t("set.diag.would_paste")}</span>
                         <code className="block truncate rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
                           {diagnose.data.paste_preview}
                         </code>
@@ -1915,19 +1897,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </div>
                   {!diagnose.data.captured && (
                     <p className="mt-2 text-[var(--color-muted)]">
-                      Empty capture usually means the popup didn't lose focus fast enough,
-                      or there was no text before your cursor. Try again with the cursor
-                      placed right after a typed abbreviation.
+                      {t("set.diag.empty_help")}
                     </p>
                   )}
                   {diagnose.data.captured && !diagnose.data.matched_abbreviation && (
                     <p className="mt-2 text-[var(--color-muted)]">
-                      The capture worked, but no snippet has{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">
-                        {diagnose.data.captured}
-                      </code>{" "}
-                      as its abbreviation. Open the <b>Snippets</b> tab and create one, or
-                      pick a different abbreviation.
+                      <InlineMd text={t("set.diag.nomatch_help", { abbr: "`" + diagnose.data.captured + "`" })} />
                     </p>
                   )}
                 </div>
@@ -1938,34 +1913,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </div>
 
             <details className="mt-5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] text-[var(--color-muted)]">
-              <summary className="cursor-pointer font-medium">How it works</summary>
+              <summary className="cursor-pointer font-medium">{t("set.howto")}</summary>
               <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>
-                  When you press the hotkey, Inspector Rust synthesizes{" "}
-                  <kbd className="rounded border border-[var(--color-border)] px-1">
-                    Cmd/Ctrl+Shift+←
-                  </kbd>{" "}
-                  to select the previous word, copies it, and looks it up in your
-                  snippets.
-                </li>
-                <li>
-                  On a hit, the snippet body is written to the clipboard and{" "}
-                  <kbd className="rounded border border-[var(--color-border)] px-1">
-                    Cmd/Ctrl+V
-                  </kbd>{" "}
-                  pastes over the still-selected abbreviation.
-                </li>
-                <li>
-                  On a miss, the selection stays visible (visual cue) and your clipboard
-                  is left untouched.
-                </li>
-                <li>
-                  Caveats: <b>terminals</b> (iTerm2, Terminal.app, kitty, …) don&apos;t
-                  expose the input line via accessibility and have no GUI &quot;select
-                  previous word&quot; — the abbreviation hotkey does nothing there. Use a{" "}
-                  <b>Direct hotkey → snippet</b> slot (below) or the popup instead.
-                  Password fields refuse synthetic paste in many apps.
-                </li>
+                <li><InlineMd text={t("set.expander.how1")} /></li>
+                <li><InlineMd text={t("set.expander.how2")} /></li>
+                <li>{t("set.expander.how3")}</li>
+                <li><InlineMd text={t("set.expander.how4")} /></li>
               </ul>
             </details>
           </Section>
@@ -1994,22 +1947,20 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
             id="clipboard-privacy"
-      title="Clipboard privacy"
-            subtitle="Keep secrets out of the clipboard history, and auto-wipe sensitive copies."
+      title={t("settings.section.clipboard-privacy")}
+            subtitle={t("set.privacy.subtitle")}
           >
             {privacy === null ? (
-              <p className="text-[12px] text-[var(--color-muted)]">Loading…</p>
+              <p className="text-[12px] text-[var(--color-muted)]">{t("common.loading")}</p>
             ) : (
               <div className="flex flex-col gap-4">
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[12px]">
                     <span className="text-[var(--color-fg)]">
-                      Never capture from these apps
+                      {t("set.privacy.exclude")}
                     </span>
                     <span className="block text-[11px] text-[var(--color-muted)]">
-                      One app-name (or part of it) per line or comma-separated — e.g.
-                      1Password, KeePassXC, Bitwarden. Case-insensitive substring match
-                      against the frontmost app.
+                      {t("set.privacy.exclude_help")}
                     </span>
                   </span>
                   <textarea
@@ -2027,11 +1978,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-[12px]">
                     <span className="text-[var(--color-fg)]">
-                      Auto-clear the clipboard after
+                      {t("set.privacy.autoclear")}
                     </span>
                     <span className="block text-[11px] text-[var(--color-muted)]">
-                      Wipes a copied value this many seconds later (a newer copy cancels
-                      it). 0 = off.
+                      {t("set.privacy.autoclear_help")}
                     </span>
                   </span>
                   <span className="flex items-center gap-1.5">
@@ -2052,13 +2002,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       onBlur={() => void savePrivacy(privacy)}
                       className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-[12px] tabular-nums"
                     />
-                    <span className="text-[11px] text-[var(--color-muted)]">sec</span>
+                    <span className="text-[11px] text-[var(--color-muted)]">{t("common.sec")}</span>
                   </span>
                 </label>
 
                 {privacySaved && (
                   <span className="confirm-enter flex items-center gap-1.5 text-[11px] text-green-500">
-                    <CheckCircle2 size={12} /> Saved
+                    <CheckCircle2 size={12} /> {t("common.saved")}
                   </span>
                 )}
               </div>
@@ -2072,32 +2022,30 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="auto-expand"
             icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
-            title="Auto-Expansion (aText-Stil)"
-            subtitle="Snippets expandieren automatisch beim Tippen — ganz ohne Hotkey, in jeder App. Wie aText / TextExpander."
+            title={t("set.ae.title")}
+            subtitle={t("set.ae.subtitle")}
           >
             {accessibility === false && (
               <div className="mb-4 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px]">
                 <AlertTriangle size={14} className="shrink-0 text-amber-500" />
                 <span>
-                  Die passive Tastatur-Überwachung braucht macOS-Accessibility — gewähre
-                  sie im Abschnitt oben, dann aktiviert sich der Modus.
+                  {t("set.ae.needs_ax")}
                 </span>
               </div>
             )}
 
             {aeCfg === null ? (
-              <p className="text-[12px] text-[var(--color-muted)]">Lade…</p>
+              <p className="text-[12px] text-[var(--color-muted)]">{t("common.loading")}</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {/* Master toggle */}
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-[12px]">
                     <span className="text-[var(--color-fg)]">
-                      Auto-Expansion aktivieren
+                      {t("set.ae.enable")}
                     </span>
                     <span className="block text-[11px] text-[var(--color-muted)]">
-                      Überwacht systemweit deine Eingaben und ersetzt Abkürzungen
-                      automatisch.
+                      {t("set.ae.enable_help")}
                     </span>
                   </span>
                   <input
@@ -2111,24 +2059,24 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
 
                 {/* Trigger choice */}
                 <div className={aeCfg.enabled ? "" : "pointer-events-none opacity-50"}>
-                  <div className="text-[11px] text-[var(--color-muted)]">Auslöser</div>
+                  <div className="text-[11px] text-[var(--color-muted)]">{t("set.ae.trigger")}</div>
                   <div className="mt-1 flex gap-2">
-                    {(["delimiter", "immediate"] as const).map((t) => (
+                    {(["delimiter", "immediate"] as const).map((trig) => (
                       <button
-                        key={t}
-                        onClick={() => updateAutoExpand({ trigger: t })}
+                        key={trig}
+                        onClick={() => updateAutoExpand({ trigger: trig })}
                         disabled={aeSaving}
                         className={`flex-1 rounded border px-3 py-1.5 text-[11px] ${
-                          aeCfg.trigger === t
+                          aeCfg.trigger === trig
                             ? "border-[var(--color-accent)] text-[var(--color-accent)]"
                             : "border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]"
                         }`}
                       >
-                        {t === "delimiter" ? "Nach Trennzeichen" : "Sofort"}
+                        {trig === "delimiter" ? t("set.ae.delimiter") : t("set.ae.immediate")}
                         <span className="mt-0.5 block text-[10px] opacity-70">
-                          {t === "delimiter"
-                            ? "Leertaste / Satzzeichen löst aus"
-                            : "Sobald die Abkürzung fertig getippt ist"}
+                          {trig === "delimiter"
+                            ? t("set.ae.delimiter_help")
+                            : t("set.ae.immediate_help")}
                         </span>
                       </button>
                     ))}
@@ -2140,7 +2088,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   className={`flex flex-col gap-2 ${aeCfg.enabled ? "" : "pointer-events-none opacity-50"}`}
                 >
                   <label className="flex items-center justify-between gap-3 text-[12px]">
-                    <span>Groß-/Kleinschreibung beachten</span>
+                    <span>{t("set.ae.match_case")}</span>
                     <input
                       type="checkbox"
                       checked={aeCfg.match_case}
@@ -2151,9 +2099,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </label>
                   <label className="flex items-center justify-between gap-3 text-[12px]">
                     <span>
-                      Auch innerhalb von Wörtern expandieren
+                      {t("set.ae.inside")}
                       <span className="block text-[11px] text-[var(--color-muted)]">
-                        Aus: nur eigenständige Wörter lösen aus.
+                        {t("set.ae.inside_help")}
                       </span>
                     </span>
                     <input
@@ -2168,10 +2116,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </label>
                   <label className="flex items-center justify-between gap-3 text-[12px]">
                     <span>
-                      Rückgängig per Backspace
+                      {t("set.ae.undo")}
                       <span className="block text-[11px] text-[var(--color-muted)]">
-                        Ein Backspace direkt nach der Expansion stellt die Abkürzung
-                        wieder her.
+                        {t("set.ae.undo_help")}
                       </span>
                     </span>
                     <input
@@ -2187,34 +2134,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </div>
 
                 <details className="mt-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] text-[var(--color-muted)]">
-                  <summary className="cursor-pointer font-medium">Hinweise</summary>
+                  <summary className="cursor-pointer font-medium">{t("set.ae.notes")}</summary>
                   <ul className="mt-2 list-disc space-y-1 pl-5">
-                    <li>
-                      Funktioniert in TextEdit/Notepad, Mail, Slack/Discord (Electron),
-                      Chrome/Safari/Edge, VS Code u. v. m.
-                    </li>
-                    <li>
-                      In Passwortfeldern wird <b>nie</b> expandiert.
-                    </li>
-                    <li>
-                      Platzhalter wie{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">
-                        {"{date}"}
-                      </code>
-                      ,{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">
-                        {"{clipboard}"}
-                      </code>{" "}
-                      und{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">
-                        {"{cursor}"}
-                      </code>{" "}
-                      greifen auch hier.
-                    </li>
-                    <li>
-                      Terminals: je nach OS eingeschränkt. Linux (Wayland) bietet keinen
-                      systemweiten Tap — dort bleibt der Hotkey-/Popup-Weg.
-                    </li>
+                    <li>{t("set.ae.note1")}</li>
+                    <li><InlineMd text={t("set.ae.note2")} /></li>
+                    <li><InlineMd text={t("set.ae.note3", { date: "`{date}`", clipboard: "`{clipboard}`", cursor: "`{cursor}`" })} /></li>
+                    <li>{t("set.ae.note4")}</li>
                   </ul>
                 </details>
               </div>
@@ -2228,26 +2153,21 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="direct-slots"
             icon={<Zap size={16} className="text-[var(--color-accent)]" />}
-            title="Direct hotkey → snippet"
-            subtitle="Press a hotkey, paste a snippet's body straight away — no abbreviation typed. Reads nothing, so it works in any app, including terminals (iTerm2, Terminal.app, …)."
+            title={t("settings.section.direct-slots")}
+            subtitle={t("set.slots.subtitle")}
           >
             {accessibility === false && (
               <div className="mb-4 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px]">
                 <AlertTriangle size={14} className="shrink-0 text-amber-500" />
                 <span>
-                  These hotkeys synthesize{" "}
-                  <kbd className="rounded border border-[var(--color-border)] px-1">
-                    Cmd+V
-                  </kbd>
-                  , so they need macOS Accessibility access too — grant it in the section
-                  above.
+                  <InlineMd text={t("set.slots.needs_ax")} />
                 </span>
               </div>
             )}
 
             {slots.length === 0 ? (
               <p className="mb-3 text-[12px] text-[var(--color-muted)]">
-                No direct slots yet. Add one to bind a hotkey straight to a snippet.
+                {t("set.slots.empty")}
               </p>
             ) : (
               <div className="mb-3 flex flex-col gap-2">
@@ -2276,12 +2196,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       >
                         {!known && (
                           <option value={slot.snippet_id}>
-                            ⚠ snippet deleted — pick another
+                            {t("set.slots.deleted")}
                           </option>
                         )}
                         {snippetList.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.abbreviation} — {s.title || "(untitled)"}
+                            {s.abbreviation} — {s.title || t("set.slots.untitled")}
                           </option>
                         ))}
                       </select>
@@ -2289,7 +2209,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         onClick={() => removeSlot(i)}
                         disabled={slotsBusy}
                         className="rounded px-1.5 text-[14px] text-[var(--color-muted)] hover:text-red-400 disabled:opacity-40"
-                        title="Remove this slot"
+                        title={t("set.slots.remove")}
                       >
                         ×
                       </button>
@@ -2305,14 +2225,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 disabled={slotsBusy}
                 className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
               >
-                + Add slot
+                {t("set.slots.add")}
               </button>
               <button
                 onClick={() => void saveSlots()}
                 disabled={slotsBusy || !slotsDirty}
                 className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
               >
-                {slotsBusy ? "Saving…" : slotsDirty ? "Save & register" : "No changes"}
+                {slotsBusy ? t("common.saving") : slotsDirty ? t("set.slots.save") : t("common.no_changes")}
               </button>
               {slotsStatus && (
                 <span
@@ -2329,16 +2249,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </div>
 
             <p className="mt-3 text-[11px] leading-snug text-[var(--color-muted)]">
-              Pick a hotkey that doesn&apos;t clash with your text-expander hotkey,{" "}
-              <kbd className="rounded border border-[var(--color-border)] px-1">
-                {IS_MAC ? "⌃Space" : "Ctrl+Space"}
-              </kbd>
-              , or{" "}
-              <kbd className="rounded border border-[var(--color-border)] px-1">
-                {IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O"}
-              </kbd>{" "}
-              — the backend rejects collisions. Long bodies are fine (it pastes,
-              doesn&apos;t type). The clipboard is restored afterward.
+              <InlineMd text={t("set.slots.help", { popup: "`" + (IS_MAC ? "⌃Space" : "Ctrl+Space") + "`", ocr: "`" + (IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O") + "`" })} />
             </p>
           </Section>
         </div>
@@ -2350,20 +2261,20 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<SunMoon size={16} className="text-[var(--color-accent)]" />}
             id="appearance"
-      title="Appearance"
-            subtitle="Choose a colour theme. System follows your OS light/dark setting; Light and Dark override it."
+      title={t("settings.section.appearance")}
+            subtitle={t("set.appearance.subtitle")}
           >
-            <Row label="Theme">
+            <Row label={t("set.appearance.theme")}>
               <div
                 role="radiogroup"
-                aria-label="Colour theme"
+                aria-label={t("set.appearance.theme_aria")}
                 className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
               >
                 {(
                   [
-                    { value: "system", label: "System", Icon: Monitor },
-                    { value: "light", label: "Light", Icon: Sun },
-                    { value: "dark", label: "Dark", Icon: Moon },
+                    { value: "system", label: t("set.appearance.system"), Icon: Monitor },
+                    { value: "light", label: t("set.appearance.light"), Icon: Sun },
+                    { value: "dark", label: t("set.appearance.dark"), Icon: Moon },
                   ] as const
                 ).map(({ value, label, Icon }) => {
                   const active = theme === value;
@@ -2392,16 +2303,16 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
             <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
               {theme === null
-                ? "Loading…"
+                ? t("common.loading")
                 : theme === "system"
-                  ? "Following your operating system's light/dark setting."
-                  : `Forced ${theme} — ignores the OS setting until you switch back to System.`}
+                  ? t("set.appearance.follow_os")
+                  : t(theme === "light" ? "set.appearance.forced_light" : "set.appearance.forced_dark")}
             </p>
 
-            <Row label="Animations">
+            <Row label={t("set.appearance.animations")}>
               <div
                 role="radiogroup"
-                aria-label="Animations"
+                aria-label={t("set.appearance.animations")}
                 className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
               >
                 {(["full", "reduced", "off"] as const).map((value) => {
@@ -2430,23 +2341,23 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
             <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
               {animStage === "off"
-                ? "All decorative motion is off — the popup appears instantly (countdown rings keep ticking)."
+                ? t("set.appearance.anim_off")
                 : animStage === "reduced"
-                  ? "Transitions are instant; the popup power-on is skipped."
-                  : "Full also honours your OS “reduce motion” setting. Applies live, no restart."}
+                  ? t("set.appearance.anim_reduced")
+                  : t("set.appearance.anim_full")}
             </p>
 
-            <Row label="Overlay size">
+            <Row label={t("set.appearance.size")}>
               <div
                 role="radiogroup"
-                aria-label="Overlay size"
+                aria-label={t("set.appearance.size")}
                 className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
               >
                 {(
                   [
-                    { value: "small", label: "Small" },
-                    { value: "medium", label: "Medium" },
-                    { value: "large", label: "Large" },
+                    { value: "small", label: t("set.appearance.small") },
+                    { value: "medium", label: t("set.appearance.medium") },
+                    { value: "large", label: t("set.appearance.large") },
                   ] as const
                 ).map(({ value, label }) => {
                   const active = winSize === value;
@@ -2474,10 +2385,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
             <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
               {winSize === null
-                ? "Loading…"
-                : "Popup window dimensions — Small 600×430, Medium 700×500, Large 840×600. Applies immediately and recentres on the next open."}
+                ? t("common.loading")
+                : t("set.appearance.size_help")}
             </p>
-            <Row label="Lineage rails">
+            <Row label={t("set.appearance.lineage")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -2485,15 +2396,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   onChange={(e) => void changeLineageRails(e.target.checked)}
                   className="accent-[var(--color-accent)]"
                 />
-                Connect a copy to the entry it came from
+                {t("set.appearance.lineage_toggle")}
               </label>
             </Row>
             <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
-              When you copy an entry in another shape (plain text, UPPERCASE,
-              Base64 …), the copy becomes a new entry at the top while the
-              original stays put. Coloured paths on the left of the list tie the
-              two together, like a commit graph. Purely visual — switching this
-              off changes nothing about what gets copied.
+              {t("set.appearance.lineage_help")}
             </p>
             <CrtAnimationRow />
           </Section>
@@ -2505,14 +2412,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Power size={16} className="text-[var(--color-accent)]" />}
             id="startup"
-      title="Startup"
-            subtitle={
-              IS_MAC
-                ? "Have Inspector Rust launch automatically when you log in. Uses a LaunchAgent (~/Library/LaunchAgents/InspectorRust.plist) — no Dock icon, opens hidden in the tray."
-                : "Have Inspector Rust launch automatically when you sign in. Registered via the Windows run-key — opens hidden in the system tray."
-            }
+      title={t("settings.section.startup")}
+            subtitle={IS_MAC ? t("set.startup.subtitle_mac") : t("set.startup.subtitle_win")}
           >
-            <Row label={IS_MAC ? "Start at login" : "Start with Windows"}>
+            <Row label={IS_MAC ? t("tray.autostart_login") : t("tray.autostart_windows")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -2523,14 +2426,14 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {autostart === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : autostart
-                      ? "Enabled — Inspector Rust launches on login"
-                      : "Disabled — start Inspector Rust manually"}
+                      ? t("set.startup.on")
+                      : t("set.startup.off")}
                 </span>
               </label>
             </Row>
-            <Row label="Always keep running">
+            <Row label={t("set.startup.keepalive")}>
               <label className="flex cursor-pointer items-start gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -2541,10 +2444,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {keepalive === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : keepalive
-                      ? "On — auto-relaunches within ~30 s if it ever isn't running (crash / quit). Turn off to quit for good."
-                      : "Off — the app stays closed once you quit it"}
+                      ? t("set.startup.keepalive_on")
+                      : t("set.startup.keepalive_off")}
                 </span>
               </label>
             </Row>
@@ -2557,10 +2460,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="paste"
             icon={<ClipboardType size={16} className="text-[var(--color-accent)]" />}
-            title="Paste"
-            subtitle="Control how clipboard entries land in the destination app."
+            title={t("settings.section.paste")}
+            subtitle={t("set.paste.subtitle")}
           >
-            <Row label="Plain text only">
+            <Row label={t("set.paste.plain")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -2571,26 +2474,17 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {plainTextOnly === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : plainTextOnly
-                      ? "HTML / RTF entries are stripped to plain text on paste"
-                      : "Original formatting is preserved when pasting HTML / RTF"}
+                      ? t("set.paste.plain_on")
+                      : t("set.paste.plain_off")}
                 </span>
               </label>
             </Row>
 
             <div className="mt-1 rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-[11px] text-[var(--color-muted)]">
-              <span className="text-[var(--color-fg)]">Tip — one-shot override:</span>{" "}
-              hold{" "}
-              <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
-                Shift
-              </kbd>{" "}
-              while pressing{" "}
-              <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
-                Enter
-              </kbd>{" "}
-              in the popup to paste with original formatting <em>this once</em>,
-              regardless of the toggle above.
+              <span className="text-[var(--color-fg)]">{t("set.paste.tip_title")}</span>{" "}
+              <InlineMd text={t("set.paste.tip")} />
             </div>
           </Section>
         </div>
@@ -2601,10 +2495,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="capture"
             icon={<Camera size={16} className="text-[var(--color-accent)]" />}
-            title="Capture"
-            subtitle="OCR and screenshot region capture (Ctrl+Shift+O / Ctrl+Shift+S)."
+            title={t("set.capture.title")}
+            subtitle={t("set.capture.subtitle")}
           >
-            <Row label="Keep OCR source image in history">
+            <Row label={t("set.capture.keep_source")}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
                 <input
                   type="checkbox"
@@ -2615,10 +2509,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 />
                 <span className="text-[var(--color-muted)]">
                   {ocrSaveSource === null
-                    ? "Loading…"
+                    ? t("common.loading")
                     : ocrSaveSource
-                      ? "OCR saves both the source PNG and the recognised text to history"
-                      : "OCR saves only the recognised text — the source PNG is discarded"}
+                      ? t("set.capture.keep_on")
+                      : t("set.capture.keep_off")}
                 </span>
               </label>
             </Row>
@@ -2632,18 +2526,18 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
             id="input-lock"
-      title="Input lock"
-            subtitle="Type `freeze` in the popup to block all keyboard + mouse input — release with the configured chord."
+      title={t("settings.section.input-lock")}
+            subtitle={t("set.inputlock.subtitle")}
           >
             <Row
-              label="Unlock chord"
-              help="Click Capture, then press the keys you want to use simultaneously. Release any key to save. Esc cancels."
+              label={t("set.inputlock.chord")}
+              help={t("set.inputlock.chord_help")}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-[var(--font-mono)] text-[12px]">
                   {capturedChord !== null ? (
                     capturedChord.size === 0 ? (
-                      <span className="text-[var(--color-muted)]">Press your chord…</span>
+                      <span className="text-[var(--color-muted)]">{t("set.inputlock.press")}</span>
                     ) : (
                       Array.from(capturedChord).map((k, i) => (
                         <span
@@ -2655,9 +2549,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       ))
                     )
                   ) : inputLockChord === null ? (
-                    <span className="text-[var(--color-muted)]">Loading…</span>
+                    <span className="text-[var(--color-muted)]">{t("common.loading")}</span>
                   ) : inputLockChord.length === 0 ? (
-                    <span className="text-[var(--color-muted)]">(none)</span>
+                    <span className="text-[var(--color-muted)]">{t("common.none")}</span>
                   ) : (
                     inputLockChord.map((k, i) => (
                       <span
@@ -2677,7 +2571,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   }
                   className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
                 >
-                  {capturedChord !== null ? "Capturing…" : "Capture"}
+                  {capturedChord !== null ? t("set.diag.capturing") : t("set.inputlock.capture")}
                 </button>
                 {capturedChord !== null && (
                   <button
@@ -2685,7 +2579,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     onClick={() => setCapturedChord(null)}
                     className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-amber-500 hover:text-amber-500"
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                 )}
                 {inputLockStatus && (
@@ -2704,10 +2598,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             </Row>
 
             <div className="mt-1 rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-[11px] text-[var(--color-muted)]">
-              <span className="text-[var(--color-fg)]">Safety:</span> OS-level shortcuts (
-              {IS_MAC ? "⌥⌘Esc Force Quit" : "Ctrl+Alt+Del"}) always work — Inspector Rust
-              can't intercept them, so you can never be truly locked out. Linux Wayland is
-              not supported by the underlying grab API (X11 sessions only).
+              <span className="text-[var(--color-fg)]">{t("set.inputlock.safety_title")}</span>{" "}
+              {t("set.inputlock.safety", { keys: IS_MAC ? t("set.inputlock.force_quit") : "Ctrl+Alt+Del" })}
             </div>
           </Section>
         </div>
@@ -2718,8 +2610,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="keyboard-shortcuts"
             icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
-            title="Keyboard shortcuts"
-            subtitle="Global shortcuts fire from anywhere on your system. Popup shortcuts only fire while Inspector Rust's popup is visible."
+            title={t("set.cheatsheet.title")}
+            subtitle={t("set.cheatsheet.subtitle")}
           >
             <ShortcutsTable />
           </Section>
@@ -2731,16 +2623,16 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Trash2 size={16} className="text-[var(--color-accent)]" />}
             id="cleaning"
-      title="Cleaning"
-            subtitle="Delete cache / log / temp files inside known-safe folders. Type `clean` in the search bar — it always shows a preview and deletes only after you confirm."
+      title={t("settings.section.cleaning")}
+            subtitle={t("set.clean.subtitle")}
           >
             {cleanCfg === null ? (
-              <p className="text-[12px] text-[var(--color-muted)]">Lade…</p>
+              <p className="text-[12px] text-[var(--color-muted)]">{t("common.loading")}</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {/* Level picker */}
                 <div>
-                  <div className="text-[11px] text-[var(--color-muted)]">Umfang</div>
+                  <div className="text-[11px] text-[var(--color-muted)]">{t("set.clean.level")}</div>
                   <div className="mt-1 flex gap-2">
                     {(["safe", "standard", "aggressive"] as CleanerLevel[]).map((lv) => (
                       <button
@@ -2753,10 +2645,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         }`}
                       >
                         {lv === "safe"
-                          ? "Safe"
+                          ? t("set.clean.safe")
                           : lv === "standard"
-                            ? "Standard"
-                            : "Aggressive"}
+                            ? t("set.clean.standard")
+                            : t("set.clean.aggressive")}
                       </button>
                     ))}
                   </div>
@@ -2764,8 +2656,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     <div className="mt-2 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
                       <AlertTriangle size={13} className="shrink-0 text-amber-500" />
                       <span>
-                        Aggressive löscht auch globale Dev-Tool-Caches
-                        (npm/pnpm/Gradle/Cargo) — diese müssen danach neu geladen werden.
+                        {t("set.clean.aggressive_warn")}
                       </span>
                     </div>
                   )}
@@ -2774,9 +2665,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 {/* Min age */}
                 <label className="flex items-center justify-between gap-3 text-[12px]">
                   <span>
-                    Nur Dateien älter als
+                    {t("set.clean.min_age")}
                     <span className="block text-[11px] text-[var(--color-muted)]">
-                      Tage seit letzter Änderung.
+                      {t("set.clean.min_age_help")}
                     </span>
                   </span>
                   <input
@@ -2795,7 +2686,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
 
                 {/* Category checkboxes for the current level */}
                 <div className="flex flex-col gap-1.5">
-                  <div className="text-[11px] text-[var(--color-muted)]">Kategorien</div>
+                  <div className="text-[11px] text-[var(--color-muted)]">{t("set.clean.categories")}</div>
                   {cleanCats
                     .filter((c) => {
                       const rank = (l: CleanerLevel) =>
@@ -2831,15 +2722,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     the only part whose search area the user defines. */}
                 <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-3">
                   <div className="text-[11px] text-[var(--color-muted)]">
-                    Developer — verwaiste Build-Artefakte
+                    {t("set.clean.dev")}
                   </div>
                   <label className="flex flex-col gap-1 text-[12px]">
                     <span>
-                      Projekt-Ordner
+                      {t("set.clean.dev_roots")}
                       <span className="block text-[11px] text-[var(--color-muted)]">
-                        Ein Pfad pro Zeile. Hier wird nach `node_modules` / `target` von
-                        Projekten gesucht, die lange nicht angefasst wurden. Leer = keine
-                        Projektsuche.
+                        <InlineMd text={t("set.clean.dev_roots_help")} />
                       </span>
                     </span>
                     <textarea
@@ -2859,9 +2748,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </label>
                   <label className="flex items-center justify-between gap-3 text-[12px]">
                     <span>
-                      Projekt gilt als tot nach
+                      {t("set.clean.stale")}
                       <span className="block text-[11px] text-[var(--color-muted)]">
-                        Tagen ohne Änderung an Manifest, Quellen oder Git-HEAD.
+                        {t("set.clean.stale_help")}
                       </span>
                     </span>
                     <input
@@ -2880,12 +2769,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </div>
 
                 <p className="text-[11px] text-[var(--color-muted)]">
-                  Es werden ausschließlich Dateien innerhalb fest definierter
-                  Cache-/Log-/Temp-Ordner gelöscht — niemals Dokumente, Desktop o. Ä.
-                  Symlinks werden nie verfolgt. Ein `node_modules` / `target` wird nur
-                  angerührt, wenn daneben wirklich eine `package.json` bzw. `Cargo.toml`
-                  liegt. Tools (Docker, Homebrew, pnpm, simctl) werden nur aufgerufen,
-                  wenn installiert — nie mit sudo.
+                  <InlineMd text={t("set.clean.safety")} />
                 </p>
               </div>
             )}
@@ -2968,27 +2852,26 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             icon={<Archive size={16} className="text-[var(--color-accent)]" />}
             id="backup"
-      title="Backup & restore"
-            subtitle="Export the whole app — clipboard history, snippets, notes, 2FA accounts and every setting — to a single file, optionally password-encrypted (AES-256-GCM, Argon2id). Import merges: snippets upsert by abbreviation, history dedupes by hash, settings overwrite by key, 2FA/timesheet dedupe; notes append."
+      title={t("settings.section.backup")}
+            subtitle={t("set.backup.subtitle")}
           >
-            <Row label="What's included">
+            <Row label={t("set.backup.included")}>
               <div className="flex flex-col gap-1.5 text-[12px]">
                 <span className="text-[var(--color-muted)]">
-                  Always: clipboard history (incl. pins &amp; notes) · snippets · notes ·
-                  2FA accounts · all settings
+                  {t("set.backup.always")}
                 </span>
                 <BackupCheckbox
-                  label="Timesheet data (sessions, events, categories — can be large)"
+                  label={t("set.backup.timesheet")}
                   checked={includeTimesheet}
                   onChange={setIncludeTimesheet}
                 />
               </div>
             </Row>
 
-            <Row label="Encryption">
+            <Row label={t("set.backup.encryption")}>
               <div className="flex flex-col gap-1.5 text-[12px]">
                 <BackupCheckbox
-                  label="Encrypt with password (AES-256-GCM + Argon2id)"
+                  label={t("set.backup.encrypt")}
                   checked={encryptBackup}
                   onChange={(v) => {
                     setEncryptBackup(v);
@@ -3004,31 +2887,31 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       type={showBackupPassword ? "text" : "password"}
                       value={backupPassword}
                       onChange={(e) => setBackupPassword(e.target.value)}
-                      placeholder="Password"
+                      placeholder={t("common.password")}
                       className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
                     />
                     <input
                       type={showBackupPassword ? "text" : "password"}
                       value={backupPassword2}
                       onChange={(e) => setBackupPassword2(e.target.value)}
-                      placeholder="Repeat password"
+                      placeholder={t("set.backup.repeat")}
                       className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
                     />
                     <BackupCheckbox
-                      label="Show"
+                      label={t("common.show")}
                       checked={showBackupPassword}
                       onChange={setShowBackupPassword}
                     />
                     {backupPassword2.length > 0 && backupPassword !== backupPassword2 && (
                       <span className="text-[11px] text-red-400">
-                        Passwords don't match
+                        {t("set.backup.pw_mismatch")}
                       </span>
                     )}
                   </div>
                 )}
                 {encryptBackup && (
                   <span className="text-[11px] text-amber-500">
-                    There is no recovery — without the password the backup is unreadable.
+                    {t("set.backup.no_recovery")}
                   </span>
                 )}
               </div>
@@ -3041,7 +2924,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
               >
                 <Download size={12} />
-                {backupBusy === "export" ? "Exporting…" : "Export…"}
+                {backupBusy === "export" ? t("set.backup.exporting") : t("set.backup.export")}
               </button>
               <button
                 onClick={() => void onImport()}
@@ -3049,10 +2932,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 className="flex items-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
               >
                 <Upload size={12} />
-                {backupBusy === "import" ? "Importing…" : "Import…"}
+                {backupBusy === "import" ? t("set.backup.importing") : t("set.backup.import")}
               </button>
               <span className="ml-auto text-[11px] text-[var(--color-muted)]">
-                Import merges into the current database
+                {t("set.backup.merge_note")}
               </span>
             </div>
 
@@ -3060,7 +2943,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[12px]">
                 <Lock size={13} className="shrink-0 text-[var(--color-accent)]" />
                 <span className="text-[var(--color-muted)]">
-                  {(pendingImport.split("/").pop() ?? pendingImport) + " is encrypted."}
+                  {t("set.backup.is_encrypted", { file: pendingImport.split("/").pop() ?? pendingImport })}
                 </span>
                 <input
                   type="password"
@@ -3070,7 +2953,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     if (e.key === "Enter" && importPassword)
                       void runImport(pendingImport, importPassword);
                   }}
-                  placeholder="Password"
+                  placeholder={t("common.password")}
                   autoFocus
                   className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
                 />
@@ -3079,7 +2962,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   disabled={backupBusy !== null || !importPassword}
                   className="rounded bg-[var(--color-accent)] px-2.5 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
                 >
-                  {backupBusy === "import" ? "Importing…" : "Unlock & import"}
+                  {backupBusy === "import" ? t("set.backup.importing") : t("set.backup.unlock")}
                 </button>
                 <button
                   onClick={() => {
@@ -3088,7 +2971,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   }}
                   className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[12px]"
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             )}
@@ -3106,15 +2989,15 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   backupStatus.message
                 ) : backupStatus.kind === "import-ok" ? (
                   <>
-                    Imported <b>{backupStatus.result.history_imported}</b> history,{" "}
-                    <b>{backupStatus.result.snippets_imported}</b> snippets,{" "}
-                    <b>{backupStatus.result.notes_imported}</b> notes,{" "}
-                    <b>{backupStatus.result.totp_imported}</b> 2FA,{" "}
-                    <b>{backupStatus.result.settings_imported}</b> settings
+                    <InlineMd text={t("set.backup.imported", {
+                      history: backupStatus.result.history_imported,
+                      snippets: backupStatus.result.snippets_imported,
+                      notes: backupStatus.result.notes_imported,
+                      totp: backupStatus.result.totp_imported,
+                      settings: backupStatus.result.settings_imported,
+                    })} />
                     {backupStatus.result.timesheet_imported > 0 && (
-                      <>
-                        , <b>{backupStatus.result.timesheet_imported}</b> timesheet events
-                      </>
+                      <InlineMd text={t("set.backup.imported_timesheet", { n: backupStatus.result.timesheet_imported })} />
                     )}
                     {backupStatus.result.errors.length > 0 && (
                       <>
@@ -3122,13 +3005,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         <span className="text-red-400">
                           {backupStatus.result.errors[0]}
                           {backupStatus.result.errors.length > 1 &&
-                            ` (+${backupStatus.result.errors.length - 1} more)`}
+                            ` ${t("set.backup.more_errors", { n: backupStatus.result.errors.length - 1 })}`}
                         </span>
                       </>
                     )}
                   </>
                 ) : (
-                  <>Failed: {backupStatus.message}</>
+                  <>{t("common.failed", { message: backupStatus.message })}</>
                 )}
               </div>
             )}
@@ -3148,8 +3031,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <Section
             id="about"
             icon={<Info size={16} className="text-[var(--color-accent)]" />}
-            title="About"
-            subtitle="Version, license, project info."
+            title={t("settings.section.about")}
+            subtitle={t("set.about.subtitle")}
           >
             <AboutContent version={appVersion} />
           </Section>
@@ -3210,31 +3093,25 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             {/* Header + the one-click chained setup action. */}
             <div className="flex items-center gap-2 border-b border-amber-500/30 px-3 py-2">
               <AlertTriangle size={14} className="shrink-0 text-amber-500" />
-              <span className="flex-1 font-medium">macOS permissions needed</span>
+              <span className="flex-1 font-medium">{t("set.perm.needed")}</span>
               <button
                 onClick={() => void setUpPermissions()}
                 className="rounded bg-[var(--color-accent)] px-3 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] hover:opacity-90"
               >
-                {chaining ? "Setting up…" : "Set up permissions"}
+                {chaining ? t("set.perm.setting_up") : t("set.perm.setup")}
               </button>
             </div>
 
             {/* Explainer — honest about what the button can and can't do. */}
             <p className="px-3 pt-2 text-[var(--color-muted)]">
-              <b className="text-[var(--color-fg)]">Set up permissions</b> wipes any stale
-              macOS TCC entry for Inspector Rust (via <code>tccutil reset</code>, no admin
-              password) and re-fires the macOS permission prompt. Click{" "}
-              <b>Allow → Open System Settings</b>, flip the <b>Inspector Rust</b> switch —
-              once both grants are in, this card auto-prompts to restart. macOS only lets{" "}
-              <i>you</i> flip the switch; the reset removes the friction when a switch{" "}
-              <i>looks</i> on but Inspector Rust still asks.
+              <InlineMd text={t("set.perm.explainer")} />
             </p>
 
             {/* Live per-permission status. */}
             <div className="flex flex-col gap-1.5 px-3 py-2">
               <PermRow
-                label="Accessibility"
-                hint="Lets Inspector Rust paste and run the text expander"
+                label={t("set.perm.ax")}
+                hint={t("set.perm.ax_hint")}
                 granted={accessibility}
                 onOpen={() =>
                   void openAccessibilitySettings().catch((e) =>
@@ -3243,8 +3120,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 }
               />
               <PermRow
-                label="Screen Recording"
-                hint="Lets the OCR and screenshot region capture work"
+                label={t("set.perm.screen")}
+                hint={t("set.perm.screen_hint")}
                 granted={screenRec}
                 onOpen={() =>
                   void openScreenRecordingSettings().catch((e) =>
@@ -3253,8 +3130,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 }
               />
               <PermRow
-                label="Automation → Finder"
-                hint="Lets Ctrl+Shift+F read the current Finder selection"
+                label={t("set.perm.finder")}
+                hint={t("set.perm.finder_hint")}
                 granted={finderAutomation}
                 onOpen={() =>
                   void openFinderAutomationSettings().catch((e) =>
@@ -3267,21 +3144,17 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             {/* Troubleshooting — collapsed by default. */}
             <details className="border-t border-amber-500/30 px-3 py-2 text-[11px] text-[var(--color-muted)]">
               <summary className="cursor-pointer">
-                Switch is already on, but it still doesn&apos;t work?
+                {t("set.perm.stuck")}
               </summary>
               <p className="mt-1.5">
-                macOS keys each grant to the app&apos;s code signature. As of v0.23.2{" "}
-                <code>scripts/install-macos.sh</code> signs every build with a stable
-                self-signed certificate, so a grant survives rebuilds — you should only
-                need to do this once. If a switch shows on but Inspector Rust still asks,
-                the grant is stale: reset it, then re-toggle and relaunch.
+                <InlineMd text={t("set.perm.stuck_help")} />
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   onClick={async () => {
                     if (
                       !window.confirm(
-                        "Reset the stale Accessibility + Screen Recording + Automation→Finder grants for Inspector Rust and re-fire the macOS prompts? Use this when a switch shows on but Inspector Rust still asks for permission.",
+                        t("set.perm.reset_confirm"),
                       )
                     )
                       return;
@@ -3295,7 +3168,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   }}
                   className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                 >
-                  Reset stale grants
+                  {t("set.perm.reset")}
                 </button>
                 <button
                   onClick={async () => {
@@ -3309,13 +3182,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   }}
                   className="rounded border border-[var(--color-border)] px-2.5 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
                 >
-                  Re-check now
+                  {t("set.perm.recheck")}
                 </button>
                 <button
                   onClick={async () => {
                     if (
                       !window.confirm(
-                        "Quit Inspector Rust now? Re-launch it via Spotlight / Dock to pick up a freshly-granted permission.",
+                        t("set.perm.quit_confirm"),
                       )
                     )
                       return;
@@ -3327,7 +3200,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   }}
                   className="rounded border border-amber-500/60 bg-amber-500/10 px-2.5 py-1 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
                 >
-                  Quit Inspector Rust
+                  {t("tray.quit")}
                 </button>
               </div>
             </details>
@@ -3372,6 +3245,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
 const NAV_CATEGORIES = SETTINGS_CATEGORIES.filter((c) => c.id !== "about");
 
 function SettingsCategoryNav({ scrollRef }: { scrollRef: React.RefObject<HTMLDivElement | null> }) {
+  const t = useT();
   const [active, setActive] = useState<string>(SETTINGS_CATEGORIES[0].id);
 
   useEffect(() => {
@@ -3412,7 +3286,7 @@ function SettingsCategoryNav({ scrollRef }: { scrollRef: React.RefObject<HTMLDiv
 
   return (
     <nav
-      aria-label="Einstellungs-Kategorien"
+      aria-label={t("set.categories_aria")}
       className="sticky -top-6 z-10 -mx-6 -mt-6 mb-4 flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-2"
     >
       {NAV_CATEGORIES.map((c) => (
@@ -3463,6 +3337,7 @@ function PermRow({
   granted: boolean | null;
   onOpen: () => void;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5">
       {granted === true ? (
@@ -3478,13 +3353,13 @@ function PermRow({
         <div className="truncate text-[10px] text-[var(--color-muted)]">{hint}</div>
       </div>
       {granted === true ? (
-        <span className="shrink-0 text-[11px] font-medium text-emerald-500">Enabled</span>
+        <span className="shrink-0 text-[11px] font-medium text-emerald-500">{t("set.perm.enabled")}</span>
       ) : (
         <button
           onClick={onOpen}
           className="shrink-0 rounded bg-[var(--color-accent)] px-2.5 py-1 text-[11px] text-[var(--color-accent-fg)] hover:opacity-90"
         >
-          Open
+          {t("common.open")}
         </button>
       )}
     </div>
@@ -3514,6 +3389,7 @@ function BackupCheckbox({
 }
 
 function TimesheetSection() {
+  const t = useT();
   const [cfg, setCfg] = useState<{
     idle_seconds: number;
     retention_days: number;
@@ -3555,12 +3431,12 @@ function TimesheetSection() {
     <Section
       icon={<Clock size={16} className="text-[var(--color-accent)]" />}
       id="timesheet"
-      title="Timesheet"
-      subtitle="Opt-in time tracking (track on/off). Records app usage by focus; idle auto-pauses; window titles + URLs are encrypted at rest. Nothing leaves your machine (the browser extension uses a loopback socket only)."
+      title={t("settings.section.timesheet")}
+      subtitle={t("set.ts.subtitle")}
     >
       <Row
-        label="Idle threshold (seconds)"
-        help="Inactivity beyond this retroactively pauses the active interval as idle."
+        label={t("set.ts.idle")}
+        help={t("set.ts.idle_help")}
       >
         <input
           type="number"
@@ -3573,8 +3449,8 @@ function TimesheetSection() {
         />
       </Row>
       <Row
-        label="Retention (days)"
-        help="On the next “track on”, events older than this are deleted. 0 = keep forever."
+        label={t("set.ts.retention")}
+        help={t("set.ts.retention_help")}
       >
         <input
           type="number"
@@ -3587,8 +3463,8 @@ function TimesheetSection() {
         />
       </Row>
       <Row
-        label="Claude Code usage"
-        help="Watch ~/.claude/projects for active Claude Code usage per project (time + tokens)."
+        label={t("set.ts.claude")}
+        help={t("set.ts.claude_help")}
       >
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
@@ -3598,13 +3474,13 @@ function TimesheetSection() {
             className="accent-[var(--color-accent)]"
           />
           <span className="text-[var(--color-muted)]">
-            {cfg.claude_watcher ? "On — track Claude Code time" : "Off"}
+            {cfg.claude_watcher ? t("set.ts.claude_on") : t("common.off")}
           </span>
         </label>
       </Row>
       <Row
-        label="Daily focus goal (minutes)"
-        help="Target active time per day (0 = off). Shows a progress bar in the Timesheet day view."
+        label={t("set.ts.goal")}
+        help={t("set.ts.goal_help")}
       >
         <input
           type="number"
@@ -3618,8 +3494,8 @@ function TimesheetSection() {
         />
       </Row>
       <Row
-        label="Privacy denylist"
-        help="Comma/newline-separated app names or hostnames. For matches, only the app name + time are stored — no window title or URL."
+        label={t("set.ts.denylist")}
+        help={t("set.ts.denylist_help")}
       >
         <textarea
           value={cfg.denylist}
@@ -3635,18 +3511,18 @@ function TimesheetSection() {
           disabled={!dirty || busy}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("common.saving") : t("common.save")}
         </button>
         {dirty && !busy && (
-          <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("common.unsaved")}</span>
         )}
         {savedOk && !dirty && (
-          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">Saved</span>
+          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">{t("common.saved")}</span>
         )}
       </div>
       <Row
-        label="App → category rules"
-        help="Auto-categorize future events. Set rules by assigning a category to an app in the Timesheet's “By app” view; remove them here."
+        label={t("set.ts.rules")}
+        help={t("set.ts.rules_help")}
       >
         <CategoryRulesList />
       </Row>
@@ -3655,6 +3531,7 @@ function TimesheetSection() {
 }
 
 function CategoryRulesList() {
+  const t = useT();
   const [rules, setRules] = useState<[string, string][]>([]);
   const reload = () =>
     trackCategoryRules()
@@ -3664,7 +3541,7 @@ function CategoryRulesList() {
     void reload();
   }, []);
   if (rules.length === 0) {
-    return <p className="text-[12px] text-[var(--color-muted)]">No rules yet.</p>;
+    return <p className="text-[12px] text-[var(--color-muted)]">{t("set.ts.no_rules")}</p>;
   }
   return (
     <div className="flex flex-col gap-1">
@@ -3678,7 +3555,7 @@ function CategoryRulesList() {
             type="button"
             onClick={() => void trackDeleteCategoryRule(app).then(reload)}
             className="shrink-0 rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-rose-400"
-            title="Delete rule"
+            title={t("set.ts.delete_rule")}
           >
             <Trash2 size={13} />
           </button>
@@ -3692,6 +3569,7 @@ function CategoryRulesList() {
  *  overlay? (Persisted `popup.close_on_blur`, live effect via UiState.) */
 /** Settings → Pulse (memory pressure / SSD writes sampler). Saved live. */
 function PulseSettingsSection() {
+  const t = useT();
   const [cfg, setCfg] = useState<PulseConfig | null>(null);
   const [tbw, setTbw] = useState("");
 
@@ -3723,8 +3601,8 @@ function PulseSettingsSection() {
     <Section
       icon={<Activity size={16} className="text-[var(--color-accent)]" />}
       id="pulse"
-      title="Pulse"
-      subtitle="Background monitoring of memory pressure, swap and SSD writes (`pulse` command). Raw samples stay in RAM; one aggregate row a minute goes to a separate pulse.db."
+      title={t("set.pulse.title")}
+      subtitle={t("set.pulse.subtitle")}
     >
       <label className="flex cursor-pointer items-start gap-2 text-[12px]">
         <input
@@ -3734,9 +3612,9 @@ function PulseSettingsSection() {
           className={box}
         />
         <span>
-          <span className="font-medium">Measure in the background</span>
+          <span className="font-medium">{t("set.pulse.measure")}</span>
           <span className="mt-0.5 block text-[var(--color-muted)]">
-            Every 5 s system counters, every 30 s the processes. Off → nothing is read or written.
+            {t("set.pulse.measure_help")}
           </span>
         </span>
       </label>
@@ -3749,9 +3627,9 @@ function PulseSettingsSection() {
           className={box}
         />
         <span>
-          <span className="font-medium">Notify when memory pressure stays red</span>
+          <span className="font-medium">{t("set.pulse.notify")}</span>
           <span className="mt-0.5 block text-[var(--color-muted)]">
-            After{" "}
+            {tSplit("set.pulse.notify_help", "n")[0]}
             <input
               type="number"
               min={1}
@@ -3762,30 +3640,30 @@ function PulseSettingsSection() {
                 if (Number.isFinite(n) && n >= 1) void save({ ...cfg, notify_minutes: Math.round(n) });
               }}
               className={field}
-              aria-label="Minuten bis zur Benachrichtigung"
-            />{" "}
-            minutes, naming the biggest consumer — at most once an hour.
+              aria-label={t("set.pulse.minutes_aria")}
+            />
+            {tSplit("set.pulse.notify_help", "n")[1]}
           </span>
         </span>
       </label>
       <div className="mt-3 text-[12px]">
-        <span className="font-medium">SSD endurance (TBW)</span>
+        <span className="font-medium">{t("set.pulse.tbw")}</span>
         <div className="mt-1 flex items-center gap-2 text-[var(--color-muted)]">
           <input
             type="number"
             min={0}
             step={50}
             value={tbw}
-            placeholder="auto"
+            placeholder={t("set.pulse.auto")}
             onChange={(e) => setTbw(e.target.value)}
             onBlur={() => {
               const n = Number(tbw);
               void save({ ...cfg, tbw_tb: Number.isFinite(n) && n > 0 ? n : 0 });
             }}
             className={field}
-            aria-label="TBW in Terabyte"
+            aria-label={t("set.pulse.tbw_aria")}
           />
-          <span>TB · empty = automatic (600 TB per TB of capacity). Only used for the forecast.</span>
+          <span>{t("set.pulse.tbw_help")}</span>
         </div>
       </div>
     </Section>
@@ -3793,6 +3671,7 @@ function PulseSettingsSection() {
 }
 
 function PopupBehaviorSection() {
+  const t = useT();
   const [closeOnBlur, setCloseOnBlurState] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -3814,8 +3693,8 @@ function PopupBehaviorSection() {
     <Section
       icon={<MousePointerClick size={16} className="text-[var(--color-accent)]" />}
       id="behavior"
-      title="Popup behavior"
-      subtitle="How the main overlay dismisses."
+      title={t("settings.section.behavior")}
+      subtitle={t("set.behavior.subtitle")}
     >
       <label className="flex cursor-pointer items-start gap-2 text-[12px]">
         <input
@@ -3825,12 +3704,9 @@ function PopupBehaviorSection() {
           className="mt-0.5 accent-[var(--color-accent)]"
         />
         <span>
-          <span className="font-medium">Click outside closes the popup</span>
+          <span className="font-medium">{t("set.behavior.blur")}</span>
           <span className="mt-0.5 block text-[var(--color-muted)]">
-            Off → the overlay stays open when focus moves elsewhere; close it with{" "}
-            <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">Esc</kbd>{" "}
-            (an open inline panel consumes the first Esc as “back” — press it twice) or the
-            popup hotkey. Applies immediately, no restart.
+            <InlineMd text={t("set.behavior.blur_help")} />
           </span>
         </span>
       </label>
@@ -3840,6 +3716,7 @@ function PopupBehaviorSection() {
 
 /** Cloud-Sync (cue): bidirectional snippet sync with the cue web app. */
 function PagespeedSection() {
+  const t = useT();
   const [stored, setStored] = useState(false);
   const [key, setKey] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -3849,19 +3726,19 @@ function PagespeedSection() {
   return (
     <Section
       icon={<Gauge size={16} className="text-[var(--color-accent)]" />}
-      title="PageSpeed"
-      subtitle="API-Key für den `pagespeed`-Befehl. Ohne eigenen Key teilen sich alle Nutzer ein kleines Tageskontingent von Google."
+      title={t("settings.section.pagespeed")}
+      subtitle={t("set.psi.subtitle")}
       id="pagespeed"
     >
       <Row
-        label="API-Key"
-        help="Kostenlos in der Google-Cloud-Konsole (PageSpeed Insights API). Bleibt auf diesem Rechner; er verlässt ihn nur als Parameter der Anfrage an Google."
+        label={t("set.psi.key")}
+        help={t("set.psi.key_help")}
       >
         <div className="flex gap-2">
           <input
             type="password"
             className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-            placeholder={stored ? "gespeichert" : "kein Key hinterlegt"}
+            placeholder={stored ? t("common.stored") : t("set.psi.no_key")}
             value={key}
             onChange={(e) => setKey(e.target.value)}
             spellCheck={false}
@@ -3873,27 +3750,26 @@ function PagespeedSection() {
               void setPagespeedKey(key)
                 .then(() => {
                   setKey("");
-                  setNote(key.trim() ? "Key gespeichert." : "Key entfernt.");
+                  setNote(key.trim() ? t("set.psi.saved") : t("set.psi.removed"));
                   return getPagespeedKey().then(setStored);
                 })
                 .catch((e) => setNote(String(e)));
             }}
           >
-            Speichern
+            {t("common.save")}
           </button>
         </div>
       </Row>
       {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
       <p className="mt-3 text-[11px] leading-snug text-[var(--color-muted)]">
-        ⚠️ Ein Google-Key kann eine <b>IP-Beschränkung</b> tragen. Ein so gebundener Key gilt nur
-        von der freigegebenen Adresse aus — von diesem Rechner meldet er dann
-        „IP address restriction“. Die Beschränkung steht in der Google-Cloud-Konsole.
+        <InlineMd text={t("set.psi.ip_note")} />
       </p>
     </Section>
   );
 }
 
 function RepositoriesSection() {
+  const t = useT();
   const [cfg, setCfg] = useState<RepoConfig | null>(null);
   const [dir, setDir] = useState("");
   const [token, setToken] = useState("");
@@ -3911,11 +3787,11 @@ function RepositoriesSection() {
   return (
     <Section
       icon={<GitBranch size={16} className="text-[var(--color-accent)]" />}
-      title="Repositories"
-      subtitle="Wohin „Klonen“ im `repo`-Panel ein GitHub-Repository legt, und der Zugang für private Repos."
+      title={t("settings.section.repos")}
+      subtitle={t("set.repos.subtitle")}
       id="repos"
     >
-      <Row label="Klon-Ordner" help="Ist der Ordner eines Repos schon belegt, entsteht „name (2)“, „name (3)“ … — nichts wird überschrieben.">
+      <Row label={t("set.repos.dir")} help={t("set.repos.dir_help")}>
         <div className="flex gap-2">
           <input
             className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 font-[var(--font-mono)] text-[12px]"
@@ -3929,29 +3805,29 @@ function RepositoriesSection() {
             onClick={() => {
               void setRepoCloneDir(dir)
                 .then(() => {
-                  setNote("Ordner gespeichert.");
+                  setNote(t("set.repos.dir_saved"));
                   return load();
                 })
                 .catch((e) => setNote(String(e)));
             }}
           >
-            Speichern
+            {t("common.save")}
           </button>
         </div>
       </Row>
       <Row
-        label="GitHub-Token"
+        label={t("set.repos.token")}
         help={
           cfg?.gh_available
-            ? "`gh` ist installiert — ist es eingeloggt (`gh auth login`), wird dessen Token genutzt. Ein Token hier dient als Rückfall."
-            : "Für private Repos. Liegt im Schlüsselbund, geht nur an github.com und nie in eine Kommandozeile."
+            ? t("set.repos.gh_help")
+            : t("set.repos.token_help")
         }
       >
         <div className="flex gap-2">
           <input
             type="password"
             className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-            placeholder={cfg?.has_token ? "gespeichert" : "kein Token hinterlegt"}
+            placeholder={cfg?.has_token ? t("common.stored") : t("set.repos.no_token")}
             value={token}
             onChange={(e) => setToken(e.target.value)}
             spellCheck={false}
@@ -3962,14 +3838,14 @@ function RepositoriesSection() {
             onClick={() => {
               void setGithubToken(token)
                 .then(() => {
-                  setNote(token.trim() ? "Token gespeichert." : "Token entfernt.");
+                  setNote(token.trim() ? t("set.token_saved") : t("set.token_removed"));
                   setToken("");
                   return load();
                 })
                 .catch((e) => setNote(String(e)));
             }}
           >
-            Speichern
+            {t("common.save")}
           </button>
         </div>
       </Row>
@@ -3981,6 +3857,7 @@ function RepositoriesSection() {
 /** Settings → GitHub: connection, refresh policy, private repositories and
  *  (under "Advanced") a personal access token. No token is ever shown. */
 function GithubSettingsSection() {
+  const t = useT();
   const [st, setSt] = useState<GithubStatus | null>(null);
   const [pat, setPat] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -4009,23 +3886,23 @@ function GithubSettingsSection() {
   return (
     <Section
       icon={<GitBranch size={16} className="text-[var(--color-accent)]" />}
-      title="GitHub"
-      subtitle="Statistiken deines GitHub-Kontos für den `github`-Befehl. Nur lesend; die Verlaufsdaten bleiben lokal in history.db."
+      title={t("settings.section.github")}
+      subtitle={t("set.gh.subtitle")}
       id="github"
     >
       <Row
-        label="Verbindung"
+        label={t("set.gh.connection")}
         help={
           st.connected
-            ? `${GITHUB_SOURCE_LABEL[st.source ?? "oauth"] ?? ""}${st.last_ok_ms ? ` · zuletzt aktualisiert ${new Date(st.last_ok_ms).toLocaleString()}` : ""}`
+            ? `${GITHUB_SOURCE_KEY[st.source ?? "oauth"] ? t(GITHUB_SOURCE_KEY[st.source ?? "oauth"]) : ""}${st.last_ok_ms ? " · " + t("set.gh.last_updated", { time: new Date(st.last_ok_ms).toLocaleString(locale()) }) : ""}`
             : st.client_id_configured
-              ? "Öffnet github.com im Browser und bittet um einen Code — kein Passwort geht durch Inspector."
-              : "Die Browser-Anmeldung ist in diesem Build noch nicht eingerichtet — nutze einen Token unter „Erweitert“ oder `gh auth login`."
+              ? t("set.gh.connect_help")
+              : t("set.gh.no_client")
         }
       >
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
           <span data-testid="gh-settings-state">
-            {st.connected ? `Connected as @${st.login ?? "…"}` : "Nicht verbunden"}
+            {st.connected ? t("set.gh.connected_as", { login: st.login ?? "…" }) : t("set.gh.not_connected")}
           </span>
           {st.connected && st.source === "oauth" && (
             <button
@@ -4033,7 +3910,7 @@ function GithubSettingsSection() {
               className="rounded border border-[var(--color-border)] px-2 py-1"
               onClick={() => void githubDisconnect().then(load)}
             >
-              Disconnect
+              {t("set.gh.disconnect")}
             </button>
           )}
           {!st.connected && st.client_id_configured && dev.state !== "waiting" && (
@@ -4042,30 +3919,30 @@ function GithubSettingsSection() {
               className="rounded bg-[var(--color-accent)] px-2 py-1 text-[var(--color-accent-fg)]"
               onClick={() => void githubDeviceStart().then(load).catch((e) => setNote(String(e)))}
             >
-              Connect GitHub
+              {t("set.gh.connect")}
             </button>
           )}
           {dev.state === "waiting" && (
             <span className="flex items-center gap-2">
-              Code <span className="font-mono text-[14px] tracking-widest">{dev.user_code}</span>
+              {t("set.gh.code")} <span className="font-mono text-[14px] tracking-widest">{dev.user_code}</span>
               <button
                 type="button"
                 className="rounded border border-[var(--color-border)] px-2 py-1"
                 onClick={() => void openUrl(dev.verification_uri)}
               >
-                github.com öffnen
+                {t("set.gh.open_github")}
               </button>
               <button type="button" className="text-[var(--color-muted)]" onClick={() => void githubDeviceCancel()}>
-                Abbrechen
+                {t("common.cancel")}
               </button>
             </span>
           )}
           {st.connected && st.source === "gh" && (
-            <span className="text-[var(--color-muted)]">abmelden mit `gh auth logout`</span>
+            <span className="text-[var(--color-muted)]">{t("set.gh.gh_logout")}</span>
           )}
         </div>
       </Row>
-      <Row label="Automatisch aktualisieren" help="Beim Start und danach höchstens einmal pro Intervall; nie schneller, als das Rate-Limit erlaubt.">
+      <Row label={t("set.gh.auto")} help={t("set.gh.auto_help")}>
         <div className="flex flex-wrap items-center gap-3 text-[12px]">
           <label className="flex items-center gap-2">
             <input
@@ -4074,10 +3951,10 @@ function GithubSettingsSection() {
               onChange={(e) => save({ ...cfg, auto_refresh: e.target.checked })}
               className="accent-[var(--color-accent)]"
             />
-            an
+            {t("common.on")}
           </label>
           <label className="flex items-center gap-2">
-            Snapshot-Intervall
+            {t("set.gh.interval")}
             <select
               value={cfg.interval_h}
               onChange={(e) => save({ ...cfg, interval_h: Number(e.target.value) })}
@@ -4085,7 +3962,7 @@ function GithubSettingsSection() {
             >
               {[1, 3, 6, 24].map((h) => (
                 <option key={h} value={h}>
-                  {h === 24 ? "täglich" : `${h} h`}
+                  {h === 24 ? t("set.gh.daily") : `${h} h`}
                 </option>
               ))}
             </select>
@@ -4093,8 +3970,8 @@ function GithubSettingsSection() {
         </div>
       </Row>
       <Row
-        label="Private Repositories"
-        help="OAuth-Apps kennen keinen Nur-Lese-Zugriff auf private Repos — dafür fragt die Anmeldung nach `repo` (Lesen UND Schreiben; Inspector schreibt nie). Sparsamer: ein Fine-grained Token mit „Metadata: read“ unter „Erweitert“. Wirkt bei der nächsten Anmeldung."
+        label={t("set.gh.private")}
+        help={t("set.gh.private_help")}
       >
         <label className="flex items-center gap-2 text-[12px]">
           <input
@@ -4103,28 +3980,28 @@ function GithubSettingsSection() {
             onChange={(e) => save({ ...cfg, private_repos: e.target.checked })}
             className="accent-[var(--color-accent)]"
           />
-          bei der Anmeldung anfragen
+          {t("set.gh.private_ask")}
         </label>
       </Row>
       {st.rate && (
         <p className="mb-3 text-[11px] text-[var(--color-muted)]">
-          API: {st.rate.remaining}/{st.rate.limit} Anfragen frei · Reset {new Date(st.rate.reset_at_ms).toLocaleTimeString()}
-          {st.scopes != null && ` · Berechtigungen: ${st.scopes || "nur öffentliche Daten"}`}
+          {t("set.gh.rate", { remaining: st.rate.remaining, limit: st.rate.limit, time: new Date(st.rate.reset_at_ms).toLocaleTimeString(locale()) })}
+          {st.scopes != null && ` · ${t("set.gh.scopes", { scopes: st.scopes || t("set.gh.public_only") })}`}
         </p>
       )}
       <button type="button" className="text-[11px] text-[var(--color-accent)]" onClick={() => setAdvanced((a) => !a)}>
-        {advanced ? "Erweitert ausblenden" : "Erweitert…"}
+        {advanced ? t("set.gh.hide_advanced") : t("set.gh.advanced")}
       </button>
       {advanced && (
         <Row
-          label="Personal Access Token"
-          help="Fallback, wenn du dich nicht im Browser anmelden willst. Liegt im Schlüsselbund (gemeinsam mit dem `repo`-Befehl) und wird nie angezeigt."
+          label={t("set.gh.pat")}
+          help={t("set.gh.pat_help")}
         >
           <div className="flex gap-2">
             <input
               type="password"
               className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-              placeholder={st.pat_stored ? "gespeichert" : "kein Token hinterlegt"}
+              placeholder={st.pat_stored ? t("common.stored") : t("set.repos.no_token")}
               value={pat}
               onChange={(e) => setPat(e.target.value)}
               spellCheck={false}
@@ -4136,7 +4013,7 @@ function GithubSettingsSection() {
               onClick={() => {
                 void setGithubToken(pat)
                   .then(() => {
-                    setNote(pat.trim() ? "Token gespeichert." : "Token entfernt.");
+                    setNote(pat.trim() ? t("set.token_saved") : t("set.token_removed"));
                     setPat("");
                     load();
                     if (pat.trim()) void githubRefresh(true).catch(() => {});
@@ -4144,7 +4021,7 @@ function GithubSettingsSection() {
                   .catch((e) => setNote(String(e)));
               }}
             >
-              Speichern
+              {t("common.save")}
             </button>
           </div>
         </Row>
@@ -4154,13 +4031,14 @@ function GithubSettingsSection() {
   );
 }
 
-const GITHUB_SOURCE_LABEL: Record<string, string> = {
-  oauth: "Im Browser angemeldet",
-  pat: "Personal Access Token",
-  gh: "Login der GitHub CLI",
+const GITHUB_SOURCE_KEY: Record<string, MessageKey> = {
+  oauth: "set.gh.src_oauth",
+  pat: "set.gh.pat",
+  gh: "set.gh.src_gh",
 };
 
 function DeviceSyncSection() {
+  const t = useT();
   const [cfg, setCfg] = useState<DeviceSyncConfig | null>(null);
   const [status, setStatus] = useState<DeviceSyncStatus | null>(null);
   const [pass, setPass] = useState("");
@@ -4186,11 +4064,11 @@ function DeviceSyncSection() {
   return (
     <Section
       icon={<Cloud size={16} className="text-[var(--color-accent)]" />}
-      title="Geräte-Sync"
-      subtitle="Gleicher Datenstand auf mehreren Macs — über einen gemeinsamen Ordner (z. B. iCloud Drive). Standardmäßig aus."
+      title={t("settings.section.device-sync")}
+      subtitle={t("set.ds.subtitle")}
       id="device-sync"
     >
-      <Row label="Aktiv" help="Aus = kein Hintergrund-Thread, kein Dateizugriff.">
+      <Row label={t("set.active")} help={t("set.active_help")}>
         <input
           type="checkbox"
           checked={cfg.enabled}
@@ -4198,7 +4076,7 @@ function DeviceSyncSection() {
         />
       </Row>
 
-      <Row label="Ordner" help="Muss auf allen Geräten derselbe synchronisierte Ordner sein.">
+      <Row label={t("set.ds.folder")} help={t("set.ds.folder_help")}>
         <input
           className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
           value={cfg.folder}
@@ -4209,14 +4087,14 @@ function DeviceSyncSection() {
       </Row>
 
       <Row
-        label="Passwort"
-        help="Verschlüsselt die abgelegten Dateien. Auf JEDEM Gerät dasselbe eingeben; liegt nur im Schlüsselbund und wird nie mitsynchronisiert."
+        label={t("common.password")}
+        help={t("set.ds.pass_help")}
       >
         <div className="flex gap-2">
           <input
             type="password"
             className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-            placeholder={status?.has_passphrase ? "gespeichert" : "noch keins"}
+            placeholder={status?.has_passphrase ? t("common.stored") : t("set.ds.none_yet")}
             value={pass}
             onChange={(e) => setPass(e.target.value)}
           />
@@ -4230,14 +4108,14 @@ function DeviceSyncSection() {
               });
             }}
           >
-            Speichern
+            {t("common.save")}
           </button>
         </div>
       </Row>
 
       <Row
-        label="2FA-Geheimnisse mitsynchronisieren"
-        help="Aus. Erst einschalten, wenn dir bewusst ist, dass die Codes damit im gemeinsamen Ordner liegen (verschlüsselt)."
+        label={t("set.ds.totp")}
+        help={t("set.ds.totp_help")}
       >
         <input
           type="checkbox"
@@ -4247,9 +4125,9 @@ function DeviceSyncSection() {
       </Row>
 
       <div className="mt-3 flex items-center gap-3 text-[11px] text-[var(--color-muted)]">
-        <span>{status?.folder_ok ? "✓ Ordner erreichbar" : "✗ Ordner fehlt"}</span>
-        <span>{status?.has_passphrase ? "✓ Passwort gesetzt" : "✗ kein Passwort"}</span>
-        <span>{status ? `${status.peers} weitere(s) Gerät(e)` : ""}</span>
+        <span>{status?.folder_ok ? t("set.ds.folder_ok") : t("set.ds.folder_missing")}</span>
+        <span>{status?.has_passphrase ? t("set.ds.pass_set") : t("set.ds.no_pass")}</span>
+        <span>{status ? tn("set.ds.peers", status.peers) : ""}</span>
         <button
           type="button"
           disabled={!ready || busy}
@@ -4261,7 +4139,7 @@ function DeviceSyncSection() {
                 setNote(
                   s.skipped.length
                     ? s.skipped[0]
-                    : `Übernommen: ${s.clips} Clips · ${s.snippets} Snippets · ${s.notes} Notizen`,
+                    : t("set.ds.applied", { clips: s.clips, snippets: s.snippets, notes: s.notes }),
                 );
                 refresh();
               })
@@ -4269,7 +4147,7 @@ function DeviceSyncSection() {
               .finally(() => setBusy(false));
           }}
         >
-          {busy ? "Läuft…" : "Jetzt abgleichen"}
+          {busy ? t("common.running") : t("set.ds.sync_now")}
         </button>
       </div>
       {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
@@ -4277,8 +4155,7 @@ function DeviceSyncSection() {
         <p className="mt-1 text-[11px] text-amber-500">{status.last_error}</p>
       )}
       <p className="mt-3 text-[11px] text-[var(--color-muted)]">
-        Löschungen werden bewusst NICHT übertragen: die Geräte vereinigen ihre Daten. Ein leerer
-        Stand kann einen gefüllten damit nie überschreiben.
+        {t("set.ds.no_deletes")}
       </p>
     </Section>
   );
@@ -4286,6 +4163,7 @@ function DeviceSyncSection() {
 
 
 function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | void }) {
+  const t = useT();
   const [cfg, setCfg] = useState<AutoBackupConfig | null>(null);
   const [status, setStatus] = useState<AutoBackupStatus | null>(null);
   const [pass, setPass] = useState("");
@@ -4334,8 +4212,8 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
   const doRestore = async (snap: AutoBackupSnapshot) => {
     if (replaceMode) {
       const ok = await confirmDialog(
-        "Alles ersetzen: der aktuelle Stand wird durch diese Sicherung ersetzt. Seit der Sicherung Hinzugefügtes geht verloren. Fortfahren?",
-        "Backup einspielen",
+        t("set.ab.replace_confirm"),
+        t("set.ab.restore_title"),
       );
       if (!ok) return;
     }
@@ -4344,7 +4222,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
     try {
       const r = await autoBackupRestore(snap.path, snap.encrypted ? restorePw : null, replaceMode);
       setNote(
-        `Eingespielt: ${r.history_imported} Clips · ${r.snippets_imported} Snippets · ${r.notes_imported} Notizen`,
+        t("set.ab.restored", { clips: r.history_imported, snippets: r.snippets_imported, notes: r.notes_imported }),
       );
       setRestorePw("");
       if (onRestored) await onRestored();
@@ -4362,11 +4240,11 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
   return (
     <Section
       icon={<HardDrive size={16} className="text-[var(--color-accent)]" />}
-      title="Automatische Backups"
-      subtitle="Sichert Einstellungen, Snippets, Notizen, 2FA (und optional den Verlauf) in einem festen Intervall in einen Ordner deiner Wahl — z. B. einen Google-Drive- oder iCloud-Ordner, optional verschlüsselt. Standardmäßig aus."
+      title={t("settings.section.auto-backup")}
+      subtitle={t("set.ab.subtitle")}
       id="auto-backup"
     >
-      <Row label="Aktiv" help="Aus = kein Hintergrund-Thread, kein Dateizugriff.">
+      <Row label={t("set.active")} help={t("set.active_help")}>
         <input
           type="checkbox"
           checked={cfg.enabled}
@@ -4374,7 +4252,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
         />
       </Row>
 
-      <Row label="Zielordner" help="Ein bestehender Ordner, z. B. dein synchronisierter Google-Drive- oder iCloud-Ordner.">
+      <Row label={t("set.ab.folder")} help={t("set.ab.folder_help")}>
         <div className="flex gap-2">
           <input
             className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
@@ -4389,13 +4267,13 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
             className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
             onClick={() => void pickFolder()}
           >
-            Wählen…
+            {t("common.choose")}
           </button>
         </div>
       </Row>
 
       <div className="flex gap-3">
-        <Row label="Intervall (Min.)" help="Wie oft geprüft wird. Geschrieben wird nur, wenn sich etwas geändert hat.">
+        <Row label={t("set.ab.interval")} help={t("set.ab.interval_help")}>
           <input
             type="number"
             min={1}
@@ -4405,7 +4283,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
             onBlur={() => save(cfg)}
           />
         </Row>
-        <Row label="Stände behalten" help="Ältere Sicherungen werden automatisch gelöscht (nur unsere Dateien).">
+        <Row label={t("set.ab.keep")} help={t("set.ab.keep_help")}>
           <input
             type="number"
             min={1}
@@ -4417,7 +4295,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
         </Row>
       </div>
 
-      <Row label="Verschlüsseln" help="Empfohlen bei Cloud-Ordnern. AES-256, das Passwort liegt nur im Schlüsselbund.">
+      <Row label={t("set.ab.encrypt")} help={t("set.ab.encrypt_help")}>
         <input
           type="checkbox"
           checked={cfg.encrypt}
@@ -4427,14 +4305,14 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
 
       {cfg.encrypt && (
         <Row
-          label="Backup-Passwort"
-          help="⚠️ Ohne dieses Passwort ist die Sicherung wertlos — notiere es zusätzlich in einem Passwortmanager. Es wird nie in einer Datei gespeichert."
+          label={t("set.ab.password")}
+          help={t("set.ab.password_help")}
         >
           <div className="flex gap-2">
             <input
               type="password"
               className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-              placeholder={status?.has_password ? "gespeichert" : "noch keins"}
+              placeholder={status?.has_password ? t("common.stored") : t("set.ds.none_yet")}
               value={pass}
               onChange={(e) => setPass(e.target.value)}
             />
@@ -4443,13 +4321,13 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
               className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
               onClick={() => void setAutoBackupPassword(pass).then(() => { setPass(""); refresh(); })}
             >
-              Speichern
+              {t("common.save")}
             </button>
           </div>
         </Row>
       )}
 
-      <Row label="Zwischenablage-Verlauf mitsichern" help="Aus = kleinere Dateien (der Verlauf mit Bildern ist der Größentreiber). Einstellungen, Snippets, Notizen und 2FA sind immer enthalten.">
+      <Row label={t("set.ab.history")} help={t("set.ab.history_help")}>
         <input
           type="checkbox"
           checked={cfg.include_history}
@@ -4457,7 +4335,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
         />
       </Row>
 
-      <Row label="Zeiterfassung mitsichern" help="Aus. Die Timesheet-Daten sind oft groß und gerätegebunden.">
+      <Row label={t("set.ab.timesheet")} help={t("set.ab.timesheet_help")}>
         <input
           type="checkbox"
           checked={cfg.include_timesheet}
@@ -4467,15 +4345,15 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
 
       {!cfg.encrypt && (
         <p className="mb-4 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-[11px] text-amber-600">
-          ⚠️ 2FA-Geheimnisse werden mitgesichert. Ohne Verschlüsselung liegen sie im Klartext in diesem Ordner — bei einem Cloud-Ordner solltest du die Verschlüsselung einschalten.
+          {t("set.ab.totp_warn")}
         </p>
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-[var(--color-muted)]">
-        <span>{status?.folder_ok ? "✓ Ordner erreichbar" : "✗ Ordner fehlt"}</span>
-        {cfg.encrypt && <span>{status?.has_password ? "✓ Passwort gesetzt" : "✗ kein Passwort"}</span>}
-        <span>{status ? `${status.snapshot_count} Stände` : ""}</span>
-        {status && status.last_ms > 0 && <span>zuletzt {new Date(status.last_ms).toLocaleString()}</span>}
+        <span>{status?.folder_ok ? t("set.ds.folder_ok") : t("set.ds.folder_missing")}</span>
+        {cfg.encrypt && <span>{status?.has_password ? t("set.ds.pass_set") : t("set.ds.no_pass")}</span>}
+        <span>{status ? tn("set.ab.snapshots", status.snapshot_count) : ""}</span>
+        {status && status.last_ms > 0 && <span>{t("set.ab.last", { time: new Date(status.last_ms).toLocaleString(locale()) })}</span>}
         <button
           type="button"
           disabled={!ready || busy}
@@ -4487,8 +4365,8 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
               .then((o) => {
                 setNote(
                   o.wrote
-                    ? `Gesichert (${formatBytes(o.bytes)})${o.pruned ? `, ${o.pruned} alte gelöscht` : ""}`
-                    : "Unverändert — keine neue Datei nötig",
+                    ? t(o.pruned ? "set.ab.saved_pruned" : "set.ab.saved", { size: formatBytes(o.bytes), n: o.pruned })
+                    : t("set.ab.unchanged"),
                 );
                 refresh();
               })
@@ -4496,7 +4374,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
               .finally(() => setBusy(false));
           }}
         >
-          {busy ? "Läuft…" : "Jetzt sichern"}
+          {busy ? t("common.running") : t("set.ab.now")}
         </button>
         <button
           type="button"
@@ -4507,39 +4385,39 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
             if (open) loadSnapshots();
           }}
         >
-          {restoreOpen ? "Schließen" : "Wiederherstellen…"}
+          {restoreOpen ? t("common.close") : t("set.ab.restore")}
         </button>
       </div>
 
       {restoreOpen && (
         <div className="mt-3 rounded border border-[var(--color-border)] p-3">
           <div className="mb-2 flex items-center gap-3 text-[11px]">
-            <span className="font-medium">Stand einspielen</span>
+            <span className="font-medium">{t("set.ab.restore_head")}</span>
             <label className="flex items-center gap-1">
-              <input type="radio" checked={!replaceMode} onChange={() => setReplaceMode(false)} /> Zusammenführen
+              <input type="radio" checked={!replaceMode} onChange={() => setReplaceMode(false)} /> {t("set.ab.merge")}
             </label>
             <label className="flex items-center gap-1">
-              <input type="radio" checked={replaceMode} onChange={() => setReplaceMode(true)} /> Alles ersetzen
+              <input type="radio" checked={replaceMode} onChange={() => setReplaceMode(true)} /> {t("set.ab.replace")}
             </label>
           </div>
           <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-            Zusammenführen ergänzt nur (löscht nie). „Alles ersetzen“ stellt exakt diesen Stand her — Späteres geht verloren.
+            {t("set.ab.merge_help")}
           </p>
           {snapshots === null ? (
-            <p className="text-[11px] text-[var(--color-muted)]">Lade…</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("common.loading")}</p>
           ) : snapshots.length === 0 ? (
-            <p className="text-[11px] text-[var(--color-muted)]">Keine Sicherungen im Ordner gefunden.</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("set.ab.none_found")}</p>
           ) : (
             <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
               {snapshots.map((s) => (
                 <div key={s.path} className="flex items-center gap-2 text-[11px]">
                   {s.encrypted && <Lock size={11} className="shrink-0 text-[var(--color-muted)]" />}
-                  <span className="min-w-0 flex-1 truncate">{new Date(s.ts_ms).toLocaleString()}</span>
+                  <span className="min-w-0 flex-1 truncate">{new Date(s.ts_ms).toLocaleString(locale())}</span>
                   <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(s.bytes)}</span>
                   {s.encrypted && (
                     <input
                       type="password"
-                      placeholder="Passwort"
+                      placeholder={t("common.password")}
                       className="w-24 shrink-0 rounded border border-[var(--color-border)] bg-transparent px-1 py-0.5"
                       value={restorePw}
                       onChange={(e) => setRestorePw(e.target.value)}
@@ -4551,7 +4429,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
                     className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:opacity-40"
                     onClick={() => void doRestore(s)}
                   >
-                    Einspielen
+                    {t("set.ab.apply")}
                   </button>
                 </div>
               ))}
@@ -4567,6 +4445,7 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
 }
 
 function CloudSyncSection() {
+  const t = useT();
   const [cfg, setCfgState] = useState<SyncConfig | null>(null);
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [showToken, setShowToken] = useState(false);
@@ -4641,18 +4520,18 @@ function CloudSyncSection() {
 
   const lastLabel =
     status && status.last_ms > 0
-      ? new Date(status.last_ms).toLocaleString()
-      : "noch nie";
+      ? new Date(status.last_ms).toLocaleString(locale())
+      : t("set.sync.never");
 
   return (
     <Section
       icon={<Cloud size={16} className="text-[var(--color-accent)]" />}
       id="cloud-sync"
-      title="Cloud-Sync (cue)"
-      subtitle="Synchronisiert Snippets automatisch mit cue (cue.celox.io) — in beide Richtungen, inkl. Löschungen. Welche Gruppen mitmachen, wird in cue am ☁️-Symbol im Gruppen-Header umgeschaltet; bei Konflikten gewinnt die höhere Version (bei Gleichstand cue)."
+      title={t("settings.section.cloud-sync")}
+      subtitle={t("set.sync.subtitle")}
     >
       {cfg === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Lade…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("common.loading")}</p>
       ) : (
         <div className="flex flex-col gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -4662,11 +4541,11 @@ function CloudSyncSection() {
               onChange={(e) => void save({ enabled: e.target.checked })}
               className="accent-[var(--color-accent)]"
             />
-            <span className="font-medium">Sync aktivieren</span>
-            <span className="text-[var(--color-muted)]">— alle 60 s und nach jeder Snippet-Änderung</span>
+            <span className="font-medium">{t("set.sync.enable")}</span>
+            <span className="text-[var(--color-muted)]">{t("set.sync.enable_help")}</span>
           </label>
 
-          <Row label="Server-URL">
+          <Row label={t("set.sync.url")}>
             <input
               type="text"
               value={cfg.url}
@@ -4678,14 +4557,14 @@ function CloudSyncSection() {
           </Row>
 
           <Row
-            label="Sync-Token"
-            help="In cue unter Settings → Snippet-Sync (Inspector Rust) generieren und hier einfügen."
+            label={t("set.sync.token")}
+            help={t("set.sync.token_help")}
           >
             <div className="flex items-center gap-2">
               <input
                 type={showToken ? "text" : "password"}
                 value={cfg.token}
-                placeholder="Token aus cue"
+                placeholder={t("set.sync.token_ph")}
                 onChange={(e) => setCfgState({ ...cfg, token: e.target.value })}
                 onBlur={(e) => void save({ token: e.target.value })}
                 className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1.5 font-mono text-[11px] outline-none focus:border-[var(--color-accent)]"
@@ -4695,7 +4574,7 @@ function CloudSyncSection() {
                 onClick={() => setShowToken((v) => !v)}
                 className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1.5 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
               >
-                {showToken ? "Verbergen" : "Anzeigen"}
+                {showToken ? t("common.hide") : t("common.show")}
               </button>
             </div>
           </Row>
@@ -4704,9 +4583,9 @@ function CloudSyncSection() {
           <div className="flex flex-wrap items-center gap-2">
             <SyncChip
               state={probing ? "busy" : probe === null ? "idle" : probe.reachable ? "ok" : "fail"}
-              okLabel="Server erreichbar"
-              failLabel="Server nicht erreichbar"
-              idleLabel="Server: nicht geprüft"
+              okLabel={t("set.sync.server_ok")}
+              failLabel={t("set.sync.server_fail")}
+              idleLabel={t("set.sync.server_idle")}
             />
             <SyncChip
               state={
@@ -4718,9 +4597,9 @@ function CloudSyncSection() {
                       ? "ok"
                       : "fail"
               }
-              okLabel="Token gültig"
-              failLabel="Token ungültig"
-              idleLabel="Token: nicht geprüft"
+              okLabel={t("set.sync.token_ok")}
+              failLabel={t("set.sync.token_fail")}
+              idleLabel={t("set.sync.token_idle")}
             />
             <SyncChip
               state={
@@ -4732,9 +4611,9 @@ function CloudSyncSection() {
                       ? "ok"
                       : "fail"
               }
-              okLabel={`Letzter Sync ${lastLabel}`}
-              failLabel="Letzter Sync fehlgeschlagen"
-              idleLabel="Noch nie synchronisiert"
+              okLabel={t("set.sync.last", { time: lastLabel })}
+              failLabel={t("set.sync.last_fail")}
+              idleLabel={t("set.sync.never_synced")}
             />
           </div>
 
@@ -4745,7 +4624,7 @@ function CloudSyncSection() {
               onClick={() => void runNow()}
               className="rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium enabled:hover:border-[var(--color-accent)] disabled:opacity-50"
             >
-              {syncing ? "Synchronisiere…" : "Jetzt synchronisieren"}
+              {syncing ? t("set.sync.syncing") : t("set.sync.now")}
             </button>
             <button
               type="button"
@@ -4753,7 +4632,7 @@ function CloudSyncSection() {
               onClick={runProbe}
               className="rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium enabled:hover:border-[var(--color-accent)] disabled:opacity-50"
             >
-              {probing ? "Prüfe…" : "Verbindung testen"}
+              {probing ? t("set.sync.checking") : t("set.sync.test")}
             </button>
           </div>
           {probe !== null && probe.message !== "" && !probing && (
@@ -4787,6 +4666,7 @@ function SyncChip({
   failLabel: string;
   idleLabel: string;
 }) {
+  const t = useT();
   const styles: Record<typeof state, string> = {
     ok: "border-emerald-500/40 bg-emerald-500/10 text-emerald-500",
     fail: "border-red-500/40 bg-red-500/10 text-red-500",
@@ -4794,7 +4674,7 @@ function SyncChip({
     busy: "border-[var(--color-border)] text-[var(--color-muted)] animate-pulse",
   };
   const label =
-    state === "ok" ? okLabel : state === "fail" ? failLabel : state === "busy" ? "Prüfe…" : idleLabel;
+    state === "ok" ? okLabel : state === "fail" ? failLabel : state === "busy" ? t("set.sync.checking") : idleLabel;
   return (
     <span
       className={
@@ -4825,6 +4705,7 @@ export { Keyboard };
  *  "what only works inside the popup". Modifier glyphs adapt to the
  *  current OS via `IS_MAC` from `lib/platform.ts`. */
 function ShortcutsTable() {
+  const t = useT();
   const cmd = IS_MAC ? "⌘" : "Ctrl";
   const shift = IS_MAC ? "⇧" : "Shift";
   const alt = IS_MAC ? "⌥" : "Alt";
@@ -4833,76 +4714,49 @@ function ShortcutsTable() {
 
   const groups: Array<{ heading: string; rows: Array<[string, string, string?]> }> = [
     {
-      heading: "Global — work from anywhere",
+      heading: t("set.keys.global"),
       rows: [
-        [
-          k("Ctrl", shift, "V"),
-          "Open Inspector Rust popup",
-          "OS-locked, not configurable",
-        ],
+        [IS_MAC ? "⌃Space" : "Ctrl+Space", t("set.keys.open_popup"), t("set.keys.configurable")],
+        [k("Ctrl", shift, "V"), t("set.keys.open_history"), t("set.keys.configurable")],
         [
           k("Ctrl", shift, "O"),
-          "OCR region capture",
-          IS_MAC
-            ? "Drag a marquee over text on screen → text → clipboard"
-            : "Stub — macOS-only for now",
+          t("set.keys.ocr"),
+          IS_MAC ? t("set.keys.ocr_hint") : t("set.keys.mac_only"),
         ],
         [
           k("Ctrl", shift, "S"),
-          "Screenshot region",
-          IS_MAC
-            ? "Drag a marquee → PNG → clipboard + history (no OCR)"
-            : "Stub — macOS-only for now",
+          t("set.keys.shot"),
+          IS_MAC ? t("set.keys.shot_hint") : t("set.keys.mac_only"),
         ],
-        [
-          k("Ctrl", shift, "C"),
-          "Color picker — eyedropper",
-          "Click a pixel → hex (#RRGGBB) → clipboard + history (v0.17.0+)",
-        ],
-        [
-          k(alt, "1"),
-          "Trigger text expander",
-          "Default Alt+1 — configurable above; opt-in",
-        ],
+        [k("Ctrl", shift, "C"), t("set.keys.color"), t("set.keys.color_hint")],
+        [k(alt, "1"), t("set.keys.expander"), t("set.keys.expander_hint")],
       ],
     },
     {
-      heading: "Popup — list navigation",
+      heading: t("set.keys.nav"),
       rows: [
-        ["⏎", "Paste selected entry", "Plain text downgrade follows the Paste setting"],
-        [
-          k(shift, "⏎"),
-          "Paste with original formatting",
-          "One-shot override of the plain-text setting",
-        ],
-        ["↑ / ↓", "Navigate entries"],
-        [k(shift, "↑ / ↓"), "System volume up / down", "±6% per press (macOS)"],
-        ["Esc", "Close popup"],
+        ["⏎", t("set.keys.paste"), t("set.keys.paste_hint")],
+        [k(shift, "⏎"), t("set.keys.paste_fmt"), t("set.keys.paste_fmt_hint")],
+        ["↑ / ↓", t("set.keys.navigate")],
+        [k(shift, "↑ / ↓"), t("set.keys.volume"), t("set.keys.volume_hint")],
+        ["Esc", t("set.keys.close")],
       ],
     },
     {
-      heading: "Popup — image entry actions",
+      heading: t("set.keys.image"),
       rows: [
-        [
-          k(cmd, "B"),
-          "Cut out background → ~/Downloads",
-          "Real subject segmentation via U²-Net",
-        ],
-        [k(cmd, "S"), "Save image to Downloads", "Saves the entry's PNG bytes unchanged"],
+        [k(cmd, "B"), t("set.keys.cutout"), t("set.keys.cutout_hint")],
+        [k(cmd, "S"), t("set.keys.save_image"), t("set.keys.save_image_hint")],
       ],
     },
     {
-      heading: "Popup — text entry transforms",
+      heading: t("set.keys.text"),
       rows: [
-        [
-          `${cmd}1 … ${cmd}9`,
-          "Apply a string transform",
-          "On a selected text entry — see the preview-pane toolbar",
-        ],
-        [k(cmd, "1"), "Remove vowels"],
-        [k(cmd, "2"), "UPPERCASE", `${cmd}3 lowercase · ${cmd}4 Title Case`],
+        [`${cmd}1 … ${cmd}9`, t("set.keys.transform"), t("set.keys.transform_hint")],
+        [k(cmd, "1"), t("set.keys.vowels")],
+        [k(cmd, "2"), t("set.keys.upper"), t("set.keys.upper_hint", { k3: `${cmd}3`, k4: `${cmd}4` })],
         [k(cmd, "5"), "camelCase", `${cmd}6 snake_case · ${cmd}7 kebab-case`],
-        [k(cmd, "8"), "Base64 encode", `${cmd}9 URL encode · decode pair is click-only`],
+        [k(cmd, "8"), t("set.keys.base64"), t("set.keys.base64_hint", { k9: `${cmd}9` })],
       ],
     },
   ];
@@ -4965,6 +4819,7 @@ const BRUNO_STATES: Array<{ code: string; name: string }> = [
  *  hard-coded global shortcuts (OCR / Screenshot / Eyedropper / Finder
  *  Ctrl+Shift+O/S/C/F) + expander + direct slots before applying. */
 function PopupHotkeySection() {
+  const t = useT();
   const [hotkey, setHotkey] = useState<string>("");
   const [defaultHotkey, setDefaultHotkey] = useState<string>("");
   const [stored, setStored] = useState<string>("");
@@ -4993,7 +4848,7 @@ function PopupHotkeySection() {
       const applied = await setPopupHotkey(hotkey);
       setHotkey(applied);
       setStored(applied);
-      setStatus({ kind: "ok", message: `Popup hotkey armed: ${prettyHotkey(applied)}` });
+      setStatus({ kind: "ok", message: t("set.popup_hk.armed", { hotkey: prettyHotkey(applied) }) });
     } catch (e) {
       setStatus({ kind: "err", message: String(e) });
     } finally {
@@ -5007,20 +4862,20 @@ function PopupHotkeySection() {
   // presets all carry at least one regular key.
   const PRESETS: ReadonlyArray<{ label: string; value: string }> = IS_MAC
     ? [
-        { label: "⌃Space (default)", value: "Ctrl+Space" },
+        { label: t("set.default_suffix", { value: "⌃Space" }), value: "Ctrl+Space" },
         { label: "⌃⇧V", value: "Ctrl+Shift+KeyV" },
         { label: "⌘⇧Space", value: "Cmd+Shift+Space" },
         { label: "⌘J", value: "Cmd+KeyJ" },
       ]
     : IS_LINUX
       ? [
-          { label: "Ctrl+Space (default)", value: "Ctrl+Space" },
+          { label: t("set.default_suffix", { value: "Ctrl+Space" }), value: "Ctrl+Space" },
           { label: "Ctrl+Shift+V", value: "Ctrl+Shift+KeyV" },
           { label: "Super+Space", value: "Super+Space" },
           { label: "Alt+Space", value: "Alt+Space" },
         ]
       : [
-          { label: "Ctrl+Space (default)", value: "Ctrl+Space" },
+          { label: t("set.default_suffix", { value: "Ctrl+Space" }), value: "Ctrl+Space" },
           { label: "Ctrl+Shift+V", value: "Ctrl+Shift+KeyV" },
           { label: "Win+Shift+V", value: "Win+Shift+KeyV" },
           { label: "Alt+Space", value: "Alt+Space" },
@@ -5032,12 +4887,12 @@ function PopupHotkeySection() {
     <Section
       icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
       id="popup-hotkey"
-      title="Popup hotkey"
-      subtitle="The global shortcut that opens the search popup. Change it if the default collides with another app you use."
+      title={t("settings.section.popup-hotkey")}
+      subtitle={t("set.popup_hk.subtitle")}
     >
       <Row
-        label="Hotkey"
-        help={`Press a key combination, or pick a preset. Backspace clears, Esc cancels. Bare ${platformModifier} alone isn't supported by the global-shortcut plugin — pick a combo with at least one regular key (Cmd+Space, Cmd+J, …).`}
+        label={t("set.expander.hotkey")}
+        help={t("set.popup_hk.help", { modifier: platformModifier })}
       >
         <div className="flex flex-wrap items-center gap-2">
           <HotkeyCapture value={hotkey} onChange={setHotkey} disabled={busy} />
@@ -5045,11 +4900,11 @@ function PopupHotkeySection() {
             onClick={() => defaultHotkey && setHotkey(defaultHotkey)}
             disabled={busy || !defaultHotkey || hotkey === defaultHotkey}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
-            title={defaultHotkey ? `Reset to ${prettyHotkey(defaultHotkey)}` : ""}
+            title={defaultHotkey ? t("set.reset_to", { value: prettyHotkey(defaultHotkey) }) : ""}
           >
-            Reset
+            {t("common.reset")}
           </button>
-          <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("set.expander.presets")}</span>
           {PRESETS.map((p) => {
             const active = hotkey === p.value;
             return (
@@ -5077,11 +4932,11 @@ function PopupHotkeySection() {
           disabled={busy || !dirty}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("common.saving") : t("common.save")}
         </button>
         {!dirty && stored && (
           <span className="text-[11px] text-[var(--color-muted)]">
-            Currently armed:{" "}
+            {t("set.popup_hk.current")}{" "}
             <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
               {prettyHotkey(stored)}
             </code>
@@ -5112,6 +4967,7 @@ function PopupHotkeySection() {
 // history), alongside the main popup hotkey. Default Ctrl+Shift+V. An empty
 // value disables it.
 function HistoryHotkeySection() {
+  const t = useT();
   const [hotkey, setHotkey] = useState<string>("");
   const [defaultHotkey, setDefaultHotkey] = useState<string>("");
   const [stored, setStored] = useState<string>("");
@@ -5143,8 +4999,8 @@ function HistoryHotkeySection() {
       setStatus({
         kind: "ok",
         message: applied.trim()
-          ? `Clipboard-history hotkey armed: ${prettyHotkey(applied)}`
-          : "Clipboard-history hotkey disabled",
+          ? t("set.history_hk.armed", { hotkey: prettyHotkey(applied) })
+          : t("set.history_hk.disabled"),
       });
     } catch (e) {
       setStatus({ kind: "err", message: String(e) });
@@ -5155,12 +5011,12 @@ function HistoryHotkeySection() {
 
   const PRESETS: ReadonlyArray<{ label: string; value: string }> = IS_MAC
     ? [
-        { label: "⌃⇧V (default)", value: "Ctrl+Shift+KeyV" },
+        { label: t("set.default_suffix", { value: "⌃⇧V" }), value: "Ctrl+Shift+KeyV" },
         { label: "⌘⇧V", value: "Cmd+Shift+KeyV" },
         { label: "⌘⇧C", value: "Cmd+Shift+KeyC" },
       ]
     : [
-        { label: "Ctrl+Shift+V (default)", value: "Ctrl+Shift+KeyV" },
+        { label: t("set.default_suffix", { value: "Ctrl+Shift+V" }), value: "Ctrl+Shift+KeyV" },
         { label: "Ctrl+Shift+H", value: "Ctrl+Shift+KeyH" },
         { label: "Alt+V", value: "Alt+KeyV" },
       ];
@@ -5169,12 +5025,12 @@ function HistoryHotkeySection() {
     <Section
       icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
       id="history-hotkey"
-      title="Clipboard-history hotkey"
-      subtitle="A second, optional global shortcut that also opens the clipboard history — alongside the main popup hotkey. Clear it to disable."
+      title={t("settings.section.history-hotkey")}
+      subtitle={t("set.history_hk.subtitle")}
     >
       <Row
-        label="Hotkey"
-        help="Press a key combination, or pick a preset. Backspace / the Disable button clears it (turns the second hotkey off)."
+        label={t("set.expander.hotkey")}
+        help={t("set.history_hk.help")}
       >
         <div className="flex flex-wrap items-center gap-2">
           <HotkeyCapture value={hotkey} onChange={setHotkey} disabled={busy} />
@@ -5182,19 +5038,19 @@ function HistoryHotkeySection() {
             onClick={() => setHotkey("")}
             disabled={busy || hotkey === ""}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
-            title="Disable the second hotkey"
+            title={t("set.history_hk.disable_title")}
           >
-            Disable
+            {t("set.history_hk.disable")}
           </button>
           <button
             onClick={() => defaultHotkey && setHotkey(defaultHotkey)}
             disabled={busy || !defaultHotkey || hotkey === defaultHotkey}
             className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
-            title={defaultHotkey ? `Reset to ${prettyHotkey(defaultHotkey)}` : ""}
+            title={defaultHotkey ? t("set.reset_to", { value: prettyHotkey(defaultHotkey) }) : ""}
           >
-            Reset
+            {t("common.reset")}
           </button>
-          <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("set.expander.presets")}</span>
           {PRESETS.map((p) => {
             const active = hotkey === p.value;
             return (
@@ -5222,19 +5078,19 @@ function HistoryHotkeySection() {
           disabled={busy || !dirty}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("common.saving") : t("common.save")}
         </button>
         {!dirty && (
           <span className="text-[11px] text-[var(--color-muted)]">
             {stored.trim() ? (
               <>
-                Currently armed:{" "}
+                {t("set.popup_hk.current")}{" "}
                 <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
                   {prettyHotkey(stored)}
                 </code>
               </>
             ) : (
-              "Disabled"
+              t("set.disabled")
             )}
           </span>
         )}
@@ -5259,6 +5115,7 @@ function HistoryHotkeySection() {
 }
 
 function BrunoSection() {
+  const t = useT();
   const [defs, setDefs] = useState<BrunoDefaults | null>(null);
   const [saved, setSaved] = useState<BrunoDefaults | null>(null);
   const [savingBruno, setSavingBruno] = useState(false);
@@ -5305,10 +5162,10 @@ function BrunoSection() {
     <Section
       icon={<Euro size={16} className="text-[var(--color-accent)]" />}
       id="bruno"
-      title="Bruno — Brutto/Netto-Defaults"
-      subtitle="Die Werte werden auf jeden `bruno <€>`-Aufruf angewandt. Steuerjahr 2025 (vereinfacht; keine Steuerberatung)."
+      title={t("set.bruno.title")}
+      subtitle={t("set.bruno.subtitle")}
     >
-      <Row label="Steuerklasse">
+      <Row label={t("set.bruno.class")}>
         <div className="flex gap-1">
           {[1, 2, 3, 4, 5, 6].map((c) => (
             <button
@@ -5328,8 +5185,8 @@ function BrunoSection() {
       </Row>
 
       <Row
-        label="Bundesland"
-        help="Beeinflusst den Kirchensteuersatz (BW + BY: 8 %, sonst 9 %)."
+        label={t("set.bruno.state")}
+        help={t("set.bruno.state_help")}
       >
         <select
           value={defs.state}
@@ -5345,8 +5202,8 @@ function BrunoSection() {
       </Row>
 
       <Row
-        label="Kinder"
-        help="Beeinflusst Pflegeversicherung (Ermäßigung ab Kind #2) + Kinderfreibetrag."
+        label={t("set.bruno.children")}
+        help={t("set.bruno.children_help")}
       >
         <input
           type="number"
@@ -5360,20 +5217,20 @@ function BrunoSection() {
         />
       </Row>
 
-      <Row label="Kirchensteuerpflichtig">
+      <Row label={t("set.bruno.church")}>
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
             type="checkbox"
             checked={defs.is_church_member}
             onChange={(e) => setDefs({ ...defs, is_church_member: e.target.checked })}
           />
-          <span>Ja, Mitglied einer kirchensteuererhebenden Religionsgemeinschaft</span>
+          <span>{t("set.bruno.church_yes")}</span>
         </label>
       </Row>
 
       <Row
-        label="KV-Zusatzbeitrag (%)"
-        help="Krankenkassen-Zusatzbeitrag. Durchschnitt 2025 ≈ 2,5 %. TK: 2,45 %, Barmer: 3,29 %."
+        label={t("set.bruno.health_add")}
+        help={t("set.bruno.health_add_help")}
       >
         <input
           type="number"
@@ -5389,12 +5246,12 @@ function BrunoSection() {
       </Row>
 
       <div className="mt-4 mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-        Selbständig — Suffix <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">f</code> (z.&nbsp;B. <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">bruno 80000f</code>)
+        <InlineMd text={t("set.bruno.self_head")} />
       </div>
 
       <Row
-        label="Rechtsform"
-        help="Freiberufler (§ 18 EStG) zahlen keine Gewerbesteuer; Gewerbebetriebe (§ 15) mit Freibetrag 24.500 € + § 35-Anrechnung."
+        label={t("set.bruno.business")}
+        help={t("set.bruno.business_help")}
       >
         <div className="flex gap-1">
           {(["freiberufler", "gewerbe"] as const).map((b) => (
@@ -5408,7 +5265,7 @@ function BrunoSection() {
                   : "border border-[var(--color-border)] hover:bg-[var(--color-surface)]")
               }
             >
-              {b === "freiberufler" ? "Freiberufler" : "Gewerbe"}
+              {b === "freiberufler" ? t("set.bruno.freelance") : t("set.bruno.trade")}
             </button>
           ))}
         </div>
@@ -5416,8 +5273,8 @@ function BrunoSection() {
 
       {defs.business_type === "gewerbe" && (
         <Row
-          label="GewSt-Hebesatz (%)"
-          help="Hebesatz deiner Gemeinde (z. B. Berlin 410, München 490, Bundesschnitt ≈ 400)."
+          label={t("set.bruno.hebesatz")}
+          help={t("set.bruno.hebesatz_help")}
         >
           <input
             type="number"
@@ -5434,8 +5291,8 @@ function BrunoSection() {
       )}
 
       <Row
-        label="Krankenversicherung"
-        help="GKV freiwillig wird auf den Gewinn berechnet (Mindest-/Höchstbemessungsgrenze); PKV als fester Monatsbeitrag inkl. privater Pflegepflicht."
+        label={t("set.bruno.kv")}
+        help={t("set.bruno.kv_help")}
       >
         <div className="flex gap-1">
           {(["gkv", "pkv"] as const).map((k) => (
@@ -5449,7 +5306,7 @@ function BrunoSection() {
                   : "border border-[var(--color-border)] hover:bg-[var(--color-surface)]")
               }
             >
-              {k === "gkv" ? "GKV (freiwillig)" : "PKV (Fixbeitrag)"}
+              {k === "gkv" ? t("set.bruno.gkv") : t("set.bruno.pkv")}
             </button>
           ))}
         </div>
@@ -5457,8 +5314,8 @@ function BrunoSection() {
 
       {defs.kv_type === "gkv" ? (
         <Row
-          label="Krankengeldanspruch"
-          help="Mit Krankengeld: allgemeiner Satz 14,6 %; ohne: ermäßigt 14,0 % (+ Zusatzbeitrag von oben)."
+          label={t("set.bruno.sickpay")}
+          help={t("set.bruno.sickpay_help")}
         >
           <label className="flex cursor-pointer items-center gap-2 text-[12px]">
             <input
@@ -5466,11 +5323,11 @@ function BrunoSection() {
               checked={defs.kv_sick_pay}
               onChange={(e) => setDefs({ ...defs, kv_sick_pay: e.target.checked })}
             />
-            <span>Mit Krankengeldanspruch (14,6 % statt 14,0 %)</span>
+            <span>{t("set.bruno.sickpay_yes")}</span>
           </label>
         </Row>
       ) : (
-        <Row label="PKV-Beitrag (€/Monat)" help="Voller Monatsbeitrag inkl. privater Pflegepflichtversicherung.">
+        <Row label={t("set.bruno.pkv_amount")} help={t("set.bruno.pkv_amount_help")}>
           <input
             type="number"
             min={0}
@@ -5485,14 +5342,14 @@ function BrunoSection() {
         </Row>
       )}
 
-      <Row label="Zusammenveranlagung" help="Verheiratet + gemeinsame Veranlagung → Splittingtarif statt Grundtarif.">
+      <Row label={t("set.bruno.joint")} help={t("set.bruno.joint_help")}>
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
             type="checkbox"
             checked={defs.self_married}
             onChange={(e) => setDefs({ ...defs, self_married: e.target.checked })}
           />
-          <span>Splittingtarif anwenden</span>
+          <span>{t("set.bruno.splitting")}</span>
         </label>
       </Row>
 
@@ -5502,11 +5359,11 @@ function BrunoSection() {
           disabled={!dirty || savingBruno}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          {savingBruno ? "Speichert…" : "Speichern"}
+          {savingBruno ? t("common.saving") : t("common.save")}
         </button>
         {dirty && !savingBruno && (
           <span className="text-[11px] text-[var(--color-muted)]">
-            Ungespeicherte Änderungen
+            {t("common.unsaved")}
           </span>
         )}
       </div>
@@ -5519,6 +5376,7 @@ function BrunoSection() {
 // placeholder. Mirrors BrunoSection; the faker-defaults-changed event (fired
 // by the setter) refreshes the popup without a restart.
 function FakerSection() {
+  const t = useT();
   const [defs, setDefs] = useState<FakerDefaults | null>(null);
   const [saved, setSaved] = useState<FakerDefaults | null>(null);
   const [locales, setLocales] = useState<FakerLocaleOption[]>([]);
@@ -5566,10 +5424,10 @@ function FakerSection() {
     <Section
       icon={<Dices size={16} className="text-[var(--color-accent)]" />}
       id="faker"
-      title="Faker — fake-data defaults"
-      subtitle="Applied to every `faker` call and `{faker:…}` snippet placeholder."
+      title={t("set.faker.title")}
+      subtitle={t("set.faker.subtitle")}
     >
-      <Row label="Default locale" help="Used when a generator isn't given an @locale. Many generators fall back to English where a locale has no data.">
+      <Row label={t("set.faker.locale")} help={t("set.faker.locale_help")}>
         <select
           value={defs.locale}
           onChange={(e) => setDefs({ ...defs, locale: e.target.value })}
@@ -5583,7 +5441,7 @@ function FakerSection() {
         </select>
       </Row>
 
-      <Row label="Default count" help="How many values `faker <gen>` produces when no count is typed (1–10000).">
+      <Row label={t("set.faker.count")} help={t("set.faker.count_help")}>
         <input
           type="number"
           min={1}
@@ -5596,7 +5454,7 @@ function FakerSection() {
         />
       </Row>
 
-      <Row label="Default format">
+      <Row label={t("set.faker.format")}>
         <div className="flex flex-wrap gap-1">
           {FORMATS.map((f) => (
             <button
@@ -5615,7 +5473,7 @@ function FakerSection() {
         </div>
       </Row>
 
-      <Row label="Pinned generators" help="Comma-separated generator names to float to the top of the `faker` catalogue (e.g. person, email, uuid).">
+      <Row label={t("set.faker.pinned")} help={t("set.faker.pinned_help")}>
         <input
           type="text"
           value={defs.pinned.join(", ")}
@@ -5633,14 +5491,14 @@ function FakerSection() {
         />
       </Row>
 
-      <Row label="Save results to history" help="When on, generated data is also stored as a clipboard-history entry. Turn off so bulk test data doesn't flood the 1000-entry history.">
+      <Row label={t("set.faker.history")} help={t("set.faker.history_help")}>
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
             checked={defs.save_history}
             onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })}
           />
-          Store faker output in clipboard history
+          {t("set.faker.history_toggle")}
         </label>
       </Row>
 
@@ -5654,7 +5512,7 @@ function FakerSection() {
             : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
         }
       >
-        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+        {saving ? t("common.saving") : dirty ? t("common.save") : t("common.saved")}
       </button>
     </Section>
   );
@@ -5664,6 +5522,7 @@ function FakerSection() {
 // Mirrors FakerSection; the figlet-defaults-changed event (fired by
 // figletSetDefaults) makes the running popup re-read without a restart.
 function FigletSection() {
+  const t = useT();
   const [defs, setDefs] = useState<FigletDefaults | null>(null);
   const [saved, setSaved] = useState<FigletDefaults | null>(null);
   const [fonts, setFonts] = useState<FigletFontMeta[]>([]);
@@ -5707,7 +5566,7 @@ function FigletSection() {
 
   const ALIGNS: FigletAlign[] = ["left", "center", "right"];
   const COMMENTS: { v: FigletComment; label: string }[] = [
-    { v: "none", label: "plain" },
+    { v: "none", label: t("set.figlet.plain") },
     { v: "slashes", label: "//" },
     { v: "hash", label: "#" },
     { v: "block", label: "/* */" },
@@ -5718,10 +5577,10 @@ function FigletSection() {
     <Section
       icon={<Type size={16} className="text-[var(--color-accent)]" />}
       id="figlet"
-      title="Figlet — ASCII-art banner defaults"
-      subtitle="Applied to every `figlet` command; the option chips still override per banner."
+      title={t("set.figlet.title")}
+      subtitle={t("set.figlet.subtitle")}
     >
-      <Row label="Default font" help="The font a bare `figlet <text>` starts with (browse/override with @font).">
+      <Row label={t("set.figlet.font")} help={t("set.figlet.font_help")}>
         <input
           list="figlet-font-list"
           value={defs.font}
@@ -5735,7 +5594,7 @@ function FigletSection() {
         </datalist>
       </Row>
 
-      <Row label="Default width" help="Wrap width in columns (0 = no wrapping).">
+      <Row label={t("set.figlet.width")} help={t("set.figlet.width_help")}>
         <input
           type="number"
           min={0}
@@ -5748,7 +5607,7 @@ function FigletSection() {
         />
       </Row>
 
-      <Row label="Default alignment">
+      <Row label={t("set.figlet.align")}>
         <div className="flex flex-wrap gap-1">
           {ALIGNS.map((a) => (
             <button
@@ -5761,13 +5620,13 @@ function FigletSection() {
                   : "bg-[var(--color-surface)] text-[var(--color-muted)]")
               }
             >
-              {a}
+              {t(`set.figlet.align_${a}` as MessageKey)}
             </button>
           ))}
         </div>
       </Row>
 
-      <Row label="Default comment wrap" help="Wrap the banner as a source comment by default (for banner headers in code).">
+      <Row label={t("set.figlet.comment")} help={t("set.figlet.comment_help")}>
         <div className="flex flex-wrap gap-1">
           {COMMENTS.map((c) => (
             <button
@@ -5786,29 +5645,29 @@ function FigletSection() {
         </div>
       </Row>
 
-      <Row label="Trim trailing whitespace" help="Remove trailing spaces from each line (clean paste into code). Internal alignment is preserved.">
+      <Row label={t("set.figlet.trim")} help={t("set.figlet.trim_help")}>
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
             checked={defs.trim}
             onChange={(e) => setDefs({ ...defs, trim: e.target.checked })}
           />
-          Trim each line
+          {t("set.figlet.trim_toggle")}
         </label>
       </Row>
 
-      <Row label="Box border by default">
+      <Row label={t("set.figlet.box")}>
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
             checked={defs.boxed}
             onChange={(e) => setDefs({ ...defs, boxed: e.target.checked })}
           />
-          Draw a box around the banner
+          {t("set.figlet.box_toggle")}
         </label>
       </Row>
 
-      <Row label="Pinned fonts" help="Comma-separated font names to float to the top of the gallery (e.g. standard, slant, doom).">
+      <Row label={t("set.figlet.pinned")} help={t("set.figlet.pinned_help")}>
         <input
           type="text"
           value={defs.pinned.join(", ")}
@@ -5826,14 +5685,14 @@ function FigletSection() {
         />
       </Row>
 
-      <Row label="Save results to history" help="When on, a copied banner is also stored as a clipboard-history entry.">
+      <Row label={t("set.faker.history")} help={t("set.figlet.history_help")}>
         <label className="flex items-center gap-2 text-[13px]">
           <input
             type="checkbox"
             checked={defs.save_history}
             onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })}
           />
-          Store figlet banners in clipboard history
+          {t("set.figlet.history_toggle")}
         </label>
       </Row>
 
@@ -5847,7 +5706,7 @@ function FigletSection() {
             : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
         }
       >
-        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+        {saving ? t("common.saving") : dirty ? t("common.save") : t("common.saved")}
       </button>
     </Section>
   );
@@ -5857,6 +5716,7 @@ function FigletSection() {
 // Persisted defaults for the `sec` cluster. auto_enter defaults OFF; sharp
 // presets always confirm (not toggleable). Mirrors FakerSection.
 function SecuritySection() {
+  const t = useT();
   const [defs, setDefs] = useState<SecDefaults | null>(null);
   const [saved, setSaved] = useState<SecDefaults | null>(null);
   const [saving, setSaving] = useState(false);
@@ -5883,12 +5743,12 @@ function SecuritySection() {
       setWlExists(null);
       return;
     }
-    const t = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       secPathExists(wl)
         .then(setWlExists)
         .catch(() => setWlExists(null));
     }, 250);
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(timer);
   }, [wl]);
 
   if (!defs) return null;
@@ -5939,20 +5799,20 @@ function SecuritySection() {
     <Section
       icon={<ShieldAlert size={16} className="text-[var(--color-accent)]" />}
       id="security"
-      title="Security builders"
-      subtitle="Defaults for the sec / nmap / sqlmap / ferox / john command builders. Authorized targets only — Inspector Rust builds commands, it never scans."
+      title={t("settings.section.security")}
+      subtitle={t("set.sec.subtitle")}
     >
-      <Row label="Scope / authorization note" help="Shown in the preview header — your reminder of the engagement you're authorized for.">
+      <Row label={t("set.sec.scope")} help={t("set.sec.scope_help")}>
         <textarea
           value={defs.scope_note}
-          placeholder="e.g. Authorized for acme.example, 2026-07-18…24"
+          placeholder={t("set.sec.scope_ph")}
           onChange={(e) => setDefs({ ...defs, scope_note: e.target.value })}
           rows={2}
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
         />
       </Row>
 
-      <Row label="Default wordlist" help="Used by feroxbuster / John when you don't type one. Pick a common path or type your own.">
+      <Row label={t("set.sec.wordlist")} help={t("set.sec.wordlist_help")}>
         <div className="flex items-center gap-2">
           <input
             type="text"
@@ -5970,51 +5830,51 @@ function SecuritySection() {
           {wlExists != null && (
             <span
               className={"shrink-0 text-[11px] " + (wlExists ? "text-emerald-500" : "text-amber-500")}
-              title={wlExists ? "Path exists" : "Path not found on this machine"}
+              title={wlExists ? t("set.sec.path_exists") : t("set.sec.path_missing")}
             >
-              {wlExists ? "✓ found" : "✗ not found"}
+              {wlExists ? t("set.sec.found") : t("set.sec.not_found")}
             </span>
           )}
         </div>
       </Row>
 
-      <Row label="Default output directory" help="For nmap -oA / feroxbuster -o.">
+      <Row label={t("set.sec.output")} help={t("set.sec.output_help")}>
         {textInput(defs.output_dir, "~/scans", (v) => setDefs({ ...defs, output_dir: v }))}
       </Row>
 
-      <Row label="Default timing / threads / rate" help="Left empty = not injected. Timing 0–5 (nmap -T), threads (ferox -t), rate (ferox --rate-limit).">
+      <Row label={t("set.sec.timing")} help={t("set.sec.timing_help")}>
         <div className="flex gap-2">
           <input type="text" value={defs.timing} placeholder="-T" onChange={(e) => setDefs({ ...defs, timing: e.target.value })} className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" />
-          <input type="number" min={0} max={500} value={defs.threads} onChange={(e) => setDefs({ ...defs, threads: Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder="threads" />
-          <input type="number" min={0} value={defs.rate} onChange={(e) => setDefs({ ...defs, rate: Math.max(0, parseInt(e.target.value, 10) || 0) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder="rate" />
+          <input type="number" min={0} max={500} value={defs.threads} onChange={(e) => setDefs({ ...defs, threads: Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder={t("set.sec.threads")} />
+          <input type="number" min={0} value={defs.rate} onChange={(e) => setDefs({ ...defs, rate: Math.max(0, parseInt(e.target.value, 10) || 0) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder={t("set.sec.rate")} />
         </div>
       </Row>
 
-      <Row label="John line" help="Jumbo (Kali default) offers mask + the *2john helpers; Core hides them.">
+      <Row label={t("set.sec.john")} help={t("set.sec.john_help")}>
         {seg(defs.john_line, [["jumbo", "Jumbo"], ["core", "Core"]], (v) => setDefs({ ...defs, john_line: v }))}
       </Row>
 
-      <Row label="Terminal (hand-off)" help="Which terminal ⌘⏎ opens (macOS). iTerm2 falls back to Terminal.app.">
+      <Row label={t("set.sec.terminal")} help={t("set.sec.terminal_help")}>
         {seg(defs.terminal, [["iterm", "iTerm2"], ["terminal", "Terminal.app"]], (v) => setDefs({ ...defs, terminal: v }))}
       </Row>
 
-      <Row label="Terminal behaviour">
+      <Row label={t("set.sec.behaviour")}>
         <div className="space-y-1.5">
           <label className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" checked={defs.auto_enter} onChange={(e) => setDefs({ ...defs, auto_enter: e.target.checked })} />
-            Auto-press Enter after inserting (default off — you submit it yourself)
+            {t("set.sec.auto_enter")}
           </label>
           <label className="flex items-center gap-2 text-[13px] text-[var(--color-muted)]">
             <input type="checkbox" checked disabled />
-            Always confirm sharp presets (full-tcp / dump / -T5 / incremental) — locked on
+            {t("set.sec.confirm_sharp")}
           </label>
         </div>
       </Row>
 
-      <Row label="Save commands to history">
+      <Row label={t("set.sec.history")}>
         <label className="flex items-center gap-2 text-[13px]">
           <input type="checkbox" checked={defs.save_history} onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })} />
-          Store built commands in clipboard history
+          {t("set.sec.history_toggle")}
         </label>
       </Row>
 
@@ -6026,7 +5886,7 @@ function SecuritySection() {
           (dirty && !saving ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]" : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
         }
       >
-        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+        {saving ? t("common.saving") : dirty ? t("common.save") : t("common.saved")}
       </button>
     </Section>
   );
@@ -6046,6 +5906,7 @@ function SecuritySection() {
  * so the input can't drift out of sync with the clamp that actually persists.
  */
 function CrtAnimationRow() {
+  const t = useT();
   const [cfg, setCfg] = useState<CrtAnimation | null>(null);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -6085,7 +5946,7 @@ function CrtAnimationRow() {
   };
 
   const presets = [
-    { ms: 0, label: "Off" },
+    { ms: 0, label: t("common.off") },
     { ms: 150, label: "150" },
     { ms: cfg.default_ms, label: `${cfg.default_ms}` },
     { ms: 400, label: "400" },
@@ -6094,7 +5955,7 @@ function CrtAnimationRow() {
 
   return (
     <>
-      <Row label="Popup animation">
+      <Row label={t("set.crt.label")}>
         <div className="flex w-full flex-wrap items-center gap-2">
           <div className="flex overflow-hidden rounded-lg border border-[var(--color-border)]">
             {presets.map((p) => {
@@ -6105,7 +5966,7 @@ function CrtAnimationRow() {
                   type="button"
                   disabled={busy}
                   onClick={() => void apply(p.ms)}
-                  title={p.ms === 0 ? "No animation — show and hide instantly" : `${p.ms} ms`}
+                  title={p.ms === 0 ? t("set.crt.off_title") : `${p.ms} ms`}
                   className={
                     "border-r border-[var(--color-border)] px-2.5 py-1.5 text-[12px] transition-colors last:border-r-0 " +
                     (active
@@ -6125,7 +5986,7 @@ function CrtAnimationRow() {
             max={cfg.max}
             step={10}
             value={value}
-            aria-label="CRT animation duration in milliseconds"
+            aria-label={t("set.crt.aria")}
             onChange={(e) => {
               setValue(e.target.value);
               setSavedOk(false);
@@ -6142,31 +6003,24 @@ function CrtAnimationRow() {
             disabled={busy || !dirty}
             className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("common.saving") : t("common.save")}
           </button>
-          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
+          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">{t("common.saved")} ✓</span>}
           {!valid && value.trim() !== "" && (
             <span className="text-[12px] text-amber-500">
-              0 (off) or {cfg.min}–{cfg.max}
+              {t("set.crt.range", { min: cfg.min, max: cfg.max })}
             </span>
           )}
         </div>
       </Row>
       <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
         {cfg.ms === 0 ? (
-          <>
-            The tube animation is off — the popup shows and hides instantly.
-          </>
+          <>{t("set.crt.off_help")}</>
         ) : (
           <>
-            How long the CRT tube takes to power on (dot → scanline → picture).
-            Closing derives from it and is always shorter — currently{" "}
-            <span className="font-mono">{crtOffMs(cfg.ms)} ms</span>, and the
-            popup waits for it before hiding.{" "}
-            {cfg.ms > 400 &&
-              "Past ~400 ms the popup stops feeling instant: the window itself is on screen after ~20 ms, so everything you wait for beyond that is this animation. "}
-            Applies from the next open. Ignored entirely when your system asks
-            for reduced motion.
+            {t("set.crt.help", { off: crtOffMs(cfg.ms) })}{" "}
+            {cfg.ms > 400 && t("set.crt.slow") + " "}
+            {t("set.crt.applies")}
           </>
         )}
       </p>
@@ -6181,6 +6035,7 @@ function CrtAnimationRow() {
  * card points to. Deep-link id `adb` (`settings adb`).
  */
 function AdbSection() {
+  const t = useT();
   const [status, setStatus] = useState<AdbStatus | null>(null);
   useEffect(() => {
     let alive = true;
@@ -6207,57 +6062,41 @@ function AdbSection() {
     <Section
       icon={<Smartphone size={16} className="text-[var(--color-accent)]" />}
       id="adb"
-      title="Android (adb)"
-      subtitle="Grundlage des `adb`-Commands: Android-Gerät per USB/WLAN steuern — Dashboard, Fernbedienung, Screenshot, Apps, WLAN-ADB. Volle Werkzeuge (Logcat, Bluetooth-Analyse, Dateibrowser): ADBOSS."
+      title={t("settings.section.adb")}
+      subtitle={t("set.adb.subtitle")}
     >
       <div className="flex flex-wrap items-center gap-1.5">
         {status === null ? (
-          <span className="text-[12px] text-[var(--color-muted)]">Prüfe…</span>
+          <span className="text-[12px] text-[var(--color-muted)]">{t("set.sync.checking")}</span>
         ) : (
           <>
-            {chip(status.found, status.found ? "adb installiert" : "adb fehlt")}
+            {chip(status.found, status.found ? t("set.adb.installed") : t("set.adb.missing"))}
             {chip(
               status.devices.some((d) => d.state === "device"),
               status.devices.length === 0
-                ? "kein Gerät"
+                ? t("set.adb.no_device")
                 : status.devices.some((d) => d.state === "device")
-                  ? `${status.devices.filter((d) => d.state === "device").length} Gerät(e) bereit`
-                  : "Gerät nicht autorisiert",
+                  ? tn("set.adb.ready", status.devices.filter((d) => d.state === "device").length)
+                  : t("set.adb.unauthorized"),
             )}
           </>
         )}
       </div>
       {status !== null && !status.found && (
         <p className="mt-2 text-[12px] text-[var(--color-muted)]">
-          Installieren: <code className="rounded bg-[var(--color-surface)] px-1">brew install android-platform-tools</code>
+          <InlineMd text={t("set.adb.install")} />
         </p>
       )}
       <details className="mt-3 text-[12px]">
         <summary className="cursor-pointer text-[var(--color-fg)]">
-          Einrichtung Schritt für Schritt (USB-Debugging + WLAN-ADB)
+          {t("set.adb.setup")}
         </summary>
         <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[12px] leading-snug text-[var(--color-muted)]">
-          <li>
-            Handy: Einstellungen → Über das Telefon → 7× auf <em>Build-Nummer</em> tippen →
-            Entwickleroptionen → <strong>USB-Debugging</strong> einschalten.
-          </li>
-          <li>
-            Per USB anschließen; auf dem Handy „USB-Debugging zulassen?" bestätigen
-            (Haken bei „immer erlauben"). Vorher meldet das Panel „nicht autorisiert".
-          </li>
-          <li>
-            <code>adb</code> in die IR-Suchleiste, Enter → Dashboard. <code>adb remote</code> /{" "}
-            <code>adb apps</code> / <code>adb wifi</code> springen direkt in die Ansicht.
-          </li>
-          <li>
-            Kabellos: <code>adb wifi</code> → „WLAN-ADB aktivieren" schaltet das USB-Gerät auf
-            TCP/IP (Port 5555), erkennt die IP und verbindet — danach Kabel abziehen. Hält bis
-            zum Reboot des Handys.
-          </li>
-          <li>
-            Grenzen: Textsenden nur ASCII; Bluetooth-Toggle je nach Android-Version
-            eingeschränkt. Vollständige Referenz: <code>adb?</code> in der Suchleiste.
-          </li>
+          <li><InlineMd text={t("set.adb.step1")} /></li>
+          <li>{t("set.adb.step2")}</li>
+          <li><InlineMd text={t("set.adb.step3")} /></li>
+          <li><InlineMd text={t("set.adb.step4")} /></li>
+          <li><InlineMd text={t("set.adb.step5")} /></li>
         </ol>
       </details>
     </Section>
@@ -6265,6 +6104,7 @@ function AdbSection() {
 }
 
 function HistoryLimitSection() {
+  const t = useT();
   const [limit, setLimit] = useState<HistoryLimit | null>(null);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -6328,10 +6168,10 @@ function HistoryLimitSection() {
     <Section
       icon={<History size={16} className="text-[var(--color-accent)]" />}
       id="clipboard-history"
-      title="Clipboard history"
-      subtitle={`How many clipboard entries to keep. Older entries beyond the limit are pruned automatically; pinned + noted clips never count against it. ${limit.min.toLocaleString()}–${limit.ceiling.toLocaleString()}, default 1,000.`}
+      title={t("settings.section.clipboard-history")}
+      subtitle={t("set.hist.subtitle", { min: limit.min.toLocaleString(locale()), max: limit.ceiling.toLocaleString(locale()), def: (1000).toLocaleString(locale()) })}
     >
-      <Row label="Maximum entries" help="Lowering this prunes the oldest entries immediately.">
+      <Row label={t("set.hist.max")} help={t("set.hist.max_help")}>
         <div className="flex w-full items-center gap-2">
           <input
             type="number"
@@ -6354,36 +6194,38 @@ function HistoryLimitSection() {
             disabled={busy || !dirty}
             className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            {busy ? "Saving…" : "Save"}
+            {busy ? t("common.saving") : t("common.save")}
           </button>
-          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
+          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">{t("common.saved")} ✓</span>}
           {!valid && value.trim() !== "" && (
             <span className="text-[12px] text-amber-500">
-              {limit.min.toLocaleString()}–{limit.ceiling.toLocaleString()}
+              {limit.min.toLocaleString(locale())}–{limit.ceiling.toLocaleString(locale())}
             </span>
           )}
         </div>
       </Row>
       <Row
-        label="Database"
-        help="Pruned clips and deleted images leave dead pages behind; SQLite never gives them back on its own. Compacting rewrites the file (runs automatically about once an hour when the dead space exceeds 10 %)."
+        label={t("set.hist.db")}
+        help={t("set.hist.db_help")}
       >
         <div className="flex w-full items-center gap-2 text-[12px]">
           <span className="font-mono text-[var(--color-muted)]">
             {space === null
               ? "…"
-              : `${formatBytes(space.bytes)} · ${
-                  space.page_count > 0
-                    ? Math.round((100 * space.freelist_pages) / space.page_count)
-                    : 0
-                } % dead space`}
+              : t("set.hist.dead", {
+                  size: formatBytes(space.bytes),
+                  pct:
+                    space.page_count > 0
+                      ? Math.round((100 * space.freelist_pages) / space.page_count)
+                      : 0,
+                })}
           </span>
           <button
             onClick={() => void compactNow()}
             disabled={compacting || space === null}
             className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
           >
-            {compacting ? "Compacting…" : "Compact now"}
+            {compacting ? t("set.hist.compacting") : t("set.hist.compact")}
           </button>
           {compactResult && <span className="text-emerald-500">{compactResult}</span>}
         </div>
@@ -6394,6 +6236,7 @@ function HistoryLimitSection() {
 
 /** Spotify (macOS): record the local play history, show covers, clear it. */
 function SpotifySection() {
+  const t = useT();
   const [cfg, setCfg] = useState<SpotifyConfig | null>(null);
   const [armed, setArmed] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -6419,7 +6262,7 @@ function SpotifySection() {
     setArmed(false);
     try {
       const n = await spotifyHistoryClear();
-      setNote(`${n} Einträge gelöscht.`);
+      setNote(t("set.spotify.cleared", { n }));
     } catch (e) {
       setNote(String(e));
     }
@@ -6429,10 +6272,10 @@ function SpotifySection() {
     <Section
       icon={<Music size={16} className="text-[var(--color-accent)]" />}
       id="spotify"
-      title="Spotify"
-      subtitle="The `spotify` command shows what the Spotify desktop app plays, a local history of what you heard, export (JSON / CSV / Markdown) and playback control. Recorded from Spotify's own playback notification — no Spotify account, no Web API, nothing leaves this Mac. Stored in history.db (table spotify_plays)."
+      title={t("settings.section.spotify")}
+      subtitle={t("set.spotify.subtitle")}
     >
-      <Row label="Record history" help="Plays shorter than 5 s are not kept. Turning this off ends the current entry.">
+      <Row label={t("set.spotify.record")} help={t("set.spotify.record_help")}>
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
             type="checkbox"
@@ -6440,10 +6283,10 @@ function SpotifySection() {
             onChange={(e) => update({ ...cfg, history: e.target.checked })}
             className="accent-[var(--color-accent)]"
           />
-          <span className="text-[var(--color-muted)]">{cfg.history ? "On — every Spotify play is logged locally" : "Off"}</span>
+          <span className="text-[var(--color-muted)]">{cfg.history ? t("set.spotify.record_on") : t("common.off")}</span>
         </label>
       </Row>
-      <Row label="Show covers" help="Loads the album art from Spotify's image server (i.scdn.co) — the only network request of this feature.">
+      <Row label={t("set.spotify.covers")} help={t("set.spotify.covers_help")}>
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
             type="checkbox"
@@ -6451,17 +6294,17 @@ function SpotifySection() {
             onChange={(e) => update({ ...cfg, artwork: e.target.checked })}
             className="accent-[var(--color-accent)]"
           />
-          <span className="text-[var(--color-muted)]">{cfg.artwork ? "On" : "Off — a music icon instead"}</span>
+          <span className="text-[var(--color-muted)]">{cfg.artwork ? t("common.on") : t("set.spotify.covers_off")}</span>
         </label>
       </Row>
-      <Row label="Clear history" help="Deletes every finished entry. The track playing right now stays.">
+      <Row label={t("set.spotify.clear")} help={t("set.spotify.clear_help")}>
         <button
           type="button"
           onClick={() => void clear()}
           onBlur={() => setArmed(false)}
           className={`rounded-md px-2 py-1 text-[12px] ${armed ? "bg-red-600 text-white" : "border border-[var(--color-border)] text-[var(--color-fg)] hover:bg-[var(--color-surface)]"}`}
         >
-          {armed ? "Really clear?" : "Clear history"}
+          {armed ? t("set.spotify.clear_confirm") : t("set.spotify.clear")}
         </button>
         {note && <span className="text-[12px] text-[var(--color-muted)]">{note}</span>}
       </Row>
@@ -6470,6 +6313,7 @@ function SpotifySection() {
 }
 
 function WeatherSection() {
+  const t = useT();
   const [cfg, setCfg] = useState<WeatherConfig | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [units, setUnits] = useState("metric");
@@ -6510,16 +6354,16 @@ function WeatherSection() {
     <Section
       icon={<CloudSun size={16} className="text-[var(--color-accent)]" />}
       id="weather"
-      title="Weather"
-      subtitle="The `weather [city]` command shows current conditions + a 5-day forecast in the preview. It uses OpenWeatherMap — paste a free API key here (or into the panel's connect card). Stored locally; only sent to OpenWeather."
+      title={t("settings.section.weather")}
+      subtitle={t("set.weather.subtitle")}
     >
-      <Row label="OpenWeather API key" help={cfg.has_key ? "A key is stored. Leave blank to keep it, or type a new one to replace it." : "Get a free key at openweathermap.org."}>
+      <Row label={t("set.weather.key")} help={cfg.has_key ? t("set.weather.key_stored") : t("set.weather.key_get")}>
         <input
           type="password"
           value={keyInput}
           spellCheck={false}
           autoComplete="off"
-          placeholder={cfg.has_key ? "•••••••• (stored — type to replace)" : "OpenWeather API key"}
+          placeholder={cfg.has_key ? t("set.weather.key_ph_stored") : t("set.weather.key")}
           onChange={(e) => {
             setKeyInput(e.target.value);
             setSavedOk(false);
@@ -6527,7 +6371,7 @@ function WeatherSection() {
           className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px]"
         />
       </Row>
-      <Row label="Units" help="Temperature + wind unit system.">
+      <Row label={t("set.weather.units")} help={t("set.weather.units_help")}>
         <select
           value={units}
           onChange={(e) => {
@@ -6536,8 +6380,8 @@ function WeatherSection() {
           }}
           className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px]"
         >
-          <option value="metric">Metric (°C, km/h)</option>
-          <option value="imperial">Imperial (°F, mph)</option>
+          <option value="metric">{t("set.weather.metric")}</option>
+          <option value="imperial">{t("set.weather.imperial")}</option>
         </select>
       </Row>
       <div className="mt-3 flex items-center gap-3">
@@ -6546,15 +6390,15 @@ function WeatherSection() {
           disabled={busy}
           className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("common.saving") : t("common.save")}
         </button>
-        {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
+        {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">{t("common.saved")} ✓</span>}
         {!cfg.has_key && !savedOk && (
           <button
             onClick={() => void openUrl("https://home.openweathermap.org/api_keys")}
             className="text-[11px] text-[var(--color-accent)] underline"
           >
-            Get a free key ↗
+            {t("set.weather.get_key")}
           </button>
         )}
       </div>
@@ -6563,6 +6407,7 @@ function WeatherSection() {
 }
 
 function MemeSection() {
+  const t = useT();
   const [dir, setDir] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -6590,7 +6435,7 @@ function MemeSection() {
       const path = await openDialog({
         multiple: false,
         directory: true,
-        title: "Select your meme library folder",
+        title: t("set.meme.pick"),
       });
       if (typeof path === "string") setDir(path);
     } catch {
@@ -6621,16 +6466,16 @@ function MemeSection() {
     <Section
       icon={<Smile size={16} className="text-[var(--color-accent)]" />}
       id="meme"
-      title="Meme library"
-      subtitle="The folder the `meme [query]` picker scans (recursively) for GIFs/images. On Windows with Google Drive in streaming mode the library is under a drive letter, e.g. G:\\My Drive\\media\\memes — set it here."
+      title={t("settings.section.meme")}
+      subtitle={t("set.meme.subtitle")}
     >
-      <Row label="Folder">
+      <Row label={t("set.ds.folder")}>
         <div className="flex w-full items-center gap-2">
           <input
             type="text"
             value={dir}
             spellCheck={false}
-            placeholder="(default: ~/My Drive/media/memes)"
+            placeholder={t("set.meme.default_ph")}
             onChange={(e) => {
               setDir(e.target.value);
               setSavedOk(false);
@@ -6641,7 +6486,7 @@ function MemeSection() {
             onClick={browse}
             className="shrink-0 rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-surface)]"
           >
-            Browse…
+            {t("set.meme.browse")}
           </button>
         </div>
       </Row>
@@ -6652,7 +6497,7 @@ function MemeSection() {
           disabled={!dirty || busy}
           className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("common.saving") : t("common.save")}
         </button>
         <button
           onClick={() => {
@@ -6661,24 +6506,24 @@ function MemeSection() {
           }}
           className="rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-surface)]"
         >
-          Reset to default
+          {t("set.meme.reset")}
         </button>
         {dirty && !busy && (
-          <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
+          <span className="text-[11px] text-[var(--color-muted)]">{t("common.unsaved")}</span>
         )}
         {savedOk && !dirty && (
-          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">Saved</span>
+          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">{t("common.saved")}</span>
         )}
       </div>
       <p className="mt-1 text-[11px] text-[var(--color-muted)]">
-        Animated previews only render for folders inside the scoped default location; a
-        custom folder still lists and copies memes.
+        {t("set.meme.preview_note")}
       </p>
     </Section>
   );
 }
 
 function SnippetsSection() {
+  const t = useT();
   const [stats, setStats] = useState<SnippetStorage | null>(null);
 
   // Re-read on every mount. The Settings content subtree is keyed on the
@@ -6698,23 +6543,23 @@ function SnippetsSection() {
     <Section
       icon={<Zap size={16} className="text-[var(--color-accent)]" />}
       id="snippets"
-      title="Snippets"
-      subtitle="Text-expander templates, managed in the Snippets tab. There is no cap on how many you can store — this just shows how much space they take up."
+      title={t("settings.section.snippets")}
+      subtitle={t("set.snip.subtitle")}
     >
       <div className="flex items-baseline gap-8">
         <div>
           <div className="text-[22px] font-semibold tabular-nums">
-            {stats ? stats.count.toLocaleString() : "…"}
+            {stats ? stats.count.toLocaleString(locale()) : "…"}
           </div>
           <div className="text-[11px] text-[var(--color-muted)]">
-            snippet{stats && stats.count === 1 ? "" : "s"}
+            {stats && stats.count === 1 ? t("set.snip.one") : t("set.snip.many")}
           </div>
         </div>
         <div>
           <div className="text-[22px] font-semibold tabular-nums">
             {stats ? formatBytes(stats.bytes) : "…"}
           </div>
-          <div className="text-[11px] text-[var(--color-muted)]">on disk (encrypted)</div>
+          <div className="text-[11px] text-[var(--color-muted)]">{t("set.snip.on_disk")}</div>
         </div>
       </div>
     </Section>

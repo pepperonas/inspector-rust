@@ -7,12 +7,13 @@ import {
   type LinuxShortcutSetupScan,
 } from "../lib/ipc";
 import { HotkeyCapture } from "./HotkeyCapture";
+import { useT, type MessageKey } from "../lib/i18n";
 
-const ACTION_LABELS: Record<string, string> = {
-  toggle: "Open popup",
-  ocr: "OCR region",
-  screenshot: "Screenshot region",
-  color: "Pick color",
+const ACTION_LABELS: Record<string, MessageKey> = {
+  toggle: "linux.action.toggle",
+  ocr: "linux.action.ocr",
+  screenshot: "linux.action.screenshot",
+  color: "linux.action.color",
 };
 
 type RowDraft = {
@@ -32,6 +33,7 @@ function rowHasConflict(row: RowDraft): boolean {
 }
 
 export function LinuxShortcutsSettings() {
+  const t = useT();
   const [scan, setScan] = useState<LinuxShortcutSetupScan | null>(null);
   const [rows, setRows] = useState<RowDraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,7 +116,7 @@ export function LinuxShortcutsSettings() {
       await loadScan();
       setStatus({
         kind: "ok",
-        message: "Shortcuts installed with automatic conflict resolution.",
+        message: t("linux.auto_done"),
       });
     } catch (e) {
       setStatus({
@@ -134,7 +136,7 @@ export function LinuxShortcutsSettings() {
       const bindings = rows.map((r) => ({ id: r.id, binding: r.chosen }));
       await linuxApplyDesktopShortcuts(bindings);
       await loadScan();
-      setStatus({ kind: "ok", message: "Desktop shortcuts saved." });
+      setStatus({ kind: "ok", message: t("linux.saved") });
     } catch (e) {
       setStatus({
         kind: "err",
@@ -151,26 +153,24 @@ export function LinuxShortcutsSettings() {
     <div>
       <div className="mb-1 flex items-center gap-2">
         <Keyboard size={16} className="text-[var(--color-accent)]" />
-        <h2 className="text-[14px] font-semibold">Linux desktop shortcuts</h2>
+        <h2 className="text-[14px] font-semibold">{t("linux.title")}</h2>
       </div>
       <p className="mb-4 text-[12px] text-[var(--color-muted)]">
-        On GNOME/Cinnamon (Wayland), global shortcuts are registered via gsettings.
-        Conflicts are scanned automatically; adjust each action below or record your own
-        combination.
+        {t("linux.description")}
       </p>
 
       <div className="rounded-lg border border-[var(--color-border)] p-4">
         {loading ? (
-          <p className="text-[12px] text-[var(--color-muted)]">Scanning shortcuts…</p>
+          <p className="text-[12px] text-[var(--color-muted)]">{t("linux.scanning")}</p>
         ) : (
           <>
             {scan && (
               <p className="mb-3 text-[11px] text-[var(--color-muted)]">
-                Desktop: <b className="text-[var(--color-fg)]">{scan.desktop}</b>
+                {t("linux.desktop")} <b className="text-[var(--color-fg)]">{scan.desktop}</b>
                 {scan.profile && (
                   <>
                     {" "}
-                    · profile <code className="text-[10px]">{scan.profile}</code>
+                    · {t("linux.profile")} <code className="text-[10px]">{scan.profile}</code>
                   </>
                 )}
               </p>
@@ -194,7 +194,7 @@ export function LinuxShortcutsSettings() {
                 >
                   <div className="mb-2 flex items-center gap-2">
                     <span className="text-[12px] font-medium text-[var(--color-fg)]">
-                      {ACTION_LABELS[row.id] ?? row.name}
+                      {ACTION_LABELS[row.id] ? t(ACTION_LABELS[row.id]) : row.name}
                     </span>
                     <span className="text-[11px] text-[var(--color-muted)]">
                       → <code className="text-[10px]">{row.arg}</code>
@@ -202,13 +202,13 @@ export function LinuxShortcutsSettings() {
                     {rowHasConflict(row) && (
                       <span className="ml-auto flex items-center gap-1 text-[10px] text-amber-400">
                         <AlertTriangle size={11} />
-                        Conflict
+                        {t("linux.conflict")}
                       </span>
                     )}
                   </div>
 
                   <label className="mb-1 block text-[11px] text-[var(--color-muted)]">
-                    Preset
+                    {t("linux.preset")}
                   </label>
                   <select
                     className="mb-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px]"
@@ -229,17 +229,17 @@ export function LinuxShortcutsSettings() {
                     {row.candidates.map((c) => (
                       <option key={c.binding} value={c.binding}>
                         {c.display}
-                        {c.free ? "" : " (occupied)"}
+                        {c.free ? "" : ` ${t("linux.occupied")}`}
                       </option>
                     ))}
-                    <option value="__custom__">Custom (record)…</option>
+                    <option value="__custom__">{t("linux.custom")}</option>
                   </select>
 
                   {(row.useCustom ||
                     !row.candidates.some((c) => c.binding === row.chosen)) && (
                     <div className="mt-1">
                       <label className="mb-1 block text-[11px] text-[var(--color-muted)]">
-                        Record combination
+                        {t("linux.record")}
                       </label>
                       <HotkeyCapture
                         value={row.customWeb}
@@ -248,14 +248,13 @@ export function LinuxShortcutsSettings() {
                         onChange={(web) => void onCustomRecorded(row.id, web)}
                       />
                       <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-                        Click the field, press your keys, then verify the label. Esc
-                        cancels, Backspace clears.
+                        {t("linux.record_hint")}
                       </p>
                     </div>
                   )}
 
                   <p className="mt-2 text-[11px] text-[var(--color-muted)]">
-                    Active:{" "}
+                    {t("linux.active")}{" "}
                     <b className="text-[var(--color-fg)]">{row.chosenDisplay}</b>
                   </p>
                 </div>
@@ -265,8 +264,7 @@ export function LinuxShortcutsSettings() {
               <div className="mb-3 flex items-start gap-2 rounded border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200/90">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <span>
-                  One or more chosen keys are still occupied. Pick a free preset or
-                  record another combination before saving.
+                  {t("linux.conflict_hint")}
                 </span>
               </div>
             )}
@@ -279,7 +277,7 @@ export function LinuxShortcutsSettings() {
                 className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] disabled:opacity-50"
               >
                 <RefreshCw size={12} />
-                Rescan
+                {t("linux.rescan")}
               </button>
               {scan?.can_configure && (
                 <>
@@ -289,7 +287,7 @@ export function LinuxShortcutsSettings() {
                     onClick={() => void runAutoSetup()}
                     className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] disabled:opacity-50"
                   >
-                    Auto-resolve all
+                    {t("linux.auto")}
                   </button>
                   <button
                     type="button"
@@ -297,7 +295,7 @@ export function LinuxShortcutsSettings() {
                     onClick={() => void save()}
                     className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
                   >
-                    {busy ? "Saving…" : "Save shortcuts"}
+                    {busy ? t("common.saving") : t("linux.save")}
                   </button>
                 </>
               )}

@@ -45,8 +45,15 @@ let catalog: Catalog = {};
 let version = 0;
 const listeners = new Set<() => void>();
 
+/** `t` bound to the current catalogue. A NEW function per language, so a
+ *  component that gets it from `useT()` can list it as a hook dependency —
+ *  memos that build text recompute on a switch, and the hooks linter keeps
+ *  that dependency honest. */
+let bound: (key: MessageKey, vars?: Vars) => string = (key, vars) => t(key, vars);
+
 function emit() {
   version++;
+  bound = (key, vars) => t(key, vars);
   for (const l of listeners) l();
 }
 
@@ -109,10 +116,10 @@ function subscribe(cb: () => void): () => void {
   return () => listeners.delete(cb);
 }
 
-/** Subscribe the calling component to language switches and return `t`. */
+/** Subscribe the calling component to language switches and return `t` —
+ *  a fresh function after every switch (see `bound`). */
 export function useT(): typeof t {
-  useSyncExternalStore(subscribe, () => version);
-  return t;
+  return useSyncExternalStore(subscribe, () => bound);
 }
 
 /** The current language, re-rendering on a switch. */

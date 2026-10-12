@@ -69,17 +69,19 @@ pub struct BrunoReport {
 
 /// Deterministic, self-contained document — inline CSS via `report_style`,
 /// no script, no external request (test-pinned like the sibling exports).
+fn bt(k: &str) -> String { crate::i18n::t(k) }
+
 pub fn build_html(r: &BrunoReport) -> String {
     let is_self = r.mode == "self";
-    let title = if is_self { "Netto-Rechnung — Unternehmer" } else { "Netto-Rechnung — Angestellt" };
-    let base_label = if is_self { "Gewinn / Jahr" } else { "Brutto / Jahr" };
+    let title = if is_self { bt("bruno.title_self") } else { bt("bruno.title_emp") };
+    let base_label = if is_self { bt("bruno.profit_year") } else { bt("bruno.gross_year") };
 
     let stats = rs::stats(&[
-        rs::Stat { label: "Netto / Monat", value: eur(r.net_month), unit: None },
-        rs::Stat { label: "Netto / Jahr", value: eur(r.net_year), unit: None },
-        rs::Stat { label: base_label, value: eur(r.base_year), unit: None },
-        rs::Stat { label: "Abgabenquote", value: rs::pct(r.deduction_rate), unit: None },
-        rs::Stat { label: "Grenzsteuersatz", value: rs::pct(r.marginal_rate), unit: None },
+        rs::Stat { label: &bt("bruno.net_month"), value: eur(r.net_month), unit: None },
+        rs::Stat { label: &bt("bruno.net_year"), value: eur(r.net_year), unit: None },
+        rs::Stat { label: &base_label, value: eur(r.base_year), unit: None },
+        rs::Stat { label: &bt("bruno.deduction_rate"), value: rs::pct(r.deduction_rate), unit: None },
+        rs::Stat { label: &bt("bruno.marginal_rate"), value: rs::pct(r.marginal_rate), unit: None },
     ]);
 
     // ── Composition bar: where the gross goes. Net first, then every row. ──
@@ -87,7 +89,7 @@ pub fn build_html(r: &BrunoReport) -> String {
     // deduction keeps its color between employee and self reports.
     let mut parts: Vec<(String, f64, String)> = Vec::new();
     if r.base_year > 0.0 {
-        parts.push(("Netto".into(), r.net_year / r.base_year, NET_COLOR.into()));
+        parts.push((bt("bruno.net"), r.net_year / r.base_year, NET_COLOR.into()));
         for line in r.taxes.iter().chain(&r.social) {
             if line.value > 0.0 {
                 parts.push((
@@ -123,26 +125,26 @@ pub fn build_html(r: &BrunoReport) -> String {
     let body = format!(
         r#"{stats}
 <section>
-  <h2>Zusammensetzung</h2>
+  <h2>{h_comp}</h2>
   {bar}
 </section>
 <section>
-  <h2>Steuern</h2>
-  <table><thead><tr><th>Posten</th><th>Betrag</th><th>Anteil</th></tr></thead>
+  <h2>{h_taxes}</h2>
+  <table><thead><tr><th>{c_item}</th><th>{c_amount}</th><th>{c_share}</th></tr></thead>
   <tbody>{taxes_rows}</tbody></table>
 </section>
 <section>
-  <h2>Sozialabgaben</h2>
-  <table><thead><tr><th>Posten</th><th>Betrag</th><th>Anteil</th></tr></thead>
+  <h2>{h_social}</h2>
+  <table><thead><tr><th>{c_item}</th><th>{c_amount}</th><th>{c_share}</th></tr></thead>
   <tbody>{social_rows}</tbody></table>
 </section>
 <section>
-  <h2>Ergebnis</h2>
+  <h2>{h_result}</h2>
   <table><tbody>
     <tr><td class="rp-text">{base_label}</td><td>{base}</td><td></td></tr>
-    <tr><td class="rp-text">Abzüge gesamt</td><td>−{ded}</td><td>{dedp}</td></tr>
-    <tr><td class="rp-text"><b>Netto / Jahr</b></td><td><b>{net}</b></td><td>{netp}</td></tr>
-    <tr><td class="rp-text">Netto / Monat</td><td>{netm}</td><td></td></tr>
+    <tr><td class="rp-text">{l_total_ded}</td><td>−{ded}</td><td>{dedp}</td></tr>
+    <tr><td class="rp-text"><b>{l_net_year}</b></td><td><b>{net}</b></td><td>{netp}</td></tr>
+    <tr><td class="rp-text">{l_net_month}</td><td>{netm}</td><td></td></tr>
   </tbody></table>
 </section>"#,
         base = eur(r.base_year),
@@ -151,14 +153,18 @@ pub fn build_html(r: &BrunoReport) -> String {
         net = eur(r.net_year),
         netp = rs::pct(if r.base_year > 0.0 { r.net_year / r.base_year } else { 0.0 }),
         netm = eur(r.net_month),
+        base_label = base_label,
+        h_comp = bt("bruno.composition"), h_taxes = bt("bruno.taxes"), h_social = bt("bruno.social"), h_result = bt("bruno.result"),
+        c_item = bt("bruno.item"), c_amount = bt("bruno.amount"), c_share = bt("bruno.share"),
+        l_total_ded = bt("bruno.total_deductions"), l_net_year = bt("bruno.net_year"), l_net_month = bt("bruno.net_month"),
     );
 
     rs::shell(
-        "Inspector Rust · Brutto → Netto",
-        title,
-        &format!("{} · Steuerjahr 2025", esc(&r.assumptions)),
+        &bt("bruno.header"),
+        &title,
+        &crate::i18n::tf("bruno.subject", &[("assumptions", &esc(&r.assumptions))]),
         &body,
-        "Vereinfachter §32a-Tarif (Steuerjahr 2025) · Schätzung, keine Steuerberatung · Erstellt mit Inspector Rust.",
+        &bt("bruno.foot"),
     )
 }
 
@@ -285,8 +291,8 @@ mod tests {
     fn the_mode_changes_wording_never_math() {
         let e = build_html(&sample(false));
         let s = build_html(&sample(true));
-        assert!(e.contains("Angestellt") && e.contains("Brutto / Jahr"));
-        assert!(s.contains("Unternehmer") && s.contains("Gewinn / Jahr"));
+        assert!(e.contains("employee") && e.contains("Gross / year"));
+        assert!(s.contains("self-employed") && s.contains("Profit / year"));
         // Identical numbers in, identical numbers out — the mode is a label.
         for n in ["60.000 €", "37.795 €", "37,0 %"] {
             assert!(e.contains(n) && s.contains(n), "{n}");

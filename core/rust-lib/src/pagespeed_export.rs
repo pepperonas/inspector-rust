@@ -107,10 +107,10 @@ fn extra_css() -> &'static str {
 pub fn build_html(r: &PageSpeedReport) -> String {
     let mut cols = String::new();
     if let Some(d) = &r.desktop {
-        cols.push_str(&strategy_block(d, "Desktop"));
+        cols.push_str(&strategy_block(d, &crate::i18n::t("ps.desktop")));
     }
     if let Some(m) = &r.mobile {
-        cols.push_str(&strategy_block(m, "Mobil"));
+        cols.push_str(&strategy_block(m, &crate::i18n::t("ps.mobile")));
     }
 
     let errors: String = if r.errors.is_empty() {
@@ -123,28 +123,27 @@ pub fn build_html(r: &PageSpeedReport) -> String {
     };
 
     let body = if cols.is_empty() {
-        format!(r#"{errors}<p class="rp-empty">Keine Messung zustande gekommen.</p>"#)
+format!(r#"{errors}{m}"#, m = crate::i18n::t("ps.no_measurement"))
     } else {
         format!(
             r#"{errors}<div class="ps-scale">
-<span><i style="background:{good}"></i>90–100 gut</span>
-<span><i style="background:{avg}"></i>50–89 verbesserungswürdig</span>
-<span><i style="background:{poor}"></i>0–49 schlecht</span>
+<span><i style="background:{good}"></i>{s_good}</span>
+<span><i style="background:{avg}"></i>{s_avg}</span>
+<span><i style="background:{poor}"></i>{s_poor}</span>
 </div><section class="ps-cols">{cols}</section>"#,
             good = band_color("good"),
             avg = band_color("average"),
             poor = band_color("poor"),
+            s_good = crate::i18n::t("ps.scale_good"), s_avg = crate::i18n::t("ps.scale_avg"), s_poor = crate::i18n::t("ps.scale_poor"),
         )
     };
 
     let doc = rs::shell(
         "PageSpeed Insights",
-        "Performance-Bericht",
+        &crate::i18n::t("ps.report_title"),
         &esc(&r.url),
         &body,
-        "Gemessen von Google PageSpeed Insights (Lighthouse) auf Googles Infrastruktur. \
-         <b>Desktop</b> und <b>Mobil</b> sind getrennte Läufe; Performance-Werte schwanken \
-         zwischen Messungen.<br>Erstellt mit Inspector Rust.",
+        &crate::i18n::t("ps.foot"),
     );
     // Append this report's own rules to the shared stylesheet.
     doc.replace("</style>", &format!("{}\n</style>", extra_css()))
@@ -278,7 +277,7 @@ mod tests {
             errors: vec!["Desktop: kaputt".into(), "Mobil: kaputt".into()],
         };
         let h = build_html(&r);
-        assert!(h.contains("Keine Messung"));
+        assert!(h.contains("No measurement"));
         assert!(h.contains("Desktop: kaputt") && h.contains("Mobil: kaputt"));
         assert!(h.contains("</html>"));
     }

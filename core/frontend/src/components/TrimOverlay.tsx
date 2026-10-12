@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Check, FolderOpen, Loader2, Scissors, X } from "lucide-react";
 import { trimApply, trimCancelOverlay, trimFileInfo } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Trim overlay (`trim` command). Pick a local audio/video file, set start/end,
@@ -25,6 +27,7 @@ function fmtTime(s: number): string {
 }
 
 export function TrimOverlay() {
+  useT();
   const [path, setPath] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [isVideo, setIsVideo] = useState(false);
@@ -62,7 +65,7 @@ export function TrimOverlay() {
   }, []);
 
   const pick = useCallback(async () => {
-    const sel = await openDialog({ multiple: false, filters: [{ name: "Media", extensions: MEDIA_EXTS }] });
+    const sel = await openDialog({ multiple: false, filters: [{ name: t("trim.media"), extensions: MEDIA_EXTS }] });
     if (typeof sel === "string") await load(sel);
   }, [load]);
 
@@ -94,9 +97,9 @@ export function TrimOverlay() {
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-2.5">
         <div className="flex items-center gap-2 text-[13px] font-semibold">
           <Scissors size={14} className="text-[var(--color-accent)]" />
-          Trim audio / video
+          {t("trim.trim_audio_video")}
         </div>
-        <button onClick={close} className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]" title="Close (Esc)">
+        <button onClick={close} className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]" title={t("trim.close_esc")}>
           <X size={15} />
         </button>
       </div>
@@ -112,24 +115,24 @@ export function TrimOverlay() {
               </div>
             </div>
             <button onClick={pick} className="md3-press shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)]">
-              Change
+              {t("trim.change")}
             </button>
           </div>
         ) : (
           <button onClick={pick} className="md3-press flex w-full items-center justify-center gap-2 rounded border border-dashed border-[var(--color-border)] px-3 py-4 text-[12px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]">
-            <FolderOpen size={14} /> Choose audio / video file…
+            <FolderOpen size={14} /> {t("trim.choose_audio_video_file")}
           </button>
         )}
 
         {path && duration > 0 && (
           <>
-            <Slider label="Start" value={start} min={0} max={Math.max(0, end - 0.1)} onChange={setStart} display={fmtTime(start)} />
-            <Slider label="End" value={end} min={start + 0.1} max={duration} onChange={setEnd} display={fmtTime(end)} />
-            <div className="text-[11px] text-[var(--color-muted)]">Result length: {fmtTime(end - start)}</div>
+            <Slider label={t("trim.start")} value={start} min={0} max={Math.max(0, end - 0.1)} onChange={setStart} display={fmtTime(start)} />
+            <Slider label={t("trim.end")} value={end} min={start + 0.1} max={duration} onChange={setEnd} display={fmtTime(end)} />
+            <div className="text-[11px] text-[var(--color-muted)]">{t("trim.result_len", { d: fmtTime(end - start) })}</div>
 
             <div className="flex gap-1">
-              <ModeBtn active={lossless} onClick={() => setLossless(true)} label="Lossless & fast" hint="−c copy · keyframe-snapped" />
-              <ModeBtn active={!lossless} onClick={() => setLossless(false)} label="Frame-accurate" hint="re-encode · exact cut" />
+              <ModeBtn active={lossless} onClick={() => setLossless(true)} label={t("trim.lossless_fast")} hint={t("trim.c_copy_keyframe_snapped")} />
+              <ModeBtn active={!lossless} onClick={() => setLossless(false)} label={t("trim.frame_accurate")} hint={t("trim.re_encode_exact_cut")} />
             </div>
           </>
         )}
@@ -137,7 +140,7 @@ export function TrimOverlay() {
         {error && <div className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-400">{error}</div>}
         {done && (
           <div className="md3-banner-in flex items-center gap-2 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-400">
-            <Check size={14} /> Saved <b>{done}</b> next to the source (revealed in Finder).
+            <Check size={14} /> <InlineMd text={t("trim.saved", { name: done })} />
           </div>
         )}
       </div>
@@ -149,7 +152,7 @@ export function TrimOverlay() {
           className="md3-press flex w-full items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2.5 text-[13px] font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
         >
           {applying ? <Loader2 size={15} className="animate-spin" /> : <Scissors size={15} />}
-          {applying ? "Trimming…" : "Trim & save"}
+          {applying ? t("trim.trimming") : t("trim.trim_save")}
         </button>
       </div>
     </div>

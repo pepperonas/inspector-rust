@@ -13,6 +13,7 @@ import {
   timeAtX,
   type Range,
 } from "../lib/trim-range";
+import { t, useT } from "../lib/i18n";
 
 /**
  * QuickTime-style trim bar under the download buttons.
@@ -44,6 +45,7 @@ export function TrimBar({
   onRange: (r: Range) => void;
   disabled?: boolean;
 }) {
+  useT();
   const [proxy, setProxy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +66,7 @@ export function TrimBar({
         if (!cancelled) setProxy(convertFileSrc(p));
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e).includes("no_ytdlp") ? "yt-dlp fehlt" : "Vorschau nicht ladbar");
+        if (!cancelled) setError(String(e).includes("no_ytdlp") ? "yt-dlp fehlt" : t("trim.preview_couldn_t_be_loaded"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -205,7 +207,7 @@ export function TrimBar({
             borderBottom: "2px solid #e0b100",
           }}
           onPointerDown={(e) => startDrag("range", e)}
-          title="Bereich verschieben"
+          title={t("trim.move_range")}
         />
 
         {/* Playhead */}
@@ -219,7 +221,7 @@ export function TrimBar({
           <button
             key={which}
             type="button"
-            aria-label={which === "start" ? "Startpunkt" : "Endpunkt"}
+            aria-label={which === "start" ? t("trim.start_point") : t("trim.end_point")}
             onPointerDown={(e) => startDrag(which, e)}
             onKeyDown={(e) => nudge(which, e)}
             className="absolute inset-y-0 w-[11px] cursor-ew-resize rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
@@ -237,12 +239,12 @@ export function TrimBar({
 
       {/* Times */}
       <div className="flex flex-wrap items-center gap-2 font-[var(--font-mono)] text-[11px]">
-        <TimeField label="Start" value={range.start} withHours={withHours}
+        <TimeField label={t("trim.start")} value={range.start} withHours={withHours}
           onCommit={(t) => onRange(moveHandle(range, "start", t, duration))} />
-        <TimeField label="Ende" value={range.end} withHours={withHours}
+        <TimeField label={t("trim.end")} value={range.end} withHours={withHours}
           onCommit={(t) => onRange(moveHandle(range, "end", t, duration))} />
         <span className="text-[var(--color-muted)]">
-          Länge {fmtClock(len, withHours)} · Position {fmtClock(head, withHours)}
+          {t("trim.len_pos", { len: fmtClock(len, withHours), pos: fmtClock(head, withHours) })}
         </span>
       </div>
 
@@ -250,23 +252,23 @@ export function TrimBar({
       <div className="flex flex-wrap items-center gap-1.5">
         <button type="button" className={chip} disabled={!proxy}
           onClick={() => playFrom(range.start, Math.min(range.start + 3, range.end))}>
-          <SkipBack size={11} className="mr-1 inline" />Anfang
+          <SkipBack size={11} className="mr-1 inline" />{t("trim.start_2")}
         </button>
         <button type="button" className={chip} disabled={!proxy}
           onClick={() => (playing ? toggle() : playFrom(range.start, range.end))}>
           {playing ? <Pause size={11} className="mr-1 inline" /> : <Play size={11} className="mr-1 inline" />}
-          Bereich
+          {t("trim.range")}
         </button>
         <button type="button" className={chip} disabled={!proxy}
           onClick={() => playFrom(Math.max(range.start, range.end - 3), range.end)}>
-          <SkipForward size={11} className="mr-1 inline" />Ende
+          <SkipForward size={11} className="mr-1 inline" />{t("trim.end")}
         </button>
         <button type="button" className={chip} onClick={() => onRange(fullRange(duration))}>
-          Ganzes Video
+          {t("trim.whole_video")}
         </button>
         <span className="ml-auto flex items-center gap-1 text-[11px] text-[var(--color-muted)]">
           <Scissors size={11} />
-          {loading ? "Vorschau lädt…" : error ? error : "Anhören zum Prüfen"}
+          {loading ? t("trim.loading_preview") : error ? error : t("trim.listen_to_check")}
         </span>
       </div>
     </div>

@@ -34,6 +34,7 @@ import {
   type BlurAnnotation,
   type Tool,
 } from "../lib/editor-geometry";
+import { t, useT } from "../lib/i18n";
 
 /**
  * Screenshot annotation editor (mounted in the `screenshot-editor`
@@ -69,6 +70,7 @@ import {
  */
 
 export function ScreenshotEditor() {
+  useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** The decoded screenshot image. Kept in a ref because we need it
    *  for every redraw (background) and for blur (sampling source
@@ -466,20 +468,20 @@ export function ScreenshotEditor() {
       {/* Top bar */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
         <span className="text-[12px] font-semibold text-[var(--color-muted)]">
-          Edit screenshot
+          {t("shot.edit")}
         </span>
         <div className="flex items-center gap-1">
           <IconButton
             onClick={undo}
             disabled={annotations.length === 0}
-            title="Undo (⌘Z)"
+            title={t("shot.undo_z")}
           >
             <Undo2 size={14} />
           </IconButton>
           <IconButton
             onClick={redo}
             disabled={redoStack.length === 0}
-            title="Redo (⌘⇧Z)"
+            title={t("shot.redo_z")}
           >
             <Redo2 size={14} />
           </IconButton>
@@ -489,17 +491,17 @@ export function ScreenshotEditor() {
             className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-bg)]"
           >
             <span className="flex items-center gap-1">
-              <X size={12} /> Cancel
+              <X size={12} /> {t("common.cancel")}
             </span>
           </button>
           <button
             onClick={() => void copy()}
-            title="Copy edited image to clipboard (⌘C)"
+            title={t("shot.copy_edited_image_to_clipboard")}
             className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-bg)]"
           >
             <span className="flex items-center gap-1">
               <Copy size={12} />{" "}
-              {copied ? <span className="md3-success-pop">Copied</span> : "Copy (⌘C)"}
+              {copied ? <span className="md3-success-pop">{t("shot.copied")}</span> : t("shot.copy_c")}
             </span>
           </button>
           <button
@@ -508,7 +510,7 @@ export function ScreenshotEditor() {
             className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
           >
             <span className="flex items-center gap-1">
-              <Check size={12} /> {saving ? "Saving…" : "Save (⌘S)"}
+              <Check size={12} /> {saving ? t("shot.saving") : t("shot.save_s")}
             </span>
           </button>
         </div>
@@ -562,7 +564,7 @@ export function ScreenshotEditor() {
             </div>
           ) : (
             <span className="text-[12px] text-[var(--color-muted)]">
-              Loading screenshot…
+              {t("shot.loading_screenshot")}
             </span>
           )}
         </div>
@@ -621,17 +623,18 @@ function Toolbar({
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
 }) {
+  useT();
   return (
     <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-      <ToolBtn t="arrow" icon={<ArrowUpRight size={16} />} label="Arrow" shortcut="A" active={tool} onSelect={setTool} />
-      <ToolBtn t="line" icon={<Minus size={16} />} label="Line" shortcut="L" active={tool} onSelect={setTool} />
-      <ToolBtn t="text" icon={<Type size={16} />} label="Text" shortcut="T" active={tool} onSelect={setTool} />
-      <ToolBtn t="rect" icon={<Square size={16} />} label="Rectangle" shortcut="R" active={tool} onSelect={setTool} />
-      <ToolBtn t="ellipse" icon={<Circle size={16} />} label="Ellipse" shortcut="E" active={tool} onSelect={setTool} />
-      <ToolBtn t="highlight" icon={<Highlighter size={16} />} label="Highlight" shortcut="H" active={tool} onSelect={setTool} />
-      <ToolBtn t="blur" icon={<Droplets size={16} />} label="Blur" shortcut="B" active={tool} onSelect={setTool} />
-      <ToolBtn t="redact" icon={<SquareSlash size={16} />} label="Redact" shortcut="X" active={tool} onSelect={setTool} />
-      <ToolBtn t="step" icon={<Hash size={16} />} label="Step badge" shortcut="N" active={tool} onSelect={setTool} />
+      <ToolBtn t="arrow" icon={<ArrowUpRight size={16} />} label={t("shot.arrow")} shortcut="A" active={tool} onSelect={setTool} />
+      <ToolBtn t="line" icon={<Minus size={16} />} label={t("shot.line")} shortcut="L" active={tool} onSelect={setTool} />
+      <ToolBtn t="text" icon={<Type size={16} />} label={t("shot.text")} shortcut="T" active={tool} onSelect={setTool} />
+      <ToolBtn t="rect" icon={<Square size={16} />} label={t("shot.rectangle")} shortcut="R" active={tool} onSelect={setTool} />
+      <ToolBtn t="ellipse" icon={<Circle size={16} />} label={t("shot.ellipse")} shortcut="E" active={tool} onSelect={setTool} />
+      <ToolBtn t="highlight" icon={<Highlighter size={16} />} label={t("shot.highlight")} shortcut="H" active={tool} onSelect={setTool} />
+      <ToolBtn t="blur" icon={<Droplets size={16} />} label={t("shot.blur")} shortcut="B" active={tool} onSelect={setTool} />
+      <ToolBtn t="redact" icon={<SquareSlash size={16} />} label={t("shot.redact")} shortcut="X" active={tool} onSelect={setTool} />
+      <ToolBtn t="step" icon={<Hash size={16} />} label={t("shot.step_badge")} shortcut="N" active={tool} onSelect={setTool} />
 
       <div className="mt-3 flex flex-col items-center gap-1.5">
         {COLOR_PRESETS.map((c) => (
@@ -652,7 +655,7 @@ function Toolbar({
 
       <div className="mt-3 flex flex-col items-center gap-1">
         <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted)]">
-          Size
+          {t("shot.size")}
         </span>
         <input
           type="range"
@@ -713,6 +716,7 @@ function TextInputOverlay({
   onCommit: () => void;
   onCancel: () => void;
 }) {
+  useT();
   const inputRef = useRef<HTMLInputElement>(null);
   // Read the canvas geometry in a layout effect (refs must not be read during
   // render) — runs before paint, so the input is positioned with no flash.
@@ -768,7 +772,7 @@ function TextInputOverlay({
         fontFamily: "var(--font-sans, sans-serif)",
         fontWeight: 600,
       }}
-      placeholder="Type & Enter"
+      placeholder={t("shot.type_enter")}
     />
   );
 }

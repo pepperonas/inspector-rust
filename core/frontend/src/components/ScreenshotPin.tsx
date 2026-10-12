@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { X } from "lucide-react";
 import { closePin, getPinImage } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * A pinned screenshot — a frameless, always-on-top floating window that
@@ -15,6 +16,7 @@ import { closePin, getPinImage } from "../lib/ipc";
  * resizable from its edges (set on the Rust side).
  */
 export function ScreenshotPin() {
+  useT();
   const label = getCurrentWebviewWindow().label;
   const [src, setSrc] = useState<string | null>(null);
   const [hover, setHover] = useState(false);
@@ -44,21 +46,21 @@ export function ScreenshotPin() {
         {src ? (
           <img
             src={src}
-            alt="Pinned screenshot"
+            alt={t("shot.pinned_screenshot")}
             draggable={false}
             data-tauri-drag-region
             className="pointer-events-none h-full w-full object-contain"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[12px] text-white/60">
-            Loading…
+            {t("shot.loading")}
           </div>
         )}
       </div>
 
       <button
         onClick={() => void closePin(label)}
-        title="Close pin"
+        title={t("shot.close_pin")}
         className={
           "absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white transition-opacity hover:bg-black/80 " +
           (hover ? "opacity-100" : "opacity-0")

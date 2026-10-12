@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, screen } from "@testing-library/react";
 
 // The bar's maths lives in the pure lib/trim-range.ts (its own suite). These
@@ -15,6 +15,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import { TrimBar } from "./TrimBar";
 import { fullRange } from "../lib/trim-range";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const URL = "https://youtu.be/os0PDw-bwrY";
 const DUR = 4956;

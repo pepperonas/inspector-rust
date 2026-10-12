@@ -11,6 +11,7 @@ import {
   rgbToHsv,
   tryParseColor,
 } from "../lib/colors";
+import { t, useT } from "../lib/i18n";
 
 interface Props {
   open: boolean;
@@ -35,6 +36,7 @@ type Format = "hex" | "rgb" | "hsl";
  * (HEX, RGB, HSL) are derived on demand.
  */
 export function ColorPickerModal({ open, onClose }: Props) {
+  useT();
   // Default *position* (hue/sat/val are tracked even before "selection")
   // so the SV picker has a sane initial hue background.
   const [hue, setHue] = useState(220);
@@ -193,7 +195,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
       <div className="md3-pop-in flex max-h-[calc(100vh-2rem)] w-[380px] max-w-[92vw] flex-col overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
         {/* Header */}
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold">Color picker</h2>
+          <h2 className="text-[14px] font-semibold">{t("picker.color_picker")}</h2>
           <div className="flex items-center gap-1">
             <button
               onClick={() => void onPickFromScreen()}
@@ -204,15 +206,15 @@ export function ColorPickerModal({ open, onClose }: Props) {
                   ? "cursor-wait bg-[var(--color-surface)] text-[var(--color-muted)]"
                   : "bg-[var(--color-surface)] text-[var(--color-fg)] hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-fg)]")
               }
-              title="Pick a color from anywhere on screen"
+              title={t("picker.pick_a_color_from_anywhere")}
             >
               <Pipette size={12} />
-              {picking ? "Picking…" : "Pick from screen"}
+              {picking ? t("picker.picking") : t("picker.pick_from_screen")}
             </button>
             <button
               onClick={onClose}
               className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-              title="Close (Esc)"
+              title={t("picker.close_esc")}
             >
               <X size={14} />
             </button>
@@ -256,7 +258,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
           </div>
         ) : (
           <div className="mt-2 flex h-10 items-center justify-center rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] text-[11px] text-[var(--color-muted)]">
-            Click in the picker above (or type a hex) to select a color
+            {t("picker.click_in_the_picker_above")}
           </div>
         )}
 
@@ -310,7 +312,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
             onClick={onClose}
             className="rounded px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
           >
-            Close
+            {t("common.close")}
           </button>
           <button
             onClick={() => void onCopy()}
@@ -321,15 +323,15 @@ export function ColorPickerModal({ open, onClose }: Props) {
                 ? "bg-emerald-500 text-white"
                 : "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90")
             }
-            title={hasSelection ? `Copy ${format.toUpperCase()} to clipboard` : "Pick a color first"}
+            title={hasSelection ? t("picker.copy_title", { fmt: format.toUpperCase() }) : t("picker.pick_a_color_first")}
           >
             {copied ? (
               <span className="md3-success-pop items-center gap-1.5">
-                <Check size={12} /> Copied!
+                <Check size={12} /> {t("picker.copied")}
               </span>
             ) : (
               <>
-                <Copy size={12} /> {`Copy ${format.toUpperCase()}`}
+                <Copy size={12} /> {t("picker.copy", { fmt: format.toUpperCase() })}
               </>
             )}
           </button>

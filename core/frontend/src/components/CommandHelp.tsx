@@ -23,6 +23,7 @@ import type { CommandDoc } from "../lib/commandDocs";
 import { groupedIndex } from "../lib/commandDocs";
 import type { HelpTarget } from "../lib/commandHelp";
 import { InlineMd } from "./InlineMd";
+import { t, useT } from "../lib/i18n";
 
 interface Props {
   target: HelpTarget;
@@ -44,6 +45,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNavigate"] }) {
+  useT();
   const names = [doc.command, ...doc.aliases];
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4 text-[var(--color-fg)]">
@@ -51,13 +53,13 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       <div className="flex items-baseline gap-2">
         <BookOpen size={15} className="shrink-0 self-center text-[var(--color-accent)]" />
         <h2 className="text-[15px] font-semibold">{doc.command}</h2>
-        <span className="text-[11px] text-[var(--color-muted)]">since v{doc.version_added}</span>
+        <span className="text-[11px] text-[var(--color-muted)]">{t("help.since", { v: doc.version_added })}</span>
         <button
           className={chip + " ml-auto shrink-0"}
           onClick={() => onNavigate("?")}
-          title="Back to the command index (?)"
+          title={t("help.back_to_the_command_index")}
         >
-          ← Index
+          {t("help.index")}
         </button>
       </div>
       <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
@@ -65,7 +67,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       </p>
 
       {/* Synopsis */}
-      <SectionLabel>Synopsis</SectionLabel>
+      <SectionLabel>{t("help.synopsis")}</SectionLabel>
       <code className="block rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1.5 text-[11px] leading-relaxed text-[var(--color-fg)]">
         {doc.synopsis}
       </code>
@@ -78,15 +80,15 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       {/* Arguments */}
       {doc.arguments.length > 0 && (
         <>
-          <SectionLabel>Arguments</SectionLabel>
+          <SectionLabel>{t("help.arguments")}</SectionLabel>
           <ul className="flex flex-col gap-1">
             {doc.arguments.map((a) => (
               <li key={a.name} className="text-[12px] leading-snug">
                 <code className="text-[var(--color-accent)]">{a.name}</code>
-                {!a.required && <span className="ml-1 text-[10px] text-[var(--color-muted)]">optional</span>}
+                {!a.required && <span className="ml-1 text-[10px] text-[var(--color-muted)]">{t("help.optional")}</span>}
                 <span className="text-[var(--color-fg)]"> — <InlineMd text={a.description} /></span>
                 {a.default != null && (
-                  <span className="text-[var(--color-muted)]"> (default: {a.default})</span>
+                  <span className="text-[var(--color-muted)]"> ({t("help.default", { v: a.default })})</span>
                 )}
               </li>
             ))}
@@ -97,7 +99,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       {/* Flags */}
       {doc.flags.length > 0 && (
         <>
-          <SectionLabel>Flags</SectionLabel>
+          <SectionLabel>{t("help.flags")}</SectionLabel>
           <ul className="flex flex-col gap-1">
             {doc.flags.map((f) => (
               <li key={f.flag} className="text-[12px] leading-snug">
@@ -117,13 +119,13 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
 
       {/* Examples — clickable: put the example into the search bar, ready to
           run/adapt (the Example.input contract: "Tab-fillable"). */}
-      <SectionLabel>Examples</SectionLabel>
+      <SectionLabel>{t("help.examples")}</SectionLabel>
       <ul className="flex flex-col gap-1.5">
         {doc.examples.map((ex, i) => (
           <li key={i} className="text-[12px] leading-snug">
             <button
               onClick={() => onNavigate(ex.input)}
-              title="Click to put this example into the search bar"
+              title={t("help.click_to_put_this_example")}
               className="md3-press rounded border border-transparent bg-[var(--color-surface)] px-1.5 py-0.5 text-left font-[var(--font-mono)] text-[11px] text-[var(--color-fg)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
             >
               {ex.input}
@@ -143,7 +145,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       {/* Tips */}
       {doc.tips.length > 0 && (
         <>
-          <SectionLabel>Tips</SectionLabel>
+          <SectionLabel>{t("help.tips")}</SectionLabel>
           <ul className="flex flex-col gap-1">
             {doc.tips.map((t, i) => (
               <li key={i} className="flex gap-1.5 text-[12px] leading-snug">
@@ -160,7 +162,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       {/* Caveats */}
       {doc.caveats.length > 0 && (
         <>
-          <SectionLabel>Caveats</SectionLabel>
+          <SectionLabel>{t("help.caveats")}</SectionLabel>
           <ul className="flex flex-col gap-1">
             {doc.caveats.map((c, i) => (
               <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-[var(--color-muted)]">
@@ -177,7 +179,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       {/* Aliases */}
       {doc.aliases.length > 0 && (
         <p className="mt-3 text-[11px] text-[var(--color-muted)]">
-          Aliases: {names.slice(1).map((a) => (
+          {t("help.aliases")} {names.slice(1).map((a) => (
             <code key={a} className="ml-1 text-[var(--color-fg)]">{a}</code>
           ))}
         </p>
@@ -204,31 +206,28 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       )}
 
       <p className="mt-auto pt-2 text-[11px] text-[var(--color-muted)]">
-        Delete the <code className="text-[var(--color-fg)]">?</code> to run · type
-        <code className="mx-1 text-[var(--color-fg)]">?</code>for the browsable index ·
-        <code className="mx-1 text-[var(--color-fg)]">? &lt;text&gt;</code>searches all docs · Esc closes
+        <InlineMd text={t("help.footer")} />
       </p>
     </div>
   );
 }
 
 function IndexView({ filter, onNavigate }: { filter: string; onNavigate: Props["onNavigate"] }) {
+  useT();
   const groups = groupedIndex();
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4 text-[var(--color-fg)]">
       <div className="flex items-center gap-2">
         <BookOpen size={15} className="text-[var(--color-accent)]" />
-        <h2 className="text-[15px] font-semibold">Command index</h2>
+        <h2 className="text-[15px] font-semibold">{t("help.command_index")}</h2>
       </div>
       {filter.trim() !== "" && (
         <p className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px]">
-          No command matches “{filter}” — showing everything.
+          {t("help.no_match", { q: filter })}
         </p>
       )}
       <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
-        Every search-bar command — arrow through the list on the left, or{" "}
-        <code className="text-[var(--color-fg)]">? &lt;text&gt;</code> to search all docs.
-        Enter puts the selected command into the search bar.
+        <InlineMd text={t("help.index_intro")} />
       </p>
 
       {groups.map((g) => (
@@ -254,7 +253,7 @@ function IndexView({ filter, onNavigate }: { filter: string; onNavigate: Props["
       ))}
 
       <p className="mt-auto flex items-center gap-1 pt-2 text-[11px] text-[var(--color-muted)]">
-        <CornerDownLeft size={11} /> click a command for details · Esc closes
+        <CornerDownLeft size={11} /> {t("help.index_footer")}
       </p>
     </div>
   );

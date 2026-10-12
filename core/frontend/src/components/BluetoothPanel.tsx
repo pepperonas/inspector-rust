@@ -7,6 +7,7 @@ import {
   bluetoothUnpair,
   type BtDevice,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `bluetooth` / `bt` — manage paired devices inline (macOS, v0.159.0).
@@ -31,6 +32,7 @@ export function BluetoothPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [devices, setDevices] = useState<BtDevice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState(0);
@@ -66,9 +68,9 @@ export function BluetoothPanel({
           const msg = String(e);
           setNote(
             msg.includes("device_not_found")
-              ? "Gerät nicht mehr gekoppelt."
+              ? t("bt.device_is_no_longer_paired")
               : msg.includes("remove_unavailable")
-                ? "Entkoppeln nicht verfügbar (macOS bietet dafür keine öffentliche API mehr) — bitte über die Systemeinstellungen."
+                ? t("bt.unpairing_isn_t_available_macos")
                 : msg,
           );
         })
@@ -149,13 +151,13 @@ export function BluetoothPanel({
           <div className="text-[13px] font-semibold text-[var(--color-fg)]">Bluetooth</div>
           <div className="text-[var(--color-muted)]">
             {devices === null
-              ? "Lade gekoppelte Geräte…"
-              : `${devices.filter((d) => d.connected).length} von ${devices.length} verbunden`}
+              ? t("bt.loading_paired_devices")
+              : t("bt.connected_of", { n: devices.filter((d) => d.connected).length, total: devices.length })}
           </div>
         </div>
-        <button type="button" className={chip} onClick={refresh} title="Aktualisieren">
+        <button type="button" className={chip} onClick={refresh} title={t("bt.refresh")}>
           <RefreshCw size={11} className="mr-1 inline" />
-          Aktualisieren
+          {t("bt.refresh")}
         </button>
       </div>
 
@@ -201,27 +203,27 @@ export function BluetoothPanel({
               </div>
               {isBusy ? (
                 <span className="text-[11px] text-[var(--color-muted)]">
-                  {d.connected ? "trenne…" : "verbinde…"}
+                  {d.connected ? t("bt.disconnecting") : t("bt.connecting")}
                 </span>
               ) : isArmed ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-rose-400">Kopplung löschen?</span>
+                  <span className="text-[11px] text-rose-400">{t("bt.remove_pairing")}</span>
                   <button type="button" className={chip} onClick={() => unpair(d)}>
-                    Ja, entkoppeln
+                    {t("bt.yes_unpair")}
                   </button>
                   <button type="button" className={chip} onClick={() => setArmed(null)}>
-                    Abbrechen
+                    {t("common.cancel")}
                   </button>
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5">
                   <button type="button" className={chip} onClick={() => toggle(d)}>
-                    {d.connected ? "Trennen" : "Verbinden"}
+                    {d.connected ? t("bt.disconnect") : t("bt.connect")}
                   </button>
                   <button
                     type="button"
                     className={chip}
-                    title="Entkoppeln — entfernt die Kopplung dauerhaft"
+                    title={t("bt.unpair_removes_the_pairing_for")}
                     onClick={() => setArmed(d.address)}
                   >
                     <Trash2 size={11} />
@@ -233,16 +235,16 @@ export function BluetoothPanel({
         })}
         {devices !== null && devices.length === 0 && (
           <div className="px-2.5 py-3 text-[11px] text-[var(--color-muted)]">
-            Keine gekoppelten Geräte.
+            {t("bt.no_paired_devices")}
           </div>
         )}
       </div>
 
       {note && <div className="text-[11px] text-[var(--color-muted)]">{note}</div>}
       <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-        ↑↓ wählen · ⏎ verbinden/trennen · ⌫ entkoppeln (2× = bestätigen) · Esc zurück
+        {t("bt.select_connect_disconnect_unpair_2")}
         <br />
-        Verbinden zu einem ausgeschalteten Gerät bricht nach ~10 s ab (macOS-Timeout).
+        {t("bt.connecting_to_a_switched_off")}
       </div>
     </div>
   );

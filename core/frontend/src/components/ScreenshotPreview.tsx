@@ -13,6 +13,7 @@ import {
   pinCurrentScreenshot,
   type PendingScreenshotInfo,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * CleanShot-X-style floating screenshot preview.
@@ -45,6 +46,7 @@ import {
  * `reposition_preview_to_cursor` every 200 ms.
  */
 export function ScreenshotPreview() {
+  useT();
   const [info, setInfo] = useState<PendingScreenshotInfo | null>(null);
   // Local mirror of the pinned state — kept in sync with backend on
   // mount + on toggle. Backend is the source of truth (it gates the
@@ -178,8 +180,8 @@ export function ScreenshotPreview() {
         {/* Top-left: Close (discard) */}
         <CornerButton
           onClick={onDiscard}
-          title="Close (discard the capture)"
-          ariaLabel="Close preview"
+          title={t("shot.close_discard_the_capture")}
+          ariaLabel={t("shot.close_preview")}
           className="left-2 top-2"
         >
           <X size={14} />
@@ -190,10 +192,10 @@ export function ScreenshotPreview() {
           onClick={onTogglePin}
           title={
             pinned
-              ? "Unpin — let the next screenshot replace this preview"
-              : "Pin — keep this preview open across the next screenshot"
+              ? t("shot.unpin_let_the_next_screenshot")
+              : t("shot.pin_keep_this_preview_open")
           }
-          ariaLabel={pinned ? "Unpin preview" : "Pin preview"}
+          ariaLabel={pinned ? t("shot.unpin_preview") : t("shot.pin_preview")}
           className={"right-2 top-2 " + (pinned ? "ring-1 ring-white/60" : "")}
         >
           <Pin
@@ -204,31 +206,31 @@ export function ScreenshotPreview() {
 
         {/* Centre: Copy + Save pills, stacked vertically. */}
         <div className="relative z-10 m-auto flex flex-col gap-2">
-          <PillButton onClick={onCopy} title="Copy image to clipboard">
+          <PillButton onClick={onCopy} title={t("shot.copy_image_to_clipboard")}>
             {copied ? (
               <span className="md3-success-pop items-center gap-1">
-                <Copy size={13} /> Copied
+                <Copy size={13} /> {t("shot.copied")}
               </span>
             ) : (
               <span className="flex items-center gap-1.5">
-                <Copy size={13} /> Copy
+                <Copy size={13} /> {t("common.copy")}
               </span>
             )}
           </PillButton>
           <PillButton
             onClick={onSave}
-            title="Save to ~/Downloads (with the source-app name) + clipboard + history"
+            title={t("shot.save_to_downloads_with_the")}
           >
             <span className="flex items-center gap-1.5">
-              <Save size={13} /> Save
+              <Save size={13} /> {t("shot.save")}
             </span>
           </PillButton>
           <PillButton
             onClick={onPinToScreen}
-            title="Pin to screen — float this image on top until you close it"
+            title={t("shot.pin_to_screen_float_this")}
           >
             <span className="flex items-center gap-1.5">
-              <Pin size={13} /> Pin to screen
+              <Pin size={13} /> {t("shot.pin_to_screen")}
             </span>
           </PillButton>
         </div>
@@ -236,8 +238,8 @@ export function ScreenshotPreview() {
         {/* Bottom-left: Edit (open annotation editor) */}
         <CornerButton
           onClick={onEdit}
-          title="Edit — open the annotation editor (arrows, text, blur, …)"
-          ariaLabel="Edit screenshot"
+          title={t("shot.edit_open_the_annotation_editor")}
+          ariaLabel={t("shot.edit")}
           className="bottom-2 left-2"
         >
           <Pencil size={14} />
@@ -250,8 +252,8 @@ export function ScreenshotPreview() {
           onClick={() => {
             /* TODO v0.33.x — pick a host (VPS / imgur / …) */
           }}
-          title="Cloud upload — coming soon"
-          ariaLabel="Cloud upload (coming soon)"
+          title={t("shot.cloud_upload_coming_soon")}
+          ariaLabel={t("shot.cloud_upload_coming_soon_2")}
           className="bottom-2 right-2 opacity-50 cursor-not-allowed"
         >
           <Cloud size={14} />

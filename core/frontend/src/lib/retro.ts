@@ -4,6 +4,7 @@
 // ids and aliases.
 import paletteFile from "./retro-palettes.json";
 import type { RetroConfig, RetroModeSettings, RetroDither } from "./ipc";
+import { t } from "./i18n";
 
 export type RetroMode = "8bit" | "16bit";
 
@@ -103,40 +104,40 @@ export type RetroRowId =
 
 export interface RetroRow {
   id: RetroRowId;
-  label: string;
-  group: string;
+  readonly label: string;
+  readonly group: string;
   /** Row only makes sense while its parent switch is on (shown dimmed). */
   dependsOn?: RetroRowId;
 }
 
 export const RETRO_ROWS: RetroRow[] = [
-  { id: "mode", label: "Modus", group: "Bild" },
-  { id: "palette", label: "Palette", group: "Bild" },
-  { id: "pixel", label: "Pixelgröße", group: "Bild" },
-  { id: "dither", label: "Dithering", group: "Bild" },
-  { id: "ditherStrength", label: "Dither-Stärke", group: "Bild", dependsOn: "dither" },
-  { id: "focus", label: "Aktives Fenster ausnehmen", group: "Lesbarkeit" },
-  { id: "focusNative", label: "Aktives Fenster zeigt", group: "Lesbarkeit", dependsOn: "focus" },
-  { id: "focusPixel", label: "Pixel im Fokus", group: "Lesbarkeit", dependsOn: "focus" },
-  { id: "focusBorder", label: "Rahmen ums Fokusfenster", group: "Lesbarkeit", dependsOn: "focus" },
-  { id: "lens", label: "Cursor-Lupe", group: "Lesbarkeit" },
-  { id: "lensRadius", label: "Lupen-Radius", group: "Lesbarkeit", dependsOn: "lens" },
-  { id: "lensView", label: "In der Lupe", group: "Lesbarkeit", dependsOn: "lens" },
-  { id: "retreat", label: "Beim Tippen/Scrollen ausblenden", group: "Lesbarkeit" },
-  { id: "scanlines", label: "Scanlines", group: "Röhre" },
-  { id: "scanlineIntensity", label: "Scanline-Intensität", group: "Röhre", dependsOn: "scanlines" },
-  { id: "crt", label: "CRT-Krümmung & Vignette", group: "Röhre" },
-  { id: "crtStrength", label: "CRT-Stärke", group: "Röhre", dependsOn: "crt" },
-  { id: "opacity", label: "Deckkraft", group: "Röhre" },
-  { id: "frames", label: "Retro-Fensterrahmen", group: "Stufe 2" },
-  { id: "sprite", label: "Sprite-Cursor", group: "Stufe 2" },
-  { id: "target", label: "Monitor", group: "Ausgabe" },
-  { id: "fps", label: "FPS-Limit", group: "Ausgabe" },
+  { id: "mode", get label() { return t("retro.row.mode"); }, get group() { return t("retro.group.image"); } },
+  { id: "palette", get label() { return t("retro.row.palette"); }, get group() { return t("retro.group.image"); } },
+  { id: "pixel", get label() { return t("retro.row.pixel"); }, get group() { return t("retro.group.image"); } },
+  { id: "dither", get label() { return t("retro.row.dither"); }, get group() { return t("retro.group.image"); } },
+  { id: "ditherStrength", get label() { return t("retro.row.ditherStrength"); }, get group() { return t("retro.group.image"); }, dependsOn: "dither" },
+  { id: "focus", get label() { return t("retro.row.focus"); }, get group() { return t("retro.group.readability"); } },
+  { id: "focusNative", get label() { return t("retro.row.focusNative"); }, get group() { return t("retro.group.readability"); }, dependsOn: "focus" },
+  { id: "focusPixel", get label() { return t("retro.row.focusPixel"); }, get group() { return t("retro.group.readability"); }, dependsOn: "focus" },
+  { id: "focusBorder", get label() { return t("retro.row.focusBorder"); }, get group() { return t("retro.group.readability"); }, dependsOn: "focus" },
+  { id: "lens", get label() { return t("retro.row.lens"); }, get group() { return t("retro.group.readability"); } },
+  { id: "lensRadius", get label() { return t("retro.row.lensRadius"); }, get group() { return t("retro.group.readability"); }, dependsOn: "lens" },
+  { id: "lensView", get label() { return t("retro.row.lensView"); }, get group() { return t("retro.group.readability"); }, dependsOn: "lens" },
+  { id: "retreat", get label() { return t("retro.row.retreat"); }, get group() { return t("retro.group.readability"); } },
+  { id: "scanlines", get label() { return t("retro.row.scanlines"); }, get group() { return t("retro.group.tube"); } },
+  { id: "scanlineIntensity", get label() { return t("retro.row.scanlineIntensity"); }, get group() { return t("retro.group.tube"); }, dependsOn: "scanlines" },
+  { id: "crt", get label() { return t("retro.row.crt"); }, get group() { return t("retro.group.tube"); } },
+  { id: "crtStrength", get label() { return t("retro.row.crtStrength"); }, get group() { return t("retro.group.tube"); }, dependsOn: "crt" },
+  { id: "opacity", get label() { return t("retro.row.opacity"); }, get group() { return t("retro.group.tube"); } },
+  { id: "frames", get label() { return t("retro.row.frames"); }, get group() { return t("retro.group.stage2"); } },
+  { id: "sprite", get label() { return t("retro.row.sprite"); }, get group() { return t("retro.group.stage2"); } },
+  { id: "target", get label() { return t("retro.row.target"); }, get group() { return t("retro.group.output"); } },
+  { id: "fps", get label() { return t("retro.row.fps"); }, get group() { return t("retro.group.output"); } },
 ];
 
 export const DITHER_ORDER: RetroDither[] = ["off", "bayer2", "bayer4", "bayer8"];
 const DITHER_LABEL: Record<RetroDither, string> = {
-  off: "aus",
+  get off() { return t("retro.off"); },
   bayer2: "Bayer 2×2",
   bayer4: "Bayer 4×4",
   bayer8: "Bayer 8×8",
@@ -152,7 +153,7 @@ function withSlot(cfg: RetroConfig, s: RetroModeSettings): RetroConfig {
 }
 
 const fmtNum = (v: number) => v.toLocaleString("de-DE", { maximumFractionDigits: 1 });
-const onOff = (b: boolean) => (b ? "an" : "aus");
+const onOff = (b: boolean) => (b ? t("retro.on") : t("retro.off"));
 
 /** Is a row's parent switched off (row shown dimmed)? */
 export function rowInactive(row: RetroRow, cfg: RetroConfig): boolean {
@@ -179,13 +180,13 @@ export function rowValue(id: RetroRowId, cfg: RetroConfig): string {
     case "dither": return DITHER_LABEL[s.dither];
     case "ditherStrength": return `${s.dither_strength} %`;
     case "focus": return onOff(s.focus);
-    case "focusNative": return s.focus_native ? "Original" : "feine Pixel";
+    case "focusNative": return s.focus_native ? t("retro.original") : t("retro.fine_pixels");
     case "retreat": return onOff(cfg.retreat);
-    case "focusPixel": return s.focus_pixel_pt <= 1 ? "1 pt (nur Farben)" : `${fmtNum(s.focus_pixel_pt)} pt`;
+    case "focusPixel": return s.focus_pixel_pt <= 1 ? t("retro.one_pt_colours") : `${fmtNum(s.focus_pixel_pt)} pt`;
     case "focusBorder": return onOff(s.focus_border);
     case "lens": return onOff(s.lens);
     case "lensRadius": return `${s.lens_radius_pt} pt`;
-    case "lensView": return s.lens_view === "original" ? "Original" : "Fokus-Pixel";
+    case "lensView": return s.lens_view === "original" ? t("retro.original") : t("retro.focus_pixels");
     case "scanlines": return onOff(s.scanlines);
     case "scanlineIntensity": return `${s.scanline_intensity} %`;
     case "crt": return onOff(s.crt);
@@ -193,7 +194,7 @@ export function rowValue(id: RetroRowId, cfg: RetroConfig): string {
     case "opacity": return `${s.opacity} %`;
     case "frames": return onOff(s.retro_frames);
     case "sprite": return onOff(s.sprite_cursor);
-    case "target": return cfg.target === "current" ? "aktueller" : "alle";
+    case "target": return cfg.target === "current" ? t("retro.current_mon") : t("retro.all_mon");
     case "fps": return `${cfg.fps}`;
   }
 }
@@ -249,8 +250,8 @@ export function moveRow(index: number, dir: number, count = RETRO_ROWS.length): 
 /** Human text for a backend error code. */
 export function retroErrorText(code: string): string {
   switch (code) {
-    case "retro.no_permission": return "Bildschirmaufnahme ist nicht erlaubt.";
-    case "retro.unsupported": return "Auf diesem System nicht verfügbar.";
+    case "retro.no_permission": return t("retro.err.no_permission");
+    case "retro.unsupported": return t("retro.err.unsupported");
     default: return code;
   }
 }

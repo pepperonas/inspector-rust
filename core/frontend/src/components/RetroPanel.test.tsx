@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import type { RetroConfig, RetroModeSettings, RetroPreset } from "../lib/ipc";
 
@@ -51,6 +51,13 @@ vi.mock("../lib/ipc", () => ({
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
 import { RetroPanel } from "./RetroPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const key = (k: string) => act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })));
 const valueOf = (root: HTMLElement, label: string) => {

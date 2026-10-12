@@ -27,6 +27,7 @@ import {
 } from "../lib/ipc";
 import { RETRO_ROWS, adjustRow, moveRow, retroErrorText, rowInactive, rowValue } from "../lib/retro";
 import { useTauriEvent } from "../hooks/useTauriEvent";
+import { t, useT } from "../lib/i18n";
 
 interface Props {
   focused: boolean;
@@ -45,6 +46,7 @@ function b64ToBytes(b64: string): Uint8ClampedArray<ArrayBuffer> {
 }
 
 export function RetroPanel({ focused, keyword, onExit }: Props) {
+  useT();
   const [cfg, setCfg] = useState<RetroConfig | null>(null);
   const [presets, setPresets] = useState<RetroPreset[]>([]);
   const [status, setStatus] = useState<RetroStatus | null>(null);
@@ -198,9 +200,9 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
     return (
       <div className="flex h-full flex-col gap-2 p-4 text-[var(--color-fg)]">
         <div className="flex items-center gap-2 text-[13px] font-medium">
-          <Gamepad2 size={15} className="text-[var(--color-accent)]" /> Retro-Overlay
+          <Gamepad2 size={15} className="text-[var(--color-accent)]" /> {t("retro.title")}
         </div>
-        <p className="text-[12px] text-[var(--color-muted)]">{status.note ?? "Auf diesem System nicht verfügbar."}</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{status.note ?? t("retro.err.unsupported")}</p>
       </div>
     );
   }
@@ -211,7 +213,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
     <div className="flex h-full flex-col gap-2 overflow-y-auto p-3 text-[var(--color-fg)]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[13px] font-medium">
-          <Gamepad2 size={15} className="text-[var(--color-accent)]" /> Retro-Overlay
+          <Gamepad2 size={15} className="text-[var(--color-accent)]" /> {t("retro.title")}
         </div>
         <button
           type="button"
@@ -222,25 +224,25 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
               ? "bg-emerald-500/20 text-emerald-500"
               : "bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-fg)]")
           }
-          title="Enter oder ⌃⇧⌥8"
+          title={t("retro.enter_or_8")}
         >
-          {status?.running ? "● läuft — beenden" : "starten"}
+          {status?.running ? t("retro.running_stop") : "starten"}
         </button>
       </div>
 
       {status && !status.screen_permission && (
         <div className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-600">
-          Für die Vorschau und das Overlay braucht Inspector Rust die Erlaubnis zur Bildschirmaufnahme.{" "}
+          {t("retro.inspector_rust_needs_screen_recording")}{" "}
           <button type="button" className="underline" onClick={() => void retroOpenPermission("screen")}>
-            Systemeinstellungen öffnen
+            {t("retro.open_settings")}
           </button>
         </div>
       )}
       {needsAx && (
         <div className="rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-600">
-          Das aktive Fenster freizulassen braucht Bedienungshilfen — ohne die Erlaubnis wird es mit verpixelt.{" "}
+          {t("retro.leaving_the_active_window_out")}{" "}
           <button type="button" className="underline" onClick={() => void retroOpenPermission("accessibility")}>
-            Öffnen
+            {t("common.open")}
           </button>
         </div>
       )}
@@ -251,7 +253,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
       <div className="shrink-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-black">
         <canvas ref={canvasRef} className="block w-full" style={{ imageRendering: "pixelated", aspectRatio: "16 / 10" }} />
         {previewError && (
-          <p className="px-2 py-1 text-[10px] text-[var(--color-muted)]">Vorschau: {retroErrorText(previewError)}</p>
+          <p className="px-2 py-1 text-[10px] text-[var(--color-muted)]">{t("retro.preview")} {retroErrorText(previewError)}</p>
         )}
       </div>
 
@@ -280,7 +282,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
                   <span className="flex items-center gap-1.5 tabular-nums">
                     <button
                       type="button"
-                      aria-label={`${row.label} verringern`}
+                      aria-label={t("retro.decrease", { label: row.label })}
                       className="rounded px-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -293,7 +295,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
                     <span className="min-w-[88px] text-right font-medium">{rowValue(row.id, cfg)}</span>
                     <button
                       type="button"
-                      aria-label={`${row.label} erhöhen`}
+                      aria-label={t("retro.increase", { label: row.label })}
                       className="rounded px-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -311,7 +313,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
         </div>
       )}
 
-      <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">Presets</div>
+      <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">{t("retro.presets")}</div>
       <div className="flex flex-wrap gap-1">
         {presets.map((p) => (
           <span
@@ -332,7 +334,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
             {!p.builtin && (
               <button
                 type="button"
-                aria-label={`Preset ${p.name} löschen`}
+                aria-label={t("retro.delete_preset", { name: p.name })}
                 className="text-[var(--color-muted)] hover:text-rose-500"
                 onClick={() =>
                   void retroPresetDelete(p.name)
@@ -357,7 +359,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
               void savePreset();
             }
           }}
-          placeholder="Name für neuen Preset"
+          placeholder={t("retro.name_for_the_new_preset")}
           maxLength={40}
           className="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-transparent px-2 py-1 text-[11px]"
         />
@@ -366,23 +368,23 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
           onClick={() => void savePreset()}
           className="flex items-center gap-1 rounded-md bg-[var(--color-surface)] px-2 py-1 text-[11px]"
         >
-          <Save size={11} /> Speichern
+          <Save size={11} /> {t("common.save")}
         </button>
         <button
           type="button"
           onClick={() => void retroReset().then(setCfg).catch((e) => setError(String(e)))}
           className="flex items-center gap-1 rounded-md bg-[var(--color-surface)] px-2 py-1 text-[11px]"
-          title="Aktiven Modus auf Standardwerte"
+          title={t("retro.reset_the_active_mode_to")}
         >
-          <RotateCcw size={11} /> Zurücksetzen
+          <RotateCcw size={11} /> {t("common.reset")}
         </button>
       </div>
 
       <p className="mt-1 text-[10px] text-[var(--color-muted)]">
         {focused
-          ? "↑↓ Zeile · ←→ Wert · Enter Overlay an/aus · Esc zurück"
-          : "Enter übernimmt die Tastatur."}{" "}
-        · ⌃⇧⌥8 an/aus · ⌃⇧⌥9 aktives Fenster
+          ? t("retro.row_value_enter_overlay_on")
+          : t("retro.enter_takes_the_keyboard")}{" "}
+        {t("retro.8_on_off_9_active")}
       </p>
     </div>
   );

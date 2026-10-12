@@ -3,6 +3,7 @@ import { ChevronDown, Pause, Play, Square } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { pauseScreenRecord, resumeScreenRecord, stopScreenRecord } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * Floating control bar shown while a screen recording is active (the
@@ -27,6 +28,7 @@ const NUB_W = 36;
 const NUB_H = 30;
 
 export function RecordStopBar() {
+  useT();
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -96,8 +98,8 @@ export function RecordStopBar() {
   const chevron = (
     <button
       onClick={toggleCollapsed}
-      title={collapsed ? "Ausklappen" : "Einklappen"}
-      aria-label={collapsed ? "Ausklappen" : "Einklappen"}
+      title={collapsed ? t("rec.expand") : t("rec.collapse")}
+      aria-label={collapsed ? t("rec.expand") : t("rec.collapse")}
       className="flex shrink-0 items-center justify-center rounded-md p-1 text-[var(--color-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-fg)]"
     >
       <ChevronDown
@@ -137,7 +139,7 @@ export function RecordStopBar() {
         </span>
         {paused && (
           <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-            Paused
+            {t("rec.paused")}
           </span>
         )}
       </div>
@@ -145,19 +147,19 @@ export function RecordStopBar() {
       <button
         onClick={togglePause}
         disabled={busy || stopping}
-        title={paused ? "Resume" : "Pause"}
+        title={paused ? t("rec.resume") : t("rec.pause")}
         className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] font-medium hover:bg-[var(--color-bg)] disabled:opacity-60"
       >
         {paused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />}
-        {paused ? "Resume" : "Pause"}
+        {paused ? t("rec.resume") : t("rec.pause")}
       </button>
       <button
         onClick={stop}
         disabled={stopping}
-        title="Stop recording"
+        title={t("rec.stop_recording")}
         className="flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-red-500 disabled:opacity-60"
       >
-        <Square size={12} fill="currentColor" /> {stopping ? "Saving…" : "Stop"}
+        <Square size={12} fill="currentColor" /> {stopping ? t("rec.saving") : t("rec.stop")}
       </button>
     </div>
   );

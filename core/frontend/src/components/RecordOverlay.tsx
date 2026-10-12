@@ -6,6 +6,8 @@ import {
   startScreenRecord,
   type RecordRegion,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Fullscreen region-select + audio-config + countdown overlay (the
@@ -33,6 +35,7 @@ interface Rect {
 const MIN_SIZE = 12; // px — ignore accidental click-without-drag
 
 export function RecordOverlay() {
+  useT();
   const [phase, setPhase] = useState<Phase>("select");
   const [rect, setRect] = useState<Rect | null>(null);
   const [system, setSystem] = useState(false);
@@ -97,8 +100,8 @@ export function RecordOverlay() {
       setPhase("configure");
       setError(
         msg.includes(ERR_NO_FFMPEG)
-          ? "ffmpeg is not installed. Install it (Windows: winget install ffmpeg; macOS: brew install ffmpeg) and restart the app."
-          : `Could not start recording: ${msg}`,
+          ? t("rec.ffmpeg_is_not_installed_install")
+          : t("rec.start_failed", { msg }),
       );
     });
   }, [rect, system, mic]);
@@ -173,7 +176,7 @@ export function RecordOverlay() {
       {/* Hint while selecting. */}
       {phase === "select" && (
         <div className="pointer-events-none absolute left-1/2 top-8 -translate-x-1/2 rounded-lg bg-black/70 px-4 py-2 text-[13px] text-white shadow-lg">
-          Drag to select the recording area · Esc to cancel
+          {t("rec.drag_to_select_the_recording")}
         </div>
       )}
 
@@ -206,11 +209,11 @@ export function RecordOverlay() {
         >
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-2 text-[13px] font-medium">
-              <Monitor size={15} className="text-[var(--color-accent)]" /> Record audio
+              <Monitor size={15} className="text-[var(--color-accent)]" /> {t("rec.record_audio")}
             </span>
             <button
               onClick={cancel}
-              title="Cancel (Esc)"
+              title={t("rec.cancel_esc")}
               className="flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-fg)]"
             >
               <X size={14} />
@@ -221,13 +224,13 @@ export function RecordOverlay() {
             on={system}
             onToggle={() => setSystem((v) => !v)}
             icon={<Volume2 size={15} />}
-            label="System audio"
+            label={t("rec.system_audio")}
           />
           <Toggle
             on={mic}
             onToggle={() => setMic((v) => !v)}
             icon={<Mic size={15} />}
-            label="Microphone"
+            label={t("rec.microphone")}
           />
 
           {error && (
@@ -239,20 +242,17 @@ export function RecordOverlay() {
               onClick={startCountdown}
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-[13px] font-medium text-white hover:bg-red-500"
             >
-              <span className="h-2.5 w-2.5 rounded-full bg-white" /> Record
+              <span className="h-2.5 w-2.5 rounded-full bg-white" /> {t("rec.record")}
             </button>
             <button
               onClick={cancel}
               className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-[13px] text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
             >
-              Cancel
+              {t("rec.cancel")}
             </button>
           </div>
           <p className="text-[10px] leading-snug text-[var(--color-muted)]">
-            Mic records directly. <b>System audio</b> is captured through a
-            loopback device (macOS: BlackHole) — your output must actually be
-            routed through it (e.g. a Multi-Output Device), otherwise it records
-            silence. Starts after a 3&nbsp;s countdown.
+            <InlineMd text={t("rec.audio_note")} />
           </p>
         </div>
       )}

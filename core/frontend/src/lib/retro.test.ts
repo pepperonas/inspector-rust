@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   PIXEL_RANGE,
   RETRO_PALETTES,
@@ -72,6 +72,13 @@ describe("palettes + ranges", () => {
 
 import { RETRO_ROWS, activeSlot, adjustRow, moveRow, rowInactive, rowValue } from "./retro";
 import type { RetroConfig, RetroModeSettings } from "./ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 // Mirrors ModeSettings::defaults in retro/config.rs.
 const EIGHT: RetroModeSettings = {

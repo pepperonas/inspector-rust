@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { Siren } from "lucide-react";
 import { irisStatus } from "../lib/ipc";
 import { formatSpl, meterFraction, METER_MIN_SPL, METER_MAX_SPL } from "../lib/iris";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * Calibration panel for the `iris` command, rendered in the right preview
@@ -25,6 +27,7 @@ import { formatSpl, meterFraction, METER_MIN_SPL, METER_MAX_SPL } from "../lib/i
  * doing exactly one thing.
  */
 export function IrisPanel() {
+  useT();
   const [spl, setSpl] = useState<number | null>(null);
   const [over, setOver] = useState(false);
   const [threshold, setThreshold] = useState<number | null>(null);
@@ -69,7 +72,7 @@ export function IrisPanel() {
           size={18}
           className={over ? "text-rose-400" : "text-[var(--color-muted)]"}
         />
-        <span className="text-sm font-semibold">Iris</span>
+        <span className="text-sm font-semibold">{t("iris.iris")}</span>
         <span
           className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ${
             over
@@ -77,7 +80,7 @@ export function IrisPanel() {
               : "bg-[var(--color-surface)] text-[var(--color-muted)]"
           }`}
         >
-          {over ? "über Schwelle" : "scharf · ruhig"}
+          {over ? t("iris.over_threshold") : t("iris.armed_quiet")}
         </span>
       </div>
 
@@ -91,7 +94,7 @@ export function IrisPanel() {
           >
             {spl === null ? "—" : formatSpl(spl)}
           </span>
-          <span className="text-xs text-[var(--color-muted)]">dB (SPL)</span>
+          <span className="text-xs text-[var(--color-muted)]">{t("iris.db_spl")}</span>
         </div>
 
         {/* Meter: fill = live level, tick = threshold, ghost = decaying peak. */}
@@ -109,27 +112,23 @@ export function IrisPanel() {
           <div
             className="absolute top-0 h-full w-0.5 bg-rose-300"
             style={{ left: `${thrPos * 100}%` }}
-            title={`Schwelle ${formatSpl(thr)} dB`}
+            title={t("iris.threshold_db", { v: formatSpl(thr) })}
           />
         </div>
         <div className="mt-1 flex justify-between text-[10px] text-[var(--color-muted)]">
           <span>{METER_MIN_SPL}</span>
-          <span>Schwelle {formatSpl(thr)} dB</span>
+          <span>{t("iris.threshold_db", { v: formatSpl(thr) })}</span>
           <span>{METER_MAX_SPL}</span>
         </div>
       </div>
 
       <div className="rounded-lg bg-[var(--color-surface)] p-3 text-xs leading-relaxed text-[var(--color-muted)]">
         <div className="mb-1 font-medium text-[var(--color-fg)]">
-          Schwelle ändern: Zahl in der Suchzeile tippen
+          {t("iris.change_the_threshold_type_a")}
         </div>
-        Überschreitet der Pegel die Schwelle, glimmen die Bildschirmränder rot —
-        auf allen Monitoren, klick-durchlässig, ohne Fokus zu stehlen. Die
-        Überwachung läuft weiter, wenn du dieses Fenster schließt.
+        {t("iris.when_the_level_exceeds_the")}
         <div className="mt-1">
-          <span className="font-mono">iris 60</span> stellt live nach ·
-          Ausschalten: <span className="font-mono">iris</span> oder{" "}
-          <span className="font-mono">iris 0</span> + Enter.
+          <InlineMd text={t("iris.off_hint")} />
         </div>
       </div>
     </div>

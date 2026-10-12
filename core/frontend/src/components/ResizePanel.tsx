@@ -7,6 +7,7 @@ import {
   targetSize,
   type ResizeSpec,
 } from "../lib/resize";
+import { t, tn, useT } from "../lib/i18n";
 
 /**
  * `rz` preview (v0.153.0): which modes exist, and -- for the images actually
@@ -17,12 +18,12 @@ import {
  * that could freeze the UI, so it runs once per settled selection, never per
  * character.
  */
-const MODES: ReadonlyArray<{ syntax: string; meaning: string }> = [
-  { syntax: "rz 50", meaning: "50 % × 50 % — eine Zahl ist immer prozentual" },
-  { syntax: "rz 50x25", meaning: "50 % × 25 % — Achsen getrennt skalieren" },
-  { syntax: "rz 1200x800", meaning: "1200 × 800 px — zwei Zahlen bleiben Pixel" },
-  { syntax: "rz px 1200x800", meaning: "Pixel ausdrücklich (auch `pixel`)" },
-  { syntax: "rz % 150", meaning: "Prozent ausdrücklich (auch `pc`, `percent`)" },
+const MODES: ReadonlyArray<{ syntax: string; readonly meaning: string }> = [
+  { syntax: "rz 50", get meaning() { return t("rz.mode.one"); } },
+  { syntax: "rz 50x25", get meaning() { return t("rz.mode.axes"); } },
+  { syntax: "rz 1200x800", get meaning() { return t("rz.mode.px"); } },
+  { syntax: "rz px 1200x800", get meaning() { return t("rz.mode.px_explicit"); } },
+  { syntax: "rz % 150", get meaning() { return t("rz.mode.pct_explicit"); } },
 ];
 
 const DEBOUNCE_MS = 220;
@@ -38,6 +39,7 @@ export function ResizePanel({
   /** Could the selection be read at all? Denied Automation is NOT "empty". */
   selectionReadable: boolean;
 }) {
+  useT();
   const spec = useMemo(() => parseResizeCommand(arg), [arg]);
   const paths = useMemo(() => (files ?? []).map((f) => f.path), [files]);
   const key = paths.join(" ");
@@ -72,11 +74,11 @@ export function ResizePanel({
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[12px]">
       <div>
-        <div className="text-[13px] font-semibold text-[var(--color-fg)]">Bilder skalieren</div>
+        <div className="text-[13px] font-semibold text-[var(--color-fg)]">{t("rz.scale_images")}</div>
         <div className="text-[var(--color-muted)]">
           {spec
-            ? `Ziel: ${describeSpec(spec)}`
-            : "Modus wählen — eine Zahl ist Prozent, zwei Zahlen sind Pixel."}
+            ? t("rz.target", { spec: describeSpec(spec) })
+            : t("rz.pick_a_mode_one_number")}
         </div>
       </div>
 
@@ -125,8 +127,7 @@ function Outcome({
     // to READ the selection is a different fact from an empty selection.
     return (
       <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-[var(--color-fg)]">
-        Finder-Auswahl nicht lesbar (Automation-Freigabe fehlt). `rz` nimmt dann das Bild
-        aus der Zwischenablage.
+        {t("rz.finder_selection_unreadable_automation_p")}
       </div>
     );
   }
@@ -134,7 +135,7 @@ function Outcome({
   if (n === 0) {
     return (
       <div className="text-[11px] text-[var(--color-muted)]">
-        Kein Bild im Finder ausgewählt — `rz` nimmt dann das Bild aus der Zwischenablage.
+        {t("rz.no_image_selected_in_finder")}
       </div>
     );
   }
@@ -142,8 +143,8 @@ function Outcome({
   return (
     <div>
       <div className="mb-1 text-[11px] font-medium text-[var(--color-fg)]">
-        {n} {n === 1 ? "Bild" : "Bilder"} ausgewählt
-        {probing ? <span className="ml-1 text-[var(--color-muted)]">· messe…</span> : null}
+        {tn("rz.selected", n)}
+        {probing ? <span className="ml-1 text-[var(--color-muted)]">· {t("rz.measuring")}</span> : null}
       </div>
       <div className="rounded-md border border-[var(--color-border)]">
         {(files ?? []).map((f, i) => {
@@ -163,7 +164,7 @@ function Outcome({
             >
               <span className="truncate text-[var(--color-fg)]">{f.name}</span>
               <span className="shrink-0 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-                {src ? `${src.w}×${src.h}` : "nicht lesbar"}
+                {src ? `${src.w}×${src.h}` : t("rz.unreadable")}
                 {tgt ? (
                   <>
                     {" → "}
@@ -173,7 +174,7 @@ function Outcome({
                   </>
                 ) : null}
                 {probe?.format ? ` (${probe.format})` : ""}
-                {over ? <span className="ml-1 text-red-400">über 16 MP</span> : null}
+                {over ? <span className="ml-1 text-red-400">{t("rz.over_cap")}</span> : null}
               </span>
             </div>
           );

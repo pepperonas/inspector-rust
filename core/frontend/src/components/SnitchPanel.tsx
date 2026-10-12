@@ -17,6 +17,7 @@ import {
   snitchSetBlocked,
   type SnitchApp,
 } from "../lib/ipc";
+import { t, tn, useT } from "../lib/i18n";
 
 export function SnitchPanel({
   focused,
@@ -27,6 +28,7 @@ export function SnitchPanel({
   onInteract?: () => void;
   onExit: () => void;
 }) {
+  useT();
   const [apps, setApps] = useState<SnitchApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [armed, setArmed] = useState(false);
@@ -139,7 +141,7 @@ export function SnitchPanel({
     <div className="flex h-full flex-col gap-2 overflow-hidden p-3 text-sm">
       <div className="flex items-center gap-2 text-[var(--color-fg)]">
         <Wifi size={16} className="text-rose-400" />
-        <span className="font-semibold">Network monitor</span>
+        <span className="font-semibold">{t("snitch.network_monitor")}</span>
         {armed ? (
           <button
             type="button"
@@ -149,13 +151,13 @@ export function SnitchPanel({
             }}
             disabled={busy}
             className="ml-auto flex items-center gap-1 rounded-full bg-rose-600/90 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-600"
-            title="Stop blocking + restore the firewall"
+            title={t("snitch.stop_blocking_restore_the_firewall")}
           >
-            <Shield size={12} /> Blocking on
+            <Shield size={12} /> {t("snitch.blocking_on")}
           </button>
         ) : (
           <span className="ml-auto flex items-center gap-1 text-xs text-[var(--color-muted)]">
-            <ShieldOff size={12} /> Blocking off
+            <ShieldOff size={12} /> {t("snitch.blocking_off")}
           </span>
         )}
       </div>
@@ -163,13 +165,13 @@ export function SnitchPanel({
       {loading ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
           <Loader2 size={24} className="animate-spin" />
-          <div>Reading connections…</div>
+          <div>{t("snitch.reading_connections")}</div>
         </div>
       ) : (
         <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {apps.length === 0 && (
             <div className="pt-6 text-center text-[var(--color-muted)]">
-              No apps are connected right now.
+              {t("snitch.no_apps_are_connected_right")}
             </div>
           )}
           {apps.map((a, i) => {
@@ -210,7 +212,7 @@ export function SnitchPanel({
                     {a.command}
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted)]">
-                    {a.connection_count} conn
+                    {a.connection_count} {t("snitch.conn")}
                   </span>
                   <span
                     className={
@@ -220,7 +222,7 @@ export function SnitchPanel({
                         : "bg-[var(--color-border)] text-[var(--color-muted)]")
                     }
                   >
-                    {a.blocked ? "Blocked" : "Allow"}
+                    {a.blocked ? t("snitch.blocked") : t("snitch.allow")}
                   </span>
                 </div>
               </div>
@@ -234,8 +236,8 @@ export function SnitchPanel({
       )}
       <div className="text-center text-[11px] leading-tight text-[var(--color-muted)]">
         {blockedCount > 0 && armed
-          ? `Best-effort blocking ${blockedCount} app${blockedCount === 1 ? "" : "s"} via pf — first packets of new connections may leak.`
-          : "Toggle an app to block its internet (best-effort, needs admin once). `snitch map` shows the world map."}
+          ? tn("snitch.blocking_n", blockedCount)
+          : t("snitch.toggle_an_app_to_block")}
       </div>
     </div>
   );

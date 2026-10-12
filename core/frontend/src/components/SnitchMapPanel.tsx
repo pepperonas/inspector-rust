@@ -24,6 +24,7 @@ import {
   type SnitchConnection,
 } from "../lib/ipc";
 import { WORLD_MASK_W, WORLD_MASK_H, isLand, project } from "../lib/worldmask";
+import { t, tn, useT } from "../lib/i18n";
 
 interface Server {
   ip: string;
@@ -55,6 +56,7 @@ export function SnitchMapPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [servers, setServers] = useState<Server[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(0);
@@ -559,17 +561,17 @@ export function SnitchMapPanel({
     <div className="flex h-full flex-col gap-2 overflow-hidden p-3 text-sm">
       <div className="flex items-center gap-2 text-[var(--color-fg)]">
         <Globe2 size={16} className="text-rose-400" />
-        <span className="font-semibold">Connections map</span>
+        <span className="font-semibold">{t("snitch.connections_map")}</span>
         <span className="ml-auto flex items-center gap-2 text-xs text-[var(--color-muted)]">
           {activeCount > 0 && (
             <span className="flex items-center gap-1 font-semibold text-emerald-400">
               <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-              {activeCount} active
+              {activeCount} {t("snitch.active")}
             </span>
           )}
           <span>
-            {servers.length} server{servers.length === 1 ? "" : "s"}
-            {pending > 0 ? ` · locating ${pending}…` : ""}
+            {tn("snitch.servers", servers.length)}
+            {pending > 0 ? ` · ${t("snitch.locating", { n: pending })}` : ""}
           </span>
         </span>
       </div>
@@ -591,7 +593,7 @@ export function SnitchMapPanel({
             type="button"
             onClick={() => zoomBy(1.4)}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)]/80 text-[var(--color-fg)] backdrop-blur hover:bg-[var(--color-surface)]"
-            title="Zoom in (scroll / +)"
+            title={t("snitch.zoom_in_scroll")}
           >
             <Plus size={14} />
           </button>
@@ -599,7 +601,7 @@ export function SnitchMapPanel({
             type="button"
             onClick={() => zoomBy(1 / 1.4)}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)]/80 text-[var(--color-fg)] backdrop-blur hover:bg-[var(--color-surface)]"
-            title="Zoom out (scroll / −)"
+            title={t("snitch.zoom_out_scroll")}
           >
             <Minus size={14} />
           </button>
@@ -607,7 +609,7 @@ export function SnitchMapPanel({
             type="button"
             onClick={resetView}
             className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)]/80 text-[var(--color-fg)] backdrop-blur hover:bg-[var(--color-surface)]"
-            title="Reset view (0)"
+            title={t("snitch.reset_view_0")}
           >
             <Maximize2 size={13} />
           </button>
@@ -658,12 +660,12 @@ export function SnitchMapPanel({
         })}
         {!loading && servers.length === 0 && (
           <div className="pt-4 text-center text-[var(--color-muted)]">
-            No located connections yet.
+            {t("snitch.no_located_connections_yet")}
           </div>
         )}
       </div>
       <div className="text-center text-[11px] text-[var(--color-muted)]">
-        Scroll to zoom · drag to pan · green = data flowing now · Esc to exit
+        {t("snitch.scroll_to_zoom_drag_to")}
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import { addMonths, dayDelta, monthMatrix, parseCalendarArg } from "../lib/calendar";
+import { t, useT } from "../lib/i18n";
 
 interface Ymd {
   year: number;
@@ -67,6 +68,7 @@ export function CalendarPanel({
   /** Called after a mouse interaction so the parent keeps the search field focused. */
   onInteract?: () => void;
 }) {
+  useT();
   const today = useMemo(() => todayYmd(), []);
   const [view, setView] = useState<{ year: number; month: number }>({
     year: today.year,
@@ -173,8 +175,8 @@ export function CalendarPanel({
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            title="Previous year (↑)"
-            aria-label="Previous year"
+            title={t("cal.previous_year")}
+            aria-label={t("cal.previous_year")}
             className={navBtn}
             onClick={() => go(-12)}
           >
@@ -182,8 +184,8 @@ export function CalendarPanel({
           </button>
           <button
             type="button"
-            title="Previous month (←)"
-            aria-label="Previous month"
+            title={t("cal.previous_month")}
+            aria-label={t("cal.previous_month")}
             className={navBtn}
             onClick={() => go(-1)}
           >
@@ -191,16 +193,16 @@ export function CalendarPanel({
           </button>
           <button
             type="button"
-            title="Jump to today (T)"
+            title={t("cal.jump_to_today_t")}
             onClick={goToday}
             className="rounded-full px-2.5 py-1 text-[11px] font-medium text-[var(--color-accent)] transition-colors hover:bg-[var(--color-surface)] md3-press"
           >
-            Today
+            {t("cal.today")}
           </button>
           <button
             type="button"
-            title="Next month (→)"
-            aria-label="Next month"
+            title={t("cal.next_month")}
+            aria-label={t("cal.next_month")}
             className={navBtn}
             onClick={() => go(1)}
           >
@@ -208,8 +210,8 @@ export function CalendarPanel({
           </button>
           <button
             type="button"
-            title="Next year (↓)"
-            aria-label="Next year"
+            title={t("cal.next_year")}
+            aria-label={t("cal.next_year")}
             className={navBtn}
             onClick={() => go(12)}
           >
@@ -221,7 +223,7 @@ export function CalendarPanel({
       {/* Weekday header (Mon-first) + ISO-week gutter */}
       <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-x-1 text-center">
         <span className="text-[9px] font-medium uppercase text-[var(--color-muted)] opacity-60 self-end">
-          wk
+          {t("cal.wk")}
         </span>
         {WEEKDAYS.map((w, i) => (
           <span
@@ -295,8 +297,8 @@ export function CalendarPanel({
 
       <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
         {focused
-          ? "←→ month · ↑↓ year · T today · click a day · Esc close"
-          : "Enter to navigate — or type e.g. “calendar märz 1990”"}
+          ? t("cal.month_year_t_today_click")
+          : t("cal.enter_to_navigate_or_type")}
       </p>
     </div>
   );

@@ -4,6 +4,7 @@
  * the Rust backend (`transcribe.rs`) — these only read its snapshot.
  */
 import type { TranscribeFile, TranscribeJob } from "./ipc";
+import { t } from "./i18n";
 
 export function isJobActive(job: TranscribeJob | null | undefined): boolean {
   return (
@@ -71,12 +72,12 @@ export function formatDuration(ms: number): string {
 export function fileStatus(file: TranscribeFile, now: number): string {
   switch (file.state) {
     case "queued":
-      return "Wartet";
+      return t("tr.queued");
     case "running": {
-      if (file.progress <= 0) return "Audio wird gelesen…";
+      if (file.progress <= 0) return t("tr.reading");
       const pct = `${Math.floor(file.progress * 100)} %`;
       const left = remainingMs(file, now);
-      return left == null ? pct : `${pct} · noch ~${formatDuration(left)}`;
+      return left == null ? pct : t("tr.pct_left", { pct, left: formatDuration(left) });
     }
     case "done": {
       const took =
@@ -84,12 +85,12 @@ export function fileStatus(file: TranscribeFile, now: number): string {
           ? ` · ${formatDuration(file.finished_ms - file.started_ms)}`
           : "";
       const lang = file.language ? ` · ${file.language}` : "";
-      return `Fertig${lang}${took}`;
+      return `${t("tr.done")}${lang}${took}`;
     }
     case "failed":
-      return file.error ? `Fehler: ${file.error}` : "Fehlgeschlagen";
+      return file.error ? t("tr.error", { msg: file.error }) : t("tr.failed");
     case "cancelled":
-      return "Abgebrochen";
+      return t("tr.cancelled");
   }
 }
 
@@ -98,16 +99,16 @@ export function phaseLabel(job: TranscribeJob): string {
   const c = jobCounts(job);
   switch (job.phase) {
     case "starting":
-      return "Whisper startet…";
+      return t("tr.phase.starting");
     case "loading_model":
-      return "Modell wird geladen…";
+      return t("tr.phase.loading");
     case "running":
-      return c.total > 1 ? `Transkribiere ${Math.min(c.done + c.failed + 1, c.total)} von ${c.total}` : "Transkribiere";
+      return c.total > 1 ? t("tr.phase.running_n", { i: Math.min(c.done + c.failed + 1, c.total), n: c.total }) : t("tr.phase.running");
     case "finished":
-      return c.failed > 0 ? `Fertig — ${c.done} von ${c.total} erstellt` : c.total === 1 ? "Fertig" : `Fertig — ${c.total} Transkripte`;
+      return c.failed > 0 ? t("tr.phase.finished_some", { done: c.done, n: c.total }) : c.total === 1 ? t("tr.done") : t("tr.phase.finished_n", { n: c.total });
     case "cancelled":
-      return `Abgebrochen — ${c.done} von ${c.total} fertig`;
+      return t("tr.phase.cancelled_n", { done: c.done, n: c.total });
     case "failed":
-      return "Fehlgeschlagen";
+      return t("tr.failed");
   }
 }

@@ -24,6 +24,7 @@ import {
   overallProgress,
   phaseLabel,
 } from "../lib/transcribe";
+import { t, useT } from "../lib/i18n";
 
 interface Props {
   job: TranscribeJob | null;
@@ -67,6 +68,7 @@ function barTone(state: TranscribeFile["state"]): string {
 }
 
 export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
+  useT();
   const active = isJobActive(job);
   const [now, setNow] = useState(() => Date.now());
   const [armed, setArmed] = useState(false);
@@ -115,7 +117,7 @@ export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-3 text-sm text-[var(--color-muted)]">
         <Loader2 size={24} className="animate-spin" />
-        <div>Transkription wird gestartet…</div>
+        <div>{t("tr.starting_transcription")}</div>
       </div>
     );
   }
@@ -126,7 +128,7 @@ export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
     <div className="flex h-full flex-col gap-2 overflow-hidden p-3 text-sm" data-testid="transcribe-panel">
       <div className="flex items-center gap-2 text-[var(--color-fg)]">
         <FileAudio size={16} className="text-rose-400" />
-        <span className="font-semibold">Audio/Video → Text</span>
+        <span className="font-semibold">{t("tr.audio_video_text")}</span>
         {active && (
           <button
             type="button"
@@ -137,7 +139,7 @@ export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
                 : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
             }`}
           >
-            {isArmed ? "Wirklich abbrechen?" : "Abbrechen"}
+            {isArmed ? t("tr.really_cancel") : t("common.cancel")}
           </button>
         )}
       </div>
@@ -174,7 +176,7 @@ export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
               data-testid="transcribe-file"
               data-state={f.state}
               role={clickable ? "button" : undefined}
-              title={clickable ? `${f.output} — im Finder zeigen` : f.path}
+              title={clickable ? t("tr.reveal", { path: f.output ?? "" }) : f.path}
               onClick={clickable ? () => void revealPath(f.output as string) : undefined}
               className={`space-y-1 rounded-lg px-2 py-1.5 ${
                 f.state === "running" ? "bg-[var(--color-surface)]" : ""
@@ -199,8 +201,8 @@ export function TranscribePanel({ job, focused, onExit, onRestart }: Props) {
 
       <div className="text-xs text-[var(--color-muted)]">
         {active
-          ? "Esc schließt — die Transkription läuft im Hintergrund weiter"
-          : "Fertige Datei anklicken zeigt sie im Finder · Enter startet neu · Esc schließt"}
+          ? t("tr.esc_closes_transcription_keeps_running")
+          : t("tr.click_a_finished_file_to")}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Type, AlignLeft, AlignCenter, AlignRight, Square, AlertTriangle } from "lucide-react";
 import { figletRender } from "../lib/ipc";
 import type { FigletBanner, FigletComment, FigletOpts } from "../lib/figlet";
+import { t, tn, useT } from "../lib/i18n";
 
 const COMMENT_LABELS: Record<FigletComment, string> = {
   none: "plain",
@@ -34,6 +35,7 @@ export function FigletPreview({
   opts: FigletOpts;
   onOptsChange: (patch: Partial<FigletOpts>) => void;
 }) {
+  useT();
   const [banner, setBanner] = useState<FigletBanner | null>(null);
   const cache = useRef<Map<string, FigletBanner>>(new Map());
 
@@ -82,33 +84,33 @@ export function FigletPreview({
         {category && <span className="text-[11px] text-[var(--color-muted)]">· {category}</span>}
         <span
           className="ml-auto text-[11px] text-[var(--color-muted)]"
-          title="Enter copies the banner as text · Shift+Enter copies it as a cropped PNG image · Cmd/Ctrl+Shift+Enter: transparent-background PNG → saved to Downloads AND copied to the clipboard"
+          title={t("figlet.enter_copies_the_banner_as")}
         >
-          Enter copies · ⇧⏎ PNG · ⌘⇧⏎ transparent
+          {t("figlet.enter_copies_png_transparent")}
         </span>
       </div>
 
       {/* Option chips */}
       <div className="mb-2 flex flex-wrap items-center gap-1">
-        <button className={chip(opts.align === "left")} title="Align left" onClick={() => onOptsChange({ align: "left" })}>
+        <button className={chip(opts.align === "left")} title={t("figlet.align_left")} onClick={() => onOptsChange({ align: "left" })}>
           <AlignLeft size={13} />
         </button>
-        <button className={chip(opts.align === "center")} title="Center" onClick={() => onOptsChange({ align: "center" })}>
+        <button className={chip(opts.align === "center")} title={t("figlet.center")} onClick={() => onOptsChange({ align: "center" })}>
           <AlignCenter size={13} />
         </button>
-        <button className={chip(opts.align === "right")} title="Align right" onClick={() => onOptsChange({ align: "right" })}>
+        <button className={chip(opts.align === "right")} title={t("figlet.align_right")} onClick={() => onOptsChange({ align: "right" })}>
           <AlignRight size={13} />
         </button>
-        <button className={chip(opts.boxed)} title="Box border" onClick={() => onOptsChange({ boxed: !opts.boxed })}>
+        <button className={chip(opts.boxed)} title={t("figlet.box_border")} onClick={() => onOptsChange({ boxed: !opts.boxed })}>
           <Square size={13} />
         </button>
-        <button className={chip(opts.trim)} title="Trim trailing whitespace" onClick={() => onOptsChange({ trim: !opts.trim })}>
-          trim
+        <button className={chip(opts.trim)} title={t("figlet.trim_trailing_whitespace")} onClick={() => onOptsChange({ trim: !opts.trim })}>
+          {t("figlet.trim")}
         </button>
         {/* Comment style cycles through the options */}
         <button
           className={chip(opts.comment !== "none")}
-          title="Comment wrap"
+          title={t("figlet.comment_wrap")}
           onClick={() => {
             const order: FigletComment[] = ["none", "slashes", "hash", "block", "html"];
             const next = order[(order.indexOf(opts.comment) + 1) % order.length];
@@ -137,8 +139,8 @@ export function FigletPreview({
       {banner && banner.unsupported.length > 0 && (
         <p className="mb-2 flex items-center gap-1 rounded bg-amber-500/10 px-2 py-1 text-[11px] text-amber-600 dark:text-amber-400">
           <AlertTriangle size={12} />
-          {banner.unsupported.length} character{banner.unsupported.length === 1 ? "" : "s"} not in this
-          font: <span className="font-mono">{banner.unsupported.join(" ")}</span>
+          {tn("figlet.unsupported", banner.unsupported.length)}{" "}
+          <span className="font-mono">{banner.unsupported.join(" ")}</span>
         </p>
       )}
 
@@ -150,7 +152,7 @@ export function FigletPreview({
           </pre>
         ) : (
           <p className="p-2 text-[var(--color-muted)]">
-            Type text to see it as a banner. ↑/↓ browse fonts · Tab fills the font · Enter copies.
+            {t("figlet.type_text_to_see_it")}
           </p>
         )}
       </div>

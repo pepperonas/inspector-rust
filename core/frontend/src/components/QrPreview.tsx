@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { drawQr, qrMatrix, qrPngBase64, QR_BASE_MM, QR_QUIET_MODULES, QR_RELIEF_MM } from "../lib/qr";
 import { qrSave } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /** Canvas QR preview for the `qr <text>` command. Always renders black-on-white
  *  so the code scans regardless of the app theme. */
 export function QrPreview({ text }: { text: string }) {
+  useT();
   const ref = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,7 +49,7 @@ export function QrPreview({ text }: { text: string }) {
         <canvas
           ref={ref}
           className="max-w-full shrink-0 border border-[var(--color-border)] bg-white"
-          aria-label="QR code preview"
+          aria-label={t("qr.qr_code_preview")}
         />
       )}
       <div className="flex gap-2">
@@ -58,22 +60,19 @@ export function QrPreview({ text }: { text: string }) {
             onClick={() => void save(format)}
             className="md3-press rounded-lg bg-[var(--color-accent)] px-3 py-2 text-xs text-[var(--color-accent-fg)] disabled:opacity-40"
           >
-            Save {format.toUpperCase()}
+            {t("qr.save")} {format.toUpperCase()}
           </button>
         ))}
       </div>
-      <p className="text-xs text-[var(--color-muted)]">Saves to Downloads.</p>
+      <p className="text-xs text-[var(--color-muted)]">{t("qr.saves_to_downloads")}</p>
       {result.matrix && (
         <p className="text-xs text-[var(--color-muted)]">
-          STL: {result.matrix.length + 2 * QR_QUIET_MODULES} ×{" "}
-          {result.matrix.length + 2 * QR_QUIET_MODULES} × {+(QR_BASE_MM + QR_RELIEF_MM).toFixed(1)} mm · 1 mm modules · rounded
-          corners. Print a light base, then switch to dark filament at {QR_BASE_MM} mm for the raised
-          code. STL contains no colours. Test scanning the finished print.
+          {t("qr.stl_note", { dim: result.matrix.length + 2 * QR_QUIET_MODULES, h: +(QR_BASE_MM + QR_RELIEF_MM).toFixed(1), base: QR_BASE_MM })}
         </p>
       )}
       {saved && (
         <p role="status" className="break-all text-xs">
-          Saved: {saved}
+          {t("qr.saved", { file: saved })}
         </p>
       )}
       {(result.error || error) && (

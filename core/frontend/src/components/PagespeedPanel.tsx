@@ -7,6 +7,7 @@ import {
   type PsRun,
 } from "../lib/ipc";
 import { scoreBand, bandColor } from "../lib/pagespeed";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `pagespeed <url>` — Google PageSpeed Insights in the preview column
@@ -25,6 +26,7 @@ export function PagespeedPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [report, setReport] = useState<PageSpeedReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -97,7 +99,7 @@ export function PagespeedPanel({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
           <Gauge size={15} className="shrink-0 text-[var(--color-accent)]" />
-          <span className="truncate">PageSpeed</span>
+          <span className="truncate">{t("ps.pagespeed")}</span>
           {report && (
             <span className="truncate text-[var(--color-muted)]">· {report.url}</span>
           )}
@@ -105,7 +107,7 @@ export function PagespeedPanel({
         <button
           type="button"
           onClick={() => run(arg)}
-          title="Neu messen (R)"
+          title={t("ps.measure_again_r")}
           className="shrink-0 rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
         >
           <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
@@ -114,17 +116,16 @@ export function PagespeedPanel({
 
       {busy && !report && (
         <div className="rounded-xl border border-[var(--color-border)] p-4 text-[12px]">
-          <p className="font-medium">Messung läuft…</p>
+          <p className="font-medium">{t("ps.measuring")}</p>
           <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">
-            Google fährt zwei Lighthouse-Läufe (Desktop und Mobil) parallel. Das dauert
-            typischerweise 10–40 Sekunden.
+            {t("ps.google_runs_two_lighthouse_passes")}
           </p>
         </div>
       )}
 
       {error && (
         <div className="rounded-xl border border-[var(--color-border)] p-4">
-          <p className="text-[12px] font-medium">Messung fehlgeschlagen</p>
+          <p className="text-[12px] font-medium">{t("ps.measurement_failed")}</p>
           <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">{error}</p>
         </div>
       )}
@@ -158,7 +159,7 @@ export function PagespeedPanel({
 
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          R neu messen · ↑↓ scrollen · Esc schließen
+          {t("ps.r_measure_again_scroll_esc")}
         </p>
       )}
     </div>
@@ -171,7 +172,7 @@ function StrategyCard({ run, kind }: { run: PsRun; kind: "desktop" | "mobile" })
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <p className="mb-3 flex items-center gap-1.5 text-[11px] font-medium">
         <Icon size={12} className="text-[var(--color-muted)]" />
-        {kind === "desktop" ? "Desktop" : "Mobil"}
+        {kind === "desktop" ? t("ps.desktop") : t("ps.mobile")}
       </p>
       <div className="mb-3 flex flex-wrap gap-3">
         {run.categories.map((c) => (
@@ -240,7 +241,7 @@ function ExportRow({
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
       <Download size={12} className="shrink-0 text-[var(--color-muted)]" />
-      <span className="text-[var(--color-muted)]">Export (Desktop + Mobil):</span>
+      <span className="text-[var(--color-muted)]">{t("ps.export")}</span>
       {formats.map((f) => (
         <button
           key={f}

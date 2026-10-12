@@ -6,6 +6,7 @@ import {
   setEdrLevel,
   type MonitorInfo,
 } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * In-popup brightness control rendered in the **right preview column** (not a
@@ -32,6 +33,7 @@ export function BrightnessPanel({
   onUnfocus: () => void;
   onExit: () => void;
 }) {
+  useT();
   const [monitors, setMonitors] = useState<MonitorInfo[] | null>(null);
   const [values, setValues] = useState<Record<number, number>>({});
   const [sel, setSel] = useState(0);
@@ -142,14 +144,14 @@ export function BrightnessPanel({
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]">
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <MonitorIcon size={15} className="text-[var(--color-accent)]" /> Brightness
+        <MonitorIcon size={15} className="text-[var(--color-accent)]" /> {t("bri.brightness")}
       </div>
 
       {monitors === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Probing monitors…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("bri.probing_monitors")}</p>
       ) : controllable.length === 0 ? (
         <p className="text-[12px] text-[var(--color-muted)]">
-          No controllable monitors found.
+          {t("bri.no_controllable_monitors_found")}
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -203,9 +205,7 @@ export function BrightnessPanel({
                 </span>
                 {value > 100 && (
                   <span className="mt-1 text-[10px] leading-snug text-amber-500/90">
-                    ⚠ EDR boost — raises display heat (~5–10 %) + battery use; colours may
-                    shift slightly. macOS may throttle on heat, and needs “Automatically Adjust
-                    Brightness” enabled (Tahoe).
+                    {t("bri.edr_boost_raises_display_heat")}
                   </span>
                 )}
               </button>
@@ -214,13 +214,13 @@ export function BrightnessPanel({
 
           <p className="mt-1 text-[11px] text-[var(--color-muted)]">
             {focused ? (
-              <>↑ ↓ select · ← → adjust · Enter back to list · Esc close</>
+              <>{t("bri.select_adjust_enter_back_to")}</>
             ) : (
-              <>Press Enter on the brightness row to control the sliders.</>
+              <>{t("bri.press_enter_on_the_brightness")}</>
             )}
           </p>
           <p className="text-[10px] text-[var(--color-muted)]">
-            Software dimming — adjusts emitted light, not the backlight.
+            {t("bri.sw_dim")}
           </p>
         </div>
       )}

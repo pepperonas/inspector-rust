@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TranscribeFile, TranscribeJob } from "./ipc";
 import {
   fileStatus,
@@ -9,6 +9,13 @@ import {
   phaseLabel,
   remainingMs,
 } from "./transcribe";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function file(over: Partial<TranscribeFile> = {}): TranscribeFile {
   return {

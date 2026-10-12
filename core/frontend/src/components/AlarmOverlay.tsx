@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlarmClock } from "lucide-react";
 import { alarmOverlayLabel, stopAlarm } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
 
 /**
  * The loud, dismiss-to-stop **alarm overlay** (the window labelled
@@ -10,6 +11,7 @@ import { alarmOverlayLabel, stopAlarm } from "../lib/ipc";
  * it impossible to miss.
  */
 export function AlarmOverlay() {
+  useT();
   const [label, setLabel] = useState<string>("");
 
   useEffect(() => {
@@ -49,16 +51,16 @@ export function AlarmOverlay() {
 
         <div>
           <div className="text-[20px] font-bold text-[var(--color-fg)]">
-            {label || "Timer"}
+            {label || t("alarm.timer")}
           </div>
-          <div className="mt-1 text-[13px] text-[var(--color-muted)]">Time's up</div>
+          <div className="mt-1 text-[13px] text-[var(--color-muted)]">{t("alarm.time_s_up")}</div>
         </div>
 
         <span className="md3-press rounded-full bg-[var(--color-accent)] px-7 py-2.5 text-[15px] font-semibold text-[var(--color-accent-fg)] shadow-lg">
-          Stop alarm
+          {t("alarm.stop_alarm")}
         </span>
         <span className="text-[11px] text-[var(--color-muted)]">
-          click anywhere · Esc / Enter / Space
+          {t("alarm.click_anywhere_esc_enter_space")}
         </span>
       </button>
     </div>

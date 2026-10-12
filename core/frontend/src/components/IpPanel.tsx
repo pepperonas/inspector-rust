@@ -3,11 +3,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, Globe2, Loader2, MapPin, RefreshCw } from "lucide-react";
 import { ipFetch, type IpReport } from "../lib/ipc";
 import { WORLD_MASK_H, WORLD_MASK_W, isLand, project } from "../lib/worldmask";
+import { t, useT } from "../lib/i18n";
 
 type Status = "loading" | "ok" | "error";
 
 /** Public-IP lookup with an offline dotted world map and an OSM deep link. */
 export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
+  useT();
   const [report, setReport] = useState<IpReport | null>(null);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
@@ -106,12 +108,12 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-3 text-sm">
       <div className="flex items-center gap-2">
         <Globe2 size={17} className="text-[var(--color-accent)]" />
-        <span className="font-semibold">What is my IP?</span>
+        <span className="font-semibold">{t("ip.what_is_my_ip")}</span>
         <button
           onClick={() => void load()}
           disabled={status === "loading"}
           className="ml-auto rounded p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
-          title="Refresh (R)"
+          title={t("ip.refresh_r")}
         >
           <RefreshCw size={14} className={status === "loading" ? "animate-spin" : ""} />
         </button>
@@ -128,7 +130,7 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
         >
           {error}
           <div className="mt-2 text-xs text-[var(--color-muted)]">
-            Network lookup needs an internet connection.
+            {t("ip.network_lookup_needs_an_internet")}
           </div>
         </div>
       )}
@@ -136,7 +138,7 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
         <>
           <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
             <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">
-              Public IPv4 / IPv6
+              {t("ip.public_ipv4_ipv6")}
             </div>
             <div className="mt-1 break-all font-[var(--font-mono)] text-2xl font-semibold">
               {report.ip}
@@ -157,7 +159,7 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
               <canvas
                 ref={canvasRef}
                 className="h-full w-full"
-                aria-label="Approximate IP location map"
+                aria-label={t("ip.approximate_ip_location_map")}
               />
             </div>
           )}
@@ -165,13 +167,13 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
             {(
               [
                 [
-                  "Coordinates",
+                  t("ip.coordinates"),
                   report.latitude != null && report.longitude != null
                     ? `${report.latitude.toFixed(4)}, ${report.longitude.toFixed(4)}`
                     : "—",
                 ],
-                ["Timezone", report.timezone || "—"],
-                ["Network", report.organization || "—"],
+                [t("ip.timezone"), report.timezone || "—"],
+                [t("ip.network"), report.organization || "—"],
                 ["ASN", report.asn || "—"],
               ] as const
             ).map(([label, value]) => (
@@ -190,13 +192,11 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
               className="flex items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs hover:bg-[var(--color-surface)]"
             >
               <ExternalLink size={13} />
-              Open approximate location in OpenStreetMap
+              {t("ip.open_approximate_location_in_openstreetm")}
             </button>
           )}
           <p className="text-[10px] leading-relaxed text-[var(--color-muted)]">
-            IP geolocation is approximate and usually identifies an ISP or city, not your
-            exact address. The lookup provider receives your public IP; the result is not
-            stored by Inspector Rust.
+            {t("ip.ip_geolocation_is_approximate_and")}
           </p>
         </>
       )}

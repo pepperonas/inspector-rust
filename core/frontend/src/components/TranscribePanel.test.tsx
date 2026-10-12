@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { TranscribeFile, TranscribeJob } from "../lib/ipc";
 
@@ -14,6 +14,13 @@ vi.mock("../lib/ipc", () => ({
 }));
 
 import { TranscribePanel } from "./TranscribePanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 function file(name: string, over: Partial<TranscribeFile> = {}): TranscribeFile {
   return {

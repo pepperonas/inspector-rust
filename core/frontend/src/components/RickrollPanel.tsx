@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { watchUrl, RICK_LINES } from "../lib/rickroll";
 import { prefersReducedMotion } from "../lib/md3-motion";
 import rickrollMp4 from "../assets/rickroll.mp4";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `rickroll` — plays Rick Astley's "Never Gonna Give You Up" with sound right
@@ -16,6 +17,7 @@ import rickrollMp4 from "../assets/rickroll.mp4";
  * controls / "Abspielen" get it going. Browser fallback + lyric marquee stay.
  */
 export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
+  useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
   const [srcUrl, setSrcUrl] = useState<string | null>(null);
@@ -99,10 +101,10 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
         <button
           type="button"
           onClick={() => void openUrl(watchUrl())}
-          title="Auf YouTube öffnen"
+          title={t("rick.open_on_youtube")}
           className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
         >
-          <ExternalLink size={12} /> Browser
+          <ExternalLink size={12} /> {t("rick.browser")}
         </button>
       </div>
 
@@ -121,7 +123,7 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[var(--color-muted)]">
-            Lade Clip…
+            {t("rick.loading_clip")}
           </div>
         )}
       </div>
@@ -159,16 +161,16 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
           onClick={() => void openUrl(watchUrl())}
           className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:text-[var(--color-accent)]"
         >
-          Im Browser abspielen
+          {t("rick.play_in_the_browser")}
         </button>
       </div>
       {blocked && (
         <p className="text-[11px] text-amber-500">
-          Autoplay wurde geblockt — „▶ Abspielen“ oder die Player-Steuerung starten den Clip.
+          {t("rick.autoplay_was_blocked_play_or")}
         </p>
       )}
       {focused && (
-        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("rick.esc_close")}</p>
       )}
     </div>
   );

@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Lightbulb, RefreshCw, Sun } from "lucide-react";
 import { getAmbientLight, type AmbientLightReading } from "../lib/ipc";
 import { formatLux, lightBand, luxLevel } from "../lib/lumen";
+import { t, useT } from "../lib/i18n";
 
 const POLL_MS = 350;
 
 export function LumenPanel() {
+  useT();
   const [reading, setReading] = useState<AmbientLightReading | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -44,7 +46,7 @@ export function LumenPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
         <RefreshCw size={22} className="animate-spin" />
-        <span className="text-xs">Reading ambient light…</span>
+        <span className="text-xs">{t("lumen.reading_ambient_light")}</span>
       </div>
     );
   }
@@ -56,9 +58,9 @@ export function LumenPanel() {
           <Lightbulb size={22} className="text-[var(--color-muted)]" />
         </div>
         <div>
-          <p className="text-sm font-medium">No light sensor available</p>
+          <p className="text-sm font-medium">{t("lumen.no_light_sensor_available")}</p>
           <p className="mt-1 max-w-64 text-xs leading-relaxed text-[var(--color-muted)]">
-            This device does not expose a supported ambient-light reading.
+            {t("lumen.this_device_does_not_expose")}
           </p>
         </div>
       </div>
@@ -107,14 +109,14 @@ export function LumenPanel() {
           />
         </div>
         <div className="mt-1.5 flex justify-between text-[9px] text-[var(--color-muted)]">
-          <span>dark</span>
-          <span>indoor</span>
-          <span>daylight</span>
+          <span>{t("lumen.dark")}</span>
+          <span>{t("lumen.indoor")}</span>
+          <span>{t("lumen.daylight")}</span>
         </div>
       </div>
 
       <div className="mt-5 flex items-center gap-1.5 text-[10px] text-[var(--color-muted)]">
-        <Lightbulb size={11} /> {reading.source} · live
+        <Lightbulb size={11} /> {reading.source} {t("lumen.live")}
       </div>
     </div>
   );

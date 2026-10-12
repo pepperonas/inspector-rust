@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Dices, RefreshCw } from "lucide-react";
 import { parseRandomArg, randomInt } from "../lib/commands";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 export function RandomPanel({
   arg,
@@ -22,6 +24,7 @@ export function RandomPanel({
   /** Called after a click so the parent keeps the search field focused. */
   onInteract?: () => void;
 }) {
+  useT();
   const range = parseRandomArg(arg);
   const rangeKey = range ? `${range.min}-${range.max}` : "invalid";
   const [value, setValue] = useState<number | null>(null);
@@ -52,9 +55,9 @@ export function RandomPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
         <Dices size={26} className="text-[var(--color-muted)]" />
-        <p className="text-[13px] font-medium text-[var(--color-fg)]">Invalid range</p>
+        <p className="text-[13px] font-medium text-[var(--color-fg)]">{t("rnd.invalid_range")}</p>
         <p className="text-[12px] leading-relaxed text-[var(--color-muted)]">
-          Try <code>rnd</code> · <code>rnd 100</code> · <code>rnd 5 500</code> · <code>rnd 1-2</code>
+          <InlineMd text={t("rnd.try")} />
         </p>
       </div>
     );
@@ -63,7 +66,7 @@ export function RandomPanel({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-5 p-6">
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[var(--color-muted)]">
-        <Dices size={13} /> Random · {range.min}–{range.max}
+        <Dices size={13} /> {t("rnd.random")} {range.min}–{range.max}
       </div>
       <div
         key={pop}
@@ -79,9 +82,9 @@ export function RandomPanel({
         }}
         className="md3-press flex items-center gap-2 rounded-full bg-[var(--color-accent)] px-5 py-2.5 text-[13px] font-medium text-[var(--color-accent-fg)]"
       >
-        <RefreshCw size={15} /> Roll again
+        <RefreshCw size={15} /> {t("rnd.roll_again")}
       </button>
-      <p className="text-[11px] text-[var(--color-muted)]">⏎ Enter pastes this number</p>
+      <p className="text-[11px] text-[var(--color-muted)]">{t("rnd.enter_pastes_this_number")}</p>
     </div>
   );
 }

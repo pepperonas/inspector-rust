@@ -3,6 +3,7 @@ import { Check, Download, ListPlus, Loader2, Music, Trash2, X } from "lucide-rea
 import { extractSocialLinks, allYouTube, platformLabel, type SocialTarget } from "../lib/social";
 import { revealPath, setSuppressHide, socialDownload } from "../lib/ipc";
 import { MetaRow, requestMeta } from "./SocialMeta";
+import { t, tn, useT } from "../lib/i18n";
 
 type ItemState = "pending" | "running" | "done" | "failed";
 
@@ -34,6 +35,7 @@ interface QueueItem {
  *    the end instead of raising Finder after every file.
  */
 export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
+  useT();
   const [text, setText] = useState("");
   const [queue, setQueue] = useState<QueueItem[] | null>(null);
   const [mode, setMode] = useState<"video" | "audio">("video");
@@ -83,7 +85,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
       } catch (e) {
         const msg = String(e);
         const note = msg.includes("no_ytdlp")
-          ? "yt-dlp not installed — brew install yt-dlp"
+          ? t("lg.no_ytdlp")
           : msg.replace(/^Error:\s*/, "");
         setQueue((q) => q && q.map((it, j) => (j === i ? { ...it, state: "failed", note } : it)));
       }
@@ -105,8 +107,8 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
     <div className="mt-4 flex flex-col gap-2 border-t border-[var(--color-border)] pt-3">
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
         <ListPlus size={12} />
-        <span>Link grabber</span>
-        {seedUrl && <span className="normal-case tracking-normal">— paste more links to batch-download</span>}
+        <span>{t("lg.title")}</span>
+        {seedUrl && <span className="normal-case tracking-normal">{t("lg.subtitle")}</span>}
       </div>
 
       <textarea
@@ -115,15 +117,15 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
         disabled={running}
         rows={4}
         spellCheck={false}
-        placeholder={"Paste anything — a list, a chat log, an e-mail.\nEvery YouTube / Instagram / TikTok / Facebook / Dailymotion link in it is picked out."}
+        placeholder={t("lg.placeholder")}
         className="w-full resize-y rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 font-[var(--font-mono)] text-[11px] leading-5 outline-none placeholder:text-[var(--color-muted)] focus:border-[var(--color-accent)] disabled:opacity-50"
       />
 
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-[var(--color-muted)]">
           {found.length === 0
-            ? "No links yet"
-            : `${found.length} link${found.length === 1 ? "" : "s"} found`}
+            ? t("lg.no_links")
+            : tn("lg.links_found", found.length)}
         </span>
         {audioOffered && (
           <div className="flex items-center gap-1">
@@ -153,7 +155,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
                 setText("");
                 setQueue(null);
               }}
-              title="Clear"
+              title={t("lg.clear")}
               className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
             >
               <Trash2 size={12} />
@@ -167,7 +169,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
               }}
               className="md3-press rounded border border-[var(--color-border)] px-3 py-1 text-[11px] hover:border-rose-400 hover:text-rose-400"
             >
-              <X size={11} className="inline" /> Stop after current
+              <X size={11} className="inline" /> {t("lg.stop_after")}
             </button>
           ) : (
             <button
@@ -176,7 +178,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
               onClick={() => void run(found)}
               className="md3-press rounded bg-[var(--color-accent)] px-3 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
             >
-              <Download size={11} className="inline" /> Download {found.length || ""} {found.length === 1 ? "link" : "links"}
+              <Download size={11} className="inline" /> {tn("lg.download_n", found.length || 0)}
             </button>
           )}
         </div>
@@ -186,7 +188,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
         <>
           {queue && (
             <div className="text-[11px] text-[var(--color-muted)]">
-              {doneCount} / {queue.length} done{failed.length > 0 && ` · ${failed.length} failed`}
+              {t("lg.progress", { done: doneCount, total: queue.length })}{failed.length > 0 && ` · ${t("lg.n_failed", { n: failed.length })}`}
             </div>
           )}
           <ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
@@ -219,7 +221,7 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
               onClick={() => void run(failed.map((f) => f.target))}
               className="md3-press self-start rounded border border-[var(--color-border)] px-3 py-1 text-[11px] hover:border-[var(--color-accent)]"
             >
-              Retry {failed.length} failed
+              {t("lg.retry", { n: failed.length })}
             </button>
           )}
         </>

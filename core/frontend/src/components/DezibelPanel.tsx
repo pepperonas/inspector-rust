@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
 import { dbfsToDisplayDb, dbfsToLevel, smoothStep, SPL_OFFSET } from "../lib/audio-level";
 import { subscribeMicLevel } from "../lib/mic-feed";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `dezibel` / `db` — live microphone loudness in the preview column.
@@ -32,6 +33,7 @@ const SILENT_DB = -90;
 type Phase = "requesting" | "listening" | "error";
 
 export function DezibelPanel() {
+  useT();
   const [phase, setPhase] = useState<Phase>("requesting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [db, setDb] = useState<number | null>(null);
@@ -82,7 +84,7 @@ export function DezibelPanel() {
       } catch (err) {
         if (cancelled) return;
         const e = err as Error;
-        setErrorMessage(e.message || e.name || "Audio capture failed");
+        setErrorMessage(e.message || e.name || t("viz.capture_failed"));
         setPhase("error");
       }
     })();
@@ -106,14 +108,14 @@ export function DezibelPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <Mic size={22} className="text-[var(--color-muted)]" />
-        <div className="text-[12px] text-[var(--color-fg)]">Mikrofon nicht verfügbar</div>
+        <div className="text-[12px] text-[var(--color-fg)]">{t("db.microphone_unavailable")}</div>
         <div className="text-[11px] text-[var(--color-muted)]">{errorMessage}</div>
         <button
           type="button"
           onClick={() => setAttempt((a) => a + 1)}
           className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1 text-[11px] text-[var(--color-fg)]"
         >
-          Erneut versuchen
+          {t("db.retry")}
         </button>
       </div>
     );
@@ -123,7 +125,7 @@ export function DezibelPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <Mic size={22} className="text-[var(--color-accent)]" />
-        <div className="text-[12px] text-[var(--color-muted)]">Mikrofon wird geöffnet…</div>
+        <div className="text-[12px] text-[var(--color-muted)]">{t("db.opening_microphone")}</div>
       </div>
     );
   }
@@ -160,9 +162,9 @@ export function DezibelPanel() {
         />
       </div>
       <div className="text-center text-[11px] leading-relaxed text-[var(--color-muted)]">
-        Schalldruckpegel-Schätzung (SPL) · Zimmerlautstärke ca. 35–50 dB, Sprache 60–75 dB.
+        {t("db.sound_pressure_level_estimate_spl")}
         <br />
-        Skala ca. {FLOOR_DB + SPL_OFFSET} … {CEIL_DB + SPL_OFFSET} dB · Esc schließt und gibt das Mikrofon frei.
+        {t("db.scale", { lo: FLOOR_DB + SPL_OFFSET, hi: CEIL_DB + SPL_OFFSET })}
       </div>
     </div>
   );

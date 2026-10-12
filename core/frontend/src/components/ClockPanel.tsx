@@ -11,6 +11,7 @@ import {
   type CityZone,
   type ZoneTime,
 } from "../lib/clock";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `clock` — a world clock in the preview column (v0.121.0). A grid of live
@@ -21,6 +22,7 @@ import {
  * reopens. Enter-activated so the search field can take focus for autocomplete.
  */
 export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
+  useT();
   const [zones, setZones] = useState<string[] | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [query, setQuery] = useState("");
@@ -94,7 +96,7 @@ export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () =
   if (zones === null) {
     return (
       <Shell focused={focused}>
-        <p className="text-[12px] text-[var(--color-muted)]">Lade Uhren…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("clock.loading_clocks")}</p>
       </Shell>
     );
   }
@@ -105,7 +107,7 @@ export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () =
       className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]"
     >
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <Clock size={15} className="text-[var(--color-accent)]" /> Weltzeit
+        <Clock size={15} className="text-[var(--color-accent)]" /> {t("clock.title")}
       </div>
 
       {/* Add-city autocomplete. */}
@@ -132,7 +134,7 @@ export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () =
                 add(matches[sel].tz);
               }
             }}
-            placeholder="Stadt hinzufügen… (z. B. Tokio, Dubai)"
+            placeholder={t("clock.add_a_city_e_g")}
             className="w-full bg-transparent text-[12px] outline-none placeholder:text-[var(--color-muted)]"
           />
         </div>
@@ -162,7 +164,7 @@ export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () =
 
       {zones.length === 0 ? (
         <p className="rounded-lg border border-[var(--color-border)] p-3 text-center text-[12px] text-[var(--color-muted)]">
-          Keine Uhren — oben eine Stadt hinzufügen.
+          {t("clock.no_clocks_add_a_city")}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -174,7 +176,7 @@ export function ClockPanel({ focused, onExit }: { focused: boolean; onExit: () =
 
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          Tippen zum Suchen · ↑↓ + ⏎ hinzufügen · Esc schließen
+          {t("clock.type_to_search_to_add")}
         </p>
       )}
     </div>
@@ -185,10 +187,10 @@ function Shell({ focused, children }: { focused: boolean; children: React.ReactN
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]">
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <Clock size={15} className="text-[var(--color-accent)]" /> Weltzeit
+        <Clock size={15} className="text-[var(--color-accent)]" /> {t("clock.title")}
       </div>
       {children}
-      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>}
+      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("clock.esc_close")}</p>}
     </div>
   );
 }
@@ -197,20 +199,20 @@ function ClockCard({ tz, now, onRemove }: { tz: string; now: Date; onRemove: () 
   const meta: CityZone | undefined = zoneByTz(tz);
   const city = meta?.city ?? tzFallbackCity(tz);
   const region = meta?.region ?? tz;
-  const t: ZoneTime = zoneTime(now, tz);
+  const zt: ZoneTime = zoneTime(now, tz);
   return (
     <div
       className="group relative overflow-hidden rounded-xl border border-[var(--color-border)] p-3 [contain:content]"
       style={{
         // Subtle day/night wash — warm by day, cool indigo by night.
-        background: t.night
+        background: zt.night
           ? "linear-gradient(135deg, color-mix(in srgb, #6366f1 12%, transparent), transparent 70%)"
           : "linear-gradient(135deg, color-mix(in srgb, #f59e0b 12%, transparent), transparent 70%)",
       }}
     >
       <div className="mb-1 flex items-center justify-between gap-1">
         <span className="flex min-w-0 items-center gap-1 text-[11px] font-medium">
-          {t.night ? (
+          {zt.night ? (
             <Moon size={11} className="shrink-0 text-indigo-400" />
           ) : (
             <Sun size={11} className="shrink-0 text-amber-500" />
@@ -222,7 +224,7 @@ function ClockCard({ tz, now, onRemove }: { tz: string; now: Date; onRemove: () 
         <button
           type="button"
           onClick={onRemove}
-          title="Entfernen"
+          title={t("common.remove")}
           className="shrink-0 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
         >
           <X size={12} />
@@ -230,28 +232,28 @@ function ClockCard({ tz, now, onRemove }: { tz: string; now: Date; onRemove: () 
       </div>
       <div className="flex items-baseline gap-0.5">
         <span className="font-[var(--font-mono)] text-[26px] font-semibold leading-none tabular-nums">
-          {t.time}
+          {zt.time}
         </span>
         <span className="font-[var(--font-mono)] text-[12px] text-[var(--color-muted)] tabular-nums">
-          {t.seconds}
+          {zt.seconds}
         </span>
       </div>
       <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--color-muted)]">
         <span className="truncate" title={region}>
-          {t.date}
+          {zt.date}
         </span>
         <span className="flex shrink-0 items-center gap-1 tabular-nums">
-          {t.dayDelta !== 0 && (
+          {zt.dayDelta !== 0 && (
             <span
               className={
                 "rounded px-1 " +
-                (t.dayDelta > 0 ? "bg-emerald-500/15 text-emerald-500" : "bg-amber-500/15 text-amber-500")
+                (zt.dayDelta > 0 ? "bg-emerald-500/15 text-emerald-500" : "bg-amber-500/15 text-amber-500")
               }
             >
-              {t.dayDelta > 0 ? "+1 Tag" : "−1 Tag"}
+              {zt.dayDelta > 0 ? "+1 Tag" : "−1 Tag"}
             </span>
           )}
-          {t.offset}
+          {zt.offset}
         </span>
       </div>
     </div>

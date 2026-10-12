@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AudioLines, Bluetooth, Check, ChevronUp, Headphones, Monitor, Speaker, Volume2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { audioLabel, type AudioKind, type AudioRouteView } from "../lib/audio-route";
+import { t, useT } from "../lib/i18n";
 
 const KIND_ICON: Record<AudioKind, LucideIcon> = {
   speaker: Speaker,
@@ -30,6 +31,7 @@ interface Props {
  * default-output listener re-bridges), so one list serves both states.
  */
 export function AudioMenu({ view, onSelect, onToggleBoom, onOpen }: Props) {
+  useT();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<(HTMLButtonElement | null)[]>([]);
@@ -104,13 +106,13 @@ export function AudioMenu({ view, onSelect, onToggleBoom, onOpen }: Props) {
       {open && (
         <div
           role="menu"
-          aria-label="Audioausgabe"
+          aria-label={t("am.menu_label")}
           onKeyDown={onMenuKey}
           className="pop-enter absolute bottom-full left-0 z-50 mb-1.5 min-w-[230px] max-w-[300px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-1 text-[11px] shadow-lg"
           style={{ transformOrigin: "bottom left" }}
         >
           <div className="px-3 pb-1 pt-0.5 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-            Ausgabe
+            {t("am.output")}
           </div>
           {view.rows.map((r, i) => {
             const RowIcon = KIND_ICON[r.kind];
@@ -136,7 +138,7 @@ export function AudioMenu({ view, onSelect, onToggleBoom, onOpen }: Props) {
             );
           })}
           {view.rows.length === 0 && (
-            <div className="px-3 py-1.5 text-[var(--color-muted)]">Keine Ausgabegeräte gefunden</div>
+            <div className="px-3 py-1.5 text-[var(--color-muted)]">{t("am.no_output_devices_found")}</div>
           )}
           {view.boomInstalled && (
             <>
@@ -157,9 +159,9 @@ export function AudioMenu({ view, onSelect, onToggleBoom, onOpen }: Props) {
               >
                 <AudioLines size={13} aria-hidden className="shrink-0 text-[var(--color-muted)]" />
                 <span className="min-w-0 flex-1">
-                  boom EQ
+                  {t("am.boom_eq")}
                   <span className="block text-[10px] text-[var(--color-muted)]">
-                    {view.boomEnabled ? "Klang läuft über boom" : "Aus — Ton geht direkt raus"}
+                    {view.boomEnabled ? t("am.audio_runs_through_boom") : t("am.off_audio_goes_out_directly")}
                   </span>
                 </span>
                 {/* State-first switch, like the boom panel's (v0.84.232). */}

@@ -8,6 +8,7 @@ import {
   type AudioDevice,
 } from "../lib/ipc";
 import { snapVolumeStep } from "../lib/volume";
+import { t, useT } from "../lib/i18n";
 
 /**
  * In-popup audio **output** panel rendered in the right preview column — same
@@ -30,6 +31,7 @@ export function SoundPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [devices, setDevices] = useState<AudioDevice[] | null>(null);
   const [sel, setSel] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -157,14 +159,14 @@ export function SoundPanel({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-[13px] font-medium">
             <span className="flex items-center gap-2">
-              <VolIcon size={15} className="text-[var(--color-accent)]" /> Volume
+              <VolIcon size={15} className="text-[var(--color-accent)]" /> {t("snd.volume")}
             </span>
             <span className="font-mono text-[12px] tabular-nums text-[var(--color-muted)]">{vol}%</span>
           </div>
           <div
             ref={trackRef}
             role="slider"
-            aria-label="System volume"
+            aria-label={t("snd.system_volume")}
             aria-valuenow={vol}
             aria-valuemin={0}
             aria-valuemax={100}
@@ -190,21 +192,21 @@ export function SoundPanel({
             />
           </div>
           {focused && (
-            <p className="text-[11px] text-[var(--color-muted)]">← → adjust ∓5</p>
+            <p className="text-[11px] text-[var(--color-muted)]">{t("snd.adjust_5")}</p>
           )}
         </div>
       )}
 
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <Volume2 size={15} className="text-[var(--color-accent)]" /> Output device
+        <Volume2 size={15} className="text-[var(--color-accent)]" /> {t("snd.output_device")}
       </div>
 
       {error ? (
         <p className="text-[12px] text-[var(--color-muted)]">{error}</p>
       ) : devices === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Reading devices…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("snd.reading_devices")}</p>
       ) : devices.length === 0 ? (
-        <p className="text-[12px] text-[var(--color-muted)]">No output devices found.</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("snd.no_output_devices_found")}</p>
       ) : (
         <div className="flex flex-col gap-1">
           {devices.map((d, i) => {
@@ -224,7 +226,7 @@ export function SoundPanel({
                 <span className="truncate pr-2">{d.name}</span>
                 {d.is_default && (
                   <span className="flex shrink-0 items-center gap-1 text-[11px] text-[var(--color-accent)]">
-                    <Check size={13} /> default
+                    <Check size={13} /> {t("snd.default")}
                   </span>
                 )}
               </button>
@@ -232,9 +234,9 @@ export function SoundPanel({
           })}
           <p className="mt-1 text-[11px] text-[var(--color-muted)]">
             {focused ? (
-              <>↑ ↓ select · Enter switch output · Esc close</>
+              <>{t("snd.select_enter_switch_output_esc")}</>
             ) : (
-              <>Press Enter on the sound row to pick the output.</>
+              <>{t("snd.press_enter_on_the_sound")}</>
             )}
           </p>
         </div>

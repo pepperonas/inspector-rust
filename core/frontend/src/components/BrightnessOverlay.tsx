@@ -6,6 +6,7 @@ import {
   setMonitorBrightness,
   type MonitorInfo,
 } from "../lib/ipc";
+import { t, tn, useT } from "../lib/i18n";
 
 /**
  * Brightness slider overlay (the `brightness-overlay` window — routed in
@@ -20,6 +21,7 @@ import {
  * value to the monitor ~80 ms after the last change.
  */
 export function BrightnessOverlay() {
+  useT();
   const [monitors, setMonitors] = useState<MonitorInfo[] | null>(null);
   const [values, setValues] = useState<Record<number, number>>({});
   const timers = useRef<Record<number, number>>({});
@@ -75,11 +77,11 @@ export function BrightnessOverlay() {
     <div className="flex h-screen w-screen flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl">
       <div data-tauri-drag-region className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-[13px] font-medium">
-          <MonitorIcon size={15} className="text-[var(--color-accent)]" /> Brightness
+          <MonitorIcon size={15} className="text-[var(--color-accent)]" /> {t("bri.title")}
         </span>
         <button
           onClick={() => void brightnessClose()}
-          title="Close (Esc)"
+          title={t("bri.close_esc")}
           className="flex h-6 w-6 items-center justify-center rounded-full text-[var(--color-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-fg)]"
         >
           <X size={14} />
@@ -87,16 +89,16 @@ export function BrightnessOverlay() {
       </div>
 
       {monitors === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Probing monitors…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("bri.probing")}</p>
       ) : ddc.length === 0 ? (
         <p className="text-[12px] text-[var(--color-muted)]">
-          No controllable monitors found.
+          {t("bri.none")}
         </p>
       ) : (
         <div className="flex flex-col gap-3 overflow-y-auto">
           {ddc.length > 1 && (
             <Slider
-              label="All monitors"
+              label={t("bri.all_monitors")}
               value={Math.round(
                 ddc.reduce((s, m) => s + (values[m.id] ?? m.brightness), 0) / ddc.length,
               )}
@@ -114,12 +116,11 @@ export function BrightnessOverlay() {
           ))}
           {(monitors.length - ddc.length) > 0 && (
             <p className="text-[11px] text-[var(--color-muted)]">
-              {monitors.length - ddc.length} monitor(s) didn&apos;t answer and
-              are hidden.
+              {tn("bri.hidden_n", monitors.length - ddc.length)}
             </p>
           )}
           <p className="text-[10px] text-[var(--color-muted)]">
-            Software dimming — adjusts emitted light, not the backlight.
+            {t("bri.sw_dim")}
           </p>
         </div>
       )}

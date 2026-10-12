@@ -7,6 +7,7 @@ import {
   integerDigitCount,
   odometerPowers,
 } from "../lib/uptime";
+import { t, useT } from "../lib/i18n";
 
 /**
  * Live system-uptime readout in the right preview column (`uptime` command).
@@ -32,6 +33,7 @@ export function UptimePanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [base, setBase] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sinceText, setSinceText] = useState("");
@@ -164,13 +166,13 @@ export function UptimePanel({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 overflow-hidden p-4 text-[var(--color-fg)]">
       <div className="flex items-center gap-2 self-start text-[13px] font-medium">
-        <Timer size={15} className="text-[var(--color-accent)]" /> Uptime
+        <Timer size={15} className="text-[var(--color-accent)]" /> {t("up.uptime")}
       </div>
 
       {error ? (
         <p className="text-[12px] text-[var(--color-muted)]">{error}</p>
       ) : base === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Reading uptime…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("up.reading_uptime")}</p>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           {/* Hero — readable clock format */}
@@ -227,13 +229,13 @@ export function UptimePanel({
           </div>
 
           <div className="text-[11px] text-[var(--color-muted)]">
-            since <span ref={sinceRef} />
+            {t("up.since")} <span ref={sinceRef} />
           </div>
         </div>
       )}
 
       {focused && !error && base !== null && (
-        <p className="self-center text-[11px] text-[var(--color-muted)]">Esc close</p>
+        <p className="self-center text-[11px] text-[var(--color-muted)]">{t("up.esc_close")}</p>
       )}
     </div>
   );

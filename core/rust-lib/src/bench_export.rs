@@ -61,20 +61,22 @@ pub fn os_label(m: &MachineInfo) -> String {
 }
 
 /// The system table — every row read, `nicht verfügbar` where it was not.
-fn machine_rows(m: &MachineInfo) -> Vec<(&'static str, String)> {
+fn bt(k: &str) -> String { crate::i18n::t(k) }
+
+fn machine_rows(m: &MachineInfo) -> Vec<(String, String)> {
     vec![
-        ("Gerät", opt(&m.device_model)),
-        ("Betriebssystem", esc(&os_label(m))),
-        ("Kernel", opt(&m.kernel)),
-        ("Architektur", opt(&m.arch)),
-        ("Prozessor", opt(&m.cpu_brand)),
-        ("Kerne (physisch)", opt_num(&m.physical_cores)),
-        ("Kerne (logisch)", opt_num(&m.logical_cores)),
+        (bt("bench.m.device"), opt(&m.device_model)),
+        (bt("bench.m.os"), esc(&os_label(m))),
+        (bt("bench.m.kernel"), opt(&m.kernel)),
+        (bt("bench.m.arch"), opt(&m.arch)),
+        (bt("bench.m.cpu"), opt(&m.cpu_brand)),
+        (bt("bench.m.cores_phys"), opt_num(&m.physical_cores)),
+        (bt("bench.m.cores_log"), opt_num(&m.logical_cores)),
         (
-            "Arbeitsspeicher",
+            bt("bench.m.memory"),
             m.mem_total_bytes.map(human_bytes).unwrap_or_else(|| UNKNOWN.into()),
         ),
-        ("Rechnername", opt(&m.host_name)),
+        (bt("bench.m.host"), opt(&m.host_name)),
     ]
 }
 
@@ -97,23 +99,24 @@ fn section_table(s: &Section, title: &str) -> String {
         .collect();
     format!(
         "<section><h2>{title}</h2>\
-         <p class=\"rp-lede\">Gesamtwert <b>{}</b> — das geometrische Mittel der Einzelwerte, \
-          damit eine langsame Disziplin so viel wiegt wie eine schnelle.</p>\
-         <table><thead><tr><th>Disziplin</th><th class=\"rp-text\">Einheit</th>\
-         <th class=\"rp-num\">Messwert</th><th class=\"rp-num\">Punkte</th></tr></thead>\
+         <p class=\"rp-lede\">{lede}</p>\
+         <table><thead><tr><th>{c_disc}</th><th class=\"rp-text\">{c_unit}</th>\
+         <th class=\"rp-num\">{c_meas}</th><th class=\"rp-num\">{c_pts}</th></tr></thead>\
          <tbody>{rows}</tbody></table></section>",
-        s.score
+        lede = crate::i18n::tf("bench.lede", &[("score", &s.score.to_string())]),
+        c_disc = bt("bench.c.discipline"), c_unit = bt("bench.c.unit"), c_meas = bt("bench.c.measured"), c_pts = bt("bench.c.points"),
     )
 }
 
 /// The report for ONE run.
 pub fn build_html(run: &BenchRun) -> String {
     let m = &run.machine;
+    let (sc, mc) = (bt("bench.single"), bt("bench.multi"));
     let stats = rs::stats(&[
-        rs::Stat { label: "Single-Core", value: run.single.score.to_string(), unit: None },
-        rs::Stat { label: "Multi-Core", value: run.multi.score.to_string(), unit: None },
-        rs::Stat { label: "Threads", value: run.threads.to_string(), unit: None },
-        rs::Stat { label: "Dauer", value: format!("{:.1}", run.duration_s).replace('.', ","), unit: Some(" s") },
+        rs::Stat { label: &sc, value: run.single.score.to_string(), unit: None },
+        rs::Stat { label: &mc, value: run.multi.score.to_string(), unit: None },
+        rs::Stat { label: &bt("bench.threads"), value: run.threads.to_string(), unit: None },
+        rs::Stat { label: &bt("bench.duration"), value: format!("{:.1}", run.duration_s).replace('.', ","), unit: Some(" s") },
     ]);
     let mrows: String = machine_rows(m)
         .into_iter()
@@ -121,24 +124,15 @@ pub fn build_html(run: &BenchRun) -> String {
         .collect();
     let body = format!(
         "{stats}\
-         <section><h2>Maschine</h2><table><tbody>{mrows}</tbody></table></section>\
+         <section><h2>{m_head}</h2><table><tbody>{mrows}</tbody></table></section>\
          {single}{multi}",
-        single = section_table(&run.single, "Single-Core"),
-        multi = section_table(&run.multi, "Multi-Core"),
+        single = section_table(&run.single, &sc),
+        multi = section_table(&run.multi, &mc),
+        m_head = bt("bench.machine"),
     );
-    let foot = format!(
-        "Punkte sind relativ zu einer festen Referenz: <b>1000</b> entspricht {}. \
-         Die Referenz ist ein Maßstab, keine Aussage über ein Produkt. \
-         Alle Messwerte dieses Laufs wurden auf diesem Gerät erhoben; \
-         Angaben zur Maschine werden ausgelesen, nie geschätzt.<br>\
-         ⚠️ Wiederholte Läufe streuen um etwa {:.0} % — ein kleinerer Unterschied ist Rauschen.<br>\
-         Erstellt mit Inspector Rust {}.",
-        esc(&run.baseline_machine),
-        NOISE_FLOOR_PCT,
-        esc(&run.app_version)
-    );
+    let foot = crate::i18n::tf("bench.foot", &[("baseline", &esc(&run.baseline_machine)), ("noise", &format!("{:.0}", NOISE_FLOOR_PCT)), ("version", &esc(&run.app_version))]);
     rs::shell(
-        "Benchmark",
+        &bt("bench.title"),
         &esc(&machine_label(m)),
         &esc(&os_label(m)),
         &body,
@@ -149,7 +143,7 @@ pub fn build_html(run: &BenchRun) -> String {
 /// The comparison of several runs — possibly from different machines and OSes.
 pub fn build_compare_html(runs: &[BenchRun]) -> String {
     if runs.is_empty() {
-        return rs::shell("Benchmark-Vergleich", "Keine Läufe", "", "<p class=\"rp-empty\">Nichts zu vergleichen.</p>", "");
+        return rs::shell(&bt("bench.compare_title"), &bt("bench.no_runs"), "", &crate::i18n::t("bench.nothing"), "");
     }
     let head_cells: String = runs
         .iter()
@@ -160,7 +154,7 @@ pub fn build_compare_html(runs: &[BenchRun]) -> String {
     let keys = machine_rows(&runs[0].machine);
     let mrows: String = (0..keys.len())
         .map(|i| {
-            let label = keys[i].0;
+            let label = &keys[i].0;
             let cells: String = runs
                 .iter()
                 .map(|r| format!("<td class=\"rp-text\">{}</td>", machine_rows(&r.machine)[i].1))
@@ -223,26 +217,23 @@ pub fn build_compare_html(runs: &[BenchRun]) -> String {
             .map(|r| format!("<td class=\"rp-num\">{}</td>", pick(r).score))
             .collect();
         format!(
-            "<section><h2>{title}</h2><table><thead><tr><th>Disziplin</th>{head_cells}</tr></thead>\
-             <tbody>{rows}</tbody><tfoot><tr><td>Gesamt</td>{totals}</tr></tfoot></table></section>"
+            "<section><h2>{title}</h2><table><thead><tr><th>{c}</th>{head_cells}</tr></thead>\
+             <tbody>{rows}</tbody><tfoot><tr><td>{tot}</td>{totals}</tr></tfoot></table></section>",
+            c = bt("bench.c.discipline"), tot = bt("bench.c.total")
         )
     };
 
     let body = format!(
-        "<section><h2>Maschinen</h2><table><thead><tr><th>Merkmal</th>{head_cells}</tr></thead>\
+        "<section><h2>{machines}</h2><table><thead><tr><th>{feat}</th>{head_cells}</tr></thead>\
          <tbody>{mrows}</tbody></table></section>{s}{m}",
-        s = section(|r| &r.single, "Single-Core"),
-        m = section(|r| &r.multi, "Multi-Core"),
+        machines = bt("bench.machines"), feat = bt("bench.feature"),
+        s = section(|r| &r.single, &bt("bench.single")),
+        m = section(|r| &r.multi, &bt("bench.multi")),
     );
-    let foot = format!(
-        "Abweichungen beziehen sich auf den ERSTEN Lauf. ⚠️ Wiederholte Läufe streuen um etwa \
-         {:.0} % — kleinere Unterschiede sind als Rauschen gekennzeichnet und keine Aussage.<br>\
-         Erstellt mit Inspector Rust.",
-        NOISE_FLOOR_PCT
-    );
+    let foot = crate::i18n::tf("bench.compare_foot", &[("noise", &format!("{:.0}", NOISE_FLOOR_PCT))]);
     let doc = rs::shell(
-        "Benchmark-Vergleich",
-        &format!("{} Läufe", runs.len()),
+        &bt("bench.compare_title"),
+        &crate::i18n::tf("bench.n_runs", &[("n", &runs.len().to_string())]),
         "",
         &body,
         &foot,
@@ -395,9 +386,9 @@ mod tests {
         // A score is meaningless without saying what 1000 is, and a delta is
         // misleading without saying how much of it is noise.
         let h = build_html(&run("a", &[("sort", 1000)], full()));
-        assert!(h.contains("Referenz"));
+        assert!(h.contains("reference"));
         assert!(h.contains("1000"));
-        assert!(h.contains("Rauschen"));
+        assert!(h.contains("noise"));
     }
 
     #[test]

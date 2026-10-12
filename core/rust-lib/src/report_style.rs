@@ -213,7 +213,7 @@ fn today_de() -> String {
 pub fn shell(kicker: &str, title: &str, subject: &str, body: &str, foot: &str) -> String {
     format!(
         r#"<!doctype html>
-<html lang="de"><head><meta charset="utf-8">
+<html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} — {subject_plain}</title>
 <style>
@@ -229,6 +229,7 @@ pub fn shell(kicker: &str, title: &str, subject: &str, body: &str, foot: &str) -
 {sign}
 <footer>{foot}</footer>
 </body></html>"#,
+        lang = crate::i18n::current().code(),
         css = css(),
         // ⚠️ Every report gets the signature + seal through THIS one seam — the
         // per-export copy is exactly what the portal work warns against. An
@@ -478,15 +479,17 @@ pub fn signature_block(date: &str) -> String {
   <div class="rp-sign-col">
     <div class="rp-sign-space">{date}</div>
     <div class="rp-sign-line"></div>
-    <div class="rp-sign-cap">Datum</div>
+    <div class="rp-sign-cap">{date_cap}</div>
   </div>
   <div class="rp-sign-col">
-    <div class="rp-sign-space"><img class="rp-sign-img" src="data:image/png;base64,{sig}" alt="Unterschrift Martin Pfeffer">{seal}</div>
+    <div class="rp-sign-space"><img class="rp-sign-img" src="data:image/png;base64,{sig}" alt="Martin Pfeffer">{seal}</div>
     <div class="rp-sign-line"></div>
-    <div class="rp-sign-cap"><b>Martin Pfeffer</b><br>Erstellt mit Inspector Rust · celox.io</div>
+    <div class="rp-sign-cap"><b>Martin Pfeffer</b><br>{made_with}</div>
   </div>
 </div>"##,
-        seal = seal_svg("DURCHGEFÜHRTE ANALYSE"),
+        date_cap = crate::i18n::t("report.date"),
+        made_with = crate::i18n::t("report.made_with"),
+        seal = seal_svg(&crate::i18n::t("report.seal_text")),
     )
 }
 

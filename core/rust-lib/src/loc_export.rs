@@ -62,6 +62,12 @@ pub fn color_for(name: &str) -> String {
 /// Build the whole document. Pure — no clock, no filesystem, so the same
 /// report always produces byte-identical HTML.
 pub fn build_html(r: &LocReport) -> String {
+    let t = crate::i18n::t;
+    let (c_lang, c_files, c_lines, c_code, c_comments, c_blank, c_share, c_total) = (
+        t("locx.col.lang"), t("locx.col.files"), t("locx.col.lines"), t("locx.col.code"),
+        t("locx.col.comments"), t("locx.col.blank"), t("locx.col.share"), t("locx.col.total"),
+    );
+
     let parts: Vec<(String, f64, String)> = r
         .languages
         .iter()
@@ -92,16 +98,18 @@ pub fn build_html(r: &LocReport) -> String {
         .collect();
 
     let table = if r.languages.is_empty() {
-        r#"<p class="rp-empty">In diesem Ordner wurde kein zählbarer Code gefunden.</p>"#.to_string()
+        t("locx.empty")
     } else {
         format!(
-            r#"<section><h2>Nach Sprache</h2>
+            r#"<section><h2>{heading}</h2>
 {bar}
 <table>
-<thead><tr><th>Sprache</th><th>Dateien</th><th>Code</th><th>Kommentare</th><th>Leer</th><th>Anteil</th></tr></thead>
+<thead><tr><th>{c_lang}</th><th>{c_files}</th><th>{c_code}</th><th>{c_comments}</th><th>{c_blank}</th><th>{c_share}</th></tr></thead>
 <tbody>{rows}</tbody>
-<tfoot><tr><td>Gesamt</td><td>{files}</td><td>{code}</td><td>{com}</td><td>{bl}</td><td>100 %</td></tr></tfoot>
+<tfoot><tr><td>{c_total}</td><td>{files}</td><td>{code}</td><td>{com}</td><td>{bl}</td><td>100 %</td></tr></tfoot>
 </table></section>"#,
+            heading = t("locx.by_language"),
+            c_lang = c_lang, c_files = c_files, c_code = c_code, c_comments = c_comments, c_blank = c_blank, c_share = c_share, c_total = c_total,
             bar = rs::share_bar(&parts),
             files = num(r.total_files),
             code = num(r.total_code),
@@ -110,35 +118,24 @@ pub fn build_html(r: &LocReport) -> String {
         )
     };
 
-    let warn = if r.inaccurate {
-        r#"<p class="rp-note">Bei mindestens einer Datei meldete der Zähler <b>Parse-Probleme</b> — dort können die Zahlen abweichen.</p>"#
-    } else {
-        ""
-    };
+    let warn = if r.inaccurate { t("locx.parse_note") } else { String::new() };
 
     let body = format!(
         "{warn}{stats}{table}",
         stats = rs::stats(&[
-            rs::Stat { label: "Dateien", value: num(r.total_files), unit: None },
-            rs::Stat { label: "Zeilen", value: num(r.total_lines), unit: None },
-            rs::Stat { label: "Code", value: num(r.total_code), unit: None },
-            rs::Stat { label: "Kommentare", value: num(r.total_comments), unit: None },
-            rs::Stat { label: "Leer", value: num(r.total_blanks), unit: None },
+            rs::Stat { label: &c_files, value: num(r.total_files), unit: None },
+            rs::Stat { label: &c_lines, value: num(r.total_lines), unit: None },
+            rs::Stat { label: &c_code, value: num(r.total_code), unit: None },
+            rs::Stat { label: &c_comments, value: num(r.total_comments), unit: None },
+            rs::Stat { label: &c_blank, value: num(r.total_blanks), unit: None },
         ]),
     );
 
-    let ignores = if r.respected_ignores {
-        "<b>.gitignore</b> beachtet, versteckte Dateien übersprungen"
-    } else {
-        "<b>alles</b> gezählt — auch ignorierte und versteckte Dateien"
-    };
-    let foot = format!(
-        "Gezählt mit tokei. <b>Kommentare</b> enthalten Dokumentation (z. B. Python-Docstrings); \
-         <b>Zeilen</b> = Code + Kommentare + Leerzeilen. {ignores}.<br>Erstellt mit Inspector Rust."
-    );
+    let ignores = if r.respected_ignores { t("locx.ignores_on") } else { t("locx.ignores_off") };
+    let foot = crate::i18n::tf("locx.foot", &[("ignores", &ignores)]);
 
     rs::shell(
-        "Lines of Code",
+        &t("locx.title"),
         &esc(&r.root_label),
         &r.paths.first().map(|p| esc(p)).unwrap_or_default(),
         &body,
@@ -295,9 +292,9 @@ mod tests {
     #[test]
     fn the_inaccurate_flag_is_surfaced_never_swallowed() {
         let mut r = report();
-        assert!(!build_html(&r).contains("Parse-Probleme"));
+        assert!(!build_html(&r).contains("parse problems"));
         r.inaccurate = true;
-        assert!(build_html(&r).contains("Parse-Probleme"));
+        assert!(build_html(&r).contains("parse problems"));
     }
 
     #[test]
@@ -306,12 +303,12 @@ mod tests {
         // The wording carries markup now (the shared shell renders it), so
         // assert on the distinguishing words, not on a formatted sentence.
         let on = build_html(&r);
-        assert!(on.contains("beachtet") && on.contains("versteckte Dateien übersprungen"));
-        assert!(!on.contains("auch ignorierte"));
+        assert!(on.contains(".gitignore") && on.contains("hidden files skipped"));
+        assert!(!on.contains("everything"));
         r.respected_ignores = false;
         let off = build_html(&r);
-        assert!(off.contains("auch ignorierte und versteckte Dateien"));
-        assert!(!off.contains("übersprungen"));
+        assert!(off.contains("ignored and hidden files"));
+        assert!(!off.contains("skipped"));
     }
 
     #[test]

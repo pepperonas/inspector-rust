@@ -755,6 +755,27 @@ export function PreviewPanel({
     );
   }
 
+  if (entry.kind === "arg-suggestion") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          {t("preview.argsuggest.title")}
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="font-[var(--font-mono)] text-[14px] font-semibold leading-snug">
+            {entry.data.completion}
+          </div>
+          <div className="mt-2 text-[12px] text-[var(--color-muted)] leading-snug">
+            <InlineMd text={entry.data.hint} />
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            {t("preview.argsuggest.enter")}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "opener") {
     // Keyed on the text so each ←/→ switch remounts → replays the directional
     // slide-in (from the right for "next", from the left for "prev").

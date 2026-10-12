@@ -1,10 +1,10 @@
 {
-  "loc": 236416,
+  "loc": 236648,
   "loc_rust": 123857,
-  "loc_ts": 112559,
-  "tests": 5631,
+  "loc_ts": 112791,
+  "tests": 5636,
   "tests_rust": 2155,
-  "tests_frontend": 3476,
+  "tests_frontend": 3481,
   "commands": 77,
   "features": 213,
   "docs": 38,
@@ -19,6 +19,6 @@
   "frontendModules": 118,
   "hidden": 11,
   "hotkeys": 13,
-  "releases": 574,
+  "releases": 575,
   "settings": 44
 }

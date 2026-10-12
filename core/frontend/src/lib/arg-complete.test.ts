@@ -5,6 +5,7 @@ import {
   completeArg,
   cycleIndex,
   editDistance,
+  FREE_VALUE_ARG_KINDS,
   ghostSuffix,
   missingSource,
   recordUse,
@@ -253,6 +254,38 @@ describe("recently used first", () => {
     const u: ArgUsage = {};
     recordUse(u, "wakelock", "wakelock on", {}, NOW);
     expect(u).toEqual({});
+  });
+});
+
+describe("hasNext (whether a fill opens the next level)", () => {
+  it("marks options that lead to further options", () => {
+    const c = complete("spotify ")!;
+    const byVal = (v: string) => c.candidates.find((x) => x.value === v)!;
+    // `history` → the day filters; `now` is a leaf.
+    expect(byVal("history").hasNext).toBe(true);
+    expect(byVal("now").hasNext).toBe(false);
+    // A leaf choice at a deeper level.
+    const on = complete("wakelock ")!.candidates.find((x) => x.value === "on")!;
+    expect(on.hasNext).toBe(false);
+    // Nested: `history export` leads to the formats.
+    const exp = complete("spotify history ")!.candidates.find((x) => x.value === "export")!;
+    expect(exp.hasNext).toBe(true);
+  });
+});
+
+describe("FREE_VALUE_ARG_KINDS", () => {
+  it("covers exactly the convenience-preset (free numeric) commands", () => {
+    // These keep the ghost/Tab hint but must NOT take over the list as rows
+    // (Enter would hijack a custom number like `iris 5`).
+    expect([...FREE_VALUE_ARG_KINDS].sort()).toEqual(
+      ["iris", "pwgen", "random", "shot-full", "shot-region", "shot-window", "timer", "uuid"].sort(),
+    );
+    // The enumerated commands (rows are safe) are NOT in the set.
+    for (const k of ["spotify", "wakelock", "github", "adb", "gestures", "settings"] as const) {
+      expect(FREE_VALUE_ARG_KINDS.has(k)).toBe(false);
+    }
+    // Every listed kind really has an ARG_TREES entry.
+    for (const k of FREE_VALUE_ARG_KINDS) expect(ARG_TREES[k]).toBeTruthy();
   });
 });
 

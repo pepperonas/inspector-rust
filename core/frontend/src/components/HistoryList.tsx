@@ -334,6 +334,8 @@ export function HistoryList({
                           `cmd-${entry.data.commandKind}`
                         : entry.kind === "command-suggestion"
                           ? `sug-${entry.data.keyword}`
+                          : entry.kind === "arg-suggestion"
+                          ? `arg-${entry.data.completion}`
                           : entry.kind === "kill-target"
                             ? `kill-${entry.data.pid}`
                             : entry.kind === "opener"

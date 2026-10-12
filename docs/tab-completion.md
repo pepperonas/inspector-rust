@@ -1,9 +1,33 @@
-# Tab completion for command arguments
+# Completion for command arguments
 
 Inspector completes the **arguments** of search-bar commands, not only the
 command word. While you type, the rest of the word appears in grey right in
 the search field, and a small hint under the field says which word Tab takes
 and what it means.
+
+## Suggestions as a list (v0.214.0)
+
+Once you are **in argument territory** — there is a space after the keyword —
+a command with enumerated parameters shows **all** its options as rows at the
+top of the list, and they take over the whole list (like the `kill`/`meme`
+pickers). So **↓ / ↑ walk through the options** instead of dropping into the
+clipboard history, and **Enter / Tab / →** accept the highlighted one: the
+word is filled into the search bar (a word with further options adds a
+trailing space so the next level appears), the popup stays open, and a second
+Enter runs the now-complete command.
+
+```text
+spotify ␣          →  now · history · play · pause · toggle · …   (↓ to browse)
+spotify history ␣  →  heute · gestern · woche · monat · artist · export
+wakelock ␣         →  on · off · dark
+```
+
+A **bare keyword** (no space yet, e.g. `spotify`) keeps its command row and
+the grey ghost — Enter still opens its panel. **Free-value commands** whose
+argument is really a number — `timer`, `iris`, `pwgen`, `uuid`, `random`,
+`shot` — keep only the grey ghost and never take over the list, so Enter
+never overrides a custom value (`iris 5` runs `iris 5`, it is not turned into
+`iris 55`).
 
 ```text
 spotify hi|story            ⇥ Tab  history · Verlauf nach Tagen

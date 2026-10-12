@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.214.0] - 2026-10-12
+
+### Added
+- **Argument suggestions for commands with parameters are now a selectable list.** Once you type a space after a command with enumerated options (`spotify history `, `wakelock `, `github repos `…), every option shows as a row at the top of the list and ↓/↑ walk through them instead of dropping into the clipboard history. Enter / Tab / → fill the chosen word (one with further options opens the next level); a second Enter runs the completed command. Bare keywords and free-value commands (`timer`, `iris`, `pwgen`, …) keep just the inline grey ghost as before.
+
 ## [0.213.0] - 2026-10-12
 
 ### Added

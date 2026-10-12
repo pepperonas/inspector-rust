@@ -44,6 +44,10 @@ const KEYWORD_COMMAND_ROWS: Record<string, ListEntry> = {
     kind: "command-suggestion",
     data: { keyword: "clean", syntax: "clean", description: "Free disk space", completion: "clean" },
   },
+  "arg-suggestion": {
+    kind: "arg-suggestion",
+    data: { value: "history", hint: "the last days", completion: "spotify history", hasNext: true },
+  },
   help: { kind: "help", data: { command: "kill", tagline: "End a process", category: "System" } },
   "totp-manage": { kind: "totp-manage", data: { label: "2FA manager" } },
   totp: {
@@ -217,6 +221,20 @@ describe("HistoryItem — row chips + labels", () => {
     expect(svg.tagName.toLowerCase()).toBe("svg");
     expect(svg.getAttribute("fill")).toMatch(/^#[0-9A-F]{6}$/i);
     expect(svg.querySelector("path")?.getAttribute("fill")).toBe(svg.getAttribute("fill"));
+  });
+
+  it("shows an arg-suggestion's word + hint, and a typo correction struck through", () => {
+    renderRow(KEYWORD_COMMAND_ROWS["arg-suggestion"]);
+    expect(screen.getByText("history")).toBeTruthy();
+    expect(screen.getByText("the last days")).toBeTruthy();
+    cleanup();
+    // A typo correction (`histroy` → `history`) shows the typed word struck.
+    renderRow({
+      kind: "arg-suggestion",
+      data: { value: "history", hint: "the last days", completion: "spotify history", hasNext: true, fix: "histroy" },
+    });
+    const struck = screen.getByText("histroy");
+    expect(struck.className).toContain("line-through");
   });
 
   it("shows the meme's folder as its chip, falling back to 'meme' at top level", () => {

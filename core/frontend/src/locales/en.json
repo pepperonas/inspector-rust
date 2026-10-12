@@ -943,6 +943,8 @@
   "preview.kill.enter": "⏎ Enter to confirm and kill",
   "preview.suggestion.title": "Command suggestion",
   "preview.suggestion.enter": "⏎ Enter completes into the search bar",
+  "preview.argsuggest.title": "Argument option",
+  "preview.argsuggest.enter": "⏎ Enter · ⇥ Tab inserts the word · ↓ browse",
   "preview.opener.title": "Random opener · ← → switches",
   "preview.opener.hint": "⏎ Enter pastes into the focused app · ← → cycles to the previous / next opener",
   "bruno.self.title": "Profit → net (self-employed) · tax year 2025 (simplified)",

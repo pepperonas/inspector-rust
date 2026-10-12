@@ -73,6 +73,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "color") return <Palette size={size} className={cls} />;
   if (entry.kind === "command") return <Terminal size={size} className={cls} />;
   if (entry.kind === "command-suggestion") return <ChevronsRight size={size} className={cls} />;
+  if (entry.kind === "arg-suggestion") return <ChevronsRight size={size} className={cls} />;
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
@@ -152,6 +153,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isColor = entry.kind === "color";
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
+  const isArgSuggestion = entry.kind === "arg-suggestion";
   const isTotpManage = entry.kind === "totp-manage";
   const isBruno = entry.kind === "bruno";
   const isHelp = entry.kind === "help";
@@ -197,7 +199,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? t("list.repo_analyze", { repo: `${entry.data.owner}/${entry.data.repo}` })
         : isSocial && entry.kind === "social"
           ? t("list.download_from", { platform: platformLabel(entry.data.platform) })
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection || entry.kind === "typed-text"
+          : isCalc || isColor || isCommand || isSuggestion || isArgSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection || entry.kind === "typed-text"
             ? ""
             : isClown && entry.kind === "clown"
               ? truncateOneLine(entry.data.output, 80)
@@ -247,7 +249,7 @@ export const HistoryItem = memo(function HistoryItem({
     >
       cmd
     </span>
-  ) : isSuggestion ? (
+  ) : isSuggestion || isArgSuggestion ? (
     <span
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
@@ -580,6 +582,27 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               <InlineMd text={entry.data.description} />
+            </span>
+          </span>
+        ) : isArgSuggestion && entry.kind === "arg-suggestion" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-[var(--font-mono)]">
+              {entry.data.fix && (
+                // Typo correction: the typed word struck through → the fix.
+                <span className={selected ? "text-white/60" : "text-[var(--color-muted)]"}>
+                  <span className="line-through decoration-rose-500/70">{entry.data.fix}</span>
+                  {" → "}
+                </span>
+              )}
+              <span className="font-semibold">{entry.data.value}</span>
+            </span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              <InlineMd text={entry.data.hint} />
             </span>
           </span>
         ) : isKillTarget && entry.kind === "kill-target" ? (

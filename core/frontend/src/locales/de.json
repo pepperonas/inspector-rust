@@ -943,6 +943,8 @@
   "preview.kill.enter": "⏎ Enter bestätigt und beendet",
   "preview.suggestion.title": "Befehlsvorschlag",
   "preview.suggestion.enter": "⏎ Enter vervollständigt in der Suchleiste",
+  "preview.argsuggest.title": "Argument-Option",
+  "preview.argsuggest.enter": "⏎ Enter · ⇥ Tab fügt das Wort ein · ↓ blättern",
   "preview.opener.title": "Zufälliger Opener · ← → wechselt",
   "preview.opener.hint": "⏎ Enter fügt in die aktive App ein · ← → wechselt zum vorigen / nächsten Opener",
   "bruno.self.title": "Gewinn → Netto (selbständig) · Steuerjahr 2025 (vereinfacht)",

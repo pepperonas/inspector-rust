@@ -124,6 +124,27 @@ export interface CommandSuggestionView {
   completion: string;
 }
 
+/** One selectable ARGUMENT option of a command with parameters (v0.214.0):
+ *  `spotify history` → `heute`/`woche`/…, `wakelock` → `on`/`off`/`dark`.
+ *  Surfaces as a row in the list (above the clipboard history) so ↓/↑ walk
+ *  through the options; Enter/Tab/→ FILL the word into the search bar (a
+ *  second Enter runs the now-complete command). Registry + rules:
+ *  lib/arg-complete.ts. */
+export interface ArgSuggestionView {
+  /** The argument word this row inserts (`history`, `woche`, `on`). */
+  value: string;
+  /** Short explanation shown as the subtitle. */
+  hint: string;
+  /** The whole query after taking it (`spotify history`). */
+  completion: string;
+  /** The word has further options → filling it adds a trailing space so
+   *  the next level appears immediately. */
+  hasNext: boolean;
+  /** Set when this is a typo correction: the typed word it replaces
+   *  (shown struck through → the suggested word). */
+  fix?: string;
+}
+
 /** One process in the `kill` live picker — surfaces as its own
  *  ListEntry kind so the row gets its own icon + activation. */
 export interface KillTargetView {
@@ -211,6 +232,7 @@ export type ListEntry =
   | { kind: "color"; data: ColorEntryView }
   | { kind: "command"; data: CommandEntryView }
   | { kind: "command-suggestion"; data: CommandSuggestionView }
+  | { kind: "arg-suggestion"; data: ArgSuggestionView }
   | { kind: "kill-target"; data: KillTargetView }
   | { kind: "opener"; data: OpenerEntryView }
   | { kind: "finder-file"; data: FinderFileView }
@@ -310,6 +332,7 @@ export interface PwgenEntryView {
 export const CUSTOM_COMMAND_KINDS: ReadonlySet<ListEntry["kind"]> = new Set([
   "command",
   "command-suggestion",
+  "arg-suggestion",
   "help",
   "totp-manage",
   "bruno",

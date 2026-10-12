@@ -308,7 +308,27 @@ export interface ArgCandidate {
   completion: string;
   /** A typo correction: the typed word is replaced, not continued. */
   fix?: boolean;
+  /** This word leads to further options — a fill appends a trailing space
+   *  so the next level appears (`spotify history` → `heute`/`woche`/…). */
+  hasNext?: boolean;
 }
+
+/**
+ * Commands whose argument is really a FREE value (a number) — the registry
+ * entries are only convenience presets, not an exhaustive choice. They keep
+ * the inline ghost + Tab hint but must NOT take over the list as selectable
+ * rows: Enter there would hijack a custom value (`iris 5` → `iris 55`).
+ */
+export const FREE_VALUE_ARG_KINDS: ReadonlySet<CommandKind> = new Set<CommandKind>([
+  "timer",
+  "shot-region",
+  "shot-full",
+  "shot-window",
+  "pwgen",
+  "uuid",
+  "random",
+  "iris",
+]);
 
 export interface ArgCompletion {
   /** What the word being typed would become, in order. */
@@ -414,6 +434,7 @@ export function completeArg(kind: CommandKind, line: string, ctx: CompleteContex
       value: o.value,
       hint: t(o.hint as MessageKey),
       completion: `${w.head}${o.value}`,
+      hasNext: !!o.next,
       ...(fix ? { fix: true } : {}),
     })),
   };

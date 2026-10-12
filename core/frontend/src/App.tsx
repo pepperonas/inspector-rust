@@ -3167,6 +3167,95 @@ function App() {
     () => filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
     [filteredClips],
   );
+
+  // ── Argument completion — data (v0.214.0) ─────────────────────────────
+  // For commands with parameters, the fixed argument words complete. The
+  // candidates become selectable ROWS in the list below, so this is built
+  // BEFORE `combined`. The inline ghost + Tab/→ shortcut live further down
+  // (they follow the selected row). Registry + rules: lib/arg-complete.ts.
+  // Rows for enumerated args only — free-value commands (`iris`, `timer`, …)
+  // keep just the ghost (FREE_VALUE_ARG_KINDS) so Enter never hijacks a
+  // custom number.
+  const [argUsage, setArgUsage] = useState<{ usage: ArgUsage; now: number }>(() => {
+    try {
+      const raw = localStorage.getItem(ARG_USAGE_KEY);
+      return { usage: raw ? (JSON.parse(raw) as ArgUsage) : {}, now: Date.now() };
+    } catch {
+      return { usage: {}, now: Date.now() };
+    }
+  });
+  // Live value lists for completion slots (artists of the Spotify history),
+  // loaded the first time a slot needs them.
+  const [argSources, setArgSources] = useState<Partial<Record<string, readonly ArgOption[]>>>({});
+  // The command comes from the first word as typed — not only from the
+  // parsed command, which is null for `wakelock ` (a required argument is
+  // still missing — exactly when completion helps most). lookupKeyword is an
+  // EXACT match, so a non-null argSpec means the first word IS this command:
+  // the argument completion applies regardless of which row is selected.
+  const argSpec = useMemo(() => {
+    const word = query.trimStart().split(/\s/)[0] ?? "";
+    const spec = word ? lookupKeyword(word) : undefined;
+    return spec && isCommandAvailable(spec) ? spec : null;
+  }, [query]);
+  // The completer (registry + rules) loads with the first recognised command
+  // word — not needed before, and the start-up chunk has a budget.
+  const [argMod, setArgMod] = useState<typeof import("./lib/arg-complete") | null>(null);
+  useEffect(() => {
+    if (argSpec && !argMod) void import("./lib/arg-complete").then(setArgMod);
+  }, [argSpec, argMod]);
+  const argCtx = useMemo(
+    () => ({ sources: argSources, usage: argUsage.usage, now: argUsage.now }),
+    [argSources, argUsage],
+  );
+  const argComplete = useMemo(
+    () => (argMod && argSpec ? argMod.completeArg(argSpec.kind, query, argCtx) : null),
+    [argMod, argSpec, query, argCtx],
+  );
+  const neededSource = argMod && argSpec ? argMod.missingSource(argSpec.kind, query, argCtx) : null;
+  useEffect(() => {
+    if (!argMod || !neededSource) return;
+    const key = neededSource;
+    const load: Promise<readonly ArgOption[]> | null =
+      key === argMod.SOURCE_SPOTIFY_ARTISTS
+        ? spotifyTopArtists(300).then((list) => list.map((a) => ({ value: a.artist, hint: `${a.plays}× gehört` })))
+        : key === argMod.SOURCE_GITHUB_REPOS
+          ? githubDashboard("all", "stars").then((d) =>
+              (d?.rows ?? []).map((r) => ({ value: r.name, hint: `★ ${r.stars}${r.private ? " · private" : ""}` })),
+            )
+          : null;
+    if (!load) return;
+    let cancelled = false;
+    void load
+      .then((list) => {
+        if (!cancelled) setArgSources((s) => ({ ...s, [key]: list }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [argMod, neededSource]);
+  // Suggestions become rows once the user is in argument territory — a space
+  // after the keyword (so a bare `spotify` keeps its command row + ghost and
+  // Enter still opens its panel). Enumerated args only; free-value commands
+  // keep the ghost.
+  const inArgTerritory = /^\s*\S+\s/.test(query);
+  const argSuggestionEntries: ListEntry[] = useMemo(() => {
+    if (!inArgTerritory || !argMod || !argSpec || !argComplete) return [];
+    if (argMod.FREE_VALUE_ARG_KINDS.has(argSpec.kind)) return [];
+    return argComplete.candidates.map(
+      (c): ListEntry => ({
+        kind: "arg-suggestion",
+        data: {
+          value: c.value,
+          hint: c.hint,
+          completion: c.completion,
+          hasNext: !!c.hasNext,
+          ...(c.fix ? { fix: argComplete.partial.trim() } : {}),
+        },
+      }),
+    );
+  }, [inArgTerritory, argMod, argSpec, argComplete]);
+
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
@@ -3180,6 +3269,12 @@ function App() {
         (c): ListEntry => ({ kind: "clip", data: c }),
       );
     }
+    // Argument suggestions take over the whole list (like the kill/meme
+    // pickers) so ↓/↑ walk through the options instead of dropping into the
+    // clipboard history — the whole point of this mode. Only when a command
+    // with enumerated parameters is being typed (inArgTerritory + candidates);
+    // bare keywords and free-value commands fall through to the normal list.
+    if (argSuggestionEntries.length > 0) return argSuggestionEntries;
     return [
       // Custom commands have the HIGHEST priority. A complete command
       // (commandEntry) takes the top slot, and partial command *suggestions*
@@ -3249,6 +3344,7 @@ function App() {
     helpTarget,
     helpEntries,
     pinnedOnly,
+    argSuggestionEntries,
     commandEntry,
     snitchSubEntry,
     adbSubEntries,
@@ -3486,89 +3582,23 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSuggestion, gameMode]);
 
-  // ── Argument completion (v0.207.0) ────────────────────────────────────
-  // While a command row is selected, its fixed argument words complete:
-  // the first candidate shows as grey ghost text, Tab takes it, further Tabs
-  // cycle (Shift+Tab back), → at the end of the line takes the ghost.
-  // Registry + rules: lib/arg-complete.ts. Rows with their own Tab (keyword
-  // suggestions, figlet fonts, bruno, social) are other row kinds, so the
-  // handlers never compete.
+  // ── Argument completion — UI (v0.207.0; rows v0.214.0) ────────────────
+  // The data (argComplete, argSuggestionEntries) is built above `combined`
+  // because the candidates are selectable ROWS in the list. Here live the
+  // inline ghost + the Tab/→ accept shortcut. With rows visible (enumerated
+  // args) they FOLLOW the selected row, so ghost + pill + Enter all agree;
+  // for a bare keyword or a free-value command (no rows) the ghost shows the
+  // first candidate and Tab cycles zsh-style (unchanged from v0.207.0).
   const [argCycle, setArgCycle] = useState<ArgCycle | null>(null);
-  // Which argument words were used, to put habits first. Per device
-  // (localStorage) — a convenience, never required: unreadable storage just
-  // means registry order.
-  const [argUsage, setArgUsage] = useState<{ usage: ArgUsage; now: number }>(() => {
-    try {
-      const raw = localStorage.getItem(ARG_USAGE_KEY);
-      return { usage: raw ? (JSON.parse(raw) as ArgUsage) : {}, now: Date.now() };
-    } catch {
-      return { usage: {}, now: Date.now() };
-    }
-  });
-  // Live value lists for completion slots (artists of the Spotify history),
-  // loaded the first time a slot needs them.
-  const [argSources, setArgSources] = useState<Partial<Record<string, readonly ArgOption[]>>>({});
-  // The command comes from the first word as typed — not only from the
-  // parsed command, which is null for `wakelock ` (a required argument is
-  // still missing — exactly when completion helps most).
-  const argSpec = useMemo(() => {
-    const word = query.trimStart().split(/\s/)[0] ?? "";
-    const spec = word ? lookupKeyword(word) : undefined;
-    return spec && isCommandAvailable(spec) ? spec : null;
-  }, [query]);
-  const selectedRow = combined[selected];
-  // Rows with a Tab of their own keep it: another command's suggestion, a
-  // figlet font, bruno's mode switch, a social link's video/audio. Anything
-  // else — the command row, an empty list (`wakelock ` shows none), a clip
-  // that happens to match — gets the argument completion.
-  const ownTab =
-    (selectedRow?.kind === "command-suggestion" && selectedRow.data.keyword !== argSpec?.keyword) ||
-    selectedRow?.kind === "figlet-font" ||
-    selectedRow?.kind === "bruno" ||
-    selectedRow?.kind === "social";
-  const argRowSelected = !!argSpec && !ownTab;
-  // The completer (registry + rules) loads with the first recognised
-  // command word — it is not needed before, and the start-up chunk has a
-  // budget (check-bundle.mjs).
-  const [argMod, setArgMod] = useState<typeof import("./lib/arg-complete") | null>(null);
-  useEffect(() => {
-    if (argSpec && !argMod) void import("./lib/arg-complete").then(setArgMod);
-  }, [argSpec, argMod]);
-  const argCtx = useMemo(
-    () => ({ sources: argSources, usage: argUsage.usage, now: argUsage.now }),
-    [argSources, argUsage],
-  );
-  const argComplete = useMemo(
-    () => (argMod && argSpec && argRowSelected ? argMod.completeArg(argSpec.kind, query, argCtx) : null),
-    [argMod, argSpec, argRowSelected, query, argCtx],
-  );
-  const neededSource =
-    argMod && argSpec && argRowSelected ? argMod.missingSource(argSpec.kind, query, argCtx) : null;
-  useEffect(() => {
-    if (!argMod || !neededSource) return;
-    const key = neededSource;
-    const load: Promise<readonly ArgOption[]> | null =
-      key === argMod.SOURCE_SPOTIFY_ARTISTS
-        ? spotifyTopArtists(300).then((list) => list.map((a) => ({ value: a.artist, hint: `${a.plays}× gehört` })))
-        : key === argMod.SOURCE_GITHUB_REPOS
-          ? githubDashboard("all", "stars").then((d) =>
-              (d?.rows ?? []).map((r) => ({ value: r.name, hint: `★ ${r.stars}${r.private ? " · private" : ""}` })),
-            )
-          : null;
-    if (!load) return;
-    let cancelled = false;
-    void load
-      .then((list) => {
-        if (!cancelled) setArgSources((s) => ({ ...s, [key]: list }));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [argMod, neededSource]);
   // A cycle only lives while the line still shows the word it put there.
   const cycleLive =
     argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : null;
+  // The arg-suggestion row currently selected (only when the row takeover is
+  // active — `combined` is then entirely arg-suggestion rows).
+  const selectedArgRow =
+    argSuggestionEntries.length > 0 && combined[selected]?.kind === "arg-suggestion"
+      ? combined[selected]
+      : null;
   const completionHint: CompletionHint | null = useMemo(() => {
     if (cycleLive) {
       const n = cycleLive.cands.length;
@@ -3576,6 +3606,24 @@ function App() {
       const next = cycleLive.cands[argMod ? argMod.cycleIndex(cycleLive.index, n, false) : 0];
       return { ghost: "", value: next.value, hint: next.hint, index: cycleLive.index, total: n, cycling: true };
     }
+    // Rows visible → ghost/pill track the selected suggestion row so the
+    // inline preview matches what Enter/Tab/→ would fill.
+    if (selectedArgRow && selectedArgRow.kind === "arg-suggestion") {
+      const d = selectedArgRow.data;
+      const idx = argSuggestionEntries.findIndex(
+        (e) => e.kind === "arg-suggestion" && e.data.completion === d.completion,
+      );
+      return {
+        fix: d.fix,
+        ghost: argMod ? argMod.ghostSuffix(query, { value: d.value, hint: d.hint, completion: d.completion }) : "",
+        value: d.value,
+        hint: d.hint,
+        index: idx,
+        total: argSuggestionEntries.length,
+        cycling: false,
+      };
+    }
+    // Bare keyword / free-value command: the first candidate, Tab cycles.
     if (!argComplete) return null;
     const first = argComplete.candidates[0];
     return {
@@ -3587,9 +3635,33 @@ function App() {
       total: argComplete.candidates.length,
       cycling: false,
     };
-  }, [argMod, cycleLive, argComplete, query]);
+  }, [argMod, cycleLive, selectedArgRow, argSuggestionEntries, argComplete, query]);
+  // Fill the chosen argument word into the search bar (+ a trailing space
+  // when it has further options so the next level appears). The popup stays
+  // open; a second Enter runs the now-complete command.
+  const fillArg = useCallback((completion: string, hasNext: boolean) => {
+    const next = completion + (hasNext ? " " : "");
+    setQuery(next);
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      searchRef.current?.setSelectionRange(next.length, next.length);
+    });
+  }, []);
+  // Reach the selected arg row from the global key handler without
+  // re-subscribing the listener every render (`combined` is a fresh array
+  // each render). Written in an effect, never during render.
+  const selectedArgRef = useRef<{ completion: string; hasNext: boolean } | null>(null);
   useEffect(() => {
-    if (gameMode || (!argComplete && !cycleLive)) return;
+    const sel = combined[selected];
+    selectedArgRef.current =
+      argSuggestionEntries.length > 0 && sel?.kind === "arg-suggestion"
+        ? { completion: sel.data.completion, hasNext: sel.data.hasNext }
+        : null;
+  }, [combined, selected, argSuggestionEntries]);
+  useEffect(() => {
+    if (gameMode) return;
+    const rows = inArgTerritory && argSuggestionEntries.length > 0;
+    if (!rows && !argComplete && !cycleLive) return;
     const onKey = (e: KeyboardEvent) => {
       const tab = e.key === "Tab";
       if (!tab && e.key !== "ArrowRight") return;
@@ -3599,8 +3671,19 @@ function App() {
       if (!tab) {
         // → only takes a visible ghost, and only from the end of the line.
         const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-        if (e.shiftKey || cycleLive || !atEnd || !completionHint?.ghost) return;
+        if (e.shiftKey || !atEnd || !completionHint?.ghost) return;
+        if (!rows && cycleLive) return; // a live cycle has no ghost to the right
       }
+      // Rows visible: Tab / → accept the SELECTED row (arrows do the browsing).
+      if (rows) {
+        const sel = selectedArgRef.current;
+        if (!sel) return;
+        e.preventDefault();
+        e.stopPropagation();
+        fillArg(sel.completion, sel.hasNext);
+        return;
+      }
+      // Bare keyword / free-value: zsh-style cycle (unchanged).
       if (!argMod) return;
       const step = argMod.tabStep(tab ? cycleLive : null, argComplete, tab && e.shiftKey);
       if (!step) return;
@@ -3616,7 +3699,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [argMod, argComplete, cycleLive, completionHint, gameMode]);
+  }, [argMod, argComplete, cycleLive, completionHint, gameMode, inArgTerritory, argSuggestionEntries, fillArg]);
 
   // Tab / → on a selected figlet-font row fills `@font` into the search bar
   // (rz-preset semantics) so the user can keep tweaking the text before Enter.
@@ -5040,6 +5123,14 @@ function App() {
     };
 
     try {
+      // Argument-suggestion row — Enter fills the chosen word into the search
+      // bar (a word with further options gets a trailing space so the next
+      // level appears). The popup stays open; a second Enter runs the now
+      // complete command. Same accept action as Tab / → (see fillArg).
+      if (target.kind === "arg-suggestion") {
+        fillArg(target.data.completion, target.data.hasNext);
+        return;
+      }
       // bpm trigger — Enter swaps the popup body for the BPM
       // detector overlay (asks for mic permission, starts listening).
       // No paste, no clipboard write; the popup stays open until the

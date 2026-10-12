@@ -33,6 +33,7 @@ import {
 } from "../lib/units";
 import { buildArg, pasteNumber, type ConvertParse } from "../lib/convert-cmd";
 import type { FxRates } from "../lib/ipc";
+import { locale, t, useT } from "../lib/i18n";
 
 /**
  * `convert` / `cv` preview (v0.186.0). Everything the panel shows is derived
@@ -59,21 +60,22 @@ const ICONS: Record<CategoryId, LucideIcon> = {
   currency: Coins,
 };
 
-const DATE_FMT = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 function ago(ms: number | null, now: number): string {
   if (!ms) return "—";
   const min = Math.max(0, Math.round((now - ms) / 60000));
-  if (min < 1) return "gerade eben";
-  if (min < 60) return `vor ${min} min`;
+  if (min < 1) return t("cv.just_now");
+  if (min < 60) return t("cv.ago_min", { n: min });
   const h = Math.round(min / 60);
-  return h < 48 ? `vor ${h} h` : `vor ${Math.round(h / 24)} Tagen`;
+  return h < 48 ? t("cv.ago_h", { n: h }) : t("cv.ago_d", { n: Math.round(h / 24) });
 }
 
 function ecbDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(`${iso}T12:00:00`);
-  return Number.isNaN(d.getTime()) ? iso : DATE_FMT.format(d);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : new Intl.DateTimeFormat(locale(), { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
 }
 
 export function ConvertPanel({
@@ -104,6 +106,7 @@ export function ConvertPanel({
   onEngage?: () => void;
   onExit: () => void;
 }) {
+  useT();
   const ready = parse.kind === "ready" ? parse : null;
   // An unfinished unit (`cv 165 mp`) previews the BEST completion — the same
   // one the list offers first — instead of an unrelated default.
@@ -224,16 +227,16 @@ export function ConvertPanel({
     >
       <div className="flex items-center gap-2 text-[13px] font-medium">
         <ArrowRightLeft size={15} className="text-[var(--color-accent)]" />
-        Umrechnen
+        {t("cv.convert")}
         {focused && (
           <span className="ml-auto text-[10.5px] font-normal text-[var(--color-muted)]">
-            ←→ Kategorie · ↑↓ Zeile · Enter einfügen · Esc
+            {t("cv.category_row_enter_paste_esc")}
           </span>
         )}
       </div>
 
       {/* Category chips */}
-      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Kategorie">
+      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={t("cv.category")}>
         {CATEGORIES.map((c) => {
           const CIcon = ICONS[c.id];
           const active = c.id === cat;
@@ -263,7 +266,7 @@ export function ConvertPanel({
       <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-2 py-1.5">
         <Icon size={14} className="shrink-0 text-[var(--color-accent)]" />
         <input
-          aria-label="Wert"
+          aria-label={t("cv.value")}
           inputMode="decimal"
           value={valueText}
           placeholder="1"
@@ -271,7 +274,7 @@ export function ConvertPanel({
           className="w-24 min-w-0 flex-1 bg-transparent text-[13px] tabular-nums outline-none placeholder:text-[var(--color-muted)]"
         />
         <select
-          aria-label="Einheit"
+          aria-label={t("cv.unit")}
           value={source.id}
           onChange={(e) => write(cat, e.target.value, target && target.id !== e.target.value ? target.id : null)}
           className="rounded bg-[var(--color-surface)] px-1 py-0.5 text-[12px] outline-none"
@@ -284,12 +287,12 @@ export function ConvertPanel({
         </select>
         <span className="text-[11px] text-[var(--color-muted)]">→</span>
         <select
-          aria-label="Ziel"
+          aria-label={t("cv.target")}
           value={target?.id ?? ""}
           onChange={(e) => write(cat, source.id, e.target.value || null)}
           className="rounded bg-[var(--color-surface)] px-1 py-0.5 text-[12px] outline-none"
         >
-          <option value="">alle</option>
+          <option value="">{t("cv.all")}</option>
           {units
             .filter((x) => x.id !== source.id)
             .map((x) => (
@@ -303,17 +306,17 @@ export function ConvertPanel({
       {parse.kind === "partial" && (
         <p className="text-[11.5px] text-[var(--color-muted)]">
           {guess
-            ? `„${parse.unitText}" ist noch keine Einheit — Vorschau für ${guess.symbol}, Tab übernimmt.`
-            : `Unbekannte Einheit „${parse.unitText}".`}
+            ? t("cv.partial_unit", { text: parse.unitText, unit: guess.symbol })
+            : t("cv.unknown_unit", { text: parse.unitText })}
         </p>
       )}
       {parse.kind === "invalid" && (
-        <p className="text-[11.5px] text-[var(--color-muted)]">Das ist keine lesbare Zahl.</p>
+        <p className="text-[11.5px] text-[var(--color-muted)]">{t("cv.that_isn_t_a_readable")}</p>
       )}
 
       {needsRates && rows.length === 0 ? (
         <p className="text-[12px] text-[var(--color-muted)]">
-          {fxLoading ? "Lade Kurse…" : (fx?.error ?? "Keine Kurse verfügbar.")}
+          {fxLoading ? t("cv.loading_rates") : (fx?.error ?? t("cv.no_rates_available"))}
         </p>
       ) : (
         <div ref={listRef} className="flex flex-col" role="listbox" aria-label={category.label}>
@@ -333,7 +336,7 @@ export function ConvertPanel({
                   setSel(i);
                   copyRow(r.unit, r.value);
                 }}
-                title="Klicken kopiert die Zahl"
+                title={t("cv.click_copies_the_number")}
                 className={
                   "group flex items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors duration-(--duration-fast) " +
                   (selected
@@ -367,13 +370,13 @@ export function ConvertPanel({
       {needsRates && (
         <div className="mt-auto flex items-center gap-2 text-[10.5px] text-[var(--color-muted)]">
           <span className="min-w-0 flex-1">
-            EZB-Referenzkurs, Stand {ecbDate(fx?.ecb_date ?? null)} · BTC/ETH CoinGecko{" "}
+            {t("cv.ecb_as_of", { date: ecbDate(fx?.ecb_date ?? null) })}{" "}
             {ago(fx?.crypto_fetched_ms ?? null, now)}
-            {fx?.stale && <span className="text-amber-500"> · veraltet ({fx.error})</span>}
+            {fx?.stale && <span className="text-amber-500"> · {t("cv.stale", { err: fx.error ?? "" })}</span>}
           </span>
           <button
             type="button"
-            aria-label="Kurse aktualisieren"
+            aria-label={t("cv.refresh_rates")}
             onClick={onRefreshRates}
             className="md3-press rounded p-1 hover:text-[var(--color-fg)]"
           >

@@ -27,6 +27,7 @@ import {
   nearestCell,
   roundedHexPath,
 } from "../lib/hexgrid";
+import { t, useT } from "../lib/i18n";
 
 interface Cell {
   col: number;
@@ -35,24 +36,24 @@ interface Cell {
 
 interface Preset {
   key: string;
-  label: string;
+  readonly label: string;
   frac: [number, number, number, number]; // x, y, w, h in 0..1
 }
 
 const HALVES: Preset[] = [
-  { key: "max", label: "Maximize", frac: [0, 0, 1, 1] },
-  { key: "left", label: "Left half", frac: [0, 0, 0.5, 1] },
-  { key: "right", label: "Right half", frac: [0.5, 0, 0.5, 1] },
-  { key: "top", label: "Top half", frac: [0, 0, 1, 0.5] },
-  { key: "bottom", label: "Bottom half", frac: [0, 0.5, 1, 0.5] },
+  { key: "max", get label() { return t("wp.max"); }, frac: [0, 0, 1, 1] },
+  { key: "left", get label() { return t("wp.left"); }, frac: [0, 0, 0.5, 1] },
+  { key: "right", get label() { return t("wp.right"); }, frac: [0.5, 0, 0.5, 1] },
+  { key: "top", get label() { return t("wp.top"); }, frac: [0, 0, 1, 0.5] },
+  { key: "bottom", get label() { return t("wp.bottom"); }, frac: [0, 0.5, 1, 0.5] },
 ];
 
 const QUARTERS: Preset[] = [
-  { key: "max", label: "Maximize", frac: [0, 0, 1, 1] },
-  { key: "tl", label: "Top-left", frac: [0, 0, 0.5, 0.5] },
-  { key: "tr", label: "Top-right", frac: [0.5, 0, 0.5, 0.5] },
-  { key: "bl", label: "Bottom-left", frac: [0, 0.5, 0.5, 0.5] },
-  { key: "br", label: "Bottom-right", frac: [0.5, 0.5, 0.5, 0.5] },
+  { key: "max", get label() { return t("wp.max"); }, frac: [0, 0, 1, 1] },
+  { key: "tl", get label() { return t("wp.tl"); }, frac: [0, 0, 0.5, 0.5] },
+  { key: "tr", get label() { return t("wp.tr"); }, frac: [0.5, 0, 0.5, 0.5] },
+  { key: "bl", get label() { return t("wp.bl"); }, frac: [0, 0.5, 0.5, 0.5] },
+  { key: "br", get label() { return t("wp.br"); }, frac: [0.5, 0.5, 0.5, 0.5] },
 ];
 
 // ── M3-Expressive spring motion (real physics, baked to CSS once) ────────────
@@ -87,6 +88,7 @@ ${IGNITE_SPRING.css}
 `;
 
 export function WindowPalette() {
+  useT();
   const [ctx, setCtx] = useState<PaletteContext | null>(null);
   const [optionDown, setOptionDown] = useState(false);
   const [drag, setDrag] = useState<{ a: Cell; b: Cell } | null>(null);
@@ -446,7 +448,7 @@ export function WindowPalette() {
             );
           })()
         ) : (
-          <>drag to snap · ⌥ quarters · Esc cancel</>
+          <>{t("wp.hint")}</>
         )}
       </p>
     </div>

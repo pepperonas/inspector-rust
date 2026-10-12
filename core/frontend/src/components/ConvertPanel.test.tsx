@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 
 const { writeText } = vi.hoisted(() => ({ writeText: vi.fn(async () => undefined) }));
@@ -7,6 +7,13 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText }));
 import { ConvertPanel } from "./ConvertPanel";
 import { parseConvertArg } from "../lib/convert-cmd";
 import type { FxRates } from "../lib/ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const FX: FxRates = {
   eur_per: { EUR: 1, USD: 1 / 1.1712, BTC: 73319 },

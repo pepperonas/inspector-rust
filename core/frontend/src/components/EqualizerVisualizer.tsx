@@ -20,6 +20,7 @@ import {
 } from "../lib/bpm-visual";
 import { barGeometry, peakDecay } from "../lib/equalizer-visual";
 import { newFlap, updateFlap, flapView, type Flap } from "../lib/flap-counter";
+import { t, useT, type MessageKey } from "../lib/i18n";
 
 /**
  * Live spectrum equalizer — a classic vertical-bar analyzer driven by the
@@ -93,6 +94,7 @@ interface VizState {
 }
 
 export function EqualizerVisualizer({ onExit }: Props) {
+  useT();
   const [phase, setPhase] = useState<Phase>("requesting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [levelLabel, setLevelLabel] = useState<string>("silence");
@@ -380,7 +382,7 @@ export function EqualizerVisualizer({ onExit }: Props) {
       } catch (err) {
         const e = err as Error;
         if (cancelled) return;
-        setErrorMessage(e.message || e.name || "Audio capture failed");
+        setErrorMessage(e.message || e.name || t("viz.capture_failed"));
         setPhase("denied");
       }
     })();
@@ -401,16 +403,16 @@ export function EqualizerVisualizer({ onExit }: Props) {
           ) : (
             <MicOff size={12} className="text-amber-500" />
           )}
-          <span>Equalizer</span>
+          <span>{t("viz.equalizer")}</span>
           {phase === "listening" && (
-            <span className="text-[var(--color-muted)]">· {levelLabel}</span>
+            <span className="text-[var(--color-muted)]">· {t(`viz.level.${levelLabel}` as MessageKey)}</span>
           )}
-          {pinned && <span className="font-semibold text-rose-500">· pinned</span>}
+          {pinned && <span className="font-semibold text-rose-500">{t("viz.pinned_tag")}</span>}
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={togglePin}
-            title="Pin (Enter) — keep open when clicking away"
+            title={t("viz.pin_title")}
             className={
               "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] " +
               (pinned
@@ -419,7 +421,7 @@ export function EqualizerVisualizer({ onExit }: Props) {
             }
           >
             <Pin size={11} className={pinned ? "fill-rose-500" : ""} />
-            {pinned ? "Pinned" : "Pin"}
+            {pinned ? t("viz.pinned") : t("viz.pin")}
           </button>
           <button
             onClick={onExit}
@@ -443,10 +445,9 @@ export function EqualizerVisualizer({ onExit }: Props) {
               size={48}
               className="text-[var(--color-accent)] opacity-80 [animation:bpmPulse_1s_ease-in-out_infinite]"
             />
-            <div className="text-[14px] font-medium">Requesting microphone permission…</div>
+            <div className="text-[14px] font-medium">{t("viz.requesting")}</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              If your OS shows no prompt, Inspector Rust may already have an answer
-              on file. Check System Settings → Privacy &amp; Security → Microphone.
+              {t("viz.no_prompt")}
             </div>
           </div>
         )}
@@ -454,17 +455,16 @@ export function EqualizerVisualizer({ onExit }: Props) {
         {phase === "denied" && (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
             <MicOff size={48} className="text-amber-500" />
-            <div className="text-[14px] font-medium">No audio input available</div>
+            <div className="text-[14px] font-medium">{t("viz.no_input")}</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              {errorMessage ?? "Microphone unavailable."} Grant Inspector Rust
-              microphone access in System Settings and press “Retry”.
+              {errorMessage ?? t("viz.mic_unavailable")} {t("viz.grant_hint")}
             </div>
             <button
               onClick={() => setAttempt((n) => n + 1)}
               className="flex items-center gap-1.5 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
             >
               <RefreshCw size={12} />
-              Retry
+              {t("viz.retry")}
             </button>
           </div>
         )}
@@ -654,7 +654,7 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   ctx.font = `500 ${Math.round(Math.max(10, minDim * 0.02))}px ui-sans-serif, system-ui, sans-serif`;
   ctx.fillStyle = rgba(mixRgb(v.warm, v.bg, 0.35), 0.7);
   ctx.fillText(
-    `${BAND_COUNT}-band spectrum · log-scaled`,
+    t("viz.eq_status", { n: BAND_COUNT }),
     cssW / 2,
     cssH - Math.max(10, minDim * 0.03),
   );

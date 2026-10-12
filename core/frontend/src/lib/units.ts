@@ -11,6 +11,8 @@
  * A currency without a rate is simply not shown; it is never treated as 0.
  */
 
+import { locale, t, type MessageKey } from "./i18n";
+
 export type CategoryId =
   | "length"
   | "area"
@@ -29,8 +31,8 @@ export type CategoryId =
 
 export interface Category {
   id: CategoryId;
-  /** German label shown on the category chip. */
-  label: string;
+  /** Label on the category chip, in the app language (getter). */
+  readonly label: string;
   /** Unit id the preview uses when a category is picked without a unit. */
   defaultUnit: string;
 }
@@ -41,8 +43,8 @@ export interface Unit {
   cat: CategoryId;
   /** Display symbol, e.g. `km/h`, `°C`, `m²`. */
   symbol: string;
-  /** German display name. */
-  name: string;
+  /** Display name in the app language (getter, catalogue key `unit.<id>`). */
+  readonly name: string;
   /** Extra typable spellings (lower-case, spaces/° stripped by `normKey`). */
   aliases: string[];
   /** Linear: base units per one of this unit. */
@@ -54,20 +56,20 @@ export interface Unit {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: "length", label: "Länge", defaultUnit: "m" },
-  { id: "area", label: "Fläche", defaultUnit: "m2" },
-  { id: "volume", label: "Volumen", defaultUnit: "l" },
-  { id: "mass", label: "Masse", defaultUnit: "kg" },
-  { id: "temperature", label: "Temperatur", defaultUnit: "c" },
-  { id: "speed", label: "Geschwindigkeit", defaultUnit: "kmh" },
-  { id: "time", label: "Zeit", defaultUnit: "h" },
-  { id: "data", label: "Daten", defaultUnit: "gb" },
-  { id: "energy", label: "Energie", defaultUnit: "kwh" },
-  { id: "power", label: "Leistung", defaultUnit: "kw" },
-  { id: "pressure", label: "Druck", defaultUnit: "bar" },
-  { id: "fuel", label: "Verbrauch", defaultUnit: "l100km" },
-  { id: "angle", label: "Winkel", defaultUnit: "deg" },
-  { id: "currency", label: "Währung", defaultUnit: "eur" },
+  { id: "length", get label() { return t("unitcat.length"); }, defaultUnit: "m" },
+  { id: "area", get label() { return t("unitcat.area"); }, defaultUnit: "m2" },
+  { id: "volume", get label() { return t("unitcat.volume"); }, defaultUnit: "l" },
+  { id: "mass", get label() { return t("unitcat.mass"); }, defaultUnit: "kg" },
+  { id: "temperature", get label() { return t("unitcat.temperature"); }, defaultUnit: "c" },
+  { id: "speed", get label() { return t("unitcat.speed"); }, defaultUnit: "kmh" },
+  { id: "time", get label() { return t("unitcat.time"); }, defaultUnit: "h" },
+  { id: "data", get label() { return t("unitcat.data"); }, defaultUnit: "gb" },
+  { id: "energy", get label() { return t("unitcat.energy"); }, defaultUnit: "kwh" },
+  { id: "power", get label() { return t("unitcat.power"); }, defaultUnit: "kw" },
+  { id: "pressure", get label() { return t("unitcat.pressure"); }, defaultUnit: "bar" },
+  { id: "fuel", get label() { return t("unitcat.fuel"); }, defaultUnit: "l100km" },
+  { id: "angle", get label() { return t("unitcat.angle"); }, defaultUnit: "deg" },
+  { id: "currency", get label() { return t("unitcat.currency"); }, defaultUnit: "eur" },
 ];
 
 // Reciprocal fuel scales: value ↔ L/100 km (base). An involution — the same
@@ -76,166 +78,169 @@ const recip = (k: number) => (v: number) => k / v;
 const MPG_US = (100 * 3.785411784) / 1.609344; // 235.2145833…
 const MPG_UK = (100 * 4.54609) / 1.609344; // 282.4809363…
 
+/** A unit's display name in the app language (catalogue key `unit.<id>`). */
+function unitName(id: string): string {
+  return t(`unit.${id}` as MessageKey);
+}
+
 const u = (
   id: string,
   cat: CategoryId,
   symbol: string,
-  name: string,
   factor: number,
   aliases: string[] = [],
-): Unit => ({ id, cat, symbol, name, factor, aliases });
+): Unit => ({ id, cat, symbol, get name() { return unitName(id); }, factor, aliases });
 
 export const UNITS: Unit[] = [
   // ── length (base: metre) ─────────────────────────────────────────────────
-  u("mm", "length", "mm", "Millimeter", 0.001, ["millimeter", "millimetre"]),
-  u("cm", "length", "cm", "Zentimeter", 0.01, ["zentimeter", "centimeter", "centimetre"]),
-  u("m", "length", "m", "Meter", 1, ["meter", "metre", "metres", "meters"]),
-  u("km", "length", "km", "Kilometer", 1000, ["kilometer", "kilometre", "kilometres"]),
-  u("in", "length", "in", "Zoll", 0.0254, ["inch", "inches", "zoll", '"']),
-  u("ft", "length", "ft", "Fuß", 0.3048, ["foot", "feet", "fuss", "fuß", "'"]),
-  u("yd", "length", "yd", "Yard", 0.9144, ["yard", "yards"]),
-  u("mi", "length", "mi", "Meile", 1609.344, ["mile", "miles", "meile", "meilen"]),
-  u("nmi", "length", "sm", "Seemeile", 1852, ["seemeile", "seemeilen", "nauticalmile", "sm"]),
+  u("mm", "length", "mm", 0.001, ["millimeter", "millimetre"]),
+  u("cm", "length", "cm", 0.01, ["zentimeter", "centimeter", "centimetre"]),
+  u("m", "length", "m", 1, ["meter", "metre", "metres", "meters"]),
+  u("km", "length", "km", 1000, ["kilometer", "kilometre", "kilometres"]),
+  u("in", "length", "in", 0.0254, ["inch", "inches", "zoll", '"']),
+  u("ft", "length", "ft", 0.3048, ["foot", "feet", "fuss", "fuß", "'"]),
+  u("yd", "length", "yd", 0.9144, ["yard", "yards"]),
+  u("mi", "length", "mi", 1609.344, ["mile", "miles", "meile", "meilen"]),
+  u("nmi", "length", "sm", 1852, ["seemeile", "seemeilen", "nauticalmile", "sm"]),
 
   // ── area (base: m²) ──────────────────────────────────────────────────────
-  u("cm2", "area", "cm²", "Quadratzentimeter", 1e-4, ["qcm", "sqcm"]),
-  u("m2", "area", "m²", "Quadratmeter", 1, ["qm", "sqm", "quadratmeter"]),
-  u("ha", "area", "ha", "Hektar", 1e4, ["hektar", "hectare", "hectares"]),
-  u("km2", "area", "km²", "Quadratkilometer", 1e6, ["qkm", "sqkm"]),
-  u("in2", "area", "in²", "Quadratzoll", 0.00064516, ["sqin"]),
-  u("ft2", "area", "ft²", "Quadratfuß", 0.09290304, ["sqft"]),
-  u("yd2", "area", "yd²", "Quadratyard", 0.83612736, ["sqyd"]),
-  u("ac", "area", "ac", "Acre", 4046.8564224, ["acre", "acres"]),
-  u("mi2", "area", "mi²", "Quadratmeile", 2589988.110336, ["sqmi"]),
+  u("cm2", "area", "cm²", 1e-4, ["qcm", "sqcm"]),
+  u("m2", "area", "m²", 1, ["qm", "sqm", "quadratmeter"]),
+  u("ha", "area", "ha", 1e4, ["hektar", "hectare", "hectares"]),
+  u("km2", "area", "km²", 1e6, ["qkm", "sqkm"]),
+  u("in2", "area", "in²", 0.00064516, ["sqin"]),
+  u("ft2", "area", "ft²", 0.09290304, ["sqft"]),
+  u("yd2", "area", "yd²", 0.83612736, ["sqyd"]),
+  u("ac", "area", "ac", 4046.8564224, ["acre", "acres"]),
+  u("mi2", "area", "mi²", 2589988.110336, ["sqmi"]),
 
   // ── volume (base: litre) ─────────────────────────────────────────────────
-  u("ml", "volume", "ml", "Milliliter", 0.001, ["milliliter", "millilitre"]),
-  u("cl", "volume", "cl", "Zentiliter", 0.01, ["zentiliter", "centiliter"]),
-  u("dl", "volume", "dl", "Deziliter", 0.1, ["deziliter", "deciliter"]),
-  u("l", "volume", "l", "Liter", 1, ["liter", "litre", "liters", "litres", "ltr"]),
-  u("m3", "volume", "m³", "Kubikmeter", 1000, ["cbm", "kubikmeter"]),
-  u("tsp", "volume", "TL", "Teelöffel (US)", 0.00492892159375, ["tl", "teelöffel", "teaspoon"]),
-  u("tbsp", "volume", "EL", "Esslöffel (US)", 0.01478676478125, ["el", "esslöffel", "tablespoon"]),
-  u("floz", "volume", "fl oz", "Flüssigunze (US)", 0.0295735295625, ["fluidounce", "usfloz"]),
-  u("cup", "volume", "cup", "Tasse (US)", 0.2365882365, ["cups", "tasse", "tassen"]),
-  u("pt", "volume", "pt", "Pint (US)", 0.473176473, ["pint", "pints", "uspt"]),
-  u("ukpt", "volume", "pt (UK)", "Pint (UK)", 0.56826125, ["impt", "imperialpint"]),
-  u("qt", "volume", "qt", "Quart (US)", 0.946352946, ["quart", "quarts"]),
-  u("gal", "volume", "gal", "Gallone (US)", 3.785411784, ["gallon", "gallons", "gallone", "usgal"]),
-  u("ukgal", "volume", "gal (UK)", "Gallone (UK)", 4.54609, ["impgal", "imperialgallon"]),
+  u("ml", "volume", "ml", 0.001, ["milliliter", "millilitre"]),
+  u("cl", "volume", "cl", 0.01, ["zentiliter", "centiliter"]),
+  u("dl", "volume", "dl", 0.1, ["deziliter", "deciliter"]),
+  u("l", "volume", "l", 1, ["liter", "litre", "liters", "litres", "ltr"]),
+  u("m3", "volume", "m³", 1000, ["cbm", "kubikmeter"]),
+  u("tsp", "volume", "TL", 0.00492892159375, ["tl", "teelöffel", "teaspoon"]),
+  u("tbsp", "volume", "EL", 0.01478676478125, ["el", "esslöffel", "tablespoon"]),
+  u("floz", "volume", "fl oz", 0.0295735295625, ["fluidounce", "usfloz"]),
+  u("cup", "volume", "cup", 0.2365882365, ["cups", "tasse", "tassen"]),
+  u("pt", "volume", "pt", 0.473176473, ["pint", "pints", "uspt"]),
+  u("ukpt", "volume", "pt (UK)", 0.56826125, ["impt", "imperialpint"]),
+  u("qt", "volume", "qt", 0.946352946, ["quart", "quarts"]),
+  u("gal", "volume", "gal", 3.785411784, ["gallon", "gallons", "gallone", "usgal"]),
+  u("ukgal", "volume", "gal (UK)", 4.54609, ["impgal", "imperialgallon"]),
 
   // ── mass (base: gram) ────────────────────────────────────────────────────
-  u("mg", "mass", "mg", "Milligramm", 0.001, ["milligramm", "milligram"]),
-  u("g", "mass", "g", "Gramm", 1, ["gramm", "gram", "grams"]),
-  u("kg", "mass", "kg", "Kilogramm", 1000, ["kilo", "kilogramm", "kilogram", "kilos"]),
-  u("t", "mass", "t", "Tonne", 1e6, ["tonne", "tonnen", "ton"]),
-  u("oz", "mass", "oz", "Unze", 28.349523125, ["ounce", "ounces", "unze", "unzen"]),
-  u("lb", "mass", "lb", "Pfund (lb)", 453.59237, ["lbs", "pound", "pounds"]),
-  u("st", "mass", "st", "Stone", 6350.29318, ["stone"]),
-  u("ct", "mass", "ct", "Karat", 0.2, ["karat", "carat"]),
+  u("mg", "mass", "mg", 0.001, ["milligramm", "milligram"]),
+  u("g", "mass", "g", 1, ["gramm", "gram", "grams"]),
+  u("kg", "mass", "kg", 1000, ["kilo", "kilogramm", "kilogram", "kilos"]),
+  u("t", "mass", "t", 1e6, ["tonne", "tonnen", "ton"]),
+  u("oz", "mass", "oz", 28.349523125, ["ounce", "ounces", "unze", "unzen"]),
+  u("lb", "mass", "lb", 453.59237, ["lbs", "pound", "pounds"]),
+  u("st", "mass", "st", 6350.29318, ["stone"]),
+  u("ct", "mass", "ct", 0.2, ["karat", "carat"]),
 
   // ── temperature (base: °C, affine) ───────────────────────────────────────
   {
-    id: "c", cat: "temperature", symbol: "°C", name: "Celsius",
+    id: "c", cat: "temperature", symbol: "°C", get name() { return unitName("c"); },
     aliases: ["celsius"], toBase: (v) => v, fromBase: (v) => v,
   },
   {
-    id: "f", cat: "temperature", symbol: "°F", name: "Fahrenheit",
+    id: "f", cat: "temperature", symbol: "°F", get name() { return unitName("f"); },
     aliases: ["fahrenheit"], toBase: (v) => ((v - 32) * 5) / 9, fromBase: (v) => (v * 9) / 5 + 32,
   },
   {
-    id: "k", cat: "temperature", symbol: "K", name: "Kelvin",
+    id: "k", cat: "temperature", symbol: "K", get name() { return unitName("k"); },
     aliases: ["kelvin"], toBase: (v) => v - 273.15, fromBase: (v) => v + 273.15,
   },
 
   // ── speed (base: m/s) ────────────────────────────────────────────────────
-  u("kmh", "speed", "km/h", "Kilometer pro Stunde", 1000 / 3600, ["kph", "kmph", "kmproh", "kmpro"]),
-  u("mph", "speed", "mph", "Meilen pro Stunde", 1609.344 / 3600, ["mi/h", "milesperhour"]),
-  u("mps", "speed", "m/s", "Meter pro Sekunde", 1, ["ms-1", "meterprosekunde"]),
-  u("kn", "speed", "kn", "Knoten", 1852 / 3600, ["knot", "knots", "knoten", "kt"]),
-  u("fps", "speed", "ft/s", "Fuß pro Sekunde", 0.3048, ["ft/s", "feetpersecond"]),
+  u("kmh", "speed", "km/h", 1000 / 3600, ["kph", "kmph", "kmproh", "kmpro"]),
+  u("mph", "speed", "mph", 1609.344 / 3600, ["mi/h", "milesperhour"]),
+  u("mps", "speed", "m/s", 1, ["ms-1", "meterprosekunde"]),
+  u("kn", "speed", "kn", 1852 / 3600, ["knot", "knots", "knoten", "kt"]),
+  u("fps", "speed", "ft/s", 0.3048, ["ft/s", "feetpersecond"]),
 
   // ── time (base: second) ──────────────────────────────────────────────────
-  u("ms", "time", "ms", "Millisekunde", 0.001, ["millisekunde", "millisekunden", "millisecond", "milliseconds"]),
-  u("s", "time", "s", "Sekunde", 1, ["sec", "sekunde", "sekunden", "second", "seconds"]),
-  u("min", "time", "min", "Minute", 60, ["minute", "minuten", "minutes", "mins"]),
-  u("h", "time", "h", "Stunde", 3600, ["hr", "hrs", "std", "stunde", "stunden", "hour", "hours"]),
-  u("d", "time", "d", "Tag", 86400, ["day", "days", "tag", "tage"]),
-  u("wk", "time", "Wo", "Woche", 604800, ["week", "weeks", "woche", "wochen"]),
-  u("mo", "time", "Mon", "Monat", 2629746, ["month", "months", "monat", "monate"]),
-  u("yr", "time", "a", "Jahr", 31556952, ["year", "years", "jahr", "jahre", "y"]),
+  u("ms", "time", "ms", 0.001, ["millisekunde", "millisekunden", "millisecond", "milliseconds"]),
+  u("s", "time", "s", 1, ["sec", "sekunde", "sekunden", "second", "seconds"]),
+  u("min", "time", "min", 60, ["minute", "minuten", "minutes", "mins"]),
+  u("h", "time", "h", 3600, ["hr", "hrs", "std", "stunde", "stunden", "hour", "hours"]),
+  u("d", "time", "d", 86400, ["day", "days", "tag", "tage"]),
+  u("wk", "time", "Wo", 604800, ["week", "weeks", "woche", "wochen"]),
+  u("mo", "time", "Mon", 2629746, ["month", "months", "monat", "monate"]),
+  u("yr", "time", "a", 31556952, ["year", "years", "jahr", "jahre", "y"]),
 
   // ── data (base: byte; SI decimal AND IEC binary) ─────────────────────────
-  u("bit", "data", "bit", "Bit", 0.125, ["bits"]),
-  u("b", "data", "B", "Byte", 1, ["byte", "bytes"]),
-  u("kb", "data", "kB", "Kilobyte", 1e3, ["kilobyte"]),
-  u("mb", "data", "MB", "Megabyte", 1e6, ["megabyte"]),
-  u("gb", "data", "GB", "Gigabyte", 1e9, ["gigabyte", "gig"]),
-  u("tb", "data", "TB", "Terabyte", 1e12, ["terabyte"]),
-  u("pb", "data", "PB", "Petabyte", 1e15, ["petabyte"]),
-  u("kib", "data", "KiB", "Kibibyte", 1024, ["kibibyte"]),
-  u("mib", "data", "MiB", "Mebibyte", 1024 ** 2, ["mebibyte"]),
-  u("gib", "data", "GiB", "Gibibyte", 1024 ** 3, ["gibibyte"]),
-  u("tib", "data", "TiB", "Tebibyte", 1024 ** 4, ["tebibyte"]),
+  u("bit", "data", "bit", 0.125, ["bits"]),
+  u("b", "data", "B", 1, ["byte", "bytes"]),
+  u("kb", "data", "kB", 1e3, ["kilobyte"]),
+  u("mb", "data", "MB", 1e6, ["megabyte"]),
+  u("gb", "data", "GB", 1e9, ["gigabyte", "gig"]),
+  u("tb", "data", "TB", 1e12, ["terabyte"]),
+  u("pb", "data", "PB", 1e15, ["petabyte"]),
+  u("kib", "data", "KiB", 1024, ["kibibyte"]),
+  u("mib", "data", "MiB", 1024 ** 2, ["mebibyte"]),
+  u("gib", "data", "GiB", 1024 ** 3, ["gibibyte"]),
+  u("tib", "data", "TiB", 1024 ** 4, ["tebibyte"]),
 
   // ── energy (base: joule) ─────────────────────────────────────────────────
-  u("j", "energy", "J", "Joule", 1, ["joule"]),
-  u("kj", "energy", "kJ", "Kilojoule", 1e3, ["kilojoule"]),
-  u("cal", "energy", "cal", "Kalorie", 4.184, ["kalorie", "calorie"]),
-  u("kcal", "energy", "kcal", "Kilokalorie", 4184, ["kilokalorie", "kalorien", "calories"]),
-  u("wh", "energy", "Wh", "Wattstunde", 3600, ["wattstunde"]),
-  u("kwh", "energy", "kWh", "Kilowattstunde", 3.6e6, ["kilowattstunde", "kilowatthour"]),
-  u("btu", "energy", "BTU", "British Thermal Unit", 1055.05585262, []),
+  u("j", "energy", "J", 1, ["joule"]),
+  u("kj", "energy", "kJ", 1e3, ["kilojoule"]),
+  u("cal", "energy", "cal", 4.184, ["kalorie", "calorie"]),
+  u("kcal", "energy", "kcal", 4184, ["kilokalorie", "kalorien", "calories"]),
+  u("wh", "energy", "Wh", 3600, ["wattstunde"]),
+  u("kwh", "energy", "kWh", 3.6e6, ["kilowattstunde", "kilowatthour"]),
+  u("btu", "energy", "BTU", 1055.05585262, []),
 
   // ── power (base: watt) ───────────────────────────────────────────────────
-  u("w", "power", "W", "Watt", 1, ["watt"]),
-  u("kw", "power", "kW", "Kilowatt", 1e3, ["kilowatt"]),
-  u("mw", "power", "MW", "Megawatt", 1e6, ["megawatt"]),
-  u("ps", "power", "PS", "Pferdestärke", 735.49875, ["pferdestärke", "pferdestaerke"]),
-  u("hp", "power", "hp", "Horsepower (mech.)", 550 * 0.3048 * 4.4482216152605, ["horsepower", "bhp"]), // 550 ft·lbf/s
+  u("w", "power", "W", 1, ["watt"]),
+  u("kw", "power", "kW", 1e3, ["kilowatt"]),
+  u("mw", "power", "MW", 1e6, ["megawatt"]),
+  u("ps", "power", "PS", 735.49875, ["pferdestärke", "pferdestaerke"]),
+  u("hp", "power", "hp", 550 * 0.3048 * 4.4482216152605, ["horsepower", "bhp"]), // 550 ft·lbf/s
 
   // ── pressure (base: pascal) ──────────────────────────────────────────────
-  u("pa", "pressure", "Pa", "Pascal", 1, ["pascal"]),
-  u("hpa", "pressure", "hPa", "Hektopascal", 100, ["hektopascal"]),
-  u("kpa", "pressure", "kPa", "Kilopascal", 1e3, ["kilopascal"]),
-  u("mbar", "pressure", "mbar", "Millibar", 100, ["millibar"]),
-  u("bar", "pressure", "bar", "Bar", 1e5, []),
-  u("psi", "pressure", "psi", "Pfund pro Quadratzoll", 6894.757293168, []),
-  u("atm", "pressure", "atm", "Atmosphäre", 101325, ["atmosphäre", "atmosphere"]),
-  u("mmhg", "pressure", "mmHg", "Millimeter Quecksilber", 133.322387415, ["torr"]),
+  u("pa", "pressure", "Pa", 1, ["pascal"]),
+  u("hpa", "pressure", "hPa", 100, ["hektopascal"]),
+  u("kpa", "pressure", "kPa", 1e3, ["kilopascal"]),
+  u("mbar", "pressure", "mbar", 100, ["millibar"]),
+  u("bar", "pressure", "bar", 1e5, []),
+  u("psi", "pressure", "psi", 6894.757293168, []),
+  u("atm", "pressure", "atm", 101325, ["atmosphäre", "atmosphere"]),
+  u("mmhg", "pressure", "mmHg", 133.322387415, ["torr"]),
 
   // ── fuel consumption (base: L/100 km, reciprocal scales) ─────────────────
   {
-    id: "l100km", cat: "fuel", symbol: "L/100 km", name: "Liter pro 100 km",
+    id: "l100km", cat: "fuel", symbol: "L/100 km", get name() { return unitName("l100km"); },
     aliases: ["l/100km", "lpro100km", "l100"], toBase: (v) => v, fromBase: (v) => v,
   },
   {
-    id: "kml", cat: "fuel", symbol: "km/L", name: "Kilometer pro Liter",
+    id: "kml", cat: "fuel", symbol: "km/L", get name() { return unitName("kml"); },
     aliases: ["km/l", "kmpl"], toBase: recip(100), fromBase: recip(100),
   },
   {
-    id: "mpg", cat: "fuel", symbol: "mpg (US)", name: "Meilen pro Gallone (US)",
+    id: "mpg", cat: "fuel", symbol: "mpg (US)", get name() { return unitName("mpg"); },
     aliases: ["mpgus", "usmpg"], toBase: recip(MPG_US), fromBase: recip(MPG_US),
   },
   {
-    id: "mpguk", cat: "fuel", symbol: "mpg (UK)", name: "Meilen pro Gallone (UK)",
+    id: "mpguk", cat: "fuel", symbol: "mpg (UK)", get name() { return unitName("mpguk"); },
     aliases: ["ukmpg", "mpgimp"], toBase: recip(MPG_UK), fromBase: recip(MPG_UK),
   },
 
   // ── angle (base: degree) ─────────────────────────────────────────────────
-  u("deg", "angle", "°", "Grad", 1, ["°", "degree", "degrees"]),
-  u("rad", "angle", "rad", "Radiant", 180 / Math.PI, ["radiant", "radian", "radians"]),
-  u("grad", "angle", "gon", "Gon", 0.9, ["gon", "gradian"]),
-  u("turn", "angle", "U", "Umdrehung", 360, ["umdrehung", "umdrehungen", "turns", "rev"]),
-  u("arcmin", "angle", "′", "Bogenminute", 1 / 60, ["bogenminute"]),
-  u("arcsec", "angle", "″", "Bogensekunde", 1 / 3600, ["bogensekunde"]),
+  u("deg", "angle", "°", 1, ["°", "degree", "degrees"]),
+  u("rad", "angle", "rad", 180 / Math.PI, ["radiant", "radian", "radians"]),
+  u("grad", "angle", "gon", 0.9, ["gon", "gradian"]),
+  u("turn", "angle", "U", 360, ["umdrehung", "umdrehungen", "turns", "rev"]),
+  u("arcmin", "angle", "′", 1 / 60, ["bogenminute"]),
+  u("arcsec", "angle", "″", 1 / 3600, ["bogensekunde"]),
 ];
 
 // ── currencies (factor = EUR value of one unit, supplied at runtime) ────────
 
 interface CurrencyDef {
   code: string;
-  name: string;
   symbol?: string;
   aliases?: string[];
   crypto?: boolean;
@@ -244,38 +249,38 @@ interface CurrencyDef {
 /** Order = preview order: the everyday ones first. Codes match the ECB set
  *  frankfurter serves; BTC/ETH come from CoinGecko. */
 const CURRENCIES: CurrencyDef[] = [
-  { code: "EUR", name: "Euro", symbol: "€", aliases: ["euro", "euros"] },
-  { code: "USD", name: "US-Dollar", symbol: "$", aliases: ["dollar", "dollars", "usdollar"] },
-  { code: "GBP", name: "Britisches Pfund", symbol: "£", aliases: ["pfundsterling", "sterling", "quid"] },
-  { code: "CHF", name: "Schweizer Franken", aliases: ["franken", "franc", "francs"] },
-  { code: "JPY", name: "Japanischer Yen", symbol: "¥", aliases: ["yen"] },
-  { code: "BTC", name: "Bitcoin", symbol: "₿", aliases: ["bitcoin", "xbt"], crypto: true },
-  { code: "ETH", name: "Ether", aliases: ["ether", "ethereum"], crypto: true },
-  { code: "CNY", name: "Chinesischer Yuan", aliases: ["yuan", "renminbi", "rmb"] },
-  { code: "CAD", name: "Kanadischer Dollar" },
-  { code: "AUD", name: "Australischer Dollar" },
-  { code: "NZD", name: "Neuseeland-Dollar" },
-  { code: "SEK", name: "Schwedische Krone" },
-  { code: "NOK", name: "Norwegische Krone" },
-  { code: "DKK", name: "Dänische Krone" },
-  { code: "PLN", name: "Polnischer Złoty", aliases: ["zloty", "złoty"] },
-  { code: "CZK", name: "Tschechische Krone" },
-  { code: "HUF", name: "Ungarischer Forint", aliases: ["forint"] },
-  { code: "RON", name: "Rumänischer Leu" },
-  { code: "ISK", name: "Isländische Krone" },
-  { code: "TRY", name: "Türkische Lira", aliases: ["lira"] },
-  { code: "HKD", name: "Hongkong-Dollar" },
-  { code: "SGD", name: "Singapur-Dollar" },
-  { code: "KRW", name: "Südkoreanischer Won", aliases: ["won"] },
-  { code: "INR", name: "Indische Rupie", aliases: ["rupie", "rupee", "rupees"] },
-  { code: "IDR", name: "Indonesische Rupiah", aliases: ["rupiah"] },
-  { code: "MYR", name: "Malaysischer Ringgit", aliases: ["ringgit"] },
-  { code: "PHP", name: "Philippinischer Peso" },
-  { code: "THB", name: "Thailändischer Baht", aliases: ["baht"] },
-  { code: "BRL", name: "Brasilianischer Real", aliases: ["real", "reais"] },
-  { code: "MXN", name: "Mexikanischer Peso" },
-  { code: "ZAR", name: "Südafrikanischer Rand", aliases: ["rand"] },
-  { code: "ILS", name: "Israelischer Schekel", aliases: ["schekel", "shekel"] },
+  { code: "EUR", symbol: "€", aliases: ["euro", "euros"] },
+  { code: "USD", symbol: "$", aliases: ["dollar", "dollars", "usdollar"] },
+  { code: "GBP", symbol: "£", aliases: ["pfundsterling", "sterling", "quid"] },
+  { code: "CHF", aliases: ["franken", "franc", "francs"] },
+  { code: "JPY", symbol: "¥", aliases: ["yen"] },
+  { code: "BTC", symbol: "₿", aliases: ["bitcoin", "xbt"], crypto: true },
+  { code: "ETH", aliases: ["ether", "ethereum"], crypto: true },
+  { code: "CNY", aliases: ["yuan", "renminbi", "rmb"] },
+  { code: "CAD" },
+  { code: "AUD" },
+  { code: "NZD" },
+  { code: "SEK" },
+  { code: "NOK" },
+  { code: "DKK" },
+  { code: "PLN", aliases: ["zloty", "złoty"] },
+  { code: "CZK" },
+  { code: "HUF", aliases: ["forint"] },
+  { code: "RON" },
+  { code: "ISK" },
+  { code: "TRY", aliases: ["lira"] },
+  { code: "HKD" },
+  { code: "SGD" },
+  { code: "KRW", aliases: ["won"] },
+  { code: "INR", aliases: ["rupie", "rupee", "rupees"] },
+  { code: "IDR", aliases: ["rupiah"] },
+  { code: "MYR", aliases: ["ringgit"] },
+  { code: "PHP" },
+  { code: "THB", aliases: ["baht"] },
+  { code: "BRL", aliases: ["real", "reais"] },
+  { code: "MXN" },
+  { code: "ZAR", aliases: ["rand"] },
+  { code: "ILS", aliases: ["schekel", "shekel"] },
 ];
 
 for (const c of CURRENCIES) {
@@ -283,7 +288,7 @@ for (const c of CURRENCIES) {
     id: c.code.toLowerCase(),
     cat: "currency",
     symbol: c.code,
-    name: c.name,
+    get name() { return unitName(c.code.toLowerCase()); },
     aliases: [...(c.symbol ? [c.symbol] : []), ...(c.aliases ?? [])],
     crypto: c.crypto,
   });
@@ -452,23 +457,36 @@ export function convertAll(value: number, from: Unit, rates?: Rates): ConvertRow
 
 // ── formatting ──────────────────────────────────────────────────────────────
 
-const SIG = new Intl.NumberFormat("de-DE", { maximumSignificantDigits: 7 });
-const MONEY = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const CRYPTO = new Intl.NumberFormat("de-DE", { maximumSignificantDigits: 8 });
+// Formatters per app language, built once each (Intl constructors are slow).
+const FORMATTERS = new Map<string, { sig: Intl.NumberFormat; money: Intl.NumberFormat; crypto: Intl.NumberFormat }>();
+function formatters() {
+  const loc = locale();
+  let f = FORMATTERS.get(loc);
+  if (!f) {
+    f = {
+      sig: new Intl.NumberFormat(loc, { maximumSignificantDigits: 7 }),
+      money: new Intl.NumberFormat(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      crypto: new Intl.NumberFormat(loc, { maximumSignificantDigits: 8 }),
+    };
+    FORMATTERS.set(loc, f);
+  }
+  return f;
+}
 
-/** German-formatted number for a unit: money with two decimals, crypto with
+/** Number for a unit, formatted in the app language: money with two decimals, crypto with
  *  up to eight significant digits, everything else with seven significant
  *  digits; scientific notation only at the extremes; never "-0" or "NaN". */
 export function formatValue(v: number, unit?: Unit): string {
   if (!Number.isFinite(v)) return "—";
   if (Object.is(v, -0) || v === 0) v = 0;
   const abs = Math.abs(v);
+  const { sig, money, crypto } = formatters();
   if (unit?.cat === "currency") {
-    if (unit.crypto) return abs !== 0 && abs < 1e-8 ? sci(v) : CRYPTO.format(v);
-    return abs !== 0 && abs < 0.005 ? CRYPTO.format(v) : MONEY.format(v);
+    if (unit.crypto) return abs !== 0 && abs < 1e-8 ? sci(v) : crypto.format(v);
+    return abs !== 0 && abs < 0.005 ? crypto.format(v) : money.format(v);
   }
   if (abs !== 0 && (abs >= 1e15 || abs < 1e-6)) return sci(v);
-  const out = SIG.format(v);
+  const out = sig.format(v);
   return out === "-0" ? "0" : out;
 }
 
@@ -479,7 +497,7 @@ const SUP: Record<string, string> = {
 
 function sci(v: number): string {
   const [mant, exp] = v.toExponential(4).split("e");
-  const m = String(Number(mant)).replace(".", ",");
+  const m = new Intl.NumberFormat(locale(), { maximumFractionDigits: 4 }).format(Number(mant));
   const e = String(Number(exp))
     .split("")
     .map((ch) => SUP[ch] ?? ch)

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildArg,
   convertSuggestions,
@@ -10,6 +10,13 @@ import {
   type ConvertParse,
 } from "./convert-cmd";
 import { unitById, type Rates } from "./units";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const RATES: Rates = { EUR: 1, USD: 1 / 1.08, BTC: 58000 };
 type Ready = Extract<ConvertParse, { kind: "ready" }>;

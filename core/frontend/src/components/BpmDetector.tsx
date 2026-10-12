@@ -18,6 +18,7 @@ import {
   spectrumBars,
   type Rgb,
 } from "../lib/bpm-visual";
+import { t, useT, type MessageKey } from "../lib/i18n";
 
 /**
  * Live BPM-from-microphone overlay with a premium, beat-reactive canvas
@@ -92,6 +93,7 @@ interface VizState {
 }
 
 export function BpmDetector({ onExit }: Props) {
+  useT();
   const [phase, setPhase] = useState<Phase>("requesting");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Throttled, low-frequency mirror of the live level for the top-bar label.
@@ -367,7 +369,7 @@ export function BpmDetector({ onExit }: Props) {
       } catch (err) {
         const e = err as Error;
         if (cancelled) return;
-        setErrorMessage(e.message || e.name || "Audio capture failed");
+        setErrorMessage(e.message || e.name || t("viz.capture_failed"));
         setPhase("denied");
       }
     })();
@@ -388,16 +390,16 @@ export function BpmDetector({ onExit }: Props) {
           ) : (
             <MicOff size={12} className="text-amber-500" />
           )}
-          <span>BPM detector</span>
+          <span>{t("viz.bpm_detector")}</span>
           {phase === "listening" && (
-            <span className="text-[var(--color-muted)]">· {levelLabel}</span>
+            <span className="text-[var(--color-muted)]">· {t(`viz.level.${levelLabel}` as MessageKey)}</span>
           )}
-          {pinned && <span className="font-semibold text-rose-500">· pinned</span>}
+          {pinned && <span className="font-semibold text-rose-500">{t("viz.pinned_tag")}</span>}
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={togglePin}
-            title="Pin (Enter) — keep open when clicking away"
+            title={t("viz.pin_title")}
             className={
               "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] " +
               (pinned
@@ -406,7 +408,7 @@ export function BpmDetector({ onExit }: Props) {
             }
           >
             <Pin size={11} className={pinned ? "fill-rose-500" : ""} />
-            {pinned ? "Pinned" : "Pin"}
+            {pinned ? t("viz.pinned") : t("viz.pin")}
           </button>
           <button
             onClick={onExit}
@@ -471,10 +473,9 @@ export function BpmDetector({ onExit }: Props) {
               size={48}
               className="text-[var(--color-accent)] opacity-80 [animation:bpmPulse_1s_ease-in-out_infinite]"
             />
-            <div className="text-[14px] font-medium">Requesting microphone permission…</div>
+            <div className="text-[14px] font-medium">{t("viz.requesting")}</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              If your OS shows no prompt, Inspector Rust may already have an answer
-              on file. Check System Settings → Privacy &amp; Security → Microphone.
+              {t("viz.no_prompt")}
             </div>
           </div>
         )}
@@ -482,17 +483,16 @@ export function BpmDetector({ onExit }: Props) {
         {phase === "denied" && (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
             <MicOff size={48} className="text-amber-500" />
-            <div className="text-[14px] font-medium">No audio input available</div>
+            <div className="text-[14px] font-medium">{t("viz.no_input")}</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              {errorMessage ?? "Microphone unavailable."} Grant Inspector Rust
-              microphone access in System Settings and press “Retry”.
+              {errorMessage ?? t("viz.mic_unavailable")} {t("viz.grant_hint")}
             </div>
             <button
               onClick={() => setAttempt((n) => n + 1)}
               className="flex items-center gap-1.5 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/10 px-3 py-1.5 text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
             >
               <RefreshCw size={12} />
-              Retry
+              {t("viz.retry")}
             </button>
           </div>
         )}
@@ -688,8 +688,8 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   ctx.fillStyle = rgba(mixRgb(v.warm, v.bg, 0.35), 0.7);
   const status =
     v.bpm > 0
-      ? `4-second average · confidence ${Math.round(v.confidence * 100)}%`
-      : "listening… calibrating baseline (~3s), then lock-in";
+      ? t("viz.bpm_status", { n: Math.round(v.confidence * 100) })
+      : t("viz.bpm_calibrating");
   ctx.fillText(status, cx, cssH - Math.max(14, minDim * 0.05));
   ctx.restore();
 }

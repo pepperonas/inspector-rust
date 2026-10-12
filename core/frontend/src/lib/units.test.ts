@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CATEGORIES,
   UNITS,
@@ -12,6 +12,13 @@ import {
   unitsOf,
   type Rates,
 } from "./units";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const U = (id: string) => {
   const x = unitById(id);
@@ -190,5 +197,19 @@ describe("formatValue", () => {
     expect(formatValue(1e-9)).toBe("1·10⁻⁹");
     expect(formatValue(2.5e18)).toBe("2,5·10¹⁸");
     expect(formatValue(0.5)).toBe("0,5");
+  });
+});
+
+describe("app language", () => {
+  it("names units and formats numbers in English when the app is English", () => {
+    setCatalog("en", en);
+    try {
+      const km = UNITS.find((u) => u.id === "km")!;
+      expect(km.name).toBe("Kilometre");
+      expect(CATEGORIES.find((c) => c.id === "fuel")!.label).toBe("Consumption");
+      expect(formatValue(1234.5)).toBe("1,234.5");
+    } finally {
+      setCatalog("de", de);
+    }
   });
 });

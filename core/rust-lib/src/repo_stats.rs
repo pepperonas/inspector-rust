@@ -170,14 +170,14 @@ impl RangeKey {
             _ => return None,
         })
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            RangeKey::D30 => "letzte 30 Tage",
-            RangeKey::D90 => "letzte 90 Tage",
-            RangeKey::D180 => "letzte 180 Tage",
-            RangeKey::Y1 => "letztes Jahr",
-            RangeKey::All => "gesamt",
-        }
+    pub fn label(self) -> String {
+        crate::i18n::t(match self {
+            RangeKey::D30 => "repo.title.d30",
+            RangeKey::D90 => "repo.title.d90",
+            RangeKey::D180 => "repo.title.d180",
+            RangeKey::Y1 => "repo.title.y1",
+            RangeKey::All => "repo.title.all",
+        })
     }
 }
 
@@ -802,7 +802,7 @@ fn finish(
 
 pub fn analyze_local(dir: &std::path::Path) -> Result<RepoAnalysis, String> {
     if !dir.join(".git").exists() {
-        return Err("Kein Git-Repository (kein .git gefunden).".into());
+        return Err(crate::i18n::t("repo.err.not_git"));
     }
     let commits = commits_from_dir(dir, None, &[])?;
     let (name, _slug) = repo_identity(&dir.to_string_lossy());
@@ -816,7 +816,7 @@ pub fn analyze_remote(
     on_progress: &mut dyn FnMut(&str, u8),
 ) -> Result<RepoAnalysis, String> {
     if url.starts_with('-') || !(url.contains("://") || (url.contains('@') && url.contains(':'))) {
-        return Err("Keine gültige Repository-URL.".into());
+        return Err(crate::i18n::t("repo.err.bad_url"));
     }
     if let Some(gh) = crate::repo_url::parse_repo_url(url) {
         let token = crate::repo_clone::github_token();
@@ -838,7 +838,7 @@ pub fn analyze_remote(
         .map_err(|e| format!("git nicht gefunden: {e}"))?;
     if !clone.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        return Err(format!("Klonen fehlgeschlagen: {}", String::from_utf8_lossy(&clone.stderr).trim()));
+        return Err(crate::i18n::tf("repo.err.clone", &[("err", String::from_utf8_lossy(&clone.stderr).trim())]));
     }
     let result = commits_from_dir(&tmp, None, &[]);
     let tags = tag_times_from_dir(&tmp);
@@ -897,7 +897,7 @@ pub fn churn_svg(timeline: &[Bucket]) -> String {
     let k_del = if max_del > 0.0 { (span - up) / max_del } else { 0.0 };
     let k = if k_add > 0.0 && k_del > 0.0 { k_add.min(k_del) } else { k_add.max(k_del) };
     let bw = w / timeline.len() as f64;
-    let mut s = format!("<svg class=\"churn\" viewBox=\"0 0 {w} {h}\" width=\"100%\" role=\"img\" aria-label=\"Zeilen hinzugefügt und gelöscht\">");
+    let mut s = format!("<svg class=\"churn\" viewBox=\"0 0 {w} {h}\" width=\"100%\" role=\"img\" aria-label=\"churn\">");
     s.push_str(&format!("<line x1=\"0\" y1=\"{y0:.1}\" x2=\"{w}\" y2=\"{y0:.1}\" stroke=\"#c9ced6\" stroke-width=\"0.6\"/>"));
     // Cumulative net line, scaled into the same band around y0.
     let mut net = 0i64;
@@ -935,7 +935,8 @@ pub fn churn_svg(timeline: &[Bucket]) -> String {
 /// Weekday×hour heatmap as inline SVG (survives the PDF render).
 pub fn heatmap_svg(h: &[[u64; 24]; 7]) -> String {
     let max = h.iter().flatten().copied().max().unwrap_or(0).max(1) as f64;
-    let days = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    let wd_all = crate::i18n::t("common.weekdays_short");
+    let days: Vec<&str> = wd_all.split(',').collect();
     let (cw, ch, lx) = (14.0, 14.0, 22.0);
     let mut s = format!(
         "<svg class=\"heat\" viewBox=\"0 0 {} {}\" width=\"100%\" role=\"img\" aria-label=\"Heatmap Wochentag × Stunde\">",
@@ -947,12 +948,14 @@ pub fn heatmap_svg(h: &[[u64; 24]; 7]) -> String {
         for (hr, &v) in row.iter().enumerate() {
             let op = if v == 0 { 0.06 } else { 0.18 + 0.82 * (v as f64 / max) };
             s.push_str(&format!(
-                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"2\" fill=\"#3f6cd4\" fill-opacity=\"{op:.2}\"><title>{} {hr:02} Uhr: {v}</title></rect>",
+                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"2\" fill=\"#3f6cd4\" fill-opacity=\"{op:.2}\"><title>{} {hr:02}{oclock}: {v}</title></rect>",
                 lx + hr as f64 * cw,
                 d as f64 * ch,
                 cw - 2.0,
                 ch - 2.0,
                 days[d]
+            ,
+                oclock = crate::i18n::t("repo.oclock"),
             ));
         }
     }
@@ -1036,30 +1039,35 @@ fn activity_section(r: &crate::repo_activity::RecentActivity, gh: Option<&crate:
     let all = [true; 4];
     let g = |f: fn(&crate::repo_activity::ActivityCounts) -> u64| (f(&r.day), f(&r.day_prev), f(&r.week), f(&r.week_prev));
     for (label, v) in [
-        ("Commits", g(|c| c.commits)),
-        ("Zeilen +", g(|c| c.insertions)),
-        ("Zeilen −", g(|c| c.deletions)),
-        ("Dateien", g(|c| c.files)),
-        ("Mitwirkende", g(|c| c.authors)),
-        ("Tags", g(|c| c.tags)),
+        (crate::i18n::t("repo.commits"), g(|c| c.commits)),
+        (crate::i18n::t("repo.lines_plus"), g(|c| c.insertions)),
+        (crate::i18n::t("repo.lines_minus"), g(|c| c.deletions)),
+        (crate::i18n::t("repo.files"), g(|c| c.files)),
+        (crate::i18n::t("repo.contributors"), g(|c| c.authors)),
+        (crate::i18n::t("repo.tags"), g(|c| c.tags)),
     ] {
-        rows.push_str(&activity_row(label, v, all));
+        rows.push_str(&activity_row(&label, v, all));
     }
     if let Some(gh) = gh {
         let h = |f: fn(&crate::github_api::GithubCounts) -> u64| (f(&gh.day), f(&gh.day_prev), f(&gh.week), f(&gh.week_prev));
         let cov = &gh.coverage;
         for (label, v, from) in [
-            ("Pushes", h(|c| c.pushes), cov.pushes),
-            ("PRs geöffnet", h(|c| c.prs_opened), cov.prs),
-            ("PRs gemergt", h(|c| c.prs_merged), cov.prs),
-            ("Issues geöffnet", h(|c| c.issues_opened), cov.issues),
-            ("Issues geschlossen", h(|c| c.issues_closed), cov.issues),
+            (crate::i18n::t("repo.pushes"), h(|c| c.pushes), cov.pushes),
+            (crate::i18n::t("repo.prs_opened"), h(|c| c.prs_opened), cov.prs),
+            (crate::i18n::t("repo.prs_merged"), h(|c| c.prs_merged), cov.prs),
+            (crate::i18n::t("repo.issues_opened"), h(|c| c.issues_opened), cov.issues),
+            (crate::i18n::t("repo.issues_closed"), h(|c| c.issues_closed), cov.issues),
         ] {
-            rows.push_str(&activity_row(label, v, windows_complete(from, r.now)));
+            rows.push_str(&activity_row(&label, v, windows_complete(from, r.now)));
         }
     }
     format!(
-        "<section><h2>Aktivität 24 h / 7 Tage</h2><table class=\"act\"><thead><tr><th>Wert</th><th>24 h</th><th>7 Tage</th></tr></thead><tbody>{rows}</tbody></table><p class=\"rp-lede\">Vergleich jeweils zur gleich langen Vorperiode (— = Vorperiode unvollständig, ≥ = GitHub-Abfragegrenze erreicht). Git: Haupt-Branch ohne Merges · Pushes: alle Branches.</p></section>"
+        "<section><h2>{h}</h2><table class=\"act\"><thead><tr><th>{c_val}</th><th>24 h</th><th>{c_7d}</th></tr></thead><tbody>{rows}</tbody></table><p class=\"rp-lede\">{note}</p></section>",
+        h = crate::i18n::t("repo.activity_24_7"),
+        c_val = crate::i18n::t("repo.value"),
+        c_7d = crate::i18n::t("repo.7days"),
+        rows = rows,
+        note = crate::i18n::t("repo.activity_note"),
     )
 }
 
@@ -1070,16 +1078,19 @@ pub fn build_html_with(
     recent: Option<&crate::repo_activity::RecentActivity>,
     github: Option<&crate::github_api::GithubActivity>,
 ) -> String {
+    let rt = crate::i18n::t;
+    let days_unit = format!(" {}", rt("repo.days"));
     if stats.commits == 0 {
         return rs::shell(
-            "Repo-Aktivität",
+            &rt("repo.activity"),
             &esc(&stats.name),
             &format!("{} · {}", esc(&stats.source), range.label()),
-            "<p class=\"rp-lede\">Keine Commits in diesem Zeitraum.</p>",
-            "Erstellt mit Inspector Rust, orientiert an repo2viz.",
+            &format!("<p class=\"rp-lede\">{}</p>", rt("repo.no_commits")),
+            &rt("repo.foot_empty"),
         );
     }
-    let weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    let wd_all = rt("common.weekdays_short");
+    let weekdays: Vec<&str> = wd_all.split(',').collect();
     let wd_max = stats.by_weekday.iter().copied().max().unwrap_or(1).max(1);
     let wd_rows = bar_rows(
         &weekdays.iter().enumerate().map(|(i, d)| ((*d).to_string(), stats.by_weekday[i])).collect::<Vec<_>>(),
@@ -1099,18 +1110,20 @@ pub fn build_html_with(
         "#81c995",
     );
     let activity_title = match stats.granularity.as_str() {
-        "day" => "Aktivität pro Tag",
-        "week" => "Aktivität pro Woche",
-        _ => "Aktivität pro Monat",
+        "day" => rt("repo.act_day"),
+        "week" => rt("repo.act_week"),
+        _ => rt("repo.act_month"),
     };
     let net = stats.insertions as i64 - stats.deletions as i64;
     let code_changes = format!(
-        "<section><h2>Code-Änderungen</h2><div class=\"churn-kpis\"><span class=\"add\">+{}</span><span class=\"del\">−{}</span><span>{}{} netto</span></div>{}</section>",
-        stats.insertions,
-        stats.deletions,
-        if net >= 0 { "+" } else { "−" },
-        net.unsigned_abs(),
-        churn_svg(&stats.timeline),
+        "<section><h2>{h}</h2><div class=\"churn-kpis\"><span class=\"add\">+{ins}</span><span class=\"del\">−{del}</span><span>{sign}{abs} {net_word}</span></div>{svg}</section>",
+        h = rt("repo.code_changes"),
+        ins = stats.insertions,
+        del = stats.deletions,
+        sign = if net >= 0 { "+" } else { "−" },
+        abs = net.unsigned_abs(),
+        net_word = rt("repo.net"),
+        svg = churn_svg(&stats.timeline),
     );
     let cat_max = stats.categories.iter().map(|c| c.commits).max().unwrap_or(1).max(1);
     let cat_rows = bar_rows(
@@ -1149,7 +1162,7 @@ pub fn build_html_with(
         .map(|p| format!("<tr><td class=\"mono\">{} ↔ {}</td><td>{}</td></tr>", esc(&p.a), esc(&p.b), p.count))
         .collect();
     let calendar = if matches!(range, RangeKey::Y1 | RangeKey::All) && !stats.calendar.is_empty() {
-        format!("<section><h2>Beitragskalender</h2>{}</section>", calendar_svg(&stats.calendar))
+        format!("<section><h2>{}</h2>{}</section>", rt("repo.calendar"), calendar_svg(&stats.calendar))
     } else {
         String::new()
     };
@@ -1158,32 +1171,32 @@ pub fn build_html_with(
         r#"{stats}
 {recent}
 {code_changes}
-<section><h2>Commits nach Wochentag</h2>{wd}</section>
-<section><h2>Commits nach Stunde</h2>{hr}</section>
-<section><h2>Heatmap Wochentag × Stunde</h2>{heat}</section>
+<section><h2>{h_wd}</h2>{wd}</section>
+<section><h2>{h_hr}</h2>{hr}</section>
+<section><h2>{h_heat}</h2>{heat}</section>
 {calendar}
 <section><h2>{activity_title}</h2>{mo}</section>
-<section><h2>Commit-Kategorien</h2>{cat}</section>
-<section><h2>Aktivste Dateien</h2><table>
-<thead><tr><th>Datei</th><th>Änderungen</th><th>Churn</th></tr></thead><tbody>{files}</tbody></table></section>
-<section><h2>Dateitypen</h2><table>
-<thead><tr><th>Typ</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{exts}</tbody></table></section>
-<section><h2>Top-Mitwirkende</h2><table>
-<thead><tr><th>Name</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{authors}</tbody></table></section>
-<section><h2>Hotspots (viel geändert, ≤ 2 Autoren)</h2><table>
-<thead><tr><th>Datei</th><th>Änderungen</th><th>Autoren</th></tr></thead><tbody>{hot}</tbody></table></section>
-<section><h2>Bus-Faktor je Verzeichnis</h2><table>
-<thead><tr><th>Verzeichnis</th><th>Commits</th><th>Autoren</th><th>Bus-Faktor</th></tr></thead><tbody>{dirs}</tbody></table></section>
-<section><h2>Co-Change</h2><table>
-<thead><tr><th>Dateipaar</th><th>Gemeinsam</th></tr></thead><tbody>{co}</tbody></table></section>"#,
+<section><h2>{h_cat}</h2>{cat}</section>
+<section><h2>{h_files}</h2><table>
+<thead><tr><th>{c_file}</th><th>{c_changes}</th><th>{c_churn}</th></tr></thead><tbody>{files}</tbody></table></section>
+<section><h2>{h_exts}</h2><table>
+<thead><tr><th>{c_type}</th><th>{c_commits}</th><th>{c_churn}</th></tr></thead><tbody>{exts}</tbody></table></section>
+<section><h2>{h_authors}</h2><table>
+<thead><tr><th>{c_name}</th><th>{c_commits}</th><th>{c_churn}</th></tr></thead><tbody>{authors}</tbody></table></section>
+<section><h2>{h_hot}</h2><table>
+<thead><tr><th>{c_file}</th><th>{c_changes}</th><th>{c_authors}</th></tr></thead><tbody>{hot}</tbody></table></section>
+<section><h2>{h_busdir}</h2><table>
+<thead><tr><th>{c_dir}</th><th>{c_commits}</th><th>{c_authors}</th><th>{c_bus}</th></tr></thead><tbody>{dirs}</tbody></table></section>
+<section><h2>{h_cochange}</h2><table>
+<thead><tr><th>{c_pair}</th><th>{c_together}</th></tr></thead><tbody>{co}</tbody></table></section>"#,
         stats = rs::stats(&[
-            rs::Stat { label: "Commits", value: stats.commits.to_string(), unit: None },
-            rs::Stat { label: "Mitwirkende", value: stats.contributors.to_string(), unit: None },
-            rs::Stat { label: "Aktive Tage", value: stats.active_days.to_string(), unit: None },
-            rs::Stat { label: "Längste Serie", value: stats.longest_streak.to_string(), unit: Some("Tage") },
-            rs::Stat { label: "Zeilen ein", value: format!("+{}", stats.insertions), unit: None },
-            rs::Stat { label: "Zeilen aus", value: format!("−{}", stats.deletions), unit: None },
-            rs::Stat { label: "Bus-Faktor", value: stats.bus_factor.to_string(), unit: None },
+            rs::Stat { label: &rt("repo.commits"), value: stats.commits.to_string(), unit: None },
+            rs::Stat { label: &rt("repo.contributors"), value: stats.contributors.to_string(), unit: None },
+            rs::Stat { label: &rt("repo.active_days"), value: stats.active_days.to_string(), unit: None },
+            rs::Stat { label: &rt("repo.longest_streak"), value: stats.longest_streak.to_string(), unit: Some(&days_unit) },
+            rs::Stat { label: &rt("repo.lines_in"), value: format!("+{}", stats.insertions), unit: None },
+            rs::Stat { label: &rt("repo.lines_out"), value: format!("−{}", stats.deletions), unit: None },
+            rs::Stat { label: &rt("repo.bus_factor"), value: stats.bus_factor.to_string(), unit: None },
         ]),
         wd = wd_rows,
         hr = hr_rows,
@@ -1200,14 +1213,22 @@ pub fn build_html_with(
         hot = hot_rows,
         dirs = dir_rows,
         co = co_rows,
+        h_wd = rt("repo.commits_weekday"), h_hr = rt("repo.commits_hour"), h_heat = rt("repo.heatmap"),
+        h_cat = rt("repo.categories"), h_files = rt("repo.active_files"), h_exts = rt("repo.file_types"),
+        h_authors = rt("repo.top_contributors"), h_hot = rt("repo.hotspots"), h_busdir = rt("repo.bus_per_dir"),
+        h_cochange = rt("repo.cochange"),
+        c_file = rt("repo.c_file"), c_changes = rt("repo.c_changes"), c_churn = rt("repo.c_churn"),
+        c_type = rt("repo.c_type"), c_commits = rt("repo.c_commits"), c_name = rt("repo.c_name"),
+        c_authors = rt("repo.c_authors"), c_dir = rt("repo.c_dir"), c_bus = rt("repo.c_bus"),
+        c_pair = rt("repo.c_pair"), c_together = rt("repo.c_together"),
     );
 
     let doc = rs::shell(
-        "Repo-Aktivität",
+        &rt("repo.activity"),
         &esc(&stats.name),
         &format!("{} · {} · {} → {}", esc(&stats.source), range.label(), esc(&stats.first_commit), esc(&stats.last_commit)),
         &body,
-        "Aus der Git-Historie gerechnet (Merges ausgenommen); <b>Churn</b> = geänderte Zeilen ein + aus.<br>Erstellt mit Inspector Rust, orientiert an repo2viz.",
+        &rt("repo.foot"),
     );
     doc.replace("</style>", &format!("{}\n</style>", REPO_CSS))
 }
@@ -1377,8 +1398,8 @@ mod tests {
         assert!(!html.to_lowercase().contains("<script"));
         assert!(!html.contains("src=\"http"));
         // Charts + tables rendered.
-        assert!(html.contains("Commits nach Wochentag"));
-        assert!(html.contains("Aktivste Dateien"));
+        assert!(html.contains("Commits by weekday"));
+        assert!(html.contains("Most active files"));
         assert!(html.contains("src/ui.rs"));
     }
 
@@ -1501,10 +1522,10 @@ mod tests {
         s.dir_bus_factor = vec![DirStat { dir: "src".into(), commits: 5, authors: 2, bus_factor: 1 }];
         s.bus_factor = 1;
         let html = build_html(&s, RangeKey::D90);
-        assert!(html.contains("letzte 90 Tage"));
+        assert!(html.contains("last 90 days"));
         assert!(html.contains("<svg") && html.contains("class=\"heat\""));
         assert!(html.contains("Hotspots") && html.contains("src/&lt;x&gt;.rs"));
-        assert!(html.contains("Co-Change") && html.contains("Bus-Faktor"));
+        assert!(html.contains("Co-change") && html.contains("Bus factor"));
         assert!(!html.contains("<script"), "must stay self-contained");
     }
 
@@ -1525,7 +1546,7 @@ mod tests {
     #[test]
     fn empty_range_html_says_so() {
         let html = build_html(&aggregate(std::iter::empty::<&Commit>()), RangeKey::D30);
-        assert!(html.contains("Keine Commits in diesem Zeitraum"));
+        assert!(html.contains("No commits in this range"));
     }
 
     fn ranged(r: &[RangedStats], k: RangeKey) -> &RepoStats {
@@ -1604,15 +1625,15 @@ mod tests {
     fn html_leads_with_code_changes_and_follows_the_range_granularity() {
         let r = analyze_ranges(&parse_commits(&timeline_log()));
         let html = build_html(ranged(&r, RangeKey::D30), RangeKey::D30);
-        let code = html.find("Code-Änderungen").expect("code-changes section");
-        let weekday = html.find("Commits nach Wochentag").unwrap();
+        let code = html.find("Code changes").expect("code-changes section");
+        let weekday = html.find("Commits by weekday").unwrap();
         assert!(code < weekday, "code changes must come first");
         assert!(html.contains("class=\"churn\""), "churn chart");
-        assert!(html.contains("+16") && html.contains("−10") && html.contains("netto"), "totals");
-        assert!(html.contains("Aktivität pro Tag"));
-        assert!(!html.contains("Aktivität nach Monat"));
+        assert!(html.contains("+16") && html.contains("−10") && html.contains("net"), "totals");
+        assert!(html.contains("Activity per day"));
+        assert!(!html.contains("Activity per month"));
         let all = build_html(ranged(&r, RangeKey::All), RangeKey::All);
-        assert!(all.contains("Aktivität pro Monat"));
+        assert!(all.contains("Activity per month"));
     }
 
     #[test]
@@ -1637,12 +1658,12 @@ mod tests {
         };
         let gh = crate::github_api::GithubActivity { coverage: crate::github_api::GithubCoverage { pushes: Some(-1), ..Default::default() }, ..Default::default() };
         let html = build_html_with(&s, RangeKey::All, Some(&recent), Some(&gh));
-        let a = html.find("Aktivität 24 h / 7 Tage").expect("section");
-        assert!(a < html.find("Code-Änderungen").unwrap());
+        let a = html.find("Activity 24 h / 7 days").expect("section");
+        assert!(a < html.find("Code changes").unwrap());
         assert!(html.contains("↑ 2") && html.contains("↓ 3"), "deltas vs previous period");
         assert!(html.contains("Pushes") && html.contains("<td>≥ 0 "), "capped push count marked in the cell, not just the legend");
         let plain = build_html(&s, RangeKey::All);
-        assert!(!plain.contains("Aktivität 24 h / 7 Tage"));
+        assert!(!plain.contains("Activity 24 h / 7 days"));
     }
 
     #[test]
@@ -1708,9 +1729,9 @@ mod tests {
         h[0][9] = 2;
         let svg = heatmap_svg(&h);
         assert_eq!(svg.matches("<rect").count(), 7 * 24, "a gapless 7×24 grid");
-        assert!(svg.contains("fill-opacity=\"1.00\"><title>Fr 13 Uhr: 8</title>"), "max cell is full");
-        assert!(svg.contains("fill-opacity=\"0.06\"><title>Mo 00 Uhr: 0</title>"), "empty cells stay faint");
-        for d in ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] {
+        assert!(svg.contains("fill-opacity=\"1.00\"><title>Fr 13:00: 8</title>"), "max cell is full");
+        assert!(svg.contains("fill-opacity=\"0.06\"><title>Mo 00:00: 0</title>"), "empty cells stay faint");
+        for d in ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"] {
             assert!(svg.contains(&format!(">{d}</text>")), "{d} label");
         }
     }
@@ -1782,9 +1803,18 @@ mod tests {
     fn range_labels_match_the_frontend_titles() {
         // The panel titles ranges in TS (`rangeTitle`), the export in Rust
         // (`RangeKey::label`) — pin that both say the same words.
+        // Both the panel (rangeTitle) and the export (RangeKey::label) resolve
+        // the SAME catalogue key, so they can't drift apart.
         let ts = include_str!("../../frontend/src/lib/repo.ts");
-        for k in RangeKey::ALL {
-            assert!(ts.contains(&format!("\"{}\"", k.label())), "{:?} label drifted", k);
+        for (k, key) in [
+            (RangeKey::D30, "repo.title.d30"),
+            (RangeKey::D90, "repo.title.d90"),
+            (RangeKey::D180, "repo.title.d180"),
+            (RangeKey::Y1, "repo.title.y1"),
+            (RangeKey::All, "repo.title.all"),
+        ] {
+            let _ = k;
+            assert!(ts.contains(&format!("\"{key}\"")), "{key} missing from repo.ts");
         }
     }
 

@@ -57,6 +57,7 @@ import {
   type OpenResult,
   type SetupStatus,
 } from "../lib/bluetooth-capture";
+import { t, tn, useT } from "../lib/i18n";
 
 interface Props {
   focused: boolean;
@@ -67,12 +68,15 @@ type View = "idle" | "analyzer" | "live";
 
 const ROW_HEIGHT = 34;
 const PRIVACY_KEY = "btsniff-privacy-ack";
-const CAPTURE_FILTERS = [
-  { name: "Bluetooth-Capture", extensions: ["pklg", "log", "snoop", "btsnoop", "pcapng", "pcap", "cap"] },
-  { name: "Alle Dateien", extensions: ["*"] },
+// A function, not a constant: the names are shown in the native dialog and
+// must follow the app language at the time the dialog opens.
+const captureFilters = () => [
+  { name: t("btcap.filter_capture"), extensions: ["pklg", "log", "snoop", "btsnoop", "pcapng", "pcap", "cap"] },
+  { name: t("btcap.filter_all"), extensions: ["*"] },
 ];
 
 export function BluetoothCapturePanel({ focused, onExit }: Props) {
+  useT();
   const [view, setView] = useState<View>("idle");
   const [filter, setFilter] = useState<BtFilter>("all");
   const [search, setSearch] = useState("");
@@ -178,8 +182,8 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
       const picked = await openDialog({
         multiple: false,
         directory: false,
-        filters: CAPTURE_FILTERS,
-        title: "Bluetooth-Capture öffnen",
+        filters: captureFilters(),
+        title: t("btcap.open_bluetooth_capture"),
       });
       if (typeof picked === "string") await importPath(picked);
     } catch (e) {
@@ -271,8 +275,8 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
   const clearLive = useCallback(async () => {
     if (livePackets.length > 0) {
       const ok = await confirmDialog(
-        "Aktuelle Darstellung leeren? Nicht gespeicherte Pakete gehen verloren.",
-        "Capture leeren",
+        t("btcap.clear_the_current_view_unsaved"),
+        t("btcap.clear_capture"),
       );
       if (!ok) return;
     }
@@ -313,7 +317,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
       const suggested =
         view === "analyzer" ? await btsniffDefaultFilename() : `${stem}.json`;
       const target = await saveDialog({
-        title: "Analyse als JSON speichern",
+        title: t("btcap.save_analysis_as_json"),
         defaultPath: suggested,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
@@ -545,7 +549,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
           {view !== "idle" && (
             <button
               onClick={newCapture}
-              title="Neuer Capture"
+              title={t("btcap.new_capture")}
               className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
             >
               <FileUp className="h-4 w-4" />
@@ -554,7 +558,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
           <button
             onClick={() => void saveCapture()}
             disabled={!canSave}
-            title="Analyse als JSON speichern (⌘/Ctrl+S)"
+            title={t("btcap.save_analysis_as_json_ctrl")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-30"
           >
             <Download className="h-4 w-4" />
@@ -583,7 +587,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
 
       {busy && (
         <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--color-muted)]">
-          Analysiere …
+          {t("btcap.analysing")}
         </div>
       )}
 
@@ -623,7 +627,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
                 ref={searchRef}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Suchen (Opcode, Handle, UUID …)"
+                placeholder={t("btcap.search_opcode_handle_uuid")}
                 className="min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-[var(--color-muted)]"
               />
               {search && (
@@ -647,8 +651,8 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
               {filtered.length === 0 ? (
                 <div className="flex h-full items-center justify-center px-4 text-center text-[11px] text-[var(--color-muted)]">
                   {view === "live" && running
-                    ? "Warte auf Pakete … (Geräte in der Nähe müssen aktiv senden)"
-                    : "Keine Pakete für diesen Filter"}
+                    ? t("btcap.waiting_for_packets_nearby_devices")
+                    : t("btcap.no_packets_for_this_filter")}
                 </div>
               ) : (
                 <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
@@ -679,7 +683,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
                 onClick={jumpToLatest}
                 className="md3-banner-in absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-[var(--color-accent)] px-3 py-1 text-[10px] font-medium text-[var(--color-accent-fg)] shadow-lg"
               >
-                ↓ {newCount} neue Pakete
+                ↓ {tn("btcap.new_packets", newCount)}
               </button>
             )}
           </div>
@@ -703,7 +707,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
 
       {dragOver && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-bg)]/80 text-[13px] font-medium text-[var(--color-accent)]">
-          Zum Importieren ablegen
+          {t("btcap.drop_to_import")}
         </div>
       )}
     </div>
@@ -711,6 +715,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
 }
 
 function LiveBadge({ status, durationMs }: { status: LiveStatus; durationMs: number }) {
+  useT();
   const paused = status.state === "paused_view";
   const capturing = status.state === "capturing";
   const label = capturing ? "LIVE" : paused ? "PAUSED" : status.state === "stopped" ? "STOPPED" : status.state.toUpperCase();
@@ -726,7 +731,7 @@ function LiveBadge({ status, durationMs }: { status: LiveStatus; durationMs: num
       />
       {label}
       {paused ? (
-        <span className="text-[var(--color-muted)]">· {status.buffered} gepuffert</span>
+        <span className="text-[var(--color-muted)]">· {t("btcap.buffered", { n: status.buffered })}</span>
       ) : (
         <span className="tabular-nums text-[var(--color-muted)]">{formatLiveDuration(durationMs)}</span>
       )}
@@ -747,6 +752,7 @@ function LiveControls({
   onStop: () => void;
   onClear: () => void;
 }) {
+  useT();
   const s = status?.state;
   const running = s === "capturing" || s === "paused_view" || s === "starting";
   const btn =
@@ -755,18 +761,18 @@ function LiveControls({
     <div className="flex shrink-0 items-center gap-1.5">
       {s === "paused_view" ? (
         <button onClick={onResume} className={btn}>
-          <Play className="h-3 w-3" /> Fortsetzen
+          <Play className="h-3 w-3" /> {t("btcap.resume")}
         </button>
       ) : (
         <button onClick={onPause} disabled={s !== "capturing"} className={btn}>
-          <Pause className="h-3 w-3" /> Pause
+          <Pause className="h-3 w-3" /> {t("btcap.pause")}
         </button>
       )}
       <button onClick={onStop} disabled={!running} className={btn}>
-        <Square className="h-3 w-3" /> Stop
+        <Square className="h-3 w-3" /> {t("btcap.stop")}
       </button>
       <button onClick={onClear} className={btn}>
-        <Trash2 className="h-3 w-3" /> Leeren
+        <Trash2 className="h-3 w-3" /> {t("btcap.clear")}
       </button>
     </div>
   );
@@ -789,14 +795,14 @@ function IdleView({
   privacyAck: boolean;
   onAckPrivacy: () => void;
 }) {
+  useT();
   const unsupported = setup?.availability === "unsupported_platform";
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-1 py-2">
       {!privacyAck && (
         <div className="md3-banner-in flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[10px] leading-relaxed text-[var(--color-muted)]">
           <span className="flex-1">
-            Bluetooth-Captures können Gerätekennungen und Nutzdaten enthalten. Sie
-            bleiben lokal, solange du sie nicht ausdrücklich exportierst.
+            {t("btcap.bluetooth_captures_can_contain_device")}
           </span>
           <button onClick={onAckPrivacy} className="shrink-0 text-[var(--color-fg)] hover:opacity-70">
             <X className="h-3.5 w-3.5" />
@@ -813,14 +819,14 @@ function IdleView({
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Quelle</span>
+        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{t("btcap.source")}</span>
         <div className="rounded-md border border-[var(--color-border)] px-2 py-1.5 text-[11px] text-[var(--color-muted)]">
-          {setup?.source_label ?? "System Bluetooth"}
+          {setup?.source_label ?? t("btcap.system_bluetooth")}
         </div>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">Capture-Datei</span>
+        <span className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{t("btcap.capture_file")}</span>
         <input
           value={filename}
           onChange={(e) => onFilename(e.target.value)}
@@ -828,8 +834,7 @@ function IdleView({
           className="rounded-md border border-[var(--color-border)] bg-transparent px-2 py-1.5 font-[var(--font-mono)] text-[11px] outline-none focus:border-[var(--color-accent)]"
         />
         <span className="text-[9px] text-[var(--color-muted)]">
-          Es wird nichts automatisch geschrieben. Gespeichert wird die dekodierte
-          Analyse als JSON (.pklg-Schreiben ist geplant).
+          {t("btcap.nothing_is_written_automatically_the")}
         </span>
       </label>
 
@@ -843,7 +848,7 @@ function IdleView({
           className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2 text-[12px] font-medium text-[var(--color-fg)] hover:bg-[var(--color-accent)]/20"
         >
           <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
-          Capture starten
+          {t("btcap.start_capture")}
         </button>
       )}
       {setup && !unsupported && (
@@ -853,10 +858,10 @@ function IdleView({
       <div className="grid grid-cols-4 gap-2 rounded-md border border-[var(--color-border)] p-2 text-[11px]">
         {(
           [
-            ["Pakete", "0"],
+            [t("btcap.packets"), "0"],
             ["RX", "0 B"],
             ["TX", "0 B"],
-            ["Dauer", "00:00.000"],
+            [t("btcap.duration"), "00:00.000"],
           ] as const
         ).map(([k, v]) => (
           <div key={k} className="flex flex-col">
@@ -870,7 +875,7 @@ function IdleView({
         onClick={onImport}
         className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
       >
-        <FileUp className="h-3.5 w-3.5" /> Capture-Datei importieren (.pklg / btsnoop / pcapng)
+        <FileUp className="h-3.5 w-3.5" /> {t("btcap.import_capture_file_pklg_btsnoop")}
       </button>
     </div>
   );
@@ -936,6 +941,7 @@ function PacketInspector({
   onCopyDecoded: () => void;
   onClose: () => void;
 }) {
+  useT();
   const perRow = 8;
   const rows: number[][] = [];
   for (let i = 0; i < detail.raw.length; i += perRow) {
@@ -951,14 +957,14 @@ function PacketInspector({
         <div className="flex shrink-0 items-center gap-1">
           <button
             onClick={onCopyHex}
-            title="Hex kopieren"
+            title={t("btcap.copy_hex")}
             className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <Copy className="h-3 w-3" /> Hex
           </button>
           <button
             onClick={onCopyDecoded}
-            title="Dekodiert kopieren"
+            title={t("btcap.copy_decoded")}
             className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <Copy className="h-3 w-3" /> Info
@@ -972,7 +978,7 @@ function PacketInspector({
         </div>
       </div>
 
-      {copied && <div className="text-[9px] text-[var(--color-accent)]">{copied} kopiert ✓</div>}
+      {copied && <div className="text-[9px] text-[var(--color-accent)]">{copied} {t("btcap.copied")}</div>}
 
       {detail.decoded.length > 0 && (
         <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
@@ -988,7 +994,7 @@ function PacketInspector({
       <div className="font-[var(--font-mono)] text-[10px] leading-tight">
         {detail.diff && detail.prev_index != null && (
           <div className="mb-0.5 text-[9px] text-[var(--color-muted)]">
-            Byte-Diff vs. #{detail.prev_index} — geänderte Bytes hervorgehoben
+            {t("btcap.byte_diff", { n: detail.prev_index })}
           </div>
         )}
         {rows.map((row, r) => {
@@ -1022,6 +1028,7 @@ function PacketInspector({
 }
 
 function SessionSummary({ stats, dropped }: { stats: CaptureStats; dropped: number }) {
+  useT();
   const cell = (label: string, value: string) => (
     <div className="flex flex-col">
       <span className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">{label}</span>
@@ -1031,14 +1038,14 @@ function SessionSummary({ stats, dropped }: { stats: CaptureStats; dropped: numb
   return (
     <div className="flex flex-col gap-2 text-[11px]">
       <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">
-        Zusammenfassung
+        {t("btcap.summary")}
       </div>
       <div className="grid grid-cols-3 gap-x-2 gap-y-1.5">
-        {cell("Pakete", String(stats.packets))}
+        {cell(t("btcap.packets"), String(stats.packets))}
         {cell("→ TX", `${stats.tx_packets}`)}
         {cell("← RX", `${stats.rx_packets}`)}
         {cell("Bytes", formatBytes(stats.bytes))}
-        {cell("Dauer", formatDuration(stats.duration_us))}
+        {cell(t("btcap.duration"), formatDuration(stats.duration_us))}
         {cell("Handles", String(stats.unique_handles))}
         {cell("ATT-Writes", String(stats.att_writes))}
         {cell("ATT-Reads", String(stats.att_reads))}
@@ -1049,12 +1056,11 @@ function SessionSummary({ stats, dropped }: { stats: CaptureStats; dropped: numb
       </div>
       {dropped > 0 && (
         <p className="text-[9px] text-amber-400">
-          {dropped} Pakete verworfen (Speichergrenze erreicht) — nie stiller Verlust.
+          {tn("btcap.dropped", dropped)}
         </p>
       )}
       <p className="text-[9px] leading-snug text-[var(--color-muted)]">
-        Ein Paket wählen für Hex-Dump, dekodierte Felder und den Byte-Diff zum
-        vorherigen Paket desselben Handles.
+        {t("btcap.pick_a_packet_for_the")}
       </p>
     </div>
   );

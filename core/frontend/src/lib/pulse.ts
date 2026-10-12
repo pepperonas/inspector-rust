@@ -3,6 +3,7 @@
  * writes). Everything here is unit-tested; the component only draws.
  */
 import type { PulseAgg, PulseForecast, PulseRange, PulseSample } from "./ipc";
+import { locale, t } from "./i18n";
 
 export type PressureLevel = "normal" | "warn" | "critical" | "unknown";
 
@@ -15,10 +16,10 @@ export function pressureLevel(raw: number | null | undefined): PressureLevel {
 }
 
 export const PRESSURE_LABEL: Record<PressureLevel, string> = {
-  normal: "Normal",
-  warn: "Erhöht",
-  critical: "Kritisch",
-  unknown: "Unbekannt",
+  get normal() { return t("pulse.level.normal"); },
+  get warn() { return t("pulse.level.warn"); },
+  get critical() { return t("pulse.level.critical"); },
+  get unknown() { return t("pulse.level.unknown"); },
 };
 
 /** Same traffic-light colours as the rest of the app (emerald/amber/rose). */
@@ -34,13 +35,13 @@ export const PULSE_RANGES: PulseRange[] = ["1h", "24h", "7d", "30d", "90d"];
 export const RANGE_LABEL: Record<PulseRange, string> = {
   "1h": "1 h",
   "24h": "24 h",
-  "7d": "7 T",
-  "30d": "30 T",
-  "90d": "90 T",
+  get "7d"() { return t("pulse.range.7d"); },
+  get "30d"() { return t("pulse.range.30d"); },
+  get "90d"() { return t("pulse.range.90d"); },
 };
 
 const nf = (digits: number) =>
-  new Intl.NumberFormat("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  new Intl.NumberFormat(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 /** Decimal bytes (as macOS and drive makers count). */
 export function formatBytes(b: number | null | undefined): string {
@@ -123,27 +124,27 @@ export function writeBars(buckets: Pick<PulseAgg, "written" | "swap_written">[],
 /** Label for a bucket start, depending on the bucket size. */
 export function bucketLabel(ts: number, bucketSecs: number): string {
   const d = new Date(ts * 1000);
-  if (bucketSecs >= 86_400) return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
-  return d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  if (bucketSecs >= 86_400) return d.toLocaleDateString(locale(), { day: "2-digit", month: "2-digit" });
+  return d.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 export function dayLabel(ts: number): string {
-  return new Date(ts * 1000).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
+  return new Date(ts * 1000).toLocaleDateString(locale(), { weekday: "short", day: "2-digit", month: "2-digit" });
 }
 
 /** The forecast sentence. Always says it's an estimate; never invents a
  *  figure from less than a day of data. */
 export function forecastText(f: PulseForecast | null): string {
-  if (!f) return "Keine interne SSD erkannt — keine Prognose.";
-  if (f.years == null) return "Noch zu wenig Daten (mindestens ein Tag) für eine Prognose.";
-  const years = f.years >= 100 ? "über 100 Jahre" : `ca. ${nf(f.years < 10 ? 1 : 0).format(f.years)} Jahre`;
-  const base = f.lifetime_written != null ? "bis zur Nennhaltbarkeit" : "bis die Nennhaltbarkeit erreicht wäre (ab null gerechnet)";
-  return `Schätzung: ${years} ${base}, bei ${formatBytes(f.per_day)} pro Tag (Schnitt über ${nf(f.days < 10 ? 1 : 0).format(f.days)} Tage, ${formatBytes(f.tbw_bytes)} TBW).`;
+  if (!f) return t("pulse.fc.no_ssd");
+  if (f.years == null) return t("pulse.fc.too_little");
+  const years = f.years >= 100 ? t("pulse.fc.over_100") : t("pulse.fc.about_years", { n: nf(f.years < 10 ? 1 : 0).format(f.years) });
+  const base = f.lifetime_written != null ? t("pulse.fc.to_rated") : t("pulse.fc.to_rated_zero");
+  return t("pulse.fc.sentence", { years, base, per_day: formatBytes(f.per_day), days: nf(f.days < 10 ? 1 : 0).format(f.days), tbw: formatBytes(f.tbw_bytes) });
 }
 
 /** "vor 12 s" for the process-scan freshness. */
 export function ageText(nowSecs: number, ts: number): string {
-  if (!ts) return "noch nicht erfasst";
+  if (!ts) return t("pulse.age.never");
   const s = Math.max(0, Math.round(nowSecs - ts));
-  return s < 60 ? `vor ${s} s` : `vor ${Math.round(s / 60)} min`;
+  return s < 60 ? t("pulse.age.s", { n: s }) : t("pulse.age.min", { n: Math.round(s / 60) });
 }

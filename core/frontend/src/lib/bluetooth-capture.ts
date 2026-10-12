@@ -2,6 +2,8 @@
 // Mirrors the Rust wire types (serde snake_case) and holds the filter / search
 // / formatting / hex-dump helpers so they can be unit-tested without a backend.
 
+import { t } from "./i18n";
+
 export type BtDirection = "tx" | "rx" | "unknown";
 
 export type BtProtocol =
@@ -159,7 +161,7 @@ export function protocolTag(p: BtProtocol): string {
 export type BtFilter = "all" | "hci" | "acl" | "l2cap" | "att" | "gatt" | "tx" | "rx";
 
 export const BT_FILTERS: { id: BtFilter; label: string }[] = [
-  { id: "all", label: "Alle" },
+  { id: "all", get label() { return t("btcap.filter_all_packets"); } },
   { id: "hci", label: "HCI" },
   { id: "acl", label: "ACL" },
   { id: "l2cap", label: "L2CAP" },

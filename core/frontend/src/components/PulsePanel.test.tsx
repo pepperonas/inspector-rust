@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 const { pulseLive, pulseHistory } = vi.hoisted(() => ({
@@ -13,6 +13,13 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
 
 import { PulsePanel } from "./PulsePanel";
 import type { PulseAgg, PulseLive, PulseSample } from "../lib/ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const sample = (over: Partial<PulseSample> = {}): PulseSample => ({
   ts: 1_791_000_000,

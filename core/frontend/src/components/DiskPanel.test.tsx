@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DiskScan, DiskNode } from "../lib/ipc";
 
@@ -22,6 +22,13 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("../lib/md3-motion", () => ({ prefersReducedMotion: () => true }));
 
 import { DiskPanel } from "./DiskPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const dir = (name: string, size: number, children?: DiskNode[]): DiskNode => ({
   name,

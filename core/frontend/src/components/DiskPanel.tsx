@@ -35,6 +35,8 @@ import {
   type CollectorItem,
 } from "../lib/disk";
 import { prefersReducedMotion } from "../lib/md3-motion";
+import { locale, t, tn, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * `disk` / `daisy` — a DaisyDisk-style disk-usage sunburst in the preview
@@ -80,6 +82,7 @@ export function DiskPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [scan, setScan] = useState<DiskScan | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [progress, setProgress] = useState<DiskScanProgress | null>(null);
@@ -360,7 +363,7 @@ export function DiskPanel({
       const tot = collectorTotals(done);
       if (tot.count > 0) {
         flash(
-          `${tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} in den Papierkorb (${formatBytes(tot.bytes)}) — Platz wird frei, sobald du den Papierkorb leerst`,
+          t("disk.trashed", { what: tn("disk.entries", tot.count), size: formatBytes(tot.bytes) }),
         );
       }
     } catch (e) {
@@ -476,11 +479,10 @@ export function DiskPanel({
     return (
       <Shell focused={focused}>
         <div className="rounded-xl border border-[var(--color-border)] p-4">
-          <p className="text-[12px] font-medium">Scan fehlgeschlagen</p>
+          <p className="text-[12px] font-medium">{t("disk.scan_failed")}</p>
           <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">{err}</p>
           <p className="mt-2 text-[11px] text-[var(--color-muted)]">
-            Für geschützte Ordner (z. B. weite Teile von <code>/</code>) braucht IR ggf. „Full Disk
-            Access“ in den Systemeinstellungen.
+            <InlineMd text={t("disk.fda_hint")} />
           </p>
         </div>
       </Shell>
@@ -518,14 +520,14 @@ export function DiskPanel({
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
           <HardDrive size={15} className="shrink-0 text-[var(--color-accent)]" />
-          <span className="truncate">Speicher</span>
+          <span className="truncate">{t("disk.storage")}</span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={goUp}
             disabled={drill.length === 0 && !parentPath(scan.root_path)}
-            title="Eine Ebene höher (⌫)"
+            title={t("disk.one_level_up")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-30"
           >
             <CornerLeftUp size={13} />
@@ -533,7 +535,7 @@ export function DiskPanel({
           <button
             type="button"
             onClick={() => run(target)}
-            title="Neu scannen (R)"
+            title={t("disk.scan_again_r")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <RefreshCw size={13} className={scanning ? "animate-spin" : undefined} />
@@ -545,8 +547,7 @@ export function DiskPanel({
 
       {redirectedFromHome && (
         <p className="rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-1.5 text-[11px] text-[var(--color-fg)]">
-          <code className="font-[var(--font-mono)]">/home</code> ist auf macOS ein leerer System-Mount — hier ist dein
-          Persönlicher Ordner.
+          <InlineMd text={t("disk.home_redirect")} />
         </p>
       )}
 
@@ -559,7 +560,7 @@ export function DiskPanel({
       {scan.access_denied ? (
         <AccessDeniedCard name={focusNode!.name} onOpenSettings={openFDA} onRetry={() => run(target)} />
       ) : redirectingHome ? (
-        <ScanningCard progress={null} label="Öffne deinen Persönlichen Ordner…" />
+        <ScanningCard progress={null} label={t("disk.opening_your_home_folder")} />
       ) : isEmpty ? (
         <EmptyChart node={focusNode!} />
       ) : (
@@ -615,12 +616,12 @@ export function DiskPanel({
           style={{ padding: HUB_R }}
         >
           <span className="max-w-[120px] truncate text-[11px] font-medium">
-            {hoverIsFocus ? focusNode!.name : hoverNode.other ? "Sonstiges" : hoverNode.name}
+            {hoverIsFocus ? focusNode!.name : hoverNode.other ? t("disk.other") : hoverNode.name}
           </span>
           <span className="text-[15px] font-semibold tabular-nums">{formatBytes(hoverNode.size)}</span>
           <span className="text-[10px] text-[var(--color-muted)] tabular-nums">
             {formatPct(hoverNode.size, focusNode!.size)}
-            {hoverNode.is_dir && hoverNode.child_count > 0 ? ` · ${hoverNode.child_count} Einträge` : ""}
+            {hoverNode.is_dir && hoverNode.child_count > 0 ? ` · ${tn("disk.entries", hoverNode.child_count)}` : ""}
           </span>
         </div>
       </div>
@@ -673,13 +674,13 @@ export function DiskPanel({
       />
 
       <p className="text-[10px] text-[var(--color-muted)]">
-        {scan.items.toLocaleString("de-DE")} Einträge gescannt{isEmpty ? "" : " · Klick = reinzoomen"}
+        {t("disk.scanned", { n: scan.items.toLocaleString(locale()) })}{isEmpty ? "" : ` · ${t("disk.click_zoom")}`}
       </p>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
           {isEmpty
-            ? "⌫ höher · R neu scannen · Esc zurück"
-            : "⌫ höher · Leertaste sammeln · Rechtsklick: Menü · ⌘⌫ Papierkorb · R neu scannen · Esc zurück"}
+            ? t("disk.up_r_scan_again_esc")
+            : t("disk.up_space_collect_right_click")}
         </p>
       )}
       {menu && (
@@ -698,26 +699,26 @@ function Shell({ focused, children }: { focused: boolean; children: React.ReactN
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]">
       <div className="flex items-center gap-2 text-[13px] font-medium">
-        <HardDrive size={15} className="text-[var(--color-accent)]" /> Speicher
+        <HardDrive size={15} className="text-[var(--color-accent)]" /> {t("disk.storage")}
       </div>
       {children}
-      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>}
+      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("disk.esc_closes")}</p>}
     </div>
   );
 }
 
-function ScanningCard({ progress, label = "Scanne…" }: { progress: DiskScanProgress | null; label?: string }) {
+function ScanningCard({ progress, label = t("disk.scanning") }: { progress: DiskScanProgress | null; label?: string }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--color-border)] p-6">
       <div className="disk-scan-orb" aria-hidden />
       <p className="text-[12px] font-medium">{label}</p>
       {progress && (
         <p className="text-[11px] text-[var(--color-muted)] tabular-nums">
-          {progress.items.toLocaleString("de-DE")} Einträge · {formatBytes(progress.bytes)}
+          {tn("disk.entries", progress.items, { n: progress.items.toLocaleString(locale()) })} · {formatBytes(progress.bytes)}
         </p>
       )}
       <p className="text-[11px] text-[var(--color-muted)]">
-        Ein voller Home-Scan kann einen Moment dauern.
+        {t("disk.a_full_home_scan_can")}
       </p>
     </div>
   );
@@ -817,7 +818,7 @@ function ChildList({
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <p className="mb-2 text-[11px] font-medium">
-        Inhalt <span className="text-[var(--color-muted)]">· ↑↓ wählen · Enter öffnen · Leertaste sammeln</span>
+        {t("disk.contents")} <span className="text-[var(--color-muted)]">{t("disk.contents_keys")}</span>
       </p>
       <div ref={boxRef} className="flex max-h-[220px] flex-col gap-0.5 overflow-y-auto">
         {rows.map((r, i) => {
@@ -842,7 +843,7 @@ function ChildList({
                 type="button"
                 onClick={() => onCollect(r)}
                 disabled={!path}
-                title={isCollected ? "Aus dem Sammler nehmen (Leertaste)" : "In den Sammler (Leertaste)"}
+                title={isCollected ? t("disk.remove_from_the_collector_space") : t("disk.add_to_the_collector_space")}
                 aria-pressed={isCollected}
                 className={
                   "shrink-0 rounded p-1 disabled:opacity-20 " +
@@ -866,11 +867,11 @@ function ChildList({
                   {r.node.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
                 </span>
                 <span className="min-w-0 flex-1 truncate" title={r.node.name}>
-                  {r.node.other ? "Sonstiges" : r.node.name}
+                  {r.node.other ? t("disk.other") : r.node.name}
                 </span>
                 {isArmed ? (
                   <span className="shrink-0 text-[10px] font-medium text-red-500">
-                    ⌘⌫ erneut = Papierkorb
+                    {t("disk.again_trash")}
                   </span>
                 ) : (
                   <>
@@ -932,9 +933,9 @@ function CollectorBar({
         <>
           <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
             <span className="font-medium">
-              Sammler{" "}
+              {t("disk.collector")}{" "}
               <span className="text-[var(--color-muted)] tabular-nums">
-                · {tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} · {formatBytes(tot.bytes)}
+                · {tn("disk.entries", tot.count)} · {formatBytes(tot.bytes)}
               </span>
             </span>
             <button
@@ -942,7 +943,7 @@ function CollectorBar({
               onClick={onClear}
               className="rounded px-1 text-[10px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
             >
-              leeren
+              {t("disk.clear")}
             </button>
           </div>
           <div className="mb-2 flex max-h-[120px] flex-col gap-0.5 overflow-y-auto">
@@ -956,7 +957,7 @@ function CollectorBar({
                 <button
                   type="button"
                   onClick={() => onRemove(i.path)}
-                  title="Aus dem Sammler nehmen"
+                  title={t("disk.remove_from_the_collector")}
                   className="shrink-0 rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
                 >
                   <X size={11} />
@@ -977,17 +978,17 @@ function CollectorBar({
           >
             <Trash2 size={12} />
             {busy
-              ? "Verschiebe…"
+              ? t("disk.moving")
               : armed
-                ? `Nochmal ⌘⌫ oder klicken: ${tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} in den Papierkorb`
-                : "In den Papierkorb (⌘⌫)"}
+                ? t("disk.confirm_trash", { what: tn("disk.entries", tot.count) })
+                : t("disk.move_to_trash")}
           </button>
         </>
       )}
       {failures.length > 0 && (
         <div className="mt-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-2 text-[11px]">
           <div className="mb-1 flex items-center justify-between">
-            <span className="font-medium">Nicht verschoben</span>
+            <span className="font-medium">{t("disk.not_moved")}</span>
             <button type="button" onClick={onDismissFailures} className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
               <X size={11} />
             </button>
@@ -1012,9 +1013,9 @@ function VolumeBar({ scan }: { scan: DiskScan }) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <div className="mb-1 flex items-center justify-between text-[11px]">
-        <span className="text-[var(--color-muted)]">{scan.volume_mount || "Volume"}</span>
+        <span className="text-[var(--color-muted)]">{scan.volume_mount || t("disk.volume")}</span>
         <span className="tabular-nums">
-          {formatBytes(scan.volume_free)} frei von {formatBytes(scan.volume_total)}
+          {t("disk.free_of", { free: formatBytes(scan.volume_free), total: formatBytes(scan.volume_total) })}
         </span>
       </div>
       <div className="relative h-2 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
@@ -1030,7 +1031,7 @@ function VolumeBar({ scan }: { scan: DiskScan }) {
         />
       </div>
       <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-        Dieser Ordner: {formatBytes(scan.total)} · {formatPct(scan.total, scan.volume_total)} des Volumes
+        {t("disk.this_folder", { size: formatBytes(scan.total), pct: formatPct(scan.total, scan.volume_total) })}
       </p>
     </div>
   );
@@ -1061,7 +1062,7 @@ function DetailRow({
       <button
         type="button"
         onClick={onCollect}
-        title={collected ? "Aus dem Sammler nehmen" : "In den Sammler"}
+        title={collected ? t("disk.remove_from_the_collector") : t("disk.add_to_the_collector")}
         aria-pressed={collected}
         className={
           "shrink-0 rounded p-1 " +
@@ -1087,7 +1088,7 @@ function TopFiles({
   const max = scan.top_files[0].size || 1;
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
-      <p className="mb-2 text-[11px] font-medium">Größte Dateien</p>
+      <p className="mb-2 text-[11px] font-medium">{t("disk.largest_files")}</p>
       <div className="flex flex-col gap-1">
         {scan.top_files.slice(0, 12).map((f) => {
           const isCollected = collected.has(f.path);
@@ -1106,7 +1107,7 @@ function TopFiles({
               <button
                 type="button"
                 onClick={() => onCollect(f)}
-                title={isCollected ? "Aus dem Sammler nehmen" : "In den Sammler"}
+                title={isCollected ? t("disk.remove_from_the_collector") : t("disk.add_to_the_collector")}
                 aria-pressed={isCollected}
                 className={
                   "shrink-0 rounded p-0.5 transition-opacity " +
@@ -1150,10 +1151,9 @@ function AccessDeniedCard({
         <Lock size={26} />
       </div>
       <div className="space-y-0.5">
-        <p className="text-[14px] font-semibold">Kein Zugriff auf „{name}“</p>
+        <p className="text-[14px] font-semibold">{t("disk.no_access", { name })}</p>
         <p className="max-w-[300px] text-[11px] leading-relaxed text-[var(--color-muted)]">
-          Dieser Ordner ist geschützt. Damit Inspector Rust ihn lesen kann,
-          braucht es <strong>Full Disk Access</strong> in den Systemeinstellungen.
+          <InlineMd text={t("disk.protected")} />
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -1162,18 +1162,18 @@ function AccessDeniedCard({
           onClick={onOpenSettings}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
         >
-          <Lock size={13} /> Full Disk Access öffnen
+          <Lock size={13} /> {t("disk.open_full_disk_access")}
         </button>
         <button
           type="button"
           onClick={onRetry}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-fg)] hover:bg-[var(--color-border)]/40"
         >
-          <RefreshCw size={13} /> Erneut scannen
+          <RefreshCw size={13} /> {t("disk.scan_again")}
         </button>
       </div>
       <p className="text-[10px] text-[var(--color-muted)]">
-        Nach dem Erteilen ggf. Inspector Rust neu starten.
+        {t("disk.after_granting_it_restart_inspector")}
       </p>
     </div>
   );
@@ -1196,13 +1196,13 @@ function EmptyChart({ node }: { node: DiskNode }) {
         <FolderOpen size={28} />
       </div>
       <div className="space-y-0.5">
-        <p className="text-[14px] font-semibold">Dieser Ordner ist leer</p>
+        <p className="text-[14px] font-semibold">{t("disk.this_folder_is_empty")}</p>
         <p className="text-[11px] text-[var(--color-muted)] tabular-nums">
-          Keine Einträge · {formatBytes(node.size)}
+          {t("disk.no_entries", { size: formatBytes(node.size) })}
         </p>
       </div>
       <p className="max-w-[280px] text-[11px] leading-relaxed text-[var(--color-muted)]">
-        Keine Dateien oder Unterordner in „{node.name}“.
+        {t("disk.empty_in", { name: node.name })}
       </p>
     </div>
   );
@@ -1292,7 +1292,7 @@ function SegmentMenu({
         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[var(--color-fg)] hover:bg-red-500/15 hover:text-red-500 disabled:opacity-50"
       >
         <Trash2 size={13} className="shrink-0" />
-        {item.is_dir ? "Ordner in den Papierkorb" : "Datei in den Papierkorb"}
+        {item.is_dir ? t("disk.move_folder_to_trash") : t("disk.move_file_to_trash")}
       </button>
     </div>
   );

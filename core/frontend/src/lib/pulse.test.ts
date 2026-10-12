@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ageText,
   dominantLevel,
@@ -15,6 +15,13 @@ import {
   RANGE_LABEL,
 } from "./pulse";
 import type { PulseSample } from "./ipc";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 describe("pressureLevel", () => {
   it("maps the kernel levels", () => {

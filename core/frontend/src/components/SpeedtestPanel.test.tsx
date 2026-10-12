@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
 const { speedtestRun, speedtestRunning, speedtestHistory, speedtestClearHistory, listen, live } = vi.hoisted(() => {
@@ -26,6 +26,13 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
 }));
 
 import { SpeedtestPanel } from "./SpeedtestPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 const result = {
   at: 1_791_315_838_622,

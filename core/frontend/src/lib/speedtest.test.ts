@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   barShare,
   metricStats,
@@ -12,6 +12,13 @@ import {
   PHASE_LABELS,
   rateDownload,
 } from "./speedtest";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 describe("speedtest helpers", () => {
   it("formats Mbit/s with three significant digits and a decimal comma", () => {

@@ -1,10 +1,12 @@
 // Pure helpers for the `speedtest` panel (v0.199.0). Backend: speedtest.rs.
 
+import { t, type MessageKey } from "./i18n";
+
 export type SpeedPhase = "meta" | "latency" | "download" | "upload";
 
 export const PHASE_LABELS: Record<SpeedPhase, string> = {
-  meta: "Verbinde mit Cloudflare…",
-  latency: "Latenz",
+  get meta() { return t("speed.phase.meta"); },
+  get latency() { return t("speed.phase.latency"); },
   download: "Download",
   upload: "Upload",
 };
@@ -56,12 +58,25 @@ export function rateDownload(bps: number | null | undefined): Rating | null {
 export function downloadMeaning(bps: number | null | undefined): string | null {
   const r = rateDownload(bps);
   if (!r) return null;
-  return {
-    "sehr gut": "Reicht für mehrere 4K-Streams und große Downloads gleichzeitig.",
-    gut: "Reicht für 4K-Streaming und Videokonferenzen.",
-    mittel: "Reicht für HD-Streaming und Videokonferenzen.",
-    langsam: "Reicht für Surfen und Mail; Video kann ruckeln.",
-  }[r];
+  return t(MEANING[r]);
+}
+
+const MEANING: Record<Rating, MessageKey> = {
+  "sehr gut": "speed.meaning.very_good",
+  gut: "speed.meaning.good",
+  mittel: "speed.meaning.medium",
+  langsam: "speed.meaning.slow",
+};
+const RATING_LABEL: Record<Rating, MessageKey> = {
+  "sehr gut": "speed.rating.very_good",
+  gut: "speed.rating.good",
+  mittel: "speed.rating.medium",
+  langsam: "speed.rating.slow",
+};
+
+/** The rating in the current language (the `Rating` ids are internal). */
+export function ratingLabel(r: Rating): string {
+  return t(RATING_LABEL[r]);
 }
 
 /** Relative change of `now` against the median of `previous` values, in

@@ -29,6 +29,7 @@ import {
   writeBars,
 } from "../lib/pulse";
 import { trendRange, trendSegments } from "../lib/speedtest";
+import { t, useT } from "../lib/i18n";
 
 type View = "live" | "history";
 
@@ -49,6 +50,7 @@ export function PulsePanel({
   onExit: () => void;
   onOpenSettings: () => void;
 }) {
+  useT();
   const [view, setView] = useState<View>("live");
   const [range, setRange] = useState<PulseRange>("24h");
   const [live, setLive] = useState<PulseLive | null>(null);
@@ -132,14 +134,14 @@ export function PulsePanel({
                 view === v ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]" : "text-[var(--color-muted)]"
               }`}
             >
-              {v === "live" ? "Live" : "Verlauf"}
+              {v === "live" ? t("pulse.live") : t("pulse.history")}
             </button>
           ))}
         </div>
         <button
           onClick={onOpenSettings}
-          title="Einstellungen"
-          aria-label="Pulse-Einstellungen"
+          title={t("pulse.settings")}
+          aria-label={t("pulse.pulse_settings")}
           className="rounded p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
         >
           <Settings2 size={14} />
@@ -153,12 +155,12 @@ export function PulsePanel({
       )}
 
       {live && !live.supported ? (
-        <Notice text="Pulse gibt es derzeit nur unter macOS." />
+        <Notice text={t("pulse.pulse_is_currently_macos_only")} />
       ) : live && !live.enabled ? (
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-xs">
-          Die Hintergrundmessung ist ausgeschaltet.{" "}
+          {t("pulse.background_measuring_is_turned_off")}{" "}
           <button className="underline" onClick={onOpenSettings}>
-            In den Einstellungen einschalten
+            {t("pulse.turn_it_on_in_settings")}
           </button>
           .
         </div>
@@ -185,7 +187,7 @@ function Notice({ text }: { text: string }) {
 
 function LiveView({ live }: { live: PulseLive | null }) {
   const s = live?.latest;
-  if (!live || !s) return <Notice text="Erste Messung läuft … (alle 5 s)" />;
+  if (!live || !s) return <Notice text={t("pulse.first_measurement_running_every_5")} />;
   const level = pressureLevel(s.pressure);
   const color = PRESSURE_COLOR[level];
   const swapFrac = s.swap_total > 0 ? s.swap_used / s.swap_total : 0;
@@ -199,19 +201,19 @@ function LiveView({ live }: { live: PulseLive | null }) {
         style={{ borderColor: color, background: `color-mix(in srgb, ${color} 10%, var(--color-surface))` }}
         aria-live="polite"
       >
-        <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">Speicherdruck</div>
+        <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">{t("pulse.memory_pressure")}</div>
         <div className="mt-1 flex items-baseline gap-3">
           <span className="text-3xl font-semibold" style={{ color }} data-testid="pulse-level">
             {PRESSURE_LABEL[level]}
           </span>
           {s.thermal >= 2 && (
             <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-xs text-rose-500">
-              Thermik {s.thermal >= 3 ? "kritisch" : "hoch"}
+              {t("pulse.thermal")} {s.thermal >= 3 ? "kritisch" : "hoch"}
             </span>
           )}
         </div>
         <div className="mt-3 flex items-baseline justify-between text-xs">
-          <span className="text-[var(--color-muted)]">Swap belegt</span>
+          <span className="text-[var(--color-muted)]">{t("pulse.swap_used")}</span>
           <span className="font-[var(--font-mono)] tabular-nums">
             {formatBytes(s.swap_used)} / {formatBytes(s.swap_total)}
           </span>
@@ -223,18 +225,18 @@ function LiveView({ live }: { live: PulseLive | null }) {
           />
         </div>
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
-          Komprimiert {formatBytes(s.compressor)} · Wired {formatBytes(s.wired)} · Frei {formatBytes(s.free)}
+          {t("pulse.mem_line", { comp: formatBytes(s.compressor), wired: formatBytes(s.wired), free: formatBytes(s.free) })}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Rate label="Swap-Out" value={formatRate(s.swapout_bps)} />
+        <Rate label={t("pulse.swap_out")} value={formatRate(s.swapout_bps)} />
         <Rate
-          label="SSD schreibt"
+          label={t("pulse.ssd_writes")}
           value={live.disk_found ? formatRate(s.ssd_write_bps) : "–"}
-          sub={share != null ? `davon ~${Math.round(share * 100)} % Swap` : undefined}
+          sub={share != null ? t("pulse.of_which_swap_pct", { pct: Math.round(share * 100) }) : undefined}
         />
-        <Rate label="Kompression" value={formatPerSec(s.compress_ps)} sub={`Swap-In ${formatRate(s.swapin_bps)}`} />
+        <Rate label={t("pulse.compression")} value={formatPerSec(s.compress_ps)} sub={t("pulse.swap_in", { rate: formatRate(s.swapin_bps) })} />
         <Rate label="CPU" value={s.cpu_pct != null ? `${Math.round(s.cpu_pct)} %` : "–"} />
       </div>
 
@@ -242,7 +244,7 @@ function LiveView({ live }: { live: PulseLive | null }) {
 
       <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
         <div className="flex items-baseline justify-between text-xs uppercase tracking-widest text-[var(--color-muted)]">
-          <span>Größte Verbraucher</span>
+          <span>{t("pulse.biggest_consumers")}</span>
           <span className="normal-case tracking-normal">{ageText(now, live.groups_at)}</span>
         </div>
         <ul className="mt-2 flex flex-col gap-1.5" data-testid="pulse-groups">
@@ -258,7 +260,7 @@ function LiveView({ live }: { live: PulseLive | null }) {
               </span>
             </li>
           ))}
-          {live.groups.length === 0 && <li className="text-xs text-[var(--color-muted)]">Noch kein Prozess-Scan.</li>}
+          {live.groups.length === 0 && <li className="text-xs text-[var(--color-muted)]">{t("pulse.no_process_scan_yet")}</li>}
         </ul>
       </div>
     </>
@@ -283,14 +285,14 @@ function Sparklines({ samples }: { samples: PulseSample[] }) {
   // Rates scale from 0 (a rate's zero is meaningful); the swap level scales
   // to its own range, else a 3-GB swing on a 20-GB base reads as flat.
   const rows: { label: string; key: keyof PulseSample; fmt: (n: number) => string; own?: boolean }[] = [
-    { label: "SSD schreibt", key: "ssd_write_bps", fmt: formatRate },
-    { label: "Swap-Out", key: "swapout_bps", fmt: formatRate },
-    { label: "Swap belegt", key: "swap_used", fmt: formatBytes, own: true },
+    { label: t("pulse.ssd_writes"), key: "ssd_write_bps", fmt: formatRate },
+    { label: t("pulse.swap_out"), key: "swapout_bps", fmt: formatRate },
+    { label: t("pulse.swap_used"), key: "swap_used", fmt: formatBytes, own: true },
   ];
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-      <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">Letzte 15 Minuten</div>
-      <div className="mt-2 flex h-2 overflow-hidden rounded" aria-label="Speicherdruck-Verlauf">
+      <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">{t("pulse.last_15_minutes")}</div>
+      <div className="mt-2 flex h-2 overflow-hidden rounded" aria-label={t("pulse.memory_pressure_history")}>
         {samples.map((s, i) => (
           <div key={i} className="h-full flex-1" style={{ background: PRESSURE_COLOR[pressureLevel(s.pressure)] }} />
         ))}
@@ -330,13 +332,13 @@ function HistoryView({
 }) {
   return (
     <>
-      <div className="flex gap-1" role="tablist" aria-label="Zeitraum">
+      <div className="flex gap-1" role="tablist" aria-label={t("pulse.range")}>
         {PULSE_RANGES.map((r, i) => (
           <button
             key={r}
             role="tab"
             aria-selected={range === r}
-            title={`Taste ${i + 1}`}
+            title={t("pulse.key_n", { n: i + 1 })}
             onClick={() => onRange(r)}
             className={`rounded-full border px-2.5 py-0.5 text-xs ${
               range === r
@@ -349,9 +351,9 @@ function HistoryView({
         ))}
       </div>
       {!hist || hist.range !== range ? (
-        <Notice text="Lade …" />
+        <Notice text={t("pulse.loading")} />
       ) : hist.buckets.length === 0 ? (
-        <Notice text="Für diesen Zeitraum gibt es noch keine Daten — die Historie füllt sich minütlich." />
+        <Notice text={t("pulse.no_data_for_this_range")} />
       ) : (
         <HistoryBody hist={hist} />
       )}
@@ -360,44 +362,44 @@ function HistoryView({
 }
 
 function HistoryBody({ hist }: { hist: PulseHistory }) {
-  const t = hist.total;
+  const tot = hist.total;
   const bars = writeBars(hist.buckets, BAR_H);
-  const share = swapShare(t.written, t.swap_written);
+  const share = swapShare(tot.written, tot.swap_written);
   const first = hist.buckets[0];
   const last = hist.buckets[hist.buckets.length - 1];
   return (
     <>
       <div className="grid grid-cols-3 gap-2">
-        <Rate label="Geschrieben" value={formatBytes(t.written)} />
+        <Rate label={t("pulse.written")} value={formatBytes(tot.written)} />
         <Rate
-          label="davon Swap"
-          value={formatBytes(t.swap_written)}
-          sub={share != null ? `~${Math.round(share * 100)} % (Schätzung)` : undefined}
+          label={t("pulse.of_which_swap")}
+          value={formatBytes(tot.swap_written)}
+          sub={share != null ? t("pulse.share_est", { pct: Math.round(share * 100) }) : undefined}
         />
-        <Rate label="Zeit rot" value={formatMinutes(t.p_crit)} sub={`gelb ${formatMinutes(t.p_warn)}`} />
+        <Rate label={t("pulse.time_red")} value={formatMinutes(tot.p_crit)} sub={t("pulse.yellow_time", { time: formatMinutes(tot.p_warn) })} />
       </div>
 
       <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-        <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">Speicherdruck</div>
+        <div className="text-xs uppercase tracking-widest text-[var(--color-muted)]">{t("pulse.memory_pressure")}</div>
         <div className="mt-2 flex h-3 overflow-hidden rounded" data-testid="pulse-band">
           {hist.buckets.map((b) => (
             <div
               key={b.ts}
               className="h-full flex-1"
-              title={`${bucketLabel(b.ts, hist.bucket_secs)} · rot ${formatMinutes(b.p_crit)}`}
+              title={t("pulse.bucket_red", { when: bucketLabel(b.ts, hist.bucket_secs), time: formatMinutes(b.p_crit) })}
               style={{ background: PRESSURE_COLOR[dominantLevel(b)] }}
             />
           ))}
         </div>
         <div className="mt-3 text-xs uppercase tracking-widest text-[var(--color-muted)]">
-          SSD-Schreiben{" "}
+          {t("pulse.ssd_writes_title")}{" "}
           {hist.bucket_secs >= 86_400
-            ? "pro Tag"
+            ? t("pulse.per_day")
             : hist.bucket_secs >= 3_600
-              ? "pro Stunde"
+              ? t("pulse.per_hour")
               : hist.bucket_secs >= 900
-                ? "pro 15 min"
-                : "pro Minute"}
+                ? t("pulse.per_15")
+                : t("pulse.per_minute")}
         </div>
         <svg
           viewBox={`0 0 ${hist.buckets.length * 10} ${BAR_H}`}
@@ -409,8 +411,7 @@ function HistoryBody({ hist }: { hist: PulseHistory }) {
             <g key={i}>
               <rect x={i * 10 + 1} y={BAR_H - b.total} width={8} height={b.total} fill="var(--color-accent)" opacity={0.35}>
                 <title>
-                  {bucketLabel(hist.buckets[i].ts, hist.bucket_secs)}: {formatBytes(hist.buckets[i].written)}, davon Swap{" "}
-                  {formatBytes(hist.buckets[i].swap_written)}
+                  {t("pulse.bar_title", { when: bucketLabel(hist.buckets[i].ts, hist.bucket_secs), written: formatBytes(hist.buckets[i].written), swap: formatBytes(hist.buckets[i].swap_written) })}
                 </title>
               </rect>
               <rect x={i * 10 + 1} y={BAR_H - b.swap} width={8} height={b.swap} fill="#f43f5e" />
@@ -420,13 +421,13 @@ function HistoryBody({ hist }: { hist: PulseHistory }) {
         <div className="mt-1 flex justify-between text-[10px] text-[var(--color-muted)]">
           <span>{bucketLabel(first.ts, hist.bucket_secs)}</span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-2 rounded-sm bg-rose-500" /> Swap (geschätzt)
+            <span className="inline-block h-2 w-2 rounded-sm bg-rose-500" /> {t("pulse.swap_estimated")}
           </span>
           <span>{bucketLabel(last.ts, hist.bucket_secs)}</span>
         </div>
       </div>
 
-      {t.causers.length > 0 && <Causers aggs={t} />}
+      {tot.causers.length > 0 && <Causers aggs={tot} />}
 
       {hist.days.length > 0 && (
         <div className="grid grid-cols-2 gap-2" data-testid="pulse-days">
@@ -438,7 +439,7 @@ function HistoryBody({ hist }: { hist: PulseHistory }) {
 
       <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-xs">
         <div className="flex items-center gap-1.5 uppercase tracking-widest text-[var(--color-muted)]">
-          <HardDrive size={12} /> SSD-Lebensdauer
+          <HardDrive size={12} /> {t("pulse.ssd_lifetime")}
         </div>
         <p className="mt-1" data-testid="pulse-forecast">
           {forecastText(hist.forecast)}
@@ -452,8 +453,8 @@ function Causers({ aggs }: { aggs: PulseAgg }) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
       <div className="flex justify-between text-xs uppercase tracking-widest text-[var(--color-muted)]">
-        <span>Hauptverursacher</span>
-        <span className="normal-case tracking-normal">Spitze · geschrieben</span>
+        <span>{t("pulse.main_causes")}</span>
+        <span className="normal-case tracking-normal">{t("pulse.peak_written")}</span>
       </div>
       <ul className="mt-2 flex flex-col gap-1">
         {aggs.causers.slice(0, 5).map((c) => (
@@ -479,7 +480,7 @@ function DayCard({ d }: { d: PulseAgg }) {
         <span className="h-2 w-2 rounded-full" style={{ background: PRESSURE_COLOR[dominantLevel(d)] }} />
       </div>
       <div className="mt-1 font-[var(--font-mono)] tabular-nums">{formatBytes(d.written)}</div>
-      <div className="text-[var(--color-muted)]">davon ~{formatBytes(d.swap_written)} Swap</div>
+      <div className="text-[var(--color-muted)]">{t("pulse.of_which_swap_size", { size: formatBytes(d.swap_written) })}</div>
       <div className="text-[var(--color-muted)]">rot {formatMinutes(d.p_crit)}</div>
       {top && <div className="truncate text-[var(--color-muted)]">↑ {top.name}</div>}
     </div>
@@ -492,18 +493,21 @@ function Footnote({ live }: { live: PulseLive }) {
   const o = live.overhead;
   return (
     <p className="mt-auto text-[10px] leading-relaxed text-[var(--color-muted)]">
-      Swap schreibt der Kernel — er lässt sich keinem Prozess zuordnen; Prozess-Schreibraten enthalten ihn nicht.
-      {live.unreadable > 0 && ` ${live.unreadable} Prozesse anderer Nutzer (root) sind ohne Adminrechte nicht lesbar.`}
-      {" "}Zähler starten mit jedem Neustart neu.{" "}
+      {t("pulse.fn.kernel")}
+      {live.unreadable > 0 && ` ${t("pulse.fn.unreadable", { n: live.unreadable })}`}
+      {" "}{t("pulse.fn.reset")}{" "}
       {live.smart?.percentage_used != null
-        ? `SSD laut SMART zu ${live.smart.percentage_used} % verbraucht. `
+        ? `${t("pulse.fn.smart", { pct: live.smart.percentage_used })} `
         : live.smartctl_present === false
-          ? "Für SMART-Werte (Verschleiß in %) smartmontools installieren: brew install smartmontools. "
+          ? `${t("pulse.fn.smartctl")} `
           : ""}
-      Messaufwand: {o.running_secs > 60 ? `${o.cpu_pct.toFixed(2)} % CPU, ` : ""}
-      {o.sample_avg_ms.toFixed(1)} ms je 5-s-Messung, {o.scan_avg_ms.toFixed(1)} ms je Prozess-Scan,
-      Datenbank {formatBytes(live.db_bytes)}.
-      {live.last_error && ` Fehler: ${live.last_error}`}
+      {t("pulse.fn.overhead", {
+        cpu: o.running_secs > 60 ? `${o.cpu_pct.toFixed(2)} % CPU, ` : "",
+        sample: o.sample_avg_ms.toFixed(1),
+        scan: o.scan_avg_ms.toFixed(1),
+        db: formatBytes(live.db_bytes),
+      })}
+      {live.last_error && ` ${t("pulse.fn.error", { err: live.last_error })}`}
     </p>
   );
 }

@@ -21,7 +21,9 @@ import {
   formatMs,
   overallProgress,
   rateDownload,
+  ratingLabel,
 } from "../lib/speedtest";
+import { locale, t, tn, useT } from "../lib/i18n";
 
 type Status = "running" | "done" | "error";
 
@@ -33,6 +35,7 @@ const HISTORY_SHOWN = 30;
  * closing the panel doesn't abort it and a reopened panel reconnects.
  */
 export function SpeedtestPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
+  useT();
   const [status, setStatus] = useState<Status>("running");
   const [progress, setProgress] = useState<SpeedtestProgress | null>(null);
   const [result, setResult] = useState<SpeedtestResult | null>(null);
@@ -134,8 +137,8 @@ export function SpeedtestPanel({ focused, onExit }: { focused: boolean; onExit: 
           onClick={() => void run()}
           disabled={status === "running"}
           className="ml-auto rounded p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-bg)] disabled:opacity-40"
-          title="Neu messen (R)"
-          aria-label="Neu messen"
+          title={t("speed.measure_again_r")}
+          aria-label={t("speed.measure_again")}
         >
           <RefreshCw size={14} className={status === "running" ? "animate-spin" : ""} />
         </button>
@@ -145,9 +148,9 @@ export function SpeedtestPanel({ focused, onExit }: { focused: boolean; onExit: 
 
       {status === "error" && (
         <div role="alert" className="rounded-lg border border-red-400/40 bg-red-400/10 p-3 text-red-300">
-          {error || "Messung fehlgeschlagen."}
+          {error || t("speed.measurement_failed")}
           <div className="mt-2 text-xs text-[var(--color-muted)]">
-            Braucht eine Internetverbindung. R misst erneut.
+            {t("speed.needs_an_internet_connection_r")}
           </div>
         </div>
       )}
@@ -165,8 +168,7 @@ export function SpeedtestPanel({ focused, onExit }: { focused: boolean; onExit: 
       )}
 
       <p className="mt-auto text-[10px] leading-relaxed text-[var(--color-muted)]">
-        Gemessen gegen speed.cloudflare.com (sieht deine IP-Adresse). Eine Messung überträgt je nach
-        Leitung bis zu ~200 MB. Ergebnisse bleiben lokal. R misst neu, Esc schließt.
+        {t("speed.measured_against_speed_cloudflare_com")}
       </p>
     </div>
   );
@@ -232,30 +234,30 @@ function Result({
         />
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <Small icon={<Timer size={12} />} label="Ping (Leerlauf)" value={formatMs(r.latency_ms)} />
+        <Small icon={<Timer size={12} />} label={t("speed.ping_idle")} value={formatMs(r.latency_ms)} />
         <Small label="Jitter" value={formatMs(r.jitter_ms)} />
         <Small
           icon={<ArrowDown size={12} />}
-          label="Ping unter Last"
+          label={t("speed.ping_under_load")}
           value={formatMs(r.loaded_down_ms)}
-          title="Ping, während der Download läuft (eine Verbindung). Tests mit vielen parallelen Verbindungen füllen den Router-Puffer stärker und zeigen höhere Werte."
+          title={t("speed.ping_while_the_download_runs")}
         />
         <Small
           icon={<ArrowUp size={12} />}
-          label="Ping unter Last"
+          label={t("speed.ping_under_load")}
           value={formatMs(r.loaded_up_ms)}
-          title="Ping, während der Upload läuft (eine Verbindung)."
+          title={t("speed.ping_while_the_upload_runs")}
         />
       </div>
       {rating && (
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
-          <span className="font-semibold">Verbindung {rating}.</span> {meaning}
+          <span className="font-semibold">{t("speed.connection_rating", { rating: ratingLabel(rating) })}</span> {meaning}
         </div>
       )}
       <div className="text-xs text-[var(--color-muted)]">
         Server: Cloudflare {r.colo ?? "?"}
         {country ? ` · ${country}` : ""}
-        {earlier.length > 0 ? ` · Vergleich mit dem Median der ${earlier.length} früheren Messungen` : ""}
+        {earlier.length > 0 ? ` · ${tn("speed.compare_median", earlier.length)}` : ""}
       </div>
     </>
   );
@@ -287,7 +289,7 @@ function Big({
       {delta != null && (
         <div className={`mt-1 text-xs ${delta >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
           {delta >= 0 ? "+" : ""}
-          {delta} % ggü. früher
+          {t("speed.vs_earlier", { n: delta })}
         </div>
       )}
     </div>
@@ -321,17 +323,17 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
   const up = metricStats(rows.map((r) => r.upload_bps));
   const ping = metricStats(rows.map((r) => r.latency_ms));
   const loaded = metricStats(rows.map((r) => r.loaded_down_ms));
-  const day = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
-  const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const day = new Intl.DateTimeFormat(locale(), { weekday: "short", day: "2-digit", month: "2-digit" });
+  const time = new Intl.DateTimeFormat(locale(), { hour: "2-digit", minute: "2-digit" });
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] p-2">
       <div className="flex items-center text-xs text-[var(--color-muted)]">
-        Verlauf · {rows.length} {rows.length === 1 ? "Messung" : "Messungen"}
+        {t("speed.history_n", { what: tn("speed.runs", rows.length) })}
         <button
           onClick={onClear}
           className="ml-auto rounded p-1 hover:bg-[var(--color-surface)]"
-          title="Verlauf löschen"
-          aria-label="Verlauf löschen"
+          title={t("speed.clear_history")}
+          aria-label={t("speed.clear_history")}
         >
           <Trash2 size={12} />
         </button>
@@ -341,7 +343,7 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
         <thead className="text-[var(--color-muted)]">
           <tr>
             <th className="text-left font-normal" />
-            <th className="text-right font-normal">Median</th>
+            <th className="text-right font-normal">{t("speed.median")}</th>
             <th className="text-right font-normal">Min</th>
             <th className="text-right font-normal">Max</th>
           </tr>
@@ -350,13 +352,13 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
           <StatRow label="↓ Mbit/s" s={down} fmt={formatMbps} />
           <StatRow label="↑ Mbit/s" s={up} fmt={formatMbps} />
           <StatRow label="Ping" s={ping} fmt={formatMs} />
-          <StatRow label="Ping unter Last" s={loaded} fmt={formatMs} />
+          <StatRow label={t("speed.ping_under_load")} s={loaded} fmt={formatMs} />
         </tbody>
       </table>
 
       {rows.length >= 2 && <Trend rows={rows} />}
 
-      <ul className="flex flex-col" aria-label="Messungen">
+      <ul className="flex flex-col" aria-label={t("speed.runs")}>
         {rows.map((h) => (
           <li key={h.id} className="border-t border-[var(--color-border)] py-1.5 first:border-t-0">
             <div className="flex items-baseline gap-2 text-[11px] tabular-nums">
@@ -374,7 +376,7 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
               <span className="ml-auto">{formatMs(h.latency_ms)}</span>
             </div>
             <div className="pl-[6.5rem] text-[10px] text-[var(--color-muted)] tabular-nums">
-              Jitter {formatMs(h.jitter_ms)} · unter Last ↓ {formatMs(h.loaded_down_ms)} / ↑{" "}
+              Jitter {formatMs(h.jitter_ms)} · {t("speed.under_load")} ↓ {formatMs(h.loaded_down_ms)} / ↑{" "}
               {formatMs(h.loaded_up_ms)}
               {h.colo ? ` · ${h.colo}` : ""}
               {h.country ? ` ${h.country}` : ""}
@@ -409,9 +411,9 @@ function StatRow({
 /** One small chart per metric (own scale), oldest left → newest right. */
 function Trend({ rows }: { rows: SpeedtestHistoryEntry[] }) {
   const ordered = [...rows].reverse();
-  const day = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+  const day = new Intl.DateTimeFormat(locale(), { day: "2-digit", month: "2-digit" });
   return (
-    <figure className="flex flex-col gap-1.5" aria-label="Verlauf als Diagramm">
+    <figure className="flex flex-col gap-1.5" aria-label={t("speed.history_as_a_chart")}>
       <Spark label="Download" unit="Mbit/s" color="var(--color-accent)" values={ordered.map((r) => r.download_bps)} fmt={formatMbps} />
       <Spark label="Upload" unit="Mbit/s" color="#a78bfa" values={ordered.map((r) => r.upload_bps)} fmt={formatMbps} />
       <Spark label="Ping" unit="" color="#f59e0b" values={ordered.map((r) => r.latency_ms)} fmt={formatMs} />
@@ -445,12 +447,12 @@ function Spark({
   return (
     <div className="flex items-center gap-2 text-[10px] tabular-nums">
       <span className="w-14 shrink-0 text-[var(--color-muted)]">{label}</span>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-7 min-w-0 flex-1 overflow-visible" preserveAspectRatio="none" role="img" aria-label={`${label}-Verlauf`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-7 min-w-0 flex-1 overflow-visible" preserveAspectRatio="none" role="img" aria-label={t("speed.history_of", { label })}>
         {segs.map((pts, i) => (
           <polyline key={i} points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         ))}
       </svg>
-      <span className="flex w-10 shrink-0 flex-col items-end leading-tight text-[var(--color-muted)]" title={unit ? `${unit}, Min–Max` : "Min–Max"}>
+      <span className="flex w-10 shrink-0 flex-col items-end leading-tight text-[var(--color-muted)]" title={unit ? `${unit}, ${t("speed.min_max")}` : t("speed.min_max")}>
         <span>{fmt(s.max)}</span>
         <span>{fmt(s.min)}</span>
       </span>

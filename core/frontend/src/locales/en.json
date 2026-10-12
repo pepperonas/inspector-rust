@@ -3620,5 +3620,15 @@
   "figlet.unsupported.one": "{n} character not in this font:",
   "figlet.unsupported.other": "{n} characters not in this font:",
   "qr.stl_note": "STL: {dim} × {dim} × {h} mm · 1 mm modules · rounded corners. Print a light base, then switch to dark filament at {base} mm for the raised code. STL contains no colours. Test scanning the finished print.",
-  "qr.saved": "Saved: {file}"
+  "qr.saved": "Saved: {file}",
+  "cmdcat.web": "Translate & Search",
+  "cmdcat.img": "Images & Files",
+  "cmdcat.text": "Text & Dev tools",
+  "cmdcat.sys": "System",
+  "cmdcat.media": "Media & Screenshots",
+  "cmdcat.prod": "Productivity",
+  "cmdcat.sec": "Testing & Security",
+  "cmdcat.av": "Audio & Smart home",
+  "cmdcat.info": "Info & Monitoring",
+  "cmdcat.fun": "Fun"
 }

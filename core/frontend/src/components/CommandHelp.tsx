@@ -20,7 +20,7 @@ import {
   FileText,
 } from "lucide-react";
 import type { CommandDoc } from "../lib/commandDocs";
-import { groupedIndex } from "../lib/commandDocs";
+import { groupedIndex, localizedTagline } from "../lib/commandDocs";
 import type { HelpTarget } from "../lib/commandHelp";
 import { InlineMd } from "./InlineMd";
 import { t, useT } from "../lib/i18n";
@@ -63,7 +63,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
         </button>
       </div>
       <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
-        <InlineMd text={doc.tagline} />
+        <InlineMd text={localizedTagline(doc)} />
       </p>
 
       {/* Synopsis */}
@@ -244,7 +244,7 @@ function IndexView({ filter, onNavigate }: { filter: string; onNavigate: Props["
                   {d.command}
                 </code>
                 <span className="truncate text-[11px] text-[var(--color-muted)]">
-                  <InlineMd text={d.tagline} />
+                  <InlineMd text={localizedTagline(d)} />
                 </span>
               </button>
             ))}

@@ -10,7 +10,7 @@ import {
   type DirectSlot,
 } from "../lib/ipc";
 import { formatHotkey } from "../lib/platform";
-import { COMMAND_DOCS } from "../lib/commandDocs";
+import { COMMAND_DOCS, localizedTagline } from "../lib/commandDocs";
 import {
   NON_COMMAND_FEATURES,
   HIDDEN_TRIGGER_FEATURES,
@@ -99,7 +99,7 @@ export function FeaturesPanel() {
     name: d.command,
     trigger: d.synopsis,
     typed: true,
-    note: d.aliases.length > 0 ? t("feat.with_alias", { text: d.tagline, aliases: d.aliases.join(", ") }) : d.tagline,
+    note: d.aliases.length > 0 ? t("feat.with_alias", { text: localizedTagline(d), aliases: d.aliases.join(", ") }) : localizedTagline(d),
   }));
 
   const sections: Section[] = [

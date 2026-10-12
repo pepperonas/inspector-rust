@@ -25,6 +25,7 @@
 
 import { MEME_ENABLED } from "./meme";
 import { CURRENT_PLATFORM, type Platform } from "./platform";
+import { locale } from "./i18n";
 
 export type CommandKind =
   | "iris"
@@ -128,6 +129,8 @@ export interface CommandSpec {
   syntax: string;
   /** One-line description shown in the suggestion list. */
   description: string;
+  /** German description (falls back to `description`). */
+  description_de?: string;
   /** True if the command needs an argument after the keyword. */
   requiresArg: boolean;
   /** If true, parses to a runnable command but never appears in the
@@ -199,6 +202,7 @@ const SEARCH_BANG_COMMANDS: CommandSpec[] = Object.entries(SEARCH_BANGS).map(
     keyword,
     syntax: `${keyword} <query>`,
     description: `Search ${name} for the query (opens in browser)`,
+    description_de: `${name} nach der Anfrage durchsuchen (öffnet im Browser)`,
     requiresArg: true,
   }),
 );
@@ -210,6 +214,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "tren",
     syntax: "tren <text>",
     description: "Translate text English → German (opens Google Translate)",
+    description_de: "Text Englisch → Deutsch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -217,6 +222,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trde",
     syntax: "trde <text>",
     description: "Translate text German → English (opens Google Translate)",
+    description_de: "Text Deutsch → Englisch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -224,6 +230,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "tr",
     syntax: "tr <text>",
     description: "Translate text → German (auto-detect source language)",
+    description_de: "Text → Deutsch übersetzen (Quellsprache automatisch)",
     requiresArg: true,
   },
   {
@@ -231,6 +238,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trde2it",
     syntax: "trde2it <text>",
     description: "Translate text German → Italian (opens Google Translate)",
+    description_de: "Text Deutsch → Italienisch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -238,6 +246,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trit2de",
     syntax: "trit2de <text>",
     description: "Translate text Italian → German (opens Google Translate)",
+    description_de: "Text Italienisch → Deutsch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -245,6 +254,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trde2sp",
     syntax: "trde2sp <text>",
     description: "Translate text German → Spanish (opens Google Translate)",
+    description_de: "Text Deutsch → Spanisch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -252,6 +262,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trsp2de",
     syntax: "trsp2de <text>",
     description: "Translate text Spanish → German (opens Google Translate)",
+    description_de: "Text Spanisch → Deutsch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -259,6 +270,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trde2pl",
     syntax: "trde2pl <text>",
     description: "Translate text German → Polish (opens Google Translate)",
+    description_de: "Text Deutsch → Polnisch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -266,6 +278,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trpl2de",
     syntax: "trpl2de <text>",
     description: "Translate text Polish → German (opens Google Translate)",
+    description_de: "Text Polnisch → Deutsch übersetzen (öffnet Google Translate)",
     requiresArg: true,
   },
   {
@@ -274,6 +287,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "rz [px|%] <W>[x<H>]",
     description:
       "Resize the selected image(s) in Finder/Explorer (Lanczos3) — one number is percent (`rz 50`), two are pixels (`rz 1200x800`); `px`/`%` force a mode",
+    description_de: "Ausgewählte Bilder im Finder/Explorer skalieren (Lanczos3) — eine Zahl ist Prozent (`rz 50`), zwei sind Pixel (`rz 1200x800`); `px`/`%` erzwingen einen Modus",
     requiresArg: true,
   },
   {
@@ -281,6 +295,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "resize",
     syntax: "resize <W>x<H>",
     description: "Alias for rz",
+    description_de: "Alias für rz",
     requiresArg: true,
     hidden: true,
   },
@@ -290,6 +305,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "optim",
     description:
       "Compress the selected image(s) in Finder/Explorer (PNG/JPEG → <name>-optim); else the clipboard PNG",
+    description_de: "Ausgewählte Bilder im Finder/Explorer komprimieren (PNG/JPEG → <Name>-optim); sonst das PNG aus der Zwischenablage",
     requiresArg: false,
   },
   {
@@ -297,6 +313,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "optimize",
     syntax: "optimize",
     description: "Alias for optim",
+    description_de: "Alias für optim",
     requiresArg: false,
     hidden: true,
   },
@@ -305,6 +322,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "rmvvls",
     syntax: "rmvvls <text>",
     description: "Remove vowels from text → clipboard (e.g. rmvvls hello → hll)",
+    description_de: "Vokale aus Text entfernen → Zwischenablage (z. B. rmvvls hello → hll)",
     requiresArg: true,
   },
   // ── System commands ────────────────────────────────────────────────
@@ -314,6 +332,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "kill [-9] [pattern | pid]",
     description:
       "Kill a process — live picker by name or PID (e.g. kill slack, kill 1234, kill -9 …)",
+    description_de: "Prozess beenden — Live-Auswahl per Name oder PID (z. B. kill slack, kill 1234, kill -9 …)",
     // requiresArg = false → empty `kill` is valid; the UI opens the
     // process picker showing all processes for selection.
     requiresArg: false,
@@ -323,6 +342,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "reboot",
     syntax: "reboot",
     description: "Restart the system (macOS — confirms before executing)",
+    description_de: "System neu starten (macOS — fragt vorher nach)",
     requiresArg: false,
   },
   {
@@ -330,6 +350,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "shutdown",
     syntax: "shutdown",
     description: "Power off the system (macOS — confirms before executing)",
+    description_de: "System ausschalten (macOS — fragt vorher nach)",
     requiresArg: false,
   },
   {
@@ -337,6 +358,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "lock",
     syntax: "lock",
     description: "Lock the screen (macOS — no confirmation, instant)",
+    description_de: "Bildschirm sperren (macOS — ohne Rückfrage, sofort)",
     requiresArg: false,
   },
   {
@@ -344,6 +366,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "mute",
     syntax: "mute",
     description: "Toggle system mute / unmute (macOS)",
+    description_de: "Systemton stumm/laut schalten (macOS)",
     requiresArg: false,
   },
   {
@@ -352,6 +375,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "freeze",
     description:
       "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
+    description_de: "Alle Tastatur-/Mauseingaben blockieren — Entsperren mit dem konfigurierten Akkord (Standard: i + r)",
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
@@ -362,7 +386,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "nosleep",
     syntax: "nosleep [on|off]",
     description:
-      "Dauerhaftes Einschlafen am Netzteil sperren (pmset -c sleep 0, mit Admin-Prompt) — überlebt Neustarts",
+      "Lock the persistent AC sleep profile (pmset -c sleep 0, with an admin prompt) — survives reboots",
+    description_de: "Dauerhaftes Einschlafen am Netzteil sperren (pmset -c sleep 0, mit Admin-Prompt) — überlebt Neustarts",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -371,7 +396,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "alias",
     syntax: "alias [name]",
     description:
-      "Shell-Alias geführt anlegen — Befehl + Name eingeben, Anlege-Befehl je OS kopieren oder direkt anlegen",
+      "Create a shell alias, guided — enter a command + name, copy the per-OS create command or create it directly",
+    description_de: "Shell-Alias geführt anlegen — Befehl + Name eingeben, Anlege-Befehl je OS kopieren oder direkt anlegen",
     requiresArg: false,
   },
   {
@@ -379,7 +405,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "clown",
     syntax: "clown [text]",
     description:
-      "TeXt sO sChrEibEn — Mock-Case, L33t, Ｖａｐｏｒｗａｖｅ, 𝕕𝕠𝕦𝕓𝕝𝕖, Kopfüber u. a.; ohne Argument die Zwischenablage",
+      "wRiTe TeXt LiKe tHiS — mock case, l33t, Ｖａｐｏｒｗａｖｅ, 𝕕𝕠𝕦𝕓𝕝𝕖, upside-down and more; the clipboard without an argument",
+    description_de: "TeXt sO sChrEibEn — Mock-Case, L33t, Ｖａｐｏｒｗａｖｅ, 𝕕𝕠𝕦𝕓𝕝𝕖, Kopfüber u. a.; ohne Argument die Zwischenablage",
     requiresArg: false,
   },
   // ── repo — git activity stats (repo2viz-style) ────────────────────
@@ -388,14 +415,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "repo",
     syntax: "repo [url|pfad]",
     description:
-      "Git-Repo-Statistik (repo2viz-Stil): Commits, Mitwirkende, Wochentag/Stunde, Dateitypen — als URL, Pfad oder Finder-.git-Ordner",
+      "Git repo statistics (repo2viz style): commits, contributors, weekday/hour, file types — from a URL, path or Finder .git folder",
+    description_de: "Git-Repo-Statistik (repo2viz-Stil): Commits, Mitwirkende, Wochentag/Stunde, Dateitypen — als URL, Pfad oder Finder-.git-Ordner",
     requiresArg: false,
   },
   {
     kind: "repo-export",
     keyword: "export",
     syntax: "export [url|pfad]",
-    description: "Repo-Auswertung als self-contained HTML nach ~/Downloads exportieren",
+    description: "Export the repo analysis as a self-contained HTML to ~/Downloads",
+    description_de: "Repo-Auswertung als self-contained HTML nach ~/Downloads exportieren",
     requiresArg: false,
   },
   // ── rickroll — you know the rules ─────────────────────────────────
@@ -403,7 +432,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "rickroll",
     keyword: "rickroll",
     syntax: "rickroll",
-    description: "Never gonna give you up — spielt das Video (mit Ton) in der Preview",
+    description: "Never gonna give you up — plays the video (with sound) in the preview",
+    description_de: "Never gonna give you up — spielt das Video (mit Ton) in der Preview",
     requiresArg: false,
   },
   // ── clock — world clock ───────────────────────────────────────────
@@ -411,7 +441,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "clock",
     keyword: "clock",
     syntax: "clock",
-    description: "Weltzeituhr — Live-Zeiten wichtiger Städte, per Autocomplete erweiterbar",
+    description: "World clock — live times of major cities, extendable via autocomplete",
+    description_de: "Weltzeituhr — Live-Zeiten wichtiger Städte, per Autocomplete erweiterbar",
     requiresArg: false,
   },
   // ── convert / cv — units + currencies, live preview ───────────────
@@ -420,14 +451,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "convert",
     syntax: "convert [wert] [einheit] [in ziel]",
     description:
-      "Einheiten & Währungen umrechnen — `cv 165 mph` zeigt alle Geschwindigkeiten, `cv 20 usd in eur`",
+      "Convert units & currencies — `cv 165 mph` shows all speeds, `cv 20 usd in eur`",
+    description_de: "Einheiten & Währungen umrechnen — `cv 165 mph` zeigt alle Geschwindigkeiten, `cv 20 usd in eur`",
     requiresArg: false,
   },
   {
     kind: "convert",
     keyword: "cv",
     syntax: "cv [wert] [einheit] [in ziel]",
-    description: "Einheiten & Währungen umrechnen — Kurzform von convert",
+    description: "Convert units & currencies — short form of convert",
+    description_de: "Einheiten & Währungen umrechnen — Kurzform von convert",
     requiresArg: false,
   },
   // ── disk / daisy — DaisyDisk-style disk usage ─────────────────────
@@ -436,14 +469,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "disk",
     syntax: "disk [pfad]",
     description:
-      "Speicher-Analyse à la DaisyDisk: Sunburst-Diagramm der Ordnergrößen, Drill-down, größte Dateien",
+      "Disk usage à la DaisyDisk: a sunburst of folder sizes, drill-down, largest files",
+    description_de: "Speicher-Analyse à la DaisyDisk: Sunburst-Diagramm der Ordnergrößen, Drill-down, größte Dateien",
     requiresArg: false,
   },
   {
     kind: "disk",
     keyword: "daisy",
     syntax: "daisy [pfad]",
-    description: "Speicher-Analyse — Alias von disk (DaisyDisk-Stil).",
+    description: "Disk usage — alias of disk (DaisyDisk style).",
+    description_de: "Speicher-Analyse — Alias von disk (DaisyDisk-Stil).",
     requiresArg: false,
   },
   // ── adb — Android device control ──────────────────────────────────
@@ -452,7 +487,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "adb",
     syntax: "adb [remote|apps|wifi]",
     description:
-      "Android-Gerät steuern (ADBOSS-Companion): Dashboard, Toggles, Fernbedienung, Screenshot, Apps, WLAN-ADB",
+      "Control an Android device (ADBOSS companion): dashboard, toggles, remote, screenshot, apps, WiFi ADB",
+    description_de: "Android-Gerät steuern (ADBOSS-Companion): Dashboard, Toggles, Fernbedienung, Screenshot, Apps, WLAN-ADB",
     requiresArg: false,
   },
   // ── loc — lines-of-code statistics ────────────────────────────────
@@ -461,7 +497,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "pagespeed",
     syntax: "pagespeed <url>",
     description:
-      "Google PageSpeed Insights — Desktop und Mobil nebeneinander, als HTML/PDF exportierbar",
+      "Google PageSpeed Insights — desktop and mobile side by side, exportable as HTML/PDF",
+    description_de: "Google PageSpeed Insights — Desktop und Mobil nebeneinander, als HTML/PDF exportierbar",
     requiresArg: true,
   },
   {
@@ -469,7 +506,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "loc",
     syntax: "loc [pfad]",
     description:
-      "Lines of code für die Finder-Auswahl (oder einen Pfad) — pro Sprache Code/Kommentare/Leerzeilen, mit Charts",
+      "Lines of code for the Finder selection (or a path) — code/comments/blanks per language, with charts",
+    description_de: "Lines of code für die Finder-Auswahl (oder einen Pfad) — pro Sprache Code/Kommentare/Leerzeilen, mit Charts",
     requiresArg: false,
   },
   // ── Wakelock / caffeine (keep-awake) ──────────────────────────────
@@ -481,6 +519,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "wakelock on|off|dark",
     description:
       "Keep awake (pause sleep + screen lock). `wakelock dark` = screen may sleep, system stays awake",
+    description_de: "Wach halten (Schlaf + Bildschirmsperre pausieren). `wakelock dark` = Bildschirm darf schlafen, System bleibt wach",
     requiresArg: true,
   },
   {
@@ -488,6 +527,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "caffeine",
     syntax: "caffeine on|off|dark",
     description: "Keep awake — alias of wakelock. e.g. `caffeine on` / `caffeine dark`",
+    description_de: "Wach halten — Alias von wakelock. z. B. `caffeine on` / `caffeine dark`",
     requiresArg: true,
   },
   // ── Bruno — German income-tax / net-pay calculator ────────────────
@@ -496,7 +536,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "bruno",
     syntax: "bruno [frei|gewerbe|selbst] <€>[m|j]",
     description:
-      "Brutto → Netto (2025). `bruno 60000` jährlich · `bruno 5000m` monatlich · `bruno frei 80000` / `bruno gewerbe 80000` = Selbständige (Jahresgewinn; frei = keine Gewerbesteuer) · `bruno selbst 80000` nutzt den Settings-Betriebstyp · ⇥ wechselt den Modus",
+      "Gross → net (2025). `bruno 60000` yearly · `bruno 5000m` monthly · `bruno frei 80000` / `bruno gewerbe 80000` = self-employed (yearly profit; frei = no trade tax) · `bruno selbst 80000` uses the Settings business type · ⇥ toggles the mode",
+    description_de: "Brutto → Netto (2025). `bruno 60000` jährlich · `bruno 5000m` monatlich · `bruno frei 80000` / `bruno gewerbe 80000` = Selbständige (Jahresgewinn; frei = keine Gewerbesteuer) · `bruno selbst 80000` nutzt den Settings-Betriebstyp · ⇥ wechselt den Modus",
     requiresArg: true,
   },
   // ── Timer ─────────────────────────────────────────────────────────
@@ -506,6 +547,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "timer <N>[s|min|h]",
     description:
       "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
+    description_de: "Timer + visuelle/akustische Benachrichtigung. z. B. `timer 12` (12 Min.) · `timer 30s` · `timer 2h`",
     requiresArg: true,
   },
   // ── Benchmark (two spellings, one command — the countdown/timer pattern) ──
@@ -514,7 +556,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "bluetooth",
     syntax: "bluetooth",
     description:
-      "Bluetooth-Geräte verwalten — verbinden, trennen, entkoppeln (Liste mit Live-Status).",
+      "Manage Bluetooth devices — connect, disconnect, unpair (list with live status).",
+    description_de: "Bluetooth-Geräte verwalten — verbinden, trennen, entkoppeln (Liste mit Live-Status).",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -522,7 +565,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "bluetooth",
     keyword: "bt",
     syntax: "bt",
-    description: "Bluetooth-Geräte — Alias von `bluetooth` (gleicher Befehl, Kurzform).",
+    description: "Bluetooth devices — alias of `bluetooth` (same command, short form).",
+    description_de: "Bluetooth-Geräte — Alias von `bluetooth` (gleicher Befehl, Kurzform).",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -532,28 +576,32 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "btsniff",
     syntax: "btsniff",
     description:
-      "Bluetooth-Capture analysieren — .pklg / btsnoop / pcapng importieren, HCI/ATT/GATT dekodiert.",
+      "Analyse a Bluetooth capture — import .pklg / btsnoop / pcapng, HCI/ATT/GATT decoded.",
+    description_de: "Bluetooth-Capture analysieren — .pklg / btsnoop / pcapng importieren, HCI/ATT/GATT dekodiert.",
     requiresArg: false,
   },
   {
     kind: "btsniff",
     keyword: "btcap",
     syntax: "btcap",
-    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    description: "Bluetooth capture analysis — alias of `btsniff` (same command).",
+    description_de: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
     requiresArg: false,
   },
   {
     kind: "btsniff",
     keyword: "btcapture",
     syntax: "btcapture",
-    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    description: "Bluetooth capture analysis — alias of `btsniff` (same command).",
+    description_de: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
     requiresArg: false,
   },
   {
     kind: "btsniff",
     keyword: "blecap",
     syntax: "blecap",
-    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    description: "Bluetooth capture analysis — alias of `btsniff` (same command).",
+    description_de: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
     requiresArg: false,
   },
   // ── mailcheck: E-Mail-Zustellbarkeit prüfen (Syntax → DNS/MX → SMTP) ──
@@ -562,42 +610,48 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "mailcheck",
     syntax: "mailcheck <email>",
     description:
-      "E-Mail-Zustellbarkeit prüfen — Syntax, Domain, MX-Records und nicht-invasive SMTP-Prüfung.",
+      "Check e-mail deliverability — syntax, domain, MX records and a non-invasive SMTP probe.",
+    description_de: "E-Mail-Zustellbarkeit prüfen — Syntax, Domain, MX-Records und nicht-invasive SMTP-Prüfung.",
     requiresArg: true,
   },
   {
     kind: "mailcheck",
     keyword: "emailcheck",
     syntax: "emailcheck <email>",
-    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    description: "E-mail check — alias of `mailcheck` (same command).",
+    description_de: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
     requiresArg: true,
   },
   {
     kind: "mailcheck",
     keyword: "mailverify",
     syntax: "mailverify <email>",
-    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    description: "E-mail check — alias of `mailcheck` (same command).",
+    description_de: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
     requiresArg: true,
   },
   {
     kind: "mailcheck",
     keyword: "mxcheck",
     syntax: "mxcheck <email>",
-    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    description: "E-mail check — alias of `mailcheck` (same command).",
+    description_de: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
     requiresArg: true,
   },
   {
     kind: "benchmark",
     keyword: "benchmark",
     syntax: "benchmark",
-    description: "CPU-Benchmark — Vorschau, dann auf Bestätigung Single- und Multi-Core messen.",
+    description: "CPU benchmark — preview, then measure single- and multi-core on confirmation.",
+    description_de: "CPU-Benchmark — Vorschau, dann auf Bestätigung Single- und Multi-Core messen.",
     requiresArg: false,
   },
   {
     kind: "dezibel",
     keyword: "dezibel",
     syntax: "dezibel",
-    description: "Live-Lautstärke in dB (SPL-Schätzung) — animierte Anzeige in der Vorschau (Mikrofon).",
+    description: "Live loudness in dB (SPL estimate) — animated readout in the preview (microphone).",
+    description_de: "Live-Lautstärke in dB (SPL-Schätzung) — animierte Anzeige in der Vorschau (Mikrofon).",
     requiresArg: false,
   },
   {
@@ -605,7 +659,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "8bit",
     syntax: "8bit [on|off|focus|lens|palette|preset]",
     description:
-      "Live-Retro-Overlay über den ganzen Bildschirm — Pixelung, Farbpalette, Dithering, CRT. Einstellungen und Vorschau im Panel.",
+      "Live retro overlay over the whole screen — pixelation, colour palette, dithering, CRT. Settings and preview in the panel.",
+    description_de: "Live-Retro-Overlay über den ganzen Bildschirm — Pixelung, Farbpalette, Dithering, CRT. Einstellungen und Vorschau im Panel.",
     requiresArg: false,
     platform: ["mac", "win"],
   },
@@ -613,7 +668,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "16bit",
     keyword: "16bit",
     syntax: "16bit [on|off|focus|lens|palette|preset]",
-    description: "Retro-Overlay im 16-Bit-Alltagsmodus — Alias von `8bit`.",
+    description: "Retro overlay in 16-bit everyday mode — alias of `8bit`.",
+    description_de: "Retro-Overlay im 16-Bit-Alltagsmodus — Alias von `8bit`.",
     requiresArg: false,
     hidden: true,
     platform: ["mac", "win"],
@@ -623,14 +679,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "gestures",
     syntax: "gestures [on|off|calibrate|record]",
     description:
-      "Gesten-Schutz: Live-Ansicht des Trackpads (Finger, Daumen, Handballen), Regler je Geräteprofil, die letzten 20 Entscheidungen, Kalibrierung und Aufnahmen.",
+      "Gesture guard: live trackpad view (fingers, thumb, palm), sliders per device profile, the last 20 decisions, calibration and recordings.",
+    description_de: "Gesten-Schutz: Live-Ansicht des Trackpads (Finger, Daumen, Handballen), Regler je Geräteprofil, die letzten 20 Entscheidungen, Kalibrierung und Aufnahmen.",
     requiresArg: false,
   },
   {
     kind: "gestures",
     keyword: "gesten",
     syntax: "gesten [on|off|calibrate|record]",
-    description: "Gesten-Schutz — Alias von `gestures`.",
+    description: "Gesture guard — alias of `gestures`.",
+    description_de: "Gesten-Schutz — Alias von `gestures`.",
     requiresArg: false,
     hidden: true,
   },
@@ -638,28 +696,32 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "lumen",
     keyword: "lumen",
     syntax: "lumen",
-    description: "Live-Umgebungshelligkeit in Lux — sofern das Gerät einen Sensor bereitstellt.",
+    description: "Live ambient brightness in lux — if the device exposes a sensor.",
+    description_de: "Live-Umgebungshelligkeit in Lux — sofern das Gerät einen Sensor bereitstellt.",
     requiresArg: false,
   },
   {
     kind: "dezibel",
     keyword: "db",
     syntax: "db",
-    description: "Live-Lautstärke — Alias von `dezibel` (gleicher Befehl, Kurzform).",
+    description: "Live loudness — alias of `dezibel` (same command, short form).",
+    description_de: "Live-Lautstärke — Alias von `dezibel` (gleicher Befehl, Kurzform).",
     requiresArg: false,
   },
   {
     kind: "benchmark",
     keyword: "performance",
     syntax: "performance",
-    description: "CPU-Benchmark — Alias von `benchmark` (gleicher Befehl).",
+    description: "CPU benchmark — alias of `benchmark` (same command).",
+    description_de: "CPU-Benchmark — Alias von `benchmark` (gleicher Befehl).",
     requiresArg: false,
   },
   {
     kind: "timer",
     keyword: "countdown",
     syntax: "countdown <N>[s|min|h]",
-    description: "Timer — Alias von `timer` (gleicher Befehl, sprechender Name).",
+    description: "Timer — alias of `timer` (same command, descriptive name).",
+    description_de: "Timer — Alias von `timer` (gleicher Befehl, sprechender Name).",
     requiresArg: true,
   },
   // ── Alarm (absolute clock time) ───────────────────────────────────
@@ -669,6 +731,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "alarm <HH:MM>",
     description:
       "Alarm at a clock time (next occurrence). e.g. `alarm 3:00` (3 AM) · `alarm 15:15`",
+    description_de: "Alarm zu einer Uhrzeit (nächstes Vorkommen). z. B. `alarm 3:00` · `alarm 15:15`",
     requiresArg: true,
   },
   // ── Password generator ────────────────────────────────────────────
@@ -678,6 +741,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "pwgen [N]",
     description:
       "Password generator. Bare `pwgen` uses a default length; `pwgen 16` sets it. Enter copies; Alt+Enter = alphanumeric only. Dict + leet modes via preview-pane buttons.",
+    description_de: "Passwortgenerator. `pwgen` nutzt eine Standardlänge; `pwgen 16` setzt sie. Enter kopiert; Alt+Enter = nur alphanumerisch. Wörterbuch- + Leet-Modus über die Knöpfe in der Vorschau.",
     // No required arg — bare `pwgen` immediately surfaces the generator
     // action (default length) at the top instead of a faint suggestion
     // that lets matching snippets outrank it.
@@ -689,7 +753,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "faker",
     syntax: "faker [gen] [n] [@locale] [--json|csv|sql|ts]",
     description:
-      "Realistic fake test data. Bare `faker` lists generators with live samples; `faker person 50 --csv @de` fills the clipboard with 50 German person records. `faker tpl \"{name} <{email}>\"` for templates. Cmd/Ctrl+R rerolls.",
+      "Realistic fake test data. Bare `faker` lists generators with live samples; `faker person 50 --csv @de` fills the clipboard with 50 German person records. `faker tpl \\\"{name} <{email}>\\\"` for templates. Cmd/Ctrl+R rerolls.",
+    description_de: "Realistische Testdaten. `faker` listet Generatoren mit Live-Beispielen; `faker person 50 --csv @de` legt 50 deutsche Personendatensätze in die Zwischenablage. `faker tpl \\\"{name} <{email}>\\\"` für Vorlagen. Cmd/Ctrl+R würfelt neu.",
     // Bare `faker` opens the catalogue (no required arg).
     requiresArg: false,
   },
@@ -698,6 +763,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "fake",
     syntax: "fake [gen] [n]",
     description: "Alias for faker.",
+    description_de: "Alias für faker.",
     requiresArg: false,
     hidden: true,
   },
@@ -708,15 +774,21 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "sec [nmap|sqlmap|ferox|john] [preset] [target]",
     description:
       "Guided pentest-command builders — nmap · sqlmap · feroxbuster · John. Pick a preset, fill the target; Inspector Rust builds the correct (sh/bash-quoted) command line with a flag cheat-sheet. Enter copies it; ⌘/Ctrl+Enter opens your terminal with it inserted (macOS). It never scans itself. Authorized targets only.",
+    description_de: "Geführte Pentest-Befehls-Baukästen — nmap · sqlmap · feroxbuster · John. Vorlage wählen, Ziel ausfüllen; Inspector Rust baut die korrekte (sh/bash-gequotete) Befehlszeile mit Flag-Spickzettel. Enter kopiert; ⌘/Ctrl+Enter öffnet das Terminal mit eingesetztem Befehl (macOS). Scannt nie sich selbst. Nur für freigegebene Ziele.",
     requiresArg: false,
   },
   // Direct tool keywords (muscle-memory). Hidden so they don't clutter
   // autocomplete, but typing them still opens the builder.
-  { kind: "sec", keyword: "nmap", syntax: "nmap [preset] [target]", description: "nmap command builder.", requiresArg: false, hidden: true },
-  { kind: "sec", keyword: "sqlmap", syntax: "sqlmap [preset] [url]", description: "sqlmap command builder.", requiresArg: false, hidden: true },
-  { kind: "sec", keyword: "feroxbuster", syntax: "feroxbuster [preset] [url]", description: "feroxbuster command builder.", requiresArg: false, hidden: true },
-  { kind: "sec", keyword: "ferox", syntax: "ferox [preset] [url]", description: "feroxbuster command builder.", requiresArg: false, hidden: true },
-  { kind: "sec", keyword: "john", syntax: "john [preset] [hashfile]", description: "John the Ripper command builder.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "nmap", syntax: "nmap [preset] [target]", description: "nmap command builder.",
+    description_de: "nmap-Befehls-Baukasten.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "sqlmap", syntax: "sqlmap [preset] [url]", description: "sqlmap command builder.",
+    description_de: "sqlmap-Befehls-Baukasten.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "feroxbuster", syntax: "feroxbuster [preset] [url]", description: "feroxbuster command builder.",
+    description_de: "feroxbuster-Befehls-Baukasten.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "ferox", syntax: "ferox [preset] [url]", description: "feroxbuster command builder.",
+    description_de: "feroxbuster-Befehls-Baukasten.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "john", syntax: "john [preset] [hashfile]", description: "John the Ripper command builder.",
+    description_de: "John-the-Ripper-Befehls-Baukasten.", requiresArg: false, hidden: true },
   // ── File/folder creation in the front file-manager window's dir ──
   //    (Finder on macOS, Explorer on Windows)
   {
@@ -735,6 +807,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: 'echo "text" > <file>  ·  >> appends',
     description:
       "Write text into a file in the active folder, Unix-style — formatting, indentation and pasted line breaks are kept exactly",
+    description_de: "Text Unix-artig in eine Datei im aktiven Ordner schreiben — Formatierung, Einrückung und eingefügte Zeilenumbrüche bleiben exakt erhalten",
     requiresArg: true,
     platform: ["mac", "win"],
   },
@@ -744,6 +817,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "mkdir <name>",
     description:
       "Create a folder (nested OK, e.g. mkdir a/b) in the active Explorer/Finder folder",
+    description_de: "Ordner anlegen (auch verschachtelt, z. B. mkdir a/b) im aktiven Explorer-/Finder-Ordner",
     requiresArg: true,
     platform: ["mac", "win"],
   },
@@ -752,6 +826,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "terminal",
     syntax: "terminal",
     description: "Open a terminal at the active Explorer/Finder window's folder",
+    description_de: "Terminal im Ordner des aktiven Explorer-/Finder-Fensters öffnen",
     requiresArg: false,
     platform: ["mac", "win"],
   },
@@ -760,13 +835,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "trim",
     syntax: "trim",
     description: "Trim a local audio/video file — pick a file, set start/end, save",
+    description_de: "Lokale Audio-/Videodatei zuschneiden — Datei wählen, Start/Ende setzen, sichern",
     requiresArg: false,
   },
   {
     kind: "transcribe",
     keyword: "transcribe",
     syntax: "transcribe [pfad] [--language de]",
-    description: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --language de / auto",
+    description: "Audio/Video → TXT locally · Finder selection or path · --language de / auto",
+    description_de: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --language de / auto",
     requiresArg: false,
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────
@@ -775,7 +852,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "md2pdf",
     syntax: "md2pdf [pfad]",
     description:
-      "Markdown → A4-PDF im mrxdown-Stil (wie Ctrl+Shift+M). Ohne Pfad: Finder-Auswahl; belegt → „Name 2.pdf“",
+      "Markdown → A4 PDF in mrxdown style (like Ctrl+Shift+M). Without a path: Finder selection; taken → “Name 2.pdf”",
+    description_de: "Markdown → A4-PDF im mrxdown-Stil (wie Ctrl+Shift+M). Ohne Pfad: Finder-Auswahl; belegt → „Name 2.pdf“",
     requiresArg: false,
     // macOS: WKWebView (selection or path). Windows: Edge headless (path).
     // Linux has no PDF backend yet.
@@ -787,6 +865,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "shot [seconds]",
     description:
       "Screenshot a region (same as Ctrl+Shift+S). Optional self-timer, e.g. `shot 3`",
+    description_de: "Bildschirmfoto eines Bereichs (wie Ctrl+Shift+S). Optionaler Selbstauslöser, z. B. `shot 3`",
     requiresArg: false,
   },
   {
@@ -794,6 +873,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "shotfull",
     syntax: "shotfull [seconds]",
     description: "Screenshot the whole screen (optional self-timer)",
+    description_de: "Bildschirmfoto des ganzen Bildschirms (optionaler Selbstauslöser)",
     requiresArg: false,
   },
   {
@@ -801,6 +881,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "shotwin",
     syntax: "shotwin [seconds]",
     description: "Screenshot the active window (optional self-timer)",
+    description_de: "Bildschirmfoto des aktiven Fensters (optionaler Selbstauslöser)",
     requiresArg: false,
   },
   {
@@ -808,6 +889,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "shotlast",
     syntax: "shotlast",
     description: "Repeat the last screenshot mode",
+    description_de: "Letzten Bildschirmfoto-Modus wiederholen",
     requiresArg: false,
   },
   {
@@ -816,6 +898,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "clean",
     description:
       "Clean caches/logs — shows a preview first, deletes only after you confirm",
+    description_de: "Caches/Logs aufräumen — zeigt erst eine Vorschau, löscht erst nach Bestätigung",
     requiresArg: false,
   },
   {
@@ -823,6 +906,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "cleanup",
     syntax: "cleanup",
     description: "Alias for clean",
+    description_de: "Alias für clean",
     requiresArg: false,
     hidden: true,
   },
@@ -831,6 +915,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "brightness",
     syntax: "brightness",
     description: "Adjust monitor brightness — opens a slider per (DDC) monitor",
+    description_de: "Monitorhelligkeit anpassen — öffnet einen Regler je (DDC-)Monitor",
     requiresArg: false,
   },
   {
@@ -838,6 +923,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "bri",
     syntax: "bri",
     description: "Alias for brightness",
+    description_de: "Alias für brightness",
     requiresArg: false,
     hidden: true,
   },
@@ -847,6 +933,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "rnd [max] | rnd [min] [max]",
     description:
       "Roll a random number (default 1–6); `rnd 100` = 1–100, `rnd 5 500` = 5–500",
+    description_de: "Zufallszahl würfeln (Standard 1–6); `rnd 100` = 1–100, `rnd 5 500` = 5–500",
     requiresArg: false,
   },
   {
@@ -854,6 +941,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "random",
     syntax: "random [max] | random [min] [max]",
     description: "Alias for rnd",
+    description_de: "Alias für rnd",
     requiresArg: false,
     hidden: true,
   },
@@ -866,6 +954,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
           keyword: "meme",
           syntax: "meme [query]",
           description: "Browse the meme library — fuzzy-filter, preview, Enter copies",
+    description_de: "Meme-Bibliothek durchsuchen — unscharf filtern, Vorschau, Enter kopiert",
           requiresArg: false,
         },
       ]
@@ -875,6 +964,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "uuid",
     syntax: "uuid [n]",
     description: "Generate random v4 UUID(s) → clipboard (default 1)",
+    description_de: "Zufällige v4-UUID(s) erzeugen → Zwischenablage (Standard 1)",
     requiresArg: false,
   },
   {
@@ -882,6 +972,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "slug",
     syntax: "slug <text>",
     description: "Slugify text (URL-safe, lowercase) → clipboard",
+    description_de: "Text sluggen (URL-sicher, klein) → Zwischenablage",
     requiresArg: true,
   },
   {
@@ -889,6 +980,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "hash",
     syntax: "hash <text>",
     description: "SHA-256 hex digest of text → clipboard",
+    description_de: "SHA-256-Hex-Prüfsumme von Text → Zwischenablage",
     requiresArg: true,
   },
   {
@@ -896,6 +988,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "json",
     syntax: "json",
     description: "Pretty-print the JSON on your clipboard → clipboard",
+    description_de: "JSON aus der Zwischenablage formatieren → Zwischenablage",
     requiresArg: false,
   },
   {
@@ -903,6 +996,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "jwt",
     syntax: "jwt",
     description: "Decode the JWT on your clipboard (header + payload) → clipboard",
+    description_de: "JWT aus der Zwischenablage dekodieren (Header + Payload) → Zwischenablage",
     requiresArg: false,
   },
   {
@@ -910,6 +1004,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "qr",
     syntax: "qr <text>",
     description: "Generate a QR code — live preview, copy PNG, save PNG or printable STL",
+    description_de: "QR-Code erzeugen — Live-Vorschau, PNG kopieren, PNG oder druckbares STL sichern",
     requiresArg: true,
   },
   {
@@ -917,6 +1012,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "sound",
     syntax: "sound",
     description: "Pick the audio output device — ↑↓ select, Enter switches to it",
+    description_de: "Audioausgabegerät wählen — ↑↓ auswählen, Enter wechselt dorthin",
     requiresArg: false,
   },
   {
@@ -924,6 +1020,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "audio",
     syntax: "audio",
     description: "Alias for sound",
+    description_de: "Alias für sound",
     requiresArg: false,
     hidden: true,
   },
@@ -933,6 +1030,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "hue",
     description:
       "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
+    description_de: "Philips-Hue-Lampen steuern — Alle-Lampen-Schalter + Helligkeit + Farbe je Lampe",
     requiresArg: false,
   },
   {
@@ -941,6 +1039,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "stats",
     description:
       "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
+    description_de: "Live-Systemwerte — CPU, Arbeitsspeicher, Platten, Netzwerk, Temperaturen, Lüfter, Akku & Strom",
     requiresArg: false,
   },
   {
@@ -948,6 +1047,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "boom",
     syntax: "boom",
     description: "Audio enhancement — system EQ, presets & volume boost",
+    description_de: "Klangverbesserung — System-EQ, Presets & Lautstärke-Boost",
     requiresArg: false,
     platform: ["mac", "win"],
   },
@@ -957,6 +1057,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "snitch [map]",
     description:
       "Network monitor — block apps' internet (best-effort) · `snitch map` plots live connections on a world map",
+    description_de: "Netzwerk-Monitor — Internet von Apps blockieren (nach bestem Bemühen) · `snitch map` zeigt Verbindungen live auf einer Weltkarte",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -966,6 +1067,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "shazam [history]",
     description:
       "Identify the song playing (records ~10 s from the mic) · `shazam history` opens your recognized-songs history",
+    description_de: "Den laufenden Song erkennen (nimmt ~10 s vom Mikrofon auf) · `shazam history` öffnet den Verlauf erkannter Songs",
     requiresArg: false,
   },
   {
@@ -974,6 +1076,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "spotify [now | history [heute|woche|artist <name>|<suche>] [export json|csv|md] | play | pause | toggle | next | previous | volume <0-100> | seek <s>]",
     description:
       "Spotify desktop app: what's playing, your local play history (recorded on this Mac), export, and playback control",
+    description_de: "Spotify-Desktop-App: was läuft, dein lokaler Wiedergabeverlauf (auf diesem Mac aufgezeichnet), Export und Steuerung",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -983,6 +1086,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "github [stats | repos [sort] | repo <name> | followers | stars | trending | refresh | export json|csv [private] | connect]",
     description:
       "Your GitHub statistics: followers, stars, repository ranking and their growth over time, from local snapshots",
+    description_de: "Deine GitHub-Statistik: Follower, Sterne, Repository-Rangliste und ihr Wachstum über die Zeit, aus lokalen Snapshots",
     requiresArg: false,
   },
   {
@@ -991,6 +1095,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "iris [dB]",
     description:
       "Red glow along the screen edges whenever the microphone exceeds a loudness threshold. `iris 55` arms it at 55 dB (SPL), a bare `iris` toggles, `iris 0` switches it off.",
+    description_de: "Rotes Glimmen an den Bildschirmrändern, sobald das Mikrofon eine Lautstärkeschwelle überschreitet. `iris 55` schärft bei 55 dB (SPL), `iris` allein schaltet um, `iris 0` schaltet aus.",
     requiresArg: false,
   },
   {
@@ -998,6 +1103,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "uptime",
     syntax: "uptime",
     description: "Live system uptime — animated to the microsecond in the preview",
+    description_de: "Live-System-Laufzeit — bis auf die Mikrosekunde animiert in der Vorschau",
     requiresArg: false,
   },
   {
@@ -1006,6 +1112,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "weather [city]",
     description:
       "Weather for your location (or `weather berlin`) — current conditions + 5-day forecast, animated in the preview. Needs an OpenWeather API key (Settings → Weather).",
+    description_de: "Wetter für deinen Standort (oder `weather berlin`) — aktuell + 5-Tage-Vorhersage, animiert in der Vorschau. Braucht einen OpenWeather-API-Schlüssel (Einstellungen → Wetter).",
     requiresArg: false,
   },
   {
@@ -1013,6 +1120,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "ip",
     syntax: "ip",
     description: "Show your public IP, approximate location, network and map",
+    description_de: "Öffentliche IP, ungefährer Standort, Netzwerk und Karte anzeigen",
     requiresArg: false,
   },
   {
@@ -1020,6 +1128,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "pulse",
     syntax: "pulse",
     description: "Memory pressure, swap and SSD writes — live, with history, causers and an endurance forecast",
+    description_de: "Speicherdruck, Swap und SSD-Schreibzugriffe — live, mit Verlauf, Verursachern und Lebensdauer-Prognose",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -1028,6 +1137,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "speedtest",
     syntax: "speedtest",
     description: "Measure download, upload and latency (Cloudflare) — results and history in the preview",
+    description_de: "Download, Upload und Latenz messen (Cloudflare) — Ergebnisse und Verlauf in der Vorschau",
     requiresArg: false,
   },
   {
@@ -1035,6 +1145,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "wetter",
     syntax: "wetter [stadt]",
     description: "Alias for weather",
+    description_de: "Alias für weather",
     requiresArg: false,
     hidden: true,
   },
@@ -1044,6 +1155,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "tokens",
     description:
       "Claude Code token usage — cost, projects, sessions & models from the local Token Tracker",
+    description_de: "Claude-Code-Token-Nutzung — Kosten, Projekte, Sitzungen & Modelle aus dem lokalen Token Tracker",
     requiresArg: false,
   },
   {
@@ -1052,6 +1164,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "limits",
     description:
       "Usage limits of Claude, Codex and Antigravity — session, week, per-model week, with reset times",
+    description_de: "Nutzungslimits von Claude, Codex und Antigravity — Sitzung, Woche, Woche je Modell, mit Rücksetzzeiten",
     requiresArg: false,
   },
   {
@@ -1059,6 +1172,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "usage",
     syntax: "usage",
     description: "Usage limits of Claude, Codex and Antigravity (same panel as limits)",
+    description_de: "Nutzungslimits von Claude, Codex und Antigravity (gleiches Panel wie limits)",
     requiresArg: false,
   },
   {
@@ -1066,7 +1180,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "task",
     syntax: "task [beschreibung]",
     description:
-      "KI-Tasks: die KI schreibt aus deiner Beschreibung ein Skript, du gibst es frei, es läuft im Intervall, zur Uhrzeit oder bei Ereignissen",
+      "AI tasks: the AI writes a script from your description, you approve it, it runs on an interval, at a time or on events",
+    description_de: "KI-Tasks: die KI schreibt aus deiner Beschreibung ein Skript, du gibst es frei, es läuft im Intervall, zur Uhrzeit oder bei Ereignissen",
     requiresArg: false,
   },
   {
@@ -1074,6 +1189,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "ki",
     syntax: "ki [beschreibung]",
     description: "Alias for task",
+    description_de: "Alias für task",
     requiresArg: false,
     hidden: true,
   },
@@ -1083,6 +1199,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "calendar [month year]",
     description:
       "Month-view calendar in the preview — which weekday was that date? ←→ month · ↑↓ year",
+    description_de: "Monatskalender in der Vorschau — welcher Wochentag war das Datum? ←→ Monat · ↑↓ Jahr",
     requiresArg: false,
   },
   {
@@ -1090,6 +1207,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "cal",
     syntax: "cal [month year]",
     description: "Alias for calendar",
+    description_de: "Alias für calendar",
     requiresArg: false,
     hidden: true,
   },
@@ -1098,6 +1216,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "settings",
     syntax: "settings [section]",
     description: "Open the Settings tab (optionally jump to a section)",
+    description_de: "Den Einstellungen-Tab öffnen (optional zu einer Sektion springen)",
     requiresArg: false,
   },
   {
@@ -1105,6 +1224,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "config",
     syntax: "config [section]",
     description: "Alias for settings",
+    description_de: "Alias für settings",
     requiresArg: false,
     hidden: true,
   },
@@ -1114,6 +1234,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "track on|off",
     description:
       "Time tracking — `track on` / `track off`; bare `track` opens the timesheet",
+    description_de: "Zeiterfassung — `track on` / `track off`; `track` allein öffnet die Zeiterfassung",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -1123,6 +1244,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "disco 1|0",
     description:
       "Beat-sync Hue lamps to the mic — disco 1 = on, disco 0 = off (bare = toggle). Keeps running after the popup closes",
+    description_de: "Hue-Lampen im Takt des Mikrofons — disco 1 = an, disco 0 = aus (allein = umschalten). Läuft nach dem Schließen des Popups weiter",
     requiresArg: false,
   },
   {
@@ -1131,6 +1253,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "figlet <text> [@font] [--width=n] [--center|--right]",
     description:
       "ASCII-art banners — type text to see it live, browse hundreds of fonts (each previews your text), Enter copies the selected one. e.g. figlet Hi @slant",
+    description_de: "ASCII-Art-Banner — Text tippen für die Live-Vorschau, Hunderte Fonts durchblättern (jeder zeigt deinen Text), Enter kopiert den gewählten. z. B. figlet Hi @slant",
     requiresArg: false,
   },
   {
@@ -1138,6 +1261,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "banner",
     syntax: "banner <text> [@font]",
     description: "Alias for figlet",
+    description_de: "Alias für figlet",
     requiresArg: false,
     hidden: true,
   },
@@ -1146,6 +1270,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "ascii",
     syntax: "ascii <text> [@font]",
     description: "Alias for figlet",
+    description_de: "Alias für figlet",
     requiresArg: false,
     hidden: true,
   },
@@ -1786,4 +1911,9 @@ export function parsePwgenArg(arg: string): number | null {
   const n = parseInt(trimmed, 10);
   if (!Number.isFinite(n) || n < 4 || n > 128) return null;
   return n;
+}
+
+/** A command's description in the app language. */
+export function commandDescription(spec: CommandSpec): string {
+  return locale() === "de" && spec.description_de ? spec.description_de : spec.description;
 }

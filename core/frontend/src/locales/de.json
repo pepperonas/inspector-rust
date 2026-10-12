@@ -3620,5 +3620,15 @@
   "figlet.unsupported.one": "{n} Zeichen nicht in dieser Schrift:",
   "figlet.unsupported.other": "{n} Zeichen nicht in dieser Schrift:",
   "qr.stl_note": "STL: {dim} × {dim} × {h} mm · 1-mm-Module · abgerundete Ecken. Eine helle Basis drucken, dann bei {base} mm auf dunkles Filament wechseln für den erhabenen Code. Das STL enthält keine Farben. Den fertigen Druck zur Probe scannen.",
-  "qr.saved": "Gespeichert: {file}"
+  "qr.saved": "Gespeichert: {file}",
+  "cmdcat.web": "Übersetzen & Suchen",
+  "cmdcat.img": "Bilder & Dateien",
+  "cmdcat.text": "Text & Entwickler-Werkzeuge",
+  "cmdcat.sys": "System",
+  "cmdcat.media": "Medien & Bildschirmfotos",
+  "cmdcat.prod": "Produktivität",
+  "cmdcat.sec": "Testen & Sicherheit",
+  "cmdcat.av": "Audio & Smart Home",
+  "cmdcat.info": "Info & Überwachung",
+  "cmdcat.fun": "Spaß"
 }

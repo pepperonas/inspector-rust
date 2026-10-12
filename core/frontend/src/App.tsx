@@ -176,6 +176,7 @@ import {
   formatBytes,
   type CommandKind,
   type ParsedCommand,
+  commandDescription,
 } from "./lib/commands";
 import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
@@ -2177,16 +2178,16 @@ function App() {
       }
       case "spotify":
         label = spotifyLabel(parseSpotifyArg(arg));
-        hint = spec.description;
+        hint = commandDescription(spec);
         break;
       case "github":
         label = githubCmd && githubMod ? githubMod.commandLabel(githubCmd) : "GitHub";
-        hint = spec.description;
+        hint = commandDescription(spec);
         break;
       case "transcribe":
       case "md2pdf":
         label = t("cmd.finder_target", { cmd: spec.keyword, target: arg || t("cmd.finder_selection") });
-        hint = spec.description;
+        hint = commandDescription(spec);
         break;
       case "shot-region": {
         const delay = parseShotDelay(arg);
@@ -2468,7 +2469,7 @@ function App() {
         // handled before this switch. Tailored cases above just give nicer
         // labels/hints than this generic fallback.
         label = arg ? `${spec.keyword} ${arg}` : spec.syntax;
-        hint = spec.description;
+        hint = commandDescription(spec);
         break;
     }
     return {
@@ -2527,7 +2528,7 @@ function App() {
         data: {
           keyword: spec.keyword,
           syntax: spec.syntax,
-          description: spec.description,
+          description: commandDescription(spec),
           // Append a trailing space whenever the command takes an argument
           // (required OR optional — detected from the syntax having more than
           // just the keyword), so completing e.g. `pwgen` lands the caret at

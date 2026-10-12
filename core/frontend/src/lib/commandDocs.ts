@@ -1,3 +1,4 @@
+import { locale, t } from "./i18n";
 // Inline-help registry — the CANONICAL source of truth for every search-bar
 // power command (v0.84.273). One structured CommandDoc per command; `?` after
 // a command renders this in the preview pane. The README command matrix and the
@@ -2155,6 +2156,32 @@ export function lookupDoc(name: string): CommandDoc | undefined {
 }
 
 /** Docs grouped by category, in first-seen order — for the `?` index. */
+/** Category label in the app language. The English constants above are the
+ *  stable keys used by `category:` fields; this maps them for display. */
+const CATEGORY_KEY: Record<string, string> = {
+  [CAT_WEB]: "cmdcat.web",
+  [CAT_IMG]: "cmdcat.img",
+  [CAT_TEXT]: "cmdcat.text",
+  [CAT_SYS]: "cmdcat.sys",
+  [CAT_MEDIA]: "cmdcat.media",
+  [CAT_PROD]: "cmdcat.prod",
+  [CAT_SEC]: "cmdcat.sec",
+  [CAT_AV]: "cmdcat.av",
+  [CAT_INFO]: "cmdcat.info",
+  [CAT_FUN]: "cmdcat.fun",
+};
+
+/** Localised category label (falls back to the English key). */
+export function localizedCategory(cat: string): string {
+  const key = CATEGORY_KEY[cat];
+  return key ? t(key as Parameters<typeof t>[0]) : cat;
+}
+
+/** The command's one-line description in the app language. */
+export function localizedTagline(doc: CommandDoc): string {
+  return locale() === "de" && doc.tagline_de ? doc.tagline_de : doc.tagline;
+}
+
 export function groupedIndex(): { category: string; docs: CommandDoc[] }[] {
   const groups: { category: string; docs: CommandDoc[] }[] = [];
   for (const d of COMMAND_DOCS) {
@@ -2167,5 +2194,5 @@ export function groupedIndex(): { category: string; docs: CommandDoc[] }[] {
   }
   // Entries within each category read alphabetically by command name.
   for (const g of groups) g.docs.sort((a, b) => a.command.localeCompare(b.command));
-  return groups;
+  return groups.map((g) => ({ category: localizedCategory(g.category), docs: g.docs }));
 }

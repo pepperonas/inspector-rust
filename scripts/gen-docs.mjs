@@ -48,7 +48,10 @@ async function loadDocs() {
   const dir = mkdtempSync(join(tmpdir(), "ir-gendocs-"));
   const modPath = join(dir, "commandDocs.mjs");
   try {
-    writeFileSync(modPath, code);
+    // commandDocs imports ./i18n for its runtime localisers; gen-docs only
+    // reads the static COMMAND_DOCS array, so a tiny stub satisfies the import.
+    writeFileSync(join(dir, "i18n.mjs"), "export const t = (k) => k;\nexport const locale = () => \"en\";\n");
+    writeFileSync(modPath, code.replace(/from "\.\/i18n"/g, 'from "./i18n.mjs"'));
     const mod = await import(pathToFileURL(modPath).href);
     return mod.COMMAND_DOCS;
   } finally {

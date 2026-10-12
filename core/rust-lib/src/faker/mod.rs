@@ -184,8 +184,19 @@ pub fn catalog(default: Locale) -> Vec<CatalogEntry> {
             CatalogEntry {
                 name: g.name.to_string(),
                 aliases: g.aliases.iter().map(|s| s.to_string()).collect(),
-                category: g.category.to_string(),
-                description: g.description.to_string(),
+                // English is the registry itself (single source); only German
+                // comes from the catalogue, so a `category`/`description` edit
+                // in the registry can never silently drift from EN.
+                category: if matches!(crate::i18n::current(), crate::i18n::Lang::De) {
+                    crate::i18n::t(&format!("fakercat.{}", g.category))
+                } else {
+                    g.category.to_string()
+                },
+                description: if matches!(crate::i18n::current(), crate::i18n::Lang::De) {
+                    crate::i18n::t(&format!("fakerdesc.{}", g.name))
+                } else {
+                    g.description.to_string()
+                },
                 supported_locales: g.supported.iter().map(|l| l.code().to_string()).collect(),
                 sample,
                 composite: g.composite,

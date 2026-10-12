@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.213.0] - 2026-10-12
+
+### Added
+- **German translation, part 3: generated reports, notifications and catalogues.** The timesheet report + project export, the Spotify-history Markdown export, the Markdown→PDF title page, and every status/notification message (timer, transcription, Markdown→PDF) now follow the language setting. The Faker generator catalogue (every generator description + category) and the global-shortcut action labels + cleaner categories are translated too. New CI guards require a German description (`description_de`) on every command row and a German tagline (`tagline_de`) on every command doc.
+
+### Changed
+- The macOS permission prompts (Automation, Microphone, Bluetooth) are installed in the OS language.
+
+### Fixed
+- The `touch` command row had no German description (caught by the new guard).
+
 ## [0.212.0] - 2026-10-12
 
 ### Added

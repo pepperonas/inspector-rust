@@ -55,6 +55,13 @@ describe("commandDocs — quality of each doc", () => {
         expect(doc.description.trim().length).toBeGreaterThan(20);
       });
 
+      // i18n contract: the app ships in English AND German. The tagline is the
+      // one piece of CommandDoc prose that drives the README (both languages)
+      // and the in-app help; a new command MUST carry a German tagline.
+      it("has a non-empty German tagline (tagline_de)", () => {
+        expect(doc.tagline_de?.trim().length ?? 0).toBeGreaterThan(0);
+      });
+
       it("has a category and a version_added", () => {
         expect(doc.category.trim().length).toBeGreaterThan(0);
         expect(doc.version_added).toMatch(/^\d+\.\d+\.\d+$/);

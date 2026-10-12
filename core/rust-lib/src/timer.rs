@@ -186,8 +186,10 @@ fn notify_visual(label: &str) {
     // open. Sanitise the label so a quote in the user's input
     // can't break the AppleScript string literal.
     let safe_label = label.replace('"', "'").replace('\\', "/");
+    let body = crate::i18n::tf("timer.notif_body", &[("label", &safe_label)]).replace('"', "'");
+    let subtitle = crate::i18n::t("timer.notif_subtitle").replace('"', "'");
     let script = format!(
-        r#"display notification "Timer done — {safe_label}" with title "Inspector Rust" subtitle "Timer fired""#
+        r#"display notification "{body}" with title "Inspector Rust" subtitle "{subtitle}""#
     );
     let _ = std::process::Command::new("/usr/bin/osascript")
         .arg("-e")
@@ -201,12 +203,12 @@ fn notify_visual(label: &str) {
 fn notify_visual(label: &str) {
     // libnotify's `notify-send` is present on essentially every desktop Linux
     // and shows a real OS notification regardless of whether our popup is open.
+    let subtitle = crate::i18n::t("timer.notif_subtitle");
+    let body = crate::i18n::tf("timer.notif_body", &[("label", label)]);
     let _ = std::process::Command::new("notify-send")
-        .args([
-            "--app-name=Inspector Rust",
-            "Timer fired",
-            &format!("Timer done — {label}"),
-        ])
+        .arg("--app-name=Inspector Rust")
+        .arg(&subtitle)
+        .arg(&body)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
@@ -218,12 +220,15 @@ fn notify_visual(label: &str) {
     // Sanitise the label so it can't break out of the string literal.
     // (Windows runtime-unverified.)
     let safe = label.replace('\'', " ").replace(['\r', '\n'], " ");
+    let body = crate::i18n::tf("timer.notif_body", &[("label", &safe)])
+        .replace('\'', " ")
+        .replace(['\r', '\n'], " ");
     let script = format!(
         "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null; \
          $t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
          $x=$t.GetElementsByTagName('text'); \
          $x.Item(0).AppendChild($t.CreateTextNode('Inspector Rust')) > $null; \
-         $x.Item(1).AppendChild($t.CreateTextNode('Timer done — {safe}')) > $null; \
+         $x.Item(1).AppendChild($t.CreateTextNode('{body}')) > $null; \
          $toast=[Windows.UI.Notifications.ToastNotification]::new($t); \
          [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Inspector Rust').Show($toast)"
     );

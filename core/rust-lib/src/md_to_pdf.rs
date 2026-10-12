@@ -71,7 +71,7 @@ pub fn convert_files(paths: &[PathBuf]) -> ConvertSummary {
         for p in md_files {
             summary
                 .failed
-                .push((p, "PDF-Backend auf dieser Platform noch nicht implementiert".into()));
+                .push((p, crate::i18n::t("mdpdf.backend_unimpl")));
         }
         return summary;
     }
@@ -146,20 +146,17 @@ pub fn choose_inputs(
 ) -> Result<Vec<PathBuf>, String> {
     if let Some(p) = arg {
         if !is_markdown(&p) {
-            return Err(format!("Keine Markdown-Datei: {}", p.display()));
+            return Err(crate::i18n::tf("mdpdf.not_markdown", &[("path", &p.display().to_string())]));
         }
         if !is_file(&p) {
-            return Err(format!("Datei nicht gefunden: {}", p.display()));
+            return Err(crate::i18n::tf("mdpdf.not_found", &[("path", &p.display().to_string())]));
         }
         return Ok(vec![p]);
     }
     let selected = selection.unwrap_or_default();
     let md: Vec<PathBuf> = selected.into_iter().filter(|p| is_markdown(p)).collect();
     if md.is_empty() {
-        return Err(
-            "Keine Markdown-Datei im Finder ausgewählt — Datei markieren oder `md2pdf <pfad>` angeben"
-                .into(),
-        );
+        return Err(crate::i18n::t("mdpdf.no_selection"));
     }
     Ok(md)
 }
@@ -256,7 +253,8 @@ fn title_page(fm: &std::collections::HashMap<String, String>) -> String {
     }
     if let Some(a) = fm.get("abstract") {
         parts.push(format!(
-            "<div class=\"mrx-abstract\"><div class=\"mrx-abstract-label\">Abstract</div>{}</div>",
+            "<div class=\"mrx-abstract\"><div class=\"mrx-abstract-label\">{}</div>{}</div>",
+            crate::i18n::t("mdpdf.abstract"),
             esc(a)
         ));
     }
@@ -544,7 +542,7 @@ fn write_pdf(html: &str, output: &Path) -> Result<(), String> {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn write_pdf(_html: &str, _output: &Path) -> Result<(), String> {
-    Err("PDF-Rendering noch nicht implementiert auf dieser Platform".into())
+    Err(crate::i18n::t("mdpdf.backend_unimpl"))
 }
 
 /// HTML → PDF on Windows via Edge headless. Writes the self-contained
@@ -1333,15 +1331,15 @@ pub fn notify(summary: &ConvertSummary) {
 pub fn build_notification_message(summary: &ConvertSummary) -> String {
     let total = summary.converted.len() + summary.skipped.len() + summary.failed.len();
     if total == 0 {
-        return "Keine Dateien selektiert".to_string();
+        return crate::i18n::t("mdpdf.no_files");
     }
     if summary.backend_unavailable {
-        return "Markdown → PDF wird auf dieser Platform noch nicht unterstützt (Linux folgt)".to_string();
+        return crate::i18n::t("mdpdf.unsupported");
     }
     if summary.converted.is_empty() && summary.failed.is_empty() {
-        return format!(
-            "Keine Markdown-Dateien in der Selektion ({n} übersprungen)",
-            n = summary.skipped.len()
+        return crate::i18n::tf(
+            "mdpdf.no_md",
+            &[("n", &summary.skipped.len().to_string())],
         );
     }
     let mut parts = Vec::new();
@@ -1351,15 +1349,15 @@ pub fn build_notification_message(summary: &ConvertSummary) -> String {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        parts.push(format!("{name} erstellt"));
+        parts.push(crate::i18n::tf("mdpdf.created_one", &[("name", &name)]));
     } else if !summary.converted.is_empty() {
-        parts.push(format!("{} PDF erstellt", summary.converted.len()));
+        parts.push(crate::i18n::tf("mdpdf.created_n", &[("n", &summary.converted.len().to_string())]));
     }
     if !summary.skipped.is_empty() {
-        parts.push(format!("{} übersprungen", summary.skipped.len()));
+        parts.push(crate::i18n::tf("mdpdf.skipped_n", &[("n", &summary.skipped.len().to_string())]));
     }
     if !summary.failed.is_empty() {
-        parts.push(format!("{} fehlgeschlagen", summary.failed.len()));
+        parts.push(crate::i18n::tf("mdpdf.failed_n", &[("n", &summary.failed.len().to_string())]));
     }
     parts.join(", ")
 }
@@ -1467,7 +1465,7 @@ mod tests {
     #[test]
     fn empty_summary_says_nothing_selected() {
         let s = ConvertSummary::default();
-        assert_eq!(build_notification_message(&s), "Keine Dateien selektiert");
+        assert_eq!(build_notification_message(&s), "No files selected");
     }
 
     #[test]
@@ -1478,7 +1476,7 @@ mod tests {
         };
         assert_eq!(
             build_notification_message(&s),
-            "Keine Markdown-Dateien in der Selektion (2 übersprungen)"
+            "No Markdown files in the selection (2 skipped)"
         );
     }
 
@@ -1488,7 +1486,7 @@ mod tests {
             converted: vec!["a.md".into(), "b.md".into()],
             ..Default::default()
         };
-        assert_eq!(build_notification_message(&s), "2 PDF erstellt");
+        assert_eq!(build_notification_message(&s), "2 PDFs created");
     }
 
     #[test]
@@ -1499,8 +1497,8 @@ mod tests {
             ..Default::default()
         };
         let msg = build_notification_message(&s);
-        assert!(msg.contains("noch nicht unterstützt"));
-        assert!(!msg.contains("fehlgeschlagen"));
+        assert!(msg.contains("not yet supported"));
+        assert!(!msg.contains("failed"));
     }
 
     // ── md2pdf: output naming (Finder "keep both") ──────────────────
@@ -1574,19 +1572,19 @@ mod tests {
     #[test]
     fn no_markdown_anywhere_is_an_actionable_error() {
         let e = choose_inputs(None, Ok(vec![PathBuf::from("/y/c.png")]), |_| true).unwrap_err();
-        assert!(e.contains("md2pdf <pfad>"), "{e}");
+        assert!(e.contains("md2pdf <path>"), "{e}");
         let e = choose_inputs(None, Err("osascript".into()), |_| true).unwrap_err();
-        assert!(e.contains("Keine Markdown-Datei"), "{e}");
+        assert!(e.contains("No Markdown file"), "{e}");
     }
 
     #[test]
     fn a_typed_path_must_be_existing_markdown() {
         assert!(choose_inputs(Some(PathBuf::from("/x/a.txt")), Ok(vec![]), |_| true)
             .unwrap_err()
-            .contains("Keine Markdown-Datei"));
+            .contains("Not a Markdown file"));
         assert!(choose_inputs(Some(PathBuf::from("/x/a.md")), Ok(vec![]), |_| false)
             .unwrap_err()
-            .contains("nicht gefunden"));
+            .contains("not found"));
     }
 
     // ── md2pdf: mrxdown rendering ───────────────────────────────────
@@ -1704,6 +1702,6 @@ mod tests {
             outputs: vec![PathBuf::from("/d/notes 2.pdf")],
             ..Default::default()
         };
-        assert_eq!(build_notification_message(&s), "notes 2.pdf erstellt");
+        assert_eq!(build_notification_message(&s), "notes 2.pdf created");
     }
 }

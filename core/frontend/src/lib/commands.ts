@@ -797,6 +797,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: 'touch <name> | touch "text" > <file>',
     description:
       'Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch "text" > notiz.md` writes the text exactly as typed or pasted',
+    description_de:
+      'Datei anlegen (verschachtelt möglich, z. B. touch a/b/c.txt) im aktiven Ordner — `touch "Text" > notiz.md` schreibt den Text genau wie getippt oder eingefügt',
     requiresArg: true,
     // File-manager integration exists on macOS (Finder) + Windows (Explorer).
     platform: ["mac", "win"],

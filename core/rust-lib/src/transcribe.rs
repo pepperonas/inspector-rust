@@ -67,27 +67,23 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             && (token == "--language" || token == "-l" || token.starts_with("--language="))
         {
             if language_seen {
-                return Err("Sprache nur einmal angeben".into());
+                return Err(crate::i18n::t("trx.lang_once"));
             }
             language_seen = true;
             let value = if let Some(value) = token.strip_prefix("--language=") {
                 value
             } else {
                 i += 1;
-                let &(s, e, _) = tokens.get(i).ok_or("Sprachvorgabe fehlt: --language de")?;
+                let &(s, e, _) = tokens.get(i).ok_or_else(|| crate::i18n::t("trx.lang_missing"))?;
                 &arg[s..e]
             };
             let value = value.trim_matches(['"', '\'']).to_lowercase();
             if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphabetic()) {
-                return Err(
-                    "Ungültige Sprachvorgabe — z. B. --language de oder --language auto".into(),
-                );
+                return Err(crate::i18n::t("trx.lang_invalid"));
             }
             result.language = (value != "auto").then_some(value);
         } else if !quoted && !flags_done && token.starts_with('-') {
-            return Err(format!(
-                "Unbekannter Parameter: {token}. Verwende --language de."
-            ));
+            return Err(crate::i18n::tf("trx.unknown_param", &[("token", token)]));
         } else {
             path_tokens.push(i);
         }
@@ -95,16 +91,14 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
     }
     if let (Some(&first), Some(&last)) = (path_tokens.first(), path_tokens.last()) {
         if path_tokens.len() != last - first + 1 {
-            return Err("Sprachparameter vor oder nach dem Pfad angeben".into());
+            return Err(crate::i18n::t("trx.lang_pos"));
         }
         if path_tokens.len() > 1 && path_tokens.iter().any(|&i| tokens[i].2) {
-            return Err(
-                "Bitte genau einen Pfad angeben oder mehrere Dateien im Finder markieren".into(),
-            );
+            return Err(crate::i18n::t("trx.one_path"));
         }
         let path = arg[tokens[first].0..tokens[last].1].to_string();
         if path.trim_matches(['"', '\'']).is_empty() {
-            return Err("Leerer Dateipfad".into());
+            return Err(crate::i18n::t("trx.empty_path"));
         }
         result.path = Some(path);
     }
@@ -124,13 +118,10 @@ pub fn choose_inputs(
 ) -> Result<Vec<PathBuf>, String> {
     if let Some(path) = path {
         if !supported(&path) {
-            return Err(format!(
-                "Keine unterstützte Audio-/Videodatei: {}",
-                path.display()
-            ));
+            return Err(crate::i18n::tf("trx.unsupported", &[("path", &path.display().to_string())]));
         }
         if !is_file(&path) {
-            return Err(format!("Datei nicht gefunden: {}", path.display()));
+            return Err(crate::i18n::tf("trx.not_found", &[("path", &path.display().to_string())]));
         }
         return Ok(vec![path]);
     }
@@ -139,7 +130,7 @@ pub fn choose_inputs(
         .filter(|p| supported(p) && is_file(p))
         .collect();
     if files.is_empty() {
-        return Err("Keine Audio-/Videodatei im Finder ausgewählt — Datei markieren oder transcribe <pfad> angeben".into());
+        return Err(crate::i18n::t("trx.no_selection"));
     }
     Ok(files)
 }
@@ -380,7 +371,7 @@ impl Job {
             Exit::Ok => (
                 Phase::Finished,
                 FileState::Failed,
-                Some("Worker beendet, ohne diese Datei zu melden".to_string()),
+                Some(crate::i18n::t("trx.worker_silent")),
             ),
         };
         for f in &mut self.files {
@@ -421,14 +412,14 @@ impl Job {
             Phase::Failed if self.files.iter().all(|f| f.state != FileState::Done) => self
                 .error
                 .clone()
-                .unwrap_or_else(|| "Transkription fehlgeschlagen".into()),
+                .unwrap_or_else(|| crate::i18n::t("trx.failed")),
             Phase::Cancelled => {
                 let done = self
                     .files
                     .iter()
                     .filter(|f| f.state == FileState::Done)
                     .count();
-                format!("Abgebrochen — {done} von {} fertig", self.files.len())
+                crate::i18n::tf("trx.cancelled", &[("done", &done.to_string()), ("total", &self.files.len().to_string())])
             }
             _ => self.summary().message(),
         }
@@ -539,7 +530,7 @@ pub fn cancel() -> bool {
 
 fn worker_command() -> Result<Command, String> {
     let ffmpeg = crate::screen_record::ffmpeg_path()
-        .ok_or("ffmpeg fehlt — bitte installieren (macOS: brew install ffmpeg)")?;
+        .ok_or_else(|| crate::i18n::t("trx.no_ffmpeg"))?;
     let mut path_dirs = vec![ffmpeg.parent().unwrap_or(Path::new(".")).to_path_buf()];
     if let Some(current) = std::env::var_os("PATH") {
         path_dirs.extend(std::env::split_paths(&current));
@@ -654,18 +645,21 @@ pub struct Summary {
 impl Summary {
     pub fn message(&self) -> String {
         let success = match self.outputs.as_slice() {
-            [path] => format!(
-                "{} erstellt",
-                path.file_name().unwrap_or_default().to_string_lossy()
+            [path] => crate::i18n::tf(
+                "trx.created_one",
+                &[("name", &path.file_name().unwrap_or_default().to_string_lossy())],
             ),
-            outputs => format!("{} Transkripte erstellt", outputs.len()),
+            outputs => crate::i18n::tf("trx.created_n", &[("n", &outputs.len().to_string())]),
         };
         if let Some((path, reason)) = self.failed.first() {
-            format!(
-                "{success}; {} fehlgeschlagen: {} — {reason}",
-                self.failed.len(),
-                path.file_name().unwrap_or_default().to_string_lossy(),
-                reason = user_error(reason)
+            crate::i18n::tf(
+                "trx.failed_detail",
+                &[
+                    ("success", &success),
+                    ("n", &self.failed.len().to_string()),
+                    ("file", &path.file_name().unwrap_or_default().to_string_lossy()),
+                    ("reason", &user_error(reason)),
+                ],
             )
         } else {
             success
@@ -674,14 +668,14 @@ impl Summary {
 }
 
 pub fn user_error(error: &str) -> String {
-    error
+    match error
         .lines()
         .rev()
         .find(|line| !line.trim().is_empty())
-        .unwrap_or("Transkription fehlgeschlagen")
-        .chars()
-        .take(220)
-        .collect()
+    {
+        Some(line) => line.chars().take(220).collect(),
+        None => crate::i18n::t("trx.failed"),
+    }
 }
 
 pub fn notify_completion(message: &str) {
@@ -771,7 +765,7 @@ mod tests {
             |_| false
         )
         .unwrap_err()
-        .contains("nicht gefunden"));
+        .contains("not found"));
         assert!(choose_inputs(Some("/notes.md".into()), Ok(vec![]), |_| true).is_err());
     }
 
@@ -793,7 +787,7 @@ mod tests {
         );
         assert!(choose_inputs(None, Ok(vec![]), |_| true)
             .unwrap_err()
-            .contains("transcribe <pfad>"));
+            .contains("transcribe <path>"));
     }
 
     #[test]
@@ -802,13 +796,13 @@ mod tests {
             outputs: vec!["/clip 2.txt".into()],
             failed: vec![],
         };
-        assert_eq!(summary.message(), "clip 2.txt erstellt");
+        assert_eq!(summary.message(), "clip 2.txt created");
         summary
             .failed
             .push(("/broken.mp4".into(), "Keine Tonspur".into()));
         assert!(summary
             .message()
-            .contains("1 fehlgeschlagen: broken.mp4 — Keine Tonspur"));
+            .contains("1 failed: broken.mp4 — Keine Tonspur"));
     }
 
     fn batch() -> Job {
@@ -893,7 +887,7 @@ mod tests {
         assert!(!job.ok());
         assert!(job
             .message()
-            .contains("1 fehlgeschlagen: zwei.mp3 — Keine Tonspur"));
+            .contains("1 failed: zwei.mp3 — Keine Tonspur"));
     }
 
     #[test]
@@ -963,7 +957,7 @@ mod tests {
         assert_eq!(job.files[0].state, FileState::Done);
         assert_eq!(job.files[1].state, FileState::Cancelled);
         assert_eq!(job.files[1].error, None);
-        assert_eq!(job.message(), "Abgebrochen — 1 von 2 fertig");
+        assert_eq!(job.message(), "Cancelled — 1 of 2 done");
     }
 
     #[test]
@@ -1007,7 +1001,7 @@ mod tests {
         }
         job.finish(Exit::Ok, 1);
         assert!(job.ok());
-        assert_eq!(job.message(), "2 Transkripte erstellt");
+        assert_eq!(job.message(), "2 transcripts created");
         let failed = Job::failed(3, "Keine Audio-/Videodatei im Finder ausgewählt".into(), 4);
         assert_eq!(failed.phase, Phase::Failed);
         assert!(failed.files.is_empty());
@@ -1025,6 +1019,6 @@ mod tests {
             "No audio track"
         );
         assert_eq!(user_error(&"ü".repeat(300)).chars().count(), 220);
-        assert_eq!(user_error("\n"), "Transkription fehlgeschlagen");
+        assert_eq!(user_error("\n"), "Transcription failed");
     }
 }

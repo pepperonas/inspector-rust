@@ -11,6 +11,15 @@ use std::collections::HashMap;
 
 const FOOTER: &str = "© 2026 Martin Pfeffer | celox.io";
 
+#[inline]
+fn tx(k: &str) -> String {
+    crate::i18n::t(k)
+}
+#[inline]
+fn txf(k: &str, vars: &[(&str, &str)]) -> String {
+    crate::i18n::tf(k, vars)
+}
+
 /// The few rules the shared stylesheet cannot know about: the donut's two-column
 /// layout, the collapsible per-app details, and the grand-total line. Appended
 /// to [`rs::css`] rather than replacing it, so the common base stays the base.
@@ -320,9 +329,13 @@ pub fn project_html(
             })
             .collect();
         sections = format!(
-            "<section><h2>Nach Projekt</h2>{bar}<table><thead><tr><th>Projekt</th>\
-             <th class=\"rp-num\">Dauer</th><th class=\"rp-num\">Anteil</th></tr></thead>\
+            "<section><h2>{h2}</h2>{bar}<table><thead><tr><th>{c1}</th>\
+             <th class=\"rp-num\">{c2}</th><th class=\"rp-num\">{c3}</th></tr></thead>\
              <tbody>{rows}</tbody></table></section>",
+            h2 = tx("ts.by_project"),
+            c1 = tx("ts.project"),
+            c2 = tx("tsx.duration"),
+            c3 = tx("tsx.share"),
             bar = rs::share_bar(&parts),
         );
     } else {
@@ -347,10 +360,11 @@ pub fn project_html(
                     ));
                 }
                 sections.push_str(&format!(
-                    "<section><h2>{}</h2><table><thead><tr><th>Datum</th>\
-                     <th class=\"rp-num\">Dauer</th></tr></thead><tbody>{2}</tbody>\
-                     <tfoot><tr><td>Gesamt</td><td class=\"rp-num\">{1}</td></tr></tfoot></table></section>",
-                    esc(&proj), fmt_dur(ptotal), rows
+                    "<section><h2>{proj}</h2><table><thead><tr><th>{date}</th>\
+                     <th class=\"rp-num\">{dur}</th></tr></thead><tbody>{rows}</tbody>\
+                     <tfoot><tr><td>{total}</td><td class=\"rp-num\">{ptotal}</td></tr></tfoot></table></section>",
+                    proj = esc(&proj), date = tx("tsx.date"), dur = tx("tsx.duration"),
+                    total = tx("tsx.total"), ptotal = fmt_dur(ptotal), rows = rows
                 ));
             } else {
                 while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
@@ -368,26 +382,29 @@ pub fn project_html(
                     i += 1;
                 }
                 sections.push_str(&format!(
-                    "<section><h2>{}</h2><table><thead><tr><th>Datum</th><th class=\"rp-text\">Zeit</th>\
-                     <th class=\"rp-num\">Dauer</th><th class=\"rp-text\">Tätigkeit</th></tr></thead><tbody>{2}</tbody>\
-                     <tfoot><tr><td colspan=2>Gesamt</td><td class=\"rp-num\">{1}</td><td></td></tr></tfoot></table></section>",
-                    esc(&proj), fmt_dur(ptotal), rows
+                    "<section><h2>{proj}</h2><table><thead><tr><th>{date}</th><th class=\"rp-text\">{time}</th>\
+                     <th class=\"rp-num\">{dur}</th><th class=\"rp-text\">{act}</th></tr></thead><tbody>{rows}</tbody>\
+                     <tfoot><tr><td colspan=2>{total}</td><td class=\"rp-num\">{ptotal}</td><td></td></tr></tfoot></table></section>",
+                    proj = esc(&proj), date = tx("tsx.date"), time = tx("ts.time"),
+                    dur = tx("tsx.duration"), act = tx("tsx.activity"),
+                    total = tx("tsx.total"), ptotal = fmt_dur(ptotal), rows = rows
                 ));
             }
         }
     }
     if billable.is_empty() {
-        sections = "<p class=\"rp-empty\">In diesem Zeitraum ist keine Zeit einem Projekt zugeordnet. Zuordnen: ein Fenster auf der Tagesleiste ziehen.</p>".into();
+        sections = format!("<p class=\"rp-empty\">{}</p>", tx("tsx.no_project_time"));
     }
 
     let body = format!(
         r#"{sections}
-<p class="rp-total">Gesamt <span>{grand}</span></p>"#,
+<p class="rp-total">{total} <span>{grand}</span></p>"#,
         sections = sections,
+        total = tx("tsx.total"),
         grand = fmt_dur(grand),
     );
     let subject = format!("{}{}", esc(&range), scope);
-    rs::shell("Zeiterfassung", "Projekt-Report", &subject, &body, FOOTER)
+    rs::shell(&tx("tsx.doc_title"), &tx("tsx.project_report"), &subject, &body, FOOTER)
         .replace("</style>", &format!("{EXTRA_CSS}\n</style>"))
 }
 
@@ -433,7 +450,7 @@ fn donut_svg(buckets: &[(String, i64)]) -> String {
     let top: Vec<(String, i64)> = buckets.iter().take(8).cloned().collect();
     let total: i64 = top.iter().map(|b| b.1).sum();
     if total == 0 {
-        return "<p class=\"rp-empty\">Keine aktive Zeit.</p>".into();
+        return format!("<p class=\"rp-empty\">{}</p>", tx("ts.no_active_time"));
     }
     let mut acc = 0i64;
     let mut paths = String::new();
@@ -460,7 +477,7 @@ fn donut_svg(buckets: &[(String, i64)]) -> String {
 
 fn bars_svg(buckets: &[(String, i64)], total: i64) -> String {
     if buckets.is_empty() {
-        return "<p class=\"rp-empty\">Keine Daten.</p>".into();
+        return format!("<p class=\"rp-empty\">{}</p>", tx("ts.no_data"));
     }
     let rows: String = buckets
         .iter()
@@ -504,7 +521,7 @@ pub fn html(
         }
         if e.source == "claude" {
             *claude_secs
-                .entry(e.project.clone().unwrap_or_else(|| "(unknown)".into()))
+                .entry(e.project.clone().unwrap_or_else(|| tx("tsx.unknown")))
                 .or_default() += d;
             continue;
         }
@@ -518,15 +535,15 @@ pub fn html(
                 *by_host.entry(h.clone()).or_default() += d;
             }
             *by_cat
-                .entry(e.category.clone().unwrap_or_else(|| "Uncategorized".into()))
+                .entry(e.category.clone().unwrap_or_else(|| tx("ts.uncategorized")))
                 .or_default() += d;
             let label = if e.source == "browser" {
                 e.host
                     .clone()
                     .or_else(|| e.window_title.clone())
-                    .unwrap_or_else(|| "(unknown)".into())
+                    .unwrap_or_else(|| tx("tsx.unknown"))
             } else {
-                e.window_title.clone().unwrap_or_else(|| "(no title)".into())
+                e.window_title.clone().unwrap_or_else(|| tx("tsx.no_title"))
             };
             let group = apps_detail
                 .entry(e.app_name.clone())
@@ -566,8 +583,9 @@ pub fn html(
     } else {
         let mut rows: Vec<(String, i64)> = claude_secs.into_iter().collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let mut body = String::from(
-            "<table><thead><tr><th>Projekt</th><th class=\"rp-num\">Zeit</th><th class=\"rp-num\">Token ein</th><th class=\"rp-num\">Token aus</th></tr></thead><tbody>",
+        let mut body = format!(
+            "<table><thead><tr><th>{p}</th><th class=\"rp-num\">{t}</th><th class=\"rp-num\">{ti}</th><th class=\"rp-num\">{to}</th></tr></thead><tbody>",
+            p = tx("ts.project"), t = tx("ts.time"), ti = tx("ts.tokens_in"), to = tx("ts.tokens_out"),
         );
         for (proj, secs) in &rows {
             let (tin, tout) = claude_tokens.get(proj).copied().unwrap_or((0, 0));
@@ -595,9 +613,10 @@ pub fn html(
         for (app, (total, source, details)) in &apps_h {
             let mut det: Vec<(&String, &(i64, i64))> = details.iter().collect();
             det.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
-            let col = if source == "browser" { "Site" } else { "Window" };
+            let col = if source == "browser" { tx("tsx.site") } else { tx("tsx.window") };
             let mut rows = format!(
-                "<table><thead><tr><th>{col}</th><th class=\"rp-num\">Anzahl</th><th class=\"rp-num\">Zeit</th></tr></thead><tbody>"
+                "<table><thead><tr><th>{col}</th><th class=\"rp-num\">{count}</th><th class=\"rp-num\">{time}</th></tr></thead><tbody>",
+                count = tx("tsx.count"), time = tx("ts.time"),
             );
             for (label, (secs, count)) in &det {
                 rows.push_str(&format!(
@@ -615,27 +634,33 @@ pub fn html(
                 rows
             ));
         }
-        format!("<section><h2>Nach App (im Detail)</h2>{blocks}</section>")
+        format!("<section><h2>{h}</h2>{blocks}</section>", h = tx("tsx.by_app_detailed"))
     };
 
+    let (l_active, l_idle, l_events) = (tx("ts.active_2"), tx("ts.idle"), tx("tsx.events"));
     let stats_strip = rs::stats(&[
-        rs::Stat { label: "Aktiv", value: fmt_dur(active), unit: None },
-        rs::Stat { label: "Leerlauf", value: fmt_dur(idle), unit: None },
-        rs::Stat { label: "Ereignisse", value: events.len().to_string(), unit: None },
+        rs::Stat { label: &l_active, value: fmt_dur(active), unit: None },
+        rs::Stat { label: &l_idle, value: fmt_dur(idle), unit: None },
+        rs::Stat { label: &l_events, value: events.len().to_string(), unit: None },
     ]);
     let body = format!(
         r#"{stats_strip}
 {slots_card}
-<section><h2>Aktive Zeit je Tag</h2>{daily_bars}</section>
+<section><h2>{h_day}</h2>{daily_bars}</section>
 <div class="ts-cols">
-  <section><h2>Nach App</h2>{app_donut}</section>
-  <section><h2>Nach Kategorie</h2>{cat_bars}</section>
+  <section><h2>{h_app}</h2>{app_donut}</section>
+  <section><h2>{h_cat}</h2>{cat_bars}</section>
 </div>
-<section><h2>Häufigste Hosts</h2>{host_bars}</section>
+<section><h2>{h_host}</h2>{host_bars}</section>
 {browser_card}
 {claude_card}
-<section><h2>Ereignisse</h2>{table}</section>"#,
+<section><h2>{h_events}</h2>{table}</section>"#,
         stats_strip = stats_strip,
+        h_day = tx("tsx.active_per_day"),
+        h_app = tx("ts.by_app"),
+        h_cat = tx("ts.by_category"),
+        h_host = tx("ts.top_hosts"),
+        h_events = tx("tsx.events"),
         daily_bars = daily_bars,
         app_donut = app_donut,
         cat_bars = cat_bars,
@@ -650,7 +675,7 @@ pub fn html(
         esc(&range),
         if top3.is_empty() { "—".into() } else { top3 }
     );
-    rs::shell("Zeiterfassung", "Timesheet", &subject, &body, FOOTER)
+    rs::shell(&tx("tsx.doc_title"), &tx("tsx.timesheet"), &subject, &body, FOOTER)
         .replace("</style>", &format!("{EXTRA_CSS}\n</style>"))
 }
 
@@ -680,13 +705,17 @@ fn project_section_html(project_days: &[(String, Vec<crate::tracking::slots::Pro
         }
     }
     format!(
-        "<section><h2>Konsolidiert je Projekt</h2>\
-         <p class=\"rp-lede\">Überlappungsbereinigte Vereinigung je Projekt — richtig auch bei \
-         parallelen Sitzungen. {n} Einträge · {h} h gesamt.</p>\
-         <table><thead><tr><th>Datum</th><th class=\"rp-text\">Projekt</th><th class=\"rp-num\">Stunden</th>\
-         <th class=\"rp-text\">Erster–Letzter</th><th class=\"rp-text\">Apps</th></tr></thead><tbody>{rows}</tbody></table></section>",
-        n = total,
-        h = hours2(grand),
+        "<section><h2>{head}</h2>\
+         <p class=\"rp-lede\">{lede}</p>\
+         <table><thead><tr><th>{c_date}</th><th class=\"rp-text\">{c_proj}</th><th class=\"rp-num\">{c_hours}</th>\
+         <th class=\"rp-text\">{c_first}</th><th class=\"rp-text\">{c_apps}</th></tr></thead><tbody>{rows}</tbody></table></section>",
+        head = tx("tsx.consolidated"),
+        lede = txf("tsx.consolidated_lede", &[("n", &total.to_string()), ("h", &hours2(grand))]),
+        c_date = tx("tsx.date"),
+        c_proj = tx("ts.project"),
+        c_hours = tx("tsx.hours"),
+        c_first = tx("tsx.first_last"),
+        c_apps = tx("tsx.apps"),
         rows = rows,
     )
 }
@@ -697,8 +726,10 @@ fn hours2(secs: i64) -> String {
 }
 
 fn events_table(events: &[TrackEvent], now: i64) -> String {
-    let mut t = String::from(
-        "<table><thead><tr><th>Datum</th><th class=\"rp-text\">Beginn</th><th class=\"rp-text\">Ende</th><th class=\"rp-text\">App</th><th class=\"rp-text\">Host / Titel</th><th class=\"rp-text\">Quelle</th><th class=\"rp-num\">Dauer</th></tr></thead><tbody>",
+    let mut t = format!(
+        "<table><thead><tr><th>{date}</th><th class=\"rp-text\">{begin}</th><th class=\"rp-text\">{end}</th><th class=\"rp-text\">{app}</th><th class=\"rp-text\">{host}</th><th class=\"rp-text\">{src}</th><th class=\"rp-num\">{dur}</th></tr></thead><tbody>",
+        date = tx("tsx.date"), begin = tx("ts.start"), end = tx("ts.end"), app = tx("ts.app"),
+        host = tx("tsx.host_or_title"), src = tx("tsx.source"), dur = tx("tsx.duration"),
     );
     for e in events {
         t.push_str(&format!(
@@ -838,7 +869,7 @@ mod tests {
         let events = vec![ev("Code", 0, 60_000, false, None, None)];
         let totals = vec![("2026-07-21".to_string(), vec![test_total("kiez-finder", 9_000, 0, 9_000_000)])];
         let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
-        assert!(out.contains("Konsolidiert je Projekt"));
+        assert!(out.contains("Consolidated per project"));
         assert!(out.contains("kiez-finder"));
         assert!(out.contains("2.50"));
         // Empty report omits the section entirely.
@@ -875,7 +906,7 @@ mod tests {
             ],
         )];
         let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
-        assert!(out.contains("2 Einträge · 1.50 h")); // Anzahl + Gesamtsumme
+        assert!(out.contains("2 entries · 1.50 h")); // count + grand total
     }
 
     #[test]
@@ -917,7 +948,7 @@ mod tests {
     fn html_handles_empty() {
         let out = html(&[], &HashMap::new(), 0, 86_400_000, 0, &[]);
         assert!(out.contains(FOOTER));
-        assert!(out.contains("Keine aktive Zeit."));
+        assert!(out.contains("No active time."));
     }
 
     #[test]
@@ -959,10 +990,10 @@ mod tests {
 
         let html = project_html(&events, 0, 86_400_000, 0, Detail::Full, None);
         assert!(html.starts_with("<!doctype html>"));
-        assert!(html.contains("Projekt-Report"));
+        assert!(html.contains("Project report"));
         assert!(html.contains("Acme"));
         assert!(html.contains("Beta"));
-        assert!(html.contains("Gesamt"));
+        assert!(html.contains("Total"));
         assert!(html.contains(FOOTER));
         assert!(!html.contains("http://"));
         // Scoped HTML excludes the other client entirely.
@@ -977,7 +1008,7 @@ mod tests {
         chrome.source = "browser".into();
         let code = ev("Code", 120_000, 300_000, false, None, Some("main.rs"));
         let out = html(&[chrome, code], &HashMap::new(), 0, 86_400_000, 400_000, &[]);
-        assert!(out.contains("Nach App (im Detail)"));
+        assert!(out.contains("By app (detailed)"));
         assert!(out.contains("<details>")); // native expand, no JS
         // Browser → host detail; other app → window-title detail.
         assert!(out.contains("Google Chrome"));

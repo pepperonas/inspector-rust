@@ -133,6 +133,14 @@ describe("COMMANDS catalogue", () => {
     }
   });
 
+  // i18n contract: the command row's description is shown in-app and must be
+  // available in German too (the keyword itself stays as-is, see CLAUDE.md).
+  it("every command has a non-empty German description (description_de)", () => {
+    for (const c of COMMANDS) {
+      expect(c.description_de?.trim().length ?? 0, `${c.keyword} missing description_de`).toBeGreaterThan(0);
+    }
+  });
+
   it("`sound` is an arg-less command of kind sound", () => {
     const r = parseCommand("sound");
     expect(r?.spec.kind).toBe("sound");

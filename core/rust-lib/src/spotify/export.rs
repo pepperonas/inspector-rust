@@ -152,9 +152,22 @@ fn md(s: &str) -> String {
 /// A readable log, grouped by day (the date part of `time`).
 pub fn markdown(rows: &[PlayRow], time: &dyn Fn(i64) -> String, exported_at: i64) -> String {
     let mut out = format!(
-        "# Spotify-History\n\nExportiert {} · {} Einträge\n",
-        time(exported_at),
-        rows.len()
+        "# {}\n\n{}\n",
+        crate::i18n::t("spx.title"),
+        crate::i18n::tf(
+            "spx.exported",
+            &[("date", &time(exported_at)), ("n", &rows.len().to_string())],
+        ),
+    );
+    let header = format!(
+        "| {} | {} | {} | {} | {} | {} | {} |\n|---|---|---|---|---|---|---|\n",
+        crate::i18n::t("ts.time"),
+        crate::i18n::t("spx.track"),
+        crate::i18n::t("spx.artist"),
+        crate::i18n::t("spx.album"),
+        crate::i18n::t("spx.played"),
+        crate::i18n::t("spx.length"),
+        crate::i18n::t("spx.status"),
     );
     let mut day = String::new();
     for r in rows {
@@ -162,9 +175,7 @@ pub fn markdown(rows: &[PlayRow], time: &dyn Fn(i64) -> String, exported_at: i64
         let (date, rest) = stamp.split_once('T').unwrap_or((stamp.as_str(), ""));
         if date != day {
             day = date.to_string();
-            out.push_str(&format!(
-                "\n## {day}\n\n| Zeit | Titel | Künstler | Album | Gehört | Länge | Status |\n|---|---|---|---|---|---|---|\n"
-            ));
+            out.push_str(&format!("\n## {day}\n\n{header}"));
         }
         out.push_str(&format!(
             "| {} | {} | {} | {} | {} | {} | {} |\n",

@@ -143,7 +143,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
     if let Some(c) = cache.as_ref() {
         out.push(Category {
             key: "app_cache".into(),
-            label: "Inspector Rust cache".into(),
+            label: crate::i18n::t("clean.cat.ir_cache"),
             level: Level::Safe,
             roots: vec![c.join("InspectorRust")],
             exclude: vec![],
@@ -155,7 +155,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
     // OS temp (this is std::env::temp_dir — /tmp-equivalent / %TEMP%).
     out.push(Category {
         key: "os_temp".into(),
-        label: "OS temporary files".into(),
+        label: crate::i18n::t("clean.cat.os_temp"),
         level: Level::Safe,
         roots: vec![tmp],
         exclude: vec![],
@@ -172,7 +172,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // (only installers untouched for ≥ N days).
         out.push(Category {
             key: "installers".into(),
-            label: "Old installers in Downloads (dmg / pkg / iso / …)".into(),
+            label: crate::i18n::t("clean.cat.installers"),
             level: Level::Standard,
             roots: vec![dl.clone()],
             exclude: vec![],
@@ -188,7 +188,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // of every duplicate group is always kept.
         out.push(Category {
             key: KEY_DUPES.into(),
-            label: "Duplicate files in Downloads (oldest copy kept)".into(),
+            label: crate::i18n::t("clean.cat.dupes"),
             level: Level::Standard,
             roots: vec![dl],
             exclude: vec![],
@@ -205,7 +205,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
     // get slower until the cache re-populates).
     out.push(Category {
         key: KEY_DOCKER.into(),
-        label: "Docker build cache (docker builder prune)".into(),
+        label: crate::i18n::t("clean.cat.docker"),
         level: Level::Standard,
         roots: vec![],
         exclude: vec![],
@@ -225,7 +225,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         ];
         out.push(Category {
             key: "browser_cache".into(),
-            label: "Browser caches".into(),
+            label: crate::i18n::t("clean.cat.browser"),
             level: Level::Standard,
             roots: browser_roots.clone(),
             exclude: vec![],
@@ -240,7 +240,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // carved out so no file is claimed twice.
         out.push(Category {
             key: "other_caches".into(),
-            label: "Other app caches (~/Library/Caches)".into(),
+            label: crate::i18n::t("clean.cat.other_mac"),
             level: Level::Standard,
             roots: vec![h.join("Library/Caches")],
             exclude: {
@@ -254,7 +254,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         });
         out.push(Category {
             key: "logs".into(),
-            label: "Application logs".into(),
+            label: crate::i18n::t("clean.cat.logs"),
             level: Level::Standard,
             // /Library/Logs (system-wide app logs) too — root-owned files in
             // there simply fail the per-item delete and are recorded, never
@@ -279,7 +279,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // extensions and state stay untouched.
         out.push(Category {
             key: "editor_caches".into(),
-            label: "Editor caches (VS Code / Cursor)".into(),
+            label: crate::i18n::t("clean.cat.editor"),
             level: Level::Standard,
             roots: editor_cache_roots(&h.join("Library/Application Support")),
             exclude: vec![],
@@ -289,7 +289,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         });
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo)".into(),
+            label: crate::i18n::t("clean.cat.dev"),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
@@ -319,7 +319,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         });
         out.push(Category {
             key: "xcode_caches".into(),
-            label: "Xcode caches (DerivedData / device support / simulators)".into(),
+            label: crate::i18n::t("clean.cat.xcode"),
             level: Level::Aggressive,
             roots: vec![
                 h.join("Library/Developer/Xcode/DerivedData"),
@@ -339,7 +339,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // opt-in, and the age filter applies (only items trashed ≥ N days ago).
         out.push(Category {
             key: "trash".into(),
-            label: "Trash (items older than the age filter)".into(),
+            label: crate::i18n::t("clean.cat.trash"),
             level: Level::Aggressive,
             roots: vec![h.join(".Trash")],
             exclude: vec![],
@@ -355,7 +355,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // opt-in, and the age filter still applies.
         out.push(Category {
             key: "xcode_archives".into(),
-            label: "Xcode archives — CONTAINS dSYMs (can't symbolicate old crashes after this)".into(),
+            label: crate::i18n::t("clean.cat.xcode_archives"),
             level: Level::Aggressive,
             roots: vec![h.join("Library/Developer/Xcode/Archives")],
             exclude: vec![],
@@ -369,7 +369,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         if !jb.is_empty() {
             out.push(Category {
                 key: KEY_JETBRAINS.into(),
-                label: "JetBrains leftovers of uninstalled / superseded IDE versions".into(),
+                label: crate::i18n::t("clean.cat.jetbrains"),
                 level: Level::Standard,
                 roots: jb,
                 exclude: vec![],
@@ -382,7 +382,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // tool's own reclaim command runs instead).
         out.push(Category {
             key: KEY_SIMCTL.into(),
-            label: "Unavailable simulators (xcrun simctl delete unavailable)".into(),
+            label: crate::i18n::t("clean.cat.simctl"),
             level: Level::Aggressive,
             roots: vec![],
             exclude: vec![],
@@ -392,7 +392,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         });
         out.push(Category {
             key: KEY_BREW.into(),
-            label: "Homebrew: outdated downloads (brew cleanup)".into(),
+            label: crate::i18n::t("clean.cat.brew"),
             level: Level::Standard,
             roots: vec![],
             exclude: vec![],
@@ -415,7 +415,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         if !node.is_empty() {
             out.push(Category {
                 key: KEY_STALE_NODE.into(),
-                label: format!("Stale node_modules (projects untouched {}+ days)", cfg.stale_days),
+                label: crate::i18n::tf("clean.cat.stale_node", &[("n", &cfg.stale_days.to_string())]),
                 level: Level::Standard,
                 roots: node,
                 exclude: vec![],
@@ -428,7 +428,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         if !rust.is_empty() {
             out.push(Category {
                 key: KEY_STALE_TARGET.into(),
-                label: format!("Stale Rust target/ dirs (projects untouched {}+ days)", cfg.stale_days),
+                label: crate::i18n::tf("clean.cat.stale_target", &[("n", &cfg.stale_days.to_string())]),
                 level: Level::Standard,
                 roots: rust,
                 exclude: vec![],
@@ -442,7 +442,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
     // would nuke the whole store, so this one is command-based too.
     out.push(Category {
         key: KEY_PNPM.into(),
-        label: "pnpm store: orphaned packages (pnpm store prune)".into(),
+        label: crate::i18n::t("clean.cat.pnpm"),
         level: Level::Standard,
         roots: vec![],
         exclude: vec![],
@@ -456,7 +456,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         let local = dirs::data_local_dir().unwrap_or_else(|| h.join("AppData/Local"));
         out.push(Category {
             key: "browser_cache".into(),
-            label: "Browser caches".into(),
+            label: crate::i18n::t("clean.cat.browser"),
             level: Level::Standard,
             roots: vec![
                 local.join("Google/Chrome/User Data/Default/Cache"),
@@ -472,7 +472,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         if let Some(roaming) = dirs::config_dir() {
             out.push(Category {
                 key: "editor_caches".into(),
-                label: "Editor caches (VS Code / Cursor)".into(),
+                label: crate::i18n::t("clean.cat.editor"),
                 level: Level::Standard,
                 roots: editor_cache_roots(&roaming),
                 exclude: vec![],
@@ -483,7 +483,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         }
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo / VS / NuGet)".into(),
+            label: crate::i18n::t("clean.cat.dev_win"),
             level: Level::Aggressive,
             roots: vec![
                 h.join("AppData/Roaming/npm-cache/_cacache"),
@@ -524,7 +524,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         ];
         out.push(Category {
             key: "browser_cache".into(),
-            label: "Browser caches".into(),
+            label: crate::i18n::t("clean.cat.browser"),
             level: Level::Standard,
             roots: browser_roots.clone(),
             exclude: vec![],
@@ -536,7 +536,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         // more specific categories' roots.
         out.push(Category {
             key: "other_caches".into(),
-            label: "Other app caches (~/.cache)".into(),
+            label: crate::i18n::t("clean.cat.other_linux"),
             level: Level::Standard,
             roots: vec![xdg_cache.clone()],
             exclude: {
@@ -553,7 +553,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         if let Some(cfg_dir) = dirs::config_dir() {
             out.push(Category {
                 key: "editor_caches".into(),
-                label: "Editor caches (VS Code / Cursor)".into(),
+                label: crate::i18n::t("clean.cat.editor"),
                 level: Level::Standard,
                 roots: editor_cache_roots(&cfg_dir),
                 exclude: vec![],
@@ -564,7 +564,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         }
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo)".into(),
+            label: crate::i18n::t("clean.cat.dev"),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
@@ -588,7 +588,7 @@ pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
         });
         out.push(Category {
             key: "trash".into(),
-            label: "Trash (items older than the age filter)".into(),
+            label: crate::i18n::t("clean.cat.trash"),
             level: Level::Aggressive,
             roots: vec![h.join(".local/share/Trash/files")],
             exclude: vec![],

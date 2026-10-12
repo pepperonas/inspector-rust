@@ -683,22 +683,23 @@ impl ActionId {
         ActionId::ALL.into_iter().find(|a| a.key() == s)
     }
 
-    pub fn label(self) -> &'static str {
-        match self {
-            ActionId::Ocr => "OCR region → text",
-            ActionId::Screenshot => "Screenshot region",
-            ActionId::Color => "Eyedropper (pick colour)",
-            ActionId::Finder => "Finder selection",
-            ActionId::Markdown => "Markdown → PDF",
-            ActionId::Record => "Screen recording",
-            ActionId::AudioSwap => "Audio swap",
-            ActionId::Timesheet => "Open Timesheet",
-            ActionId::TrackToggle => "Toggle time tracking",
-            ActionId::WindowPalette => "Window palette (focused window)",
-            ActionId::RetroToggle => "Retro overlay on/off",
-            ActionId::RetroFocus => "Retro overlay: focus mode on/off",
-            ActionId::GestureUnintended => "Gesture was unintended (save last 3 s)",
-        }
+    /// Localised label (app language), for the Settings → Global shortcuts list.
+    pub fn label(self) -> String {
+        crate::i18n::t(match self {
+            ActionId::Ocr => "action.ocr",
+            ActionId::Screenshot => "action.screenshot",
+            ActionId::Color => "action.color",
+            ActionId::Finder => "action.finder",
+            ActionId::Markdown => "action.markdown",
+            ActionId::Record => "action.record",
+            ActionId::AudioSwap => "action.audioswap",
+            ActionId::Timesheet => "action.timesheet",
+            ActionId::TrackToggle => "action.tracktoggle",
+            ActionId::WindowPalette => "action.windowpalette",
+            ActionId::RetroToggle => "action.retrotoggle",
+            ActionId::RetroFocus => "action.retrofocus",
+            ActionId::GestureUnintended => "action.gestureunintended",
+        })
     }
 
     /// Default binding as a `parse_shortcut` spec.
@@ -1011,7 +1012,7 @@ pub fn action_views(app: &AppHandle) -> Vec<ActionHotkeyView> {
             let spec = effective_action_spec(&db, id);
             ActionHotkeyView {
                 id: id.key().to_string(),
-                label: id.label().to_string(),
+                label: id.label(),
                 is_default: spec == id.default_spec(),
                 default: id.default_spec().to_string(),
                 shortcut: spec,

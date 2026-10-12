@@ -6,6 +6,9 @@ import {
   formatCount,
   formatPct,
 } from "./loc";
+import { setCatalog } from "./i18n";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
 
 describe("languageColor", () => {
   it("returns the Linguist colour for known languages", () => {
@@ -73,11 +76,22 @@ describe("donutSegments", () => {
 });
 
 describe("formatters", () => {
+  it("groups thousands and formats percentages in the app language", () => {
+    expect(formatCount(1234567)).toBe("1,234,567");
+    expect(formatPct(42.34)).toBe("42.3%");
+    expect(formatPct(-0.01)).toBe("0.0%");
+  });
+
   it("groups thousands and formats percentages in de style", () => {
+    setCatalog("de", de);
+    try {
     expect(formatCount(1234567)).toBe("1.234.567");
     expect(formatCount(0)).toBe("0");
     expect(formatPct(42.34)).toBe("42,3 %");
     expect(formatPct(0.01)).toBe("0,0 %"); // never "-0,0"
     expect(formatPct(100)).toBe("100,0 %");
+    } finally {
+      setCatalog("en", en);
+    }
   });
 });

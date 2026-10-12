@@ -3,6 +3,8 @@
  * geometry and number formatting. The component owns only SVG rendering.
  */
 
+import { locale, t } from "./i18n";
+
 /**
  * GitHub-Linguist colours for the common languages (what people recognise
  * from repo language bars). Everything else gets a deterministic hash colour
@@ -99,7 +101,8 @@ export function donutSegments(
   const minPct = opts.minPct ?? 2;
   const big = shares.filter((s) => s.pct >= minPct);
   const restPct = shares.filter((s) => s.pct < minPct).reduce((a, s) => a + s.pct, 0);
-  const items = restPct > 0.05 ? [...big, { name: "Other", pct: restPct }] : [...big];
+  const items: { name: string; pct: number; other?: boolean }[] =
+    restPct > 0.05 ? [...big, { name: t("loc.other"), pct: restPct, other: true }] : [...big];
   const total = items.reduce((a, s) => a + s.pct, 0);
   if (total <= 0) return [];
 
@@ -114,7 +117,7 @@ export function donutSegments(
         : ringSegment(cx, cy, rOuter, rInner, angle, angle + sweep);
     segs.push({
       name: item.name,
-      color: item.name === "Other" ? "#8b8b94" : languageColor(item.name),
+      color: item.other ? "#8b8b94" : languageColor(item.name),
       pct: item.pct,
       d,
     });
@@ -152,14 +155,14 @@ function fullRing(cx: number, cy: number, rOuter: number, rInner: number): strin
   );
 }
 
-/** 1234567 → "1.234.567" (de-style thousands separators — the panel's
- *  numbers are large and unbroken groups are unreadable). */
+/** 1234567 → "1,234,567" / "1.234.567" (thousands separators in the app
+ *  language — the panel's numbers are large and unbroken groups are unreadable). */
 export function formatCount(n: number): string {
-  return new Intl.NumberFormat("de-DE").format(n);
+  return new Intl.NumberFormat(locale()).format(n);
 }
 
-/** Percentage for the table: "42,3 %" style, one decimal, never "-0,0". */
+/** Percentage for the table: "42.3%" / "42,3 %", one decimal, never "-0.0". */
 export function formatPct(p: number): string {
   const v = Math.abs(p) < 0.05 ? 0 : p;
-  return `${v.toFixed(1).replace(".", ",")} %`;
+  return t("loc.pct", { v: new Intl.NumberFormat(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v) });
 }

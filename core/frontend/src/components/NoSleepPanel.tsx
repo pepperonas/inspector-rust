@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Power, Plug, BatteryMedium, RefreshCw } from "lucide-react";
 import { nosleepStatus, nosleepSet, type NoSleepStatus } from "../lib/ipc";
+import { t, useT } from "../lib/i18n";
+import { InlineMd } from "./InlineMd";
 
 /**
  * `nosleep` — toggle the PERSISTENT AC idle-sleep profile (v0.124.0, macOS).
@@ -10,6 +12,7 @@ import { nosleepStatus, nosleepSet, type NoSleepStatus } from "../lib/ipc";
  * activated. The footer's sleep-status indicator reflects the result.
  */
 export function NoSleepPanel({ arg, focused, onExit }: { arg: string; focused: boolean; onExit: () => void }) {
+  useT();
   const [status, setStatus] = useState<NoSleepStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -74,23 +77,23 @@ export function NoSleepPanel({ arg, focused, onExit }: { arg: string; focused: b
     return () => window.removeEventListener("keydown", onKey, true);
   }, [focused, onExit]);
 
-  const fmt = (min: number | null) => (min == null ? "—" : min === 0 ? "nie" : min === 1 ? "1 min" : `${min} min`);
+  const fmt = (min: number | null) => (min == null ? "—" : min === 0 ? t("nosleep.never") : t("nosleep.minutes", { n: min }));
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[13px] font-medium">
-          <Power size={15} className="text-[var(--color-accent)]" /> Dauerschlaf-Sperre
+          <Power size={15} className="text-[var(--color-accent)]" /> {t("nosleep.permanent_sleep_lock")}
         </div>
-        <button type="button" onClick={refresh} title="Aktualisieren" className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
+        <button type="button" onClick={refresh} title={t("nosleep.refresh")} className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
           <RefreshCw size={13} />
         </button>
       </div>
 
       {status && !status.supported ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Nur auf macOS verfügbar.</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("nosleep.only_available_on_macos")}</p>
       ) : status === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Lese Energieprofil…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("nosleep.reading_the_power_profile")}</p>
       ) : (
         <>
           {/* The switch. */}
@@ -107,10 +110,10 @@ export function NoSleepPanel({ arg, focused, onExit }: { arg: string; focused: b
           >
             <span>
               <span className="block text-[13px] font-medium">
-                {status.ac_disabled ? "Aktiv — Mac schläft am Netzteil nie" : "Aus — normales Einschlafen"}
+                {status.ac_disabled ? t("nosleep.active_the_mac_never_sleeps") : t("nosleep.off_sleeps_normally")}
               </span>
               <span className="mt-0.5 block text-[11px] text-[var(--color-muted)]">
-                {busy ? "Wende an (Admin-Dialog)…" : status.ac_disabled ? "Tippen zum Ausschalten" : "Tippen zum Einschalten (Admin nötig)"}
+                {busy ? t("nosleep.applying_admin_dialog") : status.ac_disabled ? t("nosleep.click_to_turn_off") : t("nosleep.click_to_turn_on_admin")}
               </span>
             </span>
             {/* Track/knob. */}
@@ -131,29 +134,26 @@ export function NoSleepPanel({ arg, focused, onExit }: { arg: string; focused: b
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-xl border border-[var(--color-border)] p-3">
               <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
-                <Plug size={12} /> Netzteil
+                <Plug size={12} /> {t("nosleep.ac_power")}
               </div>
               <div className="mt-0.5 text-[15px] font-semibold">{fmt(status.ac_sleep)}</div>
-              <div className="text-[10px] text-[var(--color-muted)]">Idle-Sleep</div>
+              <div className="text-[10px] text-[var(--color-muted)]">{t("nosleep.idle_sleep")}</div>
             </div>
             <div className="rounded-xl border border-[var(--color-border)] p-3">
               <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
-                <BatteryMedium size={12} /> Batterie
+                <BatteryMedium size={12} /> {t("nosleep.battery")}
               </div>
               <div className="mt-0.5 text-[15px] font-semibold">{fmt(status.battery_sleep)}</div>
-              <div className="text-[10px] text-[var(--color-muted)]">Idle-Sleep (unberührt)</div>
+              <div className="text-[10px] text-[var(--color-muted)]">{t("nosleep.idle_sleep_unchanged")}</div>
             </div>
           </div>
 
           <p className="text-[11px] leading-snug text-[var(--color-muted)]">
-            Schreibt das <b>dauerhafte</b> Energieprofil (<code>pmset -c sleep 0</code>) — überlebt
-            Neustarts, bis du es ausschaltest. Braucht Admin-Rechte. Für nur diese Sitzung ohne
-            Admin gibt es <code>wakelock dark</code>. Der Bildschirm schläft weiterhin normal; nur
-            der <em>System</em>-Sleep am Netzteil ist gesperrt.
+            <InlineMd text={t("nosleep.explain")} />
           </p>
         </>
       )}
-      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>}
+      {focused && <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">{t("nosleep.esc_close")}</p>}
     </div>
   );
 }

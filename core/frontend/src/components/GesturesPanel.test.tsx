@@ -47,6 +47,13 @@ vi.mock("../lib/ipc", () => ({
 vi.mock("../hooks/useTauriEvent", () => ({ useTauriEvent: () => undefined }));
 
 import { GesturesPanel } from "./GesturesPanel";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "../lib/i18n";
+
+// These pins were written against the German wording; run them in German.
+beforeEach(() => setCatalog("de", de));
+afterEach(() => setCatalog("en", en));
 
 beforeEach(() => {
   snapshot = {

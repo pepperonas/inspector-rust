@@ -36,6 +36,7 @@ import {
   selectionTotals,
   type CleanRow,
 } from "../lib/clean-select";
+import { locale, t, tn, useT } from "../lib/i18n";
 
 type Phase = "scanning" | "pick" | "executing" | "error";
 
@@ -53,6 +54,12 @@ const PRESELECT_OFF = new Set([
   "stale_rust_target",
   "simctl_unavailable",
 ]);
+
+/** "1.2 GB freed · 3 skipped" — the toast subtitle after a delete. */
+function freedText(bytes: number, skipped: number): string {
+  const freed = t("clean.freed", { size: formatBytes(bytes) });
+  return skipped ? `${freed} · ${t("clean.skipped", { n: skipped })}` : freed;
+}
 
 function applyView(
   v: CleanPlanView,
@@ -77,6 +84,7 @@ export function CleanPanel({
   onInteract?: () => void;
   onExit: () => void;
 }) {
+  useT();
   const [phase, setPhase] = useState<Phase>("scanning");
   const [error, setError] = useState("");
   const [view, setView] = useState<CleanPlanView | null>(null);
@@ -154,7 +162,7 @@ export function CleanPanel({
       if (d.kind === "scan") {
         if (d.view) applyView(d.view, setView, setRows, setSelected, setPhase);
         else {
-          setError(d.error ?? "Scan failed");
+          setError(d.error ?? t("clean.scan_failed"));
           setPhase("error");
         }
       } else if (d.kind === "execute") {
@@ -163,14 +171,12 @@ export function CleanPanel({
           void showStatusToast(
             "clean",
             true,
-            "Cleaned",
-            `${formatBytes(d.result.freed_bytes)} freed${
-              d.result.errors.length ? ` · ${d.result.errors.length} skipped` : ""
-            }`,
+            t("clean.cleaned"),
+            freedText(d.result.freed_bytes, d.result.errors.length),
           );
           onExit();
         } else {
-          setError(d.error ?? "Cleaning failed");
+          setError(d.error ?? t("clean.failed"));
           setPhase("error");
         }
       }
@@ -226,8 +232,8 @@ export function CleanPanel({
       await showStatusToast(
         "clean",
         true,
-        "Cleaned",
-        `${formatBytes(res.freed_bytes)} freed${res.errors.length ? ` · ${res.errors.length} skipped` : ""}`,
+        t("clean.cleaned"),
+        freedText(res.freed_bytes, res.errors.length),
       );
       onExit();
     } catch (e) {
@@ -297,10 +303,10 @@ export function CleanPanel({
     <div className="flex h-full flex-col gap-2 overflow-hidden p-3 text-sm">
       <div className="flex items-center gap-2 text-[var(--color-fg)]">
         <Sparkles size={16} className="text-rose-400" />
-        <span className="font-semibold">Clean</span>
+        <span className="font-semibold">{t("clean.clean")}</span>
         {phase === "pick" && view && (
           <span className="ml-auto text-xs text-[var(--color-muted)]">
-            found {formatBytes(view.total_bytes)} in {view.dirs.length} folders
+            {tn("clean.found", view.dirs.length, { size: formatBytes(view.total_bytes) })}
           </span>
         )}
       </div>
@@ -308,8 +314,8 @@ export function CleanPanel({
       {phase === "scanning" && (
         <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
           <Loader2 size={28} className="animate-spin" />
-          <div>Scanning caches + projects…</div>
-          <div className="text-xs">Esc closes the overlay — scan keeps running</div>
+          <div>{t("clean.scanning_caches_projects")}</div>
+          <div className="text-xs">{t("clean.esc_closes_the_overlay_scan")}</div>
         </div>
       )}
 
@@ -318,27 +324,27 @@ export function CleanPanel({
           <Loader2 size={28} className="animate-spin" />
           <div>
             {totals.files > 0
-              ? `Deleting ${totals.files.toLocaleString()} files…`
-              : "Deleting…"}
+              ? t("clean.deleting_files", { n: totals.files.toLocaleString(locale()) })
+              : t("clean.deleting")}
           </div>
-          <div className="text-xs">Esc closes the overlay — delete keeps running</div>
+          <div className="text-xs">{t("clean.esc_closes_the_overlay_delete")}</div>
         </div>
       )}
 
       {phase === "error" && (
         <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
           <AlertTriangle size={24} className="text-amber-400" />
-          <div className="text-[var(--color-fg)]">Cleaning failed</div>
+          <div className="text-[var(--color-fg)]">{t("clean.failed")}</div>
           <div className="break-all text-xs text-[var(--color-muted)]">{error}</div>
-          <div className="text-xs text-[var(--color-muted)]">Esc to close</div>
+          <div className="text-xs text-[var(--color-muted)]">{t("clean.esc_close")}</div>
         </div>
       )}
 
       {phase === "pick" && rows.length === 0 && (
         <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
           <Sparkles size={24} />
-          <div>Nothing to clean — all tidy.</div>
-          <div className="text-xs">Esc to close</div>
+          <div>{t("clean.nothing_to_clean_all_tidy")}</div>
+          <div className="text-xs">{t("clean.esc_close")}</div>
         </div>
       )}
 
@@ -427,7 +433,7 @@ export function CleanPanel({
                     </span>
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted)]">
-                    {d.count.toLocaleString()} files
+                    {tn("clean.files", d.count, { n: d.count.toLocaleString(locale()) })}
                   </span>
                   <span className="w-16 shrink-0 text-right text-xs font-semibold tabular-nums text-[var(--color-fg)]">
                     {formatBytes(d.size)}
@@ -457,15 +463,14 @@ export function CleanPanel({
           >
             <Trash2 size={15} />
             {selected.size === 0
-              ? "Nothing selected"
+              ? t("clean.nothing_selected")
               : armed
-                ? `Press Enter again — delete ${formatBytes(totals.bytes)} for good`
-                : `Delete ${selected.size} ${selected.size === 1 ? "folder" : "folders"} · free ${formatBytes(totals.bytes)}`}
+                ? t("clean.confirm", { size: formatBytes(totals.bytes) })
+                : tn("clean.delete_n", selected.size, { size: formatBytes(totals.bytes) })}
           </button>
 
           <div className="text-center text-[11px] text-[var(--color-muted)]">
-            ↑↓ select · Space toggle · A all/none · Enter ×2 delete · Esc cancel — dev roots +
-            categories in Settings → Cleaning
+            {t("clean.select_space_toggle_a_all")}
           </div>
         </>
       )}

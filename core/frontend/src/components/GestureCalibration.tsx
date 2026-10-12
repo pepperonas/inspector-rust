@@ -9,6 +9,7 @@ import {
   type GestureConfig,
 } from "../lib/ipc";
 import { calibrationView, CALIBRATION_STEPS, describeChange } from "../lib/gesture-calibrate";
+import { t, tSplit, useT } from "../lib/i18n";
 
 /**
  * Guided calibration (`gestures calibrate`): a countdown, three measured
@@ -29,6 +30,7 @@ export function GestureCalibration({
   autoStart: boolean;
   onApplied: (cfg: GestureConfig) => void;
 }) {
+  useT();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const autoStarted = useRef(false);
@@ -67,30 +69,29 @@ export function GestureCalibration({
   const view = calibrationView(status);
 
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] p-3" aria-label="Kalibrierung">
+    <section className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] p-3" aria-label={t("gcal.title")}>
       <div className="flex items-center gap-2">
         <Gauge size={14} className="text-[var(--color-accent)]" />
-        <span className="font-medium">Kalibrierung</span>
+        <span className="font-medium">{t("gcal.title")}</span>
         {view.kind !== "idle" && view.kind !== "done" && view.kind !== "failed" && (
           <button
             type="button"
             onClick={cancel}
             className="ml-auto rounded px-2 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-border)]/40"
           >
-            Abbrechen
+            {t("common.cancel")}
           </button>
         )}
       </div>
 
       {!supported ? (
         <p className="text-[var(--color-muted)]">
-          Die Kalibrierung misst die Kontakte selbst — die liefert libinput unter Linux nicht.
+          {t("gcal.calibration_measures_the_contacts_themse")}
         </p>
       ) : view.kind === "idle" ? (
         <>
           <p className="text-[var(--color-muted)]">
-            Misst in rund 20 Sekunden, wie groß Handballen, Daumen und Finger auf diesem Trackpad sind, und
-            schlägt passende Schwellen vor. Gespeichert wird erst, wenn du zustimmst.
+            {t("gcal.measures_in_about_20_seconds")}
           </p>
           <ol className="flex list-decimal flex-col gap-0.5 pl-4 text-[11px] text-[var(--color-muted)]">
             {CALIBRATION_STEPS.map((s) => (
@@ -102,18 +103,19 @@ export function GestureCalibration({
             onClick={() => void start()}
             className="md3-press self-start rounded-md bg-[var(--color-accent)] px-3 py-1 text-[var(--color-accent-fg)]"
           >
-            Kalibrieren
+            {t("gcal.calibrate")}
           </button>
         </>
       ) : view.kind === "countdown" ? (
         <p className="text-sm">
-          Gleich geht es los <span className="tabular-nums font-semibold">{view.seconds}</span> — lies schon mal
-          Schritt 1: {CALIBRATION_STEPS[0].instruction}
+          {tSplit("gcal.countdown", "n")[0]}
+          <span className="tabular-nums font-semibold">{view.seconds}</span>
+          {tSplit("gcal.countdown", "n")[1]} {CALIBRATION_STEPS[0].instruction}
         </p>
       ) : view.kind === "step" ? (
         <div className="flex flex-col gap-1.5">
           <span className="text-[11px] text-[var(--color-muted)]">
-            Schritt {view.index} von {view.of} · {view.title}
+            {t("gcal.step_of", { i: view.index, n: view.of })} · {view.title}
           </span>
           <p className="text-sm font-medium">{view.instruction}</p>
           <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-border)]/60">
@@ -126,10 +128,10 @@ export function GestureCalibration({
               style={{ transform: `scaleX(${view.progress})` }}
             />
           </div>
-          <span className="tabular-nums text-[11px] text-[var(--color-muted)]">noch {view.seconds} s</span>
+          <span className="tabular-nums text-[11px] text-[var(--color-muted)]">{t("gcal.seconds_left", { n: view.seconds })}</span>
         </div>
       ) : view.kind === "computing" ? (
-        <p className="text-[var(--color-muted)]">Werte werden berechnet …</p>
+        <p className="text-[var(--color-muted)]">{t("gcal.computing_values")}</p>
       ) : view.kind === "failed" ? (
         <>
           <p className="text-amber-400">{view.error}</p>
@@ -139,10 +141,10 @@ export function GestureCalibration({
               onClick={() => void start()}
               className="md3-press rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-border)]/40"
             >
-              Nochmal
+              {t("gcal.again")}
             </button>
             <button type="button" onClick={cancel} className="rounded px-2 py-1 text-[var(--color-muted)]">
-              Schließen
+              {t("gcal.close")}
             </button>
           </div>
         </>
@@ -166,18 +168,19 @@ function ProposalView({
   onApply: () => void;
   onDiscard: () => void;
 }) {
+  useT();
   const rows = proposal.changes.map(describeChange);
   const where =
     proposal.device?.builtin === false
-      ? "einem externen Trackpad"
+      ? t("gcal.an_external_trackpad")
       : proposal.device?.builtin === true
-        ? "dem eingebauten Trackpad"
-        : "diesem Trackpad";
+        ? t("gcal.the_built_in_trackpad")
+        : t("gcal.this_trackpad");
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[11px] text-[var(--color-muted)]">Gemessen auf {where}.</span>
+      <span className="text-[11px] text-[var(--color-muted)]">{t("gcal.measured_on", { where })}</span>
       {rows.length === 0 ? (
-        <p>Deine Schwellen passen schon — es gibt nichts zu ändern.</p>
+        <p>{t("gcal.your_thresholds_already_fit_there")}</p>
       ) : (
         <table className="w-full tabular-nums">
           <tbody>
@@ -207,7 +210,7 @@ function ProposalView({
             disabled={busy}
             className="md3-press flex items-center gap-1 rounded-md bg-[var(--color-accent)] px-3 py-1 text-[var(--color-accent-fg)] disabled:opacity-60"
           >
-            <Check size={12} /> Übernehmen
+            <Check size={12} /> {t("gcal.apply")}
           </button>
         )}
         <button
@@ -215,7 +218,7 @@ function ProposalView({
           onClick={onDiscard}
           className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-border)]/40"
         >
-          <X size={12} /> {rows.length > 0 ? "Verwerfen" : "Schließen"}
+          <X size={12} /> {rows.length > 0 ? t("gcal.discard") : t("gcal.close")}
         </button>
       </div>
     </div>

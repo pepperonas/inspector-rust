@@ -518,11 +518,12 @@ mod tests {
     #[test]
     fn the_panel_has_a_text_for_every_step_and_a_label_for_every_key() {
         let ts = include_str!("../../../frontend/src/lib/gesture-calibrate.ts");
-        // From the array literal on — the type annotation names `title:` too.
+        // From the array literal on — the type annotation names `title` too.
+        // Each step reads its text from the catalogue through a `get title()`.
         let decl = ts.find("export const CALIBRATION_STEPS").expect("step list");
         let start = decl + ts[decl..].find("= [").expect("step array");
         let end = start + ts[start..].find("];").expect("end of step list");
-        assert_eq!(ts[start..end].matches("title:").count(), STEPS);
+        assert_eq!(ts[start..end].matches("get title()").count(), STEPS);
         let labels = &ts[ts.find("const CHANGE_LABEL").expect("label table")..];
         let labels = &labels[..labels.find("};").expect("end of label table")];
         for key in ["palm_size", "thumb_ratio", "thumb_min_size", "thumb_zone"] {

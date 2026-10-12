@@ -7,20 +7,21 @@ import type {
   GestureCalibrationStatus,
   GestureTraceFile,
 } from "./ipc";
+import { locale, t } from "./i18n";
 
 /** The three steps, as the backend runs them (`gestures::calibrate`). */
-export const CALIBRATION_STEPS: { title: string; instruction: string }[] = [
+export const CALIBRATION_STEPS: { readonly title: string; readonly instruction: string }[] = [
   {
-    title: "Handballen",
-    instruction: "Beide Hände wie beim Tippen auf die Tastatur, die Handballen ruhen auf dem Trackpad.",
+    get title() { return t("gcal.step.palm"); },
+    get instruction() { return t("gcal.step.palm_do"); },
   },
   {
-    title: "Daumen",
-    instruction: "Hände weg — nur den Daumen unten auf dem Trackpad ruhen lassen.",
+    get title() { return t("gcal.step.thumb"); },
+    get instruction() { return t("gcal.step.thumb_do"); },
   },
   {
-    title: "Finger",
-    instruction: "Daumen weg — mehrmals mit drei Fingern tippen und hoch/runter wischen.",
+    get title() { return t("gcal.step.fingers"); },
+    get instruction() { return t("gcal.step.fingers_do"); },
   },
 ];
 
@@ -54,11 +55,11 @@ export function calibrationView(s: GestureCalibrationStatus | undefined): Calibr
   };
 }
 
-const CHANGE_LABEL: Record<GestureCalibrationChange["key"], { label: string; unit: string; scale: number }> = {
-  palm_size: { label: "Handballen ab Größe", unit: "", scale: 1 },
-  thumb_ratio: { label: "Daumen ab Seitenverhältnis", unit: "", scale: 1 },
-  thumb_min_size: { label: "Daumen ab Größe", unit: "", scale: 1 },
-  thumb_zone: { label: "Daumen landet unterhalb", unit: "%", scale: 100 },
+const CHANGE_LABEL: Record<GestureCalibrationChange["key"], { readonly label: string; unit: string; scale: number }> = {
+  palm_size: { get label() { return t("gcal.change.palm_size"); }, unit: "", scale: 1 },
+  thumb_ratio: { get label() { return t("gcal.change.thumb_ratio"); }, unit: "", scale: 1 },
+  thumb_min_size: { get label() { return t("gcal.change.thumb_min_size"); }, unit: "", scale: 1 },
+  thumb_zone: { get label() { return t("gcal.change.thumb_zone"); }, unit: "%", scale: 100 },
 };
 
 /** One proposed change as a table row: "Handballen ab Größe  2,0 → 1,9". */
@@ -66,7 +67,7 @@ export function describeChange(c: GestureCalibrationChange) {
   const meta = CHANGE_LABEL[c.key] ?? { label: c.key, unit: "", scale: 1 };
   const fmt = (v: number) => {
     const n = Math.round(v * meta.scale * 100) / 100;
-    return `${n.toLocaleString("de-DE")}${meta.unit ? ` ${meta.unit}` : ""}`;
+    return `${n.toLocaleString(locale())}${meta.unit ? ` ${meta.unit}` : ""}`;
   };
   return { key: c.key, label: meta.label, from: fmt(c.current), to: fmt(c.proposed), up: c.proposed > c.current };
 }
@@ -78,12 +79,12 @@ export function traceWhen(name: string): string {
   return `${m[3]}.${m[2]}. ${m[4]}:${m[5]}:${m[6]}`;
 }
 
-export function traceKindLabel(t: GestureTraceFile): string {
-  return t.unintended ? "Ungewollt" : "Aufnahme";
+export function traceKindLabel(trace: GestureTraceFile): string {
+  return trace.unintended ? t("gcal.trace.unintended") : t("gcal.trace.recording");
 }
 
 /** "12 KB" / "1,4 MB". */
 export function traceSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+  return `${(bytes / 1024 / 1024).toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
 }

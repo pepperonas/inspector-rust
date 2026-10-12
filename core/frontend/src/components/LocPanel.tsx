@@ -6,6 +6,7 @@ import { languageColor, donutSegments, formatCount, formatPct } from "../lib/loc
 // Generic path arithmetic — it lives in lib/disk because `disk` needed it
 // first, and it is pure + unit-tested there.
 import { pathCrumbs, parentPath } from "../lib/disk";
+import { t, useT } from "../lib/i18n";
 
 /**
  * `loc` — lines-of-code statistics in the right preview column (v0.117.0).
@@ -29,6 +30,7 @@ export function LocPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  useT();
   const [report, setReport] = useState<LocReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -142,7 +144,7 @@ export function LocPanel({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[13px] font-medium">
           <Code2 size={15} className="text-[var(--color-accent)]" />
-          Lines of code
+          {t("loc.lines_of_code")}
           {report && (
             <span className="truncate text-[var(--color-muted)]">· {report.root_label}</span>
           )}
@@ -152,7 +154,7 @@ export function LocPanel({
             type="button"
             onClick={goUp}
             disabled={!current || !parentPath(current)}
-            title="Eine Ebene höher (⌫)"
+            title={t("loc.one_level_up")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-30"
           >
             <CornerLeftUp size={13} />
@@ -160,7 +162,7 @@ export function LocPanel({
           <button
             type="button"
             onClick={() => run(respectIgnores, target)}
-            title="Neu zählen (R)"
+            title={t("loc.count_again_r")}
             className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
@@ -191,7 +193,7 @@ export function LocPanel({
       {error ? (
         <ErrorCard error={error} />
       ) : report === null ? (
-        <p className="text-[12px] text-[var(--color-muted)]">Zähle…</p>
+        <p className="text-[12px] text-[var(--color-muted)]">{t("loc.counting")}</p>
       ) : (
         <>
           <TotalsRow r={report} />
@@ -200,7 +202,7 @@ export function LocPanel({
           <LanguageTable r={report} />
           {report.inaccurate && (
             <p className="text-[11px] text-amber-500">
-              ⚠️ Einzelne Dateien konnten nicht sauber geparst werden — Zahlen dort geschätzt.
+              {t("loc.some_files_couldn_t_be")}
             </p>
           )}
           <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--color-muted)]">
@@ -210,13 +212,13 @@ export function LocPanel({
               onChange={toggleIgnores}
               className="accent-[var(--color-accent)]"
             />
-            .gitignore beachten &amp; versteckte Dateien überspringen
+            {t("loc.respect_gitignore_amp_skip_hidden")}
           </label>
         </>
       )}
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          R neu zählen · ↑ ↓ scrollen · Esc schließen
+          {t("loc.r_count_again_scroll_esc")}
         </p>
       )}
     </div>
@@ -224,6 +226,7 @@ export function LocPanel({
 }
 
 function ErrorCard({ error }: { error: string }) {
+  useT();
   const noSelection = error.includes("loc.no_selection");
   const automation = error.includes("finder.automation_denied");
   return (
@@ -231,16 +234,16 @@ function ErrorCard({ error }: { error: string }) {
       <p className="flex items-center gap-2 text-[12px]">
         <FileCode2 size={14} className="text-[var(--color-accent)]" />
         {noSelection
-          ? "Nichts ausgewählt."
+          ? t("loc.nothing_selected")
           : automation
-            ? "Kein Zugriff auf die Finder-Auswahl."
-            : "Zählen fehlgeschlagen."}
+            ? t("loc.no_access_to_the_finder")
+            : t("loc.counting_failed")}
       </p>
       <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">
         {noSelection
-          ? "Markiere einen Ordner im Finder und drücke Enter erneut — oder tippe den Pfad direkt: loc ~/claude/projekt"
+          ? t("loc.select_a_folder_in_finder")
           : automation
-            ? "macOS braucht die Automation-Berechtigung für den Finder (System Settings → Privacy → Automation) — oder nutze loc <pfad>."
+            ? t("loc.macos_needs_the_automation_permission")
             : error}
       </p>
     </div>
@@ -248,12 +251,13 @@ function ErrorCard({ error }: { error: string }) {
 }
 
 function TotalsRow({ r }: { r: LocReport }) {
+  useT();
   const cells: Array<[string, string]> = [
-    ["Dateien", formatCount(r.total_files)],
-    ["Zeilen", formatCount(r.total_lines)],
-    ["Code", formatCount(r.total_code)],
-    ["Kommentare", formatCount(r.total_comments)],
-    ["Leer", formatCount(r.total_blanks)],
+    [t("loc.files"), formatCount(r.total_files)],
+    [t("loc.lines"), formatCount(r.total_lines)],
+    [t("loc.code"), formatCount(r.total_code)],
+    [t("loc.comments"), formatCount(r.total_comments)],
+    [t("loc.blank"), formatCount(r.total_blanks)],
   ];
   return (
     <div className="grid grid-cols-5 gap-1.5">
@@ -289,6 +293,7 @@ function ShareBar({ r }: { r: LocReport }) {
 }
 
 function DonutCard({ r }: { r: LocReport }) {
+  useT();
   const segs = donutSegments(
     r.languages.map((l) => ({ name: l.name, pct: l.code_pct })),
     { cx: 60, cy: 60, rOuter: 54, rInner: 34 },
@@ -324,10 +329,11 @@ function DonutCard({ r }: { r: LocReport }) {
 }
 
 function LanguageTable({ r }: { r: LocReport }) {
+  useT();
   if (r.languages.length === 0) {
     return (
       <p className="text-[12px] text-[var(--color-muted)]">
-        Keine erkennbaren Quelldateien gefunden.
+        {t("loc.no_recognisable_source_files_found")}
       </p>
     );
   }
@@ -335,19 +341,19 @@ function LanguageTable({ r }: { r: LocReport }) {
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-3 gap-y-1 text-[11px] tabular-nums">
         <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-          Sprache
+          {t("loc.language")}
         </span>
         <span className="text-right text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-          Dateien
+          {t("loc.files")}
         </span>
         <span className="text-right text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-          Code
+          {t("loc.code")}
         </span>
         <span className="text-right text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-          Komm.
+          {t("loc.comm")}
         </span>
         <span className="text-right text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
-          Leer
+          {t("loc.blank")}
         </span>
         {r.languages.map((l) => (
           <LanguageRow key={l.name} l={l} />
@@ -416,12 +422,13 @@ function SubdirList({
   base: string | null;
   onGo: (p: string) => void;
 }) {
+  useT();
   if (!base) return null;
   const root = base === "/" ? "" : base.replace(/\/+$/, "");
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <p className="mb-2 text-[11px] font-medium">
-        Unterordner <span className="text-[var(--color-muted)]">· klicken zum Zählen</span>
+        {t("loc.subdirs")} <span className="text-[var(--color-muted)]">· {t("loc.click_to_count")}</span>
       </p>
       <div className="flex flex-wrap gap-1">
         {dirs.map((d) => (

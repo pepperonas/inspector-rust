@@ -996,3 +996,24 @@ impl GestureSource for MacGestureSource {
         *PIPELINE.lock() = None;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Live probe of the native external-pointer detection — run on a real Mac:
+    /// `cargo test -p inspector-rust-core --lib gestures::macos::tests::external_pointer_probe_live -- --ignored --nocapture`.
+    /// Not a deterministic assertion (it reads this machine's HID bus); it just
+    /// prints the verdict so the IOKit FFI path can be eyeballed. On a laptop
+    /// with no mouse it should print `false`; plug a mouse in and it flips to
+    /// `true` within the ~30 s cache TTL. The pure classification it relies on
+    /// (`super::super::is_external_pointer`) is unit-tested in `mod.rs`.
+    #[test]
+    #[ignore = "reads live HID devices — run manually on a Mac"]
+    fn external_pointer_probe_live() {
+        let first = has_external_pointer();
+        println!("has_external_pointer() = {first}");
+        // The cache must hand back the same answer immediately.
+        assert_eq!(has_external_pointer(), first, "cached read must be stable");
+    }
+}

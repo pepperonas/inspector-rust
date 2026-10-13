@@ -3103,6 +3103,158 @@ mod tests {
         assert_eq!(next_liveness_cooldown_s(u64::MAX), LIVENESS_MAX_COOLDOWN_S); // no overflow
     }
 
+    #[test]
+    fn cooldown_doubles_in_the_documented_sequence() {
+        // 60 → 120 → 240 → 480 → 900 (cap) → 900.
+        let mut c = LIVENESS_COOLDOWN_S;
+        let seq: Vec<u64> = (0..5)
+            .map(|_| {
+                c = next_liveness_cooldown_s(c);
+                c
+            })
+            .collect();
+        assert_eq!(seq, vec![120, 240, 480, 900, 900]);
+    }
+
+    // ── External-pointer classification (expanded) ───────────────────────
+
+    #[test]
+    fn is_external_pointer_accepts_every_pointer_like_usage() {
+        // GenericDesktop Pointer / Mouse, Digitizer TouchScreen / TouchPad.
+        for (page, usage) in [(0x01, 0x01), (0x01, 0x02), (0x0D, 0x04), (0x0D, 0x05)] {
+            assert!(
+                is_external_pointer(page, usage, false),
+                "page {page:#x} usage {usage:#x} should be an external pointer"
+            );
+        }
+    }
+
+    #[test]
+    fn is_external_pointer_rejects_every_non_pointer_device() {
+        // Joystick / Game Pad / Keyboard / Keypad (GenericDesktop), Consumer
+        // Control, a bare Digitizer and a Pen, and a vendor-defined page (the
+        // internal trackpad reports its pointer collection under one).
+        for (page, usage) in [
+            (0x01, 0x04), // Joystick
+            (0x01, 0x05), // Game Pad
+            (0x01, 0x06), // Keyboard
+            (0x01, 0x07), // Keypad
+            (0x0C, 0x01), // Consumer Control
+            (0x0D, 0x01), // Digitizer
+            (0x0D, 0x02), // Pen
+            (0xFF00, 0x02), // vendor-defined
+        ] {
+            assert!(
+                !is_external_pointer(page, usage, false),
+                "page {page:#x} usage {usage:#x} is not a pointer"
+            );
+        }
+    }
+
+    #[test]
+    fn built_in_is_never_external_whatever_the_pointer_usage() {
+        // The built-in trackpad reports Built-In=true; it must never count as an
+        // external mouse, or the fast pointer-move heal would be disabled on a
+        // plain laptop — exactly the machine the fix is for.
+        for (page, usage) in [(0x01, 0x01), (0x01, 0x02), (0x0D, 0x04), (0x0D, 0x05)] {
+            assert!(!is_external_pointer(page, usage, true));
+        }
+    }
+
+    // ── trackpad_use_ms (expanded) ───────────────────────────────────────
+
+    #[test]
+    fn trackpad_use_with_a_mouse_ignores_even_a_fresher_pointer_move() {
+        // The move could BE the mouse → never proof, even far more recent than
+        // the last finger scroll.
+        assert_eq!(trackpad_use_ms(Some(9_000), Some(10), true), Some(9_000));
+        // …and with no scroll at all, a mouse move yields no proof.
+        assert_eq!(trackpad_use_ms(None, Some(10), true), None);
+    }
+
+    #[test]
+    fn trackpad_use_without_a_mouse_combines_both_signals() {
+        assert_eq!(trackpad_use_ms(Some(800), None, false), Some(800)); // scroll only
+        assert_eq!(trackpad_use_ms(None, Some(800), false), Some(800)); // pointer only
+        assert_eq!(trackpad_use_ms(Some(800), Some(800), false), Some(800)); // tie
+        assert_eq!(trackpad_use_ms(None, None, false), None); // nothing
+    }
+
+    // ── Liveness through the pointer-move path (no external mouse) ────────
+
+    #[test]
+    fn pointer_proof_heals_only_within_the_active_window() {
+        let gap = LIVENESS_GAP_MS;
+        let active = LIVENESS_TRACKPAD_ACTIVE_MS;
+        // Pointer moved just inside the active window, frames a gap older → heal.
+        let inside = trackpad_use_ms(None, Some(active), false);
+        assert!(liveness_should_rebuild(Some(active + gap), inside, u64::MAX, 0));
+        // Pointer moved just OUTSIDE the active window → not "in use" any more.
+        let outside = trackpad_use_ms(None, Some(active + 1), false);
+        assert!(!liveness_should_rebuild(Some(active + 1 + gap), outside, u64::MAX, 0));
+    }
+
+    #[test]
+    fn pointer_proof_needs_the_frames_a_full_gap_staler() {
+        let use_ms = trackpad_use_ms(None, Some(1_000), false);
+        // Frames exactly a gap older than the move → dead registration.
+        assert!(liveness_should_rebuild(Some(1_000 + LIVENESS_GAP_MS), use_ms, u64::MAX, 0));
+        // One ms short → move and frames are close enough to read as healthy.
+        assert!(!liveness_should_rebuild(Some(1_000 + LIVENESS_GAP_MS - 1), use_ms, u64::MAX, 0));
+    }
+
+    #[test]
+    fn pointer_proof_still_respects_the_backoff() {
+        let use_ms = trackpad_use_ms(None, Some(1_000), false);
+        // Clearly dead, but a rebuild happened 5 s ago and the cooldown is 60 s.
+        assert!(!liveness_should_rebuild(Some(60_000), use_ms, 5, LIVENESS_COOLDOWN_S));
+        // Past the cooldown → allowed.
+        assert!(liveness_should_rebuild(
+            Some(60_000),
+            use_ms,
+            LIVENESS_COOLDOWN_S,
+            LIVENESS_COOLDOWN_S
+        ));
+    }
+
+    #[test]
+    fn healthy_frames_never_rebuild_even_with_a_recent_pointer_move() {
+        // Cursor moving (500 ms) AND fresh frames (500 ms) → the trackpad is
+        // alive; the pointer path must not fire.
+        let use_ms = trackpad_use_ms(None, Some(500), false);
+        assert!(!liveness_should_rebuild(Some(500), use_ms, u64::MAX, 0));
+    }
+
+    #[test]
+    fn the_field_case_heals_without_a_mouse_and_waits_with_one() {
+        // 2026-10-13: after a display sleep the registration was deaf and the
+        // user did only 3-finger gestures (no scroll) → since_scroll stays None,
+        // but the cursor moved 2 s ago. No mouse → the move is the trackpad → heal.
+        let no_mouse = trackpad_use_ms(None, Some(2_000), false);
+        assert!(liveness_should_rebuild(Some(60_000), no_mouse, u64::MAX, LIVENESS_COOLDOWN_S));
+        // The very same inputs WITH an external mouse prove nothing (the move
+        // could be the mouse) → no rebuild, exactly the pre-fix behaviour.
+        let with_mouse = trackpad_use_ms(None, Some(2_000), true);
+        assert!(!liveness_should_rebuild(Some(60_000), with_mouse, u64::MAX, LIVENESS_COOLDOWN_S));
+    }
+
+    // ── scroll_tap_deaf (expanded boundaries) ────────────────────────────
+
+    #[test]
+    fn scroll_tap_deaf_at_the_exact_gap_boundary() {
+        // Tap's last scroll exactly a gap older than the HID scroll → deaf.
+        assert!(scroll_tap_deaf(Some(1_000), Some(1_000 + LIVENESS_GAP_MS)));
+        // One ms short of the gap → the tap effectively saw it → healthy.
+        assert!(!scroll_tap_deaf(Some(1_000), Some(1_000 + LIVENESS_GAP_MS - 1)));
+    }
+
+    #[test]
+    fn scroll_tap_deaf_ignores_a_stale_or_absent_hid_scroll() {
+        // No recent HID scroll → nothing proves the tap is deaf.
+        assert!(!scroll_tap_deaf(Some(LIVENESS_TRACKPAD_ACTIVE_MS + 1), None));
+        assert!(!scroll_tap_deaf(None, Some(1_000)));
+    }
+
     fn test_db() -> DbHandle {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));

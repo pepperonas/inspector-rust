@@ -978,6 +978,21 @@ fn seconds_since_hid_event(event_type: u32) -> f64 {
     }
 }
 
+/// Milliseconds since the pointer last moved (macOS), `None` when there is no
+/// recent movement. The `min` of a plain move and a left-button drag — a
+/// one-finger cursor move and a drag are both the trackpad in use. Only
+/// consulted by the liveness watchdog when NO external pointing device is
+/// present (see `has_external_pointer`), where every pointer move IS the
+/// trackpad, so it is a valid "trackpad in use" proof even for a 3-finger
+/// gesture that produced no scroll. `f64::INFINITY` → `None`.
+#[cfg(target_os = "macos")]
+fn ms_since_pointer_move() -> Option<u64> {
+    let moved = seconds_since_hid_event(5); // kCGEventMouseMoved
+    let dragged = seconds_since_hid_event(6); // kCGEventLeftMouseDragged
+    let s = moved.min(dragged);
+    s.is_finite().then_some((s * 1000.0) as u64)
+}
+
 /// Seconds since the last hardware key-down (macOS). Pure modifier presses are
 /// flags-changed events, not key-downs, so they do not reset this clock.
 /// `f64::INFINITY` elsewhere / on error = the guard never fires.
@@ -2801,6 +2816,47 @@ pub fn next_liveness_cooldown_s(current: u64) -> u64 {
     current.saturating_mul(2).min(LIVENESS_MAX_COOLDOWN_S)
 }
 
+/// Pure: is this HID device an EXTERNAL pointing device? True only for a
+/// non-built-in mouse / pointer / touchpad. The built-in trackpad reports
+/// `Built-In = true` and is excluded; so are keyboards, sensors and anything
+/// non-pointing. Used by [`has_external_pointer`] to decide whether a bare
+/// pointer move may count as "trackpad in use".
+///
+/// Usage IDs are from the HID Usage Tables: GenericDesktop (page 0x01) Pointer
+/// (0x01) / Mouse (0x02), and Digitizer (page 0x0D) TouchScreen (0x04) /
+/// TouchPad (0x05) — an external Magic Trackpad presents as the latter.
+pub fn is_external_pointer(usage_page: u32, usage: u32, built_in: bool) -> bool {
+    if built_in {
+        return false;
+    }
+    matches!(
+        (usage_page, usage),
+        (0x01, 0x01) | (0x01, 0x02) | (0x0D, 0x04) | (0x0D, 0x05)
+    )
+}
+
+/// Pure: how long ago was the trackpad demonstrably in use, for the liveness
+/// heal? A finger scroll is always valid proof (only a multitouch surface makes
+/// one). A bare pointer move is proof too — but ONLY when no external pointing
+/// device is present, because otherwise the move could be that mouse (the
+/// 2026-09-27 false-positive the scroll-proof rule was built to avoid). Without
+/// an external pointer, every pointer move is the trackpad, so a 3-finger
+/// gesture (which produces no scroll) can finally heal a dead registration
+/// through the cursor motion around it. `None` = no proof → never rebuild.
+pub fn trackpad_use_ms(
+    since_scroll_ms: Option<u64>,
+    since_pointer_ms: Option<u64>,
+    has_external_pointer: bool,
+) -> Option<u64> {
+    if has_external_pointer {
+        return since_scroll_ms;
+    }
+    match (since_scroll_ms, since_pointer_ms) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 /// Rebuild the gesture capture after system sleep. The private
 /// MultitouchSupport registration goes stale across sleep/wake — the run loop
 /// keeps spinning but the device delivers no (or late/erratic) frames, so
@@ -2889,11 +2945,25 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                         }
                         continue;
                     }
-                    if liveness_should_rebuild(since_frame, since_scroll, since_rebuild_s, cooldown_s) {
+                    // Proof that the trackpad is in use. A finger scroll always
+                    // counts; a bare pointer move counts too when there is no
+                    // external mouse (then every move is the trackpad), so a
+                    // 3-finger gesture — which makes no scroll — finally heals a
+                    // dead registration through the cursor motion around it,
+                    // instead of the user having to two-finger-scroll first.
+                    let external = macos::has_external_pointer();
+                    let since_pointer = if external { None } else { ms_since_pointer_move() };
+                    let since_use = trackpad_use_ms(since_scroll, since_pointer, external);
+                    if liveness_should_rebuild(since_frame, since_use, since_rebuild_s, cooldown_s) {
                         let secs = since_frame.unwrap_or(0) / 1000;
-                        let ago = since_scroll.unwrap_or(0) / 1000;
+                        let ago = since_use.unwrap_or(0) / 1000;
+                        let how = if !external && since_scroll.is_none_or(|s| since_pointer.is_some_and(|p| p < s)) {
+                            "trackpad used"
+                        } else {
+                            "trackpad scrolled"
+                        };
                         if rebuild(&format!(
-                            "no touch frames for {secs}s although the trackpad scrolled {ago}s ago (dead registration; next check in {cooldown_s}s)"
+                            "no touch frames for {secs}s although the {how} {ago}s ago (dead registration; next check in {cooldown_s}s)"
                         )) {
                             last_rebuild = Some(std::time::Instant::now());
                             cooldown_s = next_liveness_cooldown_s(cooldown_s);
@@ -2962,6 +3032,53 @@ mod tests {
     #[test]
     fn liveness_never_fires_before_the_device_has_ever_delivered_a_frame() {
         assert!(!liveness_should_rebuild(None, Some(1_000), u64::MAX, 0));
+    }
+
+    // ── External-pointer detection + pointer-move heal (Option A) ────────
+
+    #[test]
+    fn only_a_non_builtin_pointing_device_is_external() {
+        // External USB/BT mouse (GenericDesktop/Mouse), not built-in.
+        assert!(is_external_pointer(0x01, 0x02, false));
+        // External pointer (GenericDesktop/Pointer).
+        assert!(is_external_pointer(0x01, 0x01, false));
+        // External Magic Trackpad (Digitizer/TouchPad).
+        assert!(is_external_pointer(0x0D, 0x05, false));
+        // The built-in trackpad reports Built-In=true → never external.
+        assert!(!is_external_pointer(0x01, 0x02, true));
+        assert!(!is_external_pointer(0x0D, 0x05, true));
+        // An external keyboard (GenericDesktop/Keyboard) is not a pointer.
+        assert!(!is_external_pointer(0x01, 0x06, false));
+        // A vendor-defined collection (the internal trackpad's own) is not it.
+        assert!(!is_external_pointer(0xFF00, 0x02, false));
+    }
+
+    #[test]
+    fn trackpad_use_prefers_scroll_but_accepts_pointer_without_a_mouse() {
+        // External mouse present → only the scroll counts; a pointer move is
+        // ignored (it could be the mouse — the 2026-09-27 false positive).
+        assert_eq!(trackpad_use_ms(Some(9_000), Some(500), true), Some(9_000));
+        assert_eq!(trackpad_use_ms(None, Some(500), true), None);
+        // No external mouse → the more recent of scroll / pointer counts.
+        assert_eq!(trackpad_use_ms(Some(9_000), Some(500), false), Some(500));
+        assert_eq!(trackpad_use_ms(Some(500), Some(9_000), false), Some(500));
+        // No external mouse, no scroll (a pure 3-finger gesture) → the pointer
+        // move around it is the proof that finally heals a dead registration.
+        assert_eq!(trackpad_use_ms(None, Some(800), false), Some(800));
+        // Neither signal → no proof.
+        assert_eq!(trackpad_use_ms(None, None, false), None);
+    }
+
+    #[test]
+    fn a_pointer_move_heals_a_dead_registration_when_no_mouse_is_present() {
+        // Frames dead for 60 s; no scroll, but the trackpad's cursor moved 2 s
+        // ago and there is no external mouse → that move is valid proof.
+        let use_ms = trackpad_use_ms(None, Some(2_000), false);
+        assert!(liveness_should_rebuild(Some(60_000), use_ms, u64::MAX, LIVENESS_COOLDOWN_S));
+        // Same situation WITH an external mouse → the move is not proof, so no
+        // rebuild (the old scroll-only behaviour is preserved).
+        let use_ext = trackpad_use_ms(None, Some(2_000), true);
+        assert!(!liveness_should_rebuild(Some(60_000), use_ext, u64::MAX, LIVENESS_COOLDOWN_S));
     }
 
     #[test]

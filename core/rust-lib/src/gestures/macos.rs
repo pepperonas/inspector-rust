@@ -455,6 +455,147 @@ pub(crate) fn is_running() -> bool {
     RUNNING.load(Ordering::Relaxed)
 }
 
+// ── External pointing-device detection (Option A) ────────────────────────────
+//
+// The liveness watchdog's scroll-proof rule (2026-09-27) exists so an external
+// mouse's pointer movement can't trigger needless rebuilds. But a 3-finger
+// gesture makes no scroll, so on a laptop with NO external mouse a dead
+// registration never healed until the user two-finger-scrolled. We break that
+// tie by actually checking whether an external pointing device is attached:
+// when none is, every pointer move IS the trackpad and may count as proof (see
+// `super::trackpad_use_ms`). IOKit, cached ~30 s (a mouse is (un)plugged
+// rarely — keeps this off the 15 s watchdog's hot path).
+
+type IoObject = u32;
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOServiceMatching(name: *const c_char) -> *mut c_void;
+    fn IOServiceGetMatchingServices(
+        main_port: IoObject,
+        matching: *mut c_void,
+        existing: *mut IoObject,
+    ) -> i32;
+    fn IOIteratorNext(iterator: IoObject) -> IoObject;
+    fn IORegistryEntryCreateCFProperty(
+        entry: IoObject,
+        key: CFStringRef,
+        allocator: *const c_void,
+        options: u32,
+    ) -> *const c_void;
+    fn IOObjectRelease(obj: IoObject) -> i32;
+}
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFStringCreateWithCString(
+        alloc: *const c_void,
+        cstr: *const c_char,
+        encoding: u32,
+    ) -> CFStringRef;
+    fn CFBooleanGetValue(b: *const c_void) -> bool;
+    // Signature matches the declaration in `ambient_light.rs` (i32 type tag) to
+    // avoid a clashing-extern-declarations warning — it's the same C symbol.
+    fn CFNumberGetValue(num: *const c_void, the_type: i32, value_ptr: *mut c_void) -> bool;
+}
+const K_CFSTRING_ENCODING_UTF8: u32 = 0x0800_0100;
+const K_CFNUMBER_INT_TYPE: i32 = 9; // kCFNumberIntType (C int)
+
+static EXTERNAL_PTR_CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+const EXTERNAL_PTR_TTL_MS: u64 = 30_000;
+
+unsafe fn read_cf_i32(entry: IoObject, key: CFStringRef) -> Option<i32> {
+    let v = IORegistryEntryCreateCFProperty(entry, key, std::ptr::null(), 0);
+    if v.is_null() {
+        return None;
+    }
+    let mut out: i32 = 0;
+    let ok = CFNumberGetValue(v, K_CFNUMBER_INT_TYPE, &mut out as *mut i32 as *mut c_void);
+    CFRelease(v);
+    ok.then_some(out)
+}
+
+unsafe fn read_cf_bool(entry: IoObject, key: CFStringRef) -> bool {
+    let v = IORegistryEntryCreateCFProperty(entry, key, std::ptr::null(), 0);
+    if v.is_null() {
+        return false; // property absent → not built-in-flagged
+    }
+    let b = CFBooleanGetValue(v);
+    CFRelease(v);
+    b
+}
+
+fn probe_external_pointer() -> bool {
+    unsafe {
+        let matching = IOServiceMatching(c"IOHIDDevice".as_ptr());
+        if matching.is_null() {
+            return true; // can't tell → keep the stricter scroll-proof rule
+        }
+        let mut iter: IoObject = 0;
+        // IOServiceGetMatchingServices consumes the matching dict reference.
+        if IOServiceGetMatchingServices(0, matching, &mut iter) != 0 || iter == 0 {
+            return true;
+        }
+        let key_page = CFStringCreateWithCString(
+            std::ptr::null(),
+            c"PrimaryUsagePage".as_ptr(),
+            K_CFSTRING_ENCODING_UTF8,
+        );
+        let key_usage = CFStringCreateWithCString(
+            std::ptr::null(),
+            c"PrimaryUsage".as_ptr(),
+            K_CFSTRING_ENCODING_UTF8,
+        );
+        let key_builtin =
+            CFStringCreateWithCString(std::ptr::null(), c"Built-In".as_ptr(), K_CFSTRING_ENCODING_UTF8);
+        let mut found = false;
+        loop {
+            let dev = IOIteratorNext(iter);
+            if dev == 0 {
+                break;
+            }
+            let page = read_cf_i32(dev, key_page);
+            let usage = read_cf_i32(dev, key_usage);
+            let built_in = read_cf_bool(dev, key_builtin);
+            IOObjectRelease(dev);
+            if let (Some(p), Some(u)) = (page, usage) {
+                if super::is_external_pointer(p as u32, u as u32, built_in) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        IOObjectRelease(iter);
+        if !key_page.is_null() {
+            CFRelease(key_page);
+        }
+        if !key_usage.is_null() {
+            CFRelease(key_usage);
+        }
+        if !key_builtin.is_null() {
+            CFRelease(key_builtin);
+        }
+        found
+    }
+}
+
+/// Is an external pointing device (mouse / pointer / external trackpad)
+/// attached right now? Cached ~30 s. Any FFI failure returns `true`
+/// (conservative — a wrong "no external pointer" could bring back the
+/// mouse-move rebuild storm the scroll-proof rule was built to prevent).
+pub(crate) fn has_external_pointer() -> bool {
+    {
+        let guard = EXTERNAL_PTR_CACHE.lock();
+        if let Some((at, val)) = *guard {
+            if at.elapsed().as_millis() as u64 <= EXTERNAL_PTR_TTL_MS {
+                return val;
+            }
+        }
+    }
+    let val = probe_external_pointer();
+    *EXTERNAL_PTR_CACHE.lock() = Some((Instant::now(), val));
+    val
+}
+
 /// Park/wake gate for the settle ticker (A2). The frame callback notifies
 /// whenever the recogniser reports work (`needs_tick`), `stop()` notifies so a
 /// parked ticker can exit. The 1 s timeout is a safety net only — it costs one

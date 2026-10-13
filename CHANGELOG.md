@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.215.0] - 2026-10-13
+
+### Fixed
+- **Touchpad gestures now heal themselves after a display sleep even if you only use 3-finger gestures.** The gesture-capture watchdog could only rebuild a dead MultitouchSupport registration when it saw a two-finger *scroll* (a trackpad-only proof added to stop an external mouse causing needless rebuilds). But a 3-finger swipe or tap makes no scroll, so after the display slept and the registration went deaf, gestures stayed dead until you happened to two-finger-scroll. Now, when **no external pointing device is attached**, an ordinary pointer move counts as "the trackpad is in use" too — so a dead registration heals within ~15 s of you coming back to the machine, no scroll trick needed. When an external mouse *is* present the stricter scroll-only rule stays, so the old "~100 rebuilds/day" regression can't return.
+
 ## [0.214.0] - 2026-10-12
 
 ### Added

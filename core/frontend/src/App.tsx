@@ -1000,8 +1000,8 @@ function App() {
     if (!cmd || !isTranslateKind(cmd.spec.kind)) return null;
     const pair = TRANSLATE_LANGS[cmd.spec.kind];
     if (!pair) return null;
-    const text = cmd.arg.trim();
-    if (!text) return null;
+    const text = cmd.arg;
+    if (!text.trim()) return null;
     return { sl: pair.sl, tl: pair.tl, text };
   }, [parsedCommand]);
   const translateKey = translateReq
@@ -3241,7 +3241,9 @@ function App() {
   const inArgTerritory = /^\s*\S+\s/.test(query);
   const argSuggestionEntries: ListEntry[] = useMemo(() => {
     if (!inArgTerritory || !argMod || !argSpec || !argComplete) return [];
-    if (argMod.FREE_VALUE_ARG_KINDS.has(argSpec.kind)) return [];
+    // A valid Spotify control is ready to run, including custom numbers
+    // such as `volume 7` (the `75` preset must not steal Enter).
+    if (!argMod.showArgSuggestions(argSpec.kind, query)) return [];
     return argComplete.candidates.map(
       (c): ListEntry => ({
         kind: "arg-suggestion",
@@ -3254,7 +3256,7 @@ function App() {
         },
       }),
     );
-  }, [inArgTerritory, argMod, argSpec, argComplete]);
+  }, [inArgTerritory, argMod, argSpec, argComplete, query]);
 
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
@@ -3590,9 +3592,13 @@ function App() {
   // for a bare keyword or a free-value command (no rows) the ghost shows the
   // first candidate and Tab cycles zsh-style (unchanged from v0.207.0).
   const [argCycle, setArgCycle] = useState<ArgCycle | null>(null);
+  const spotifyCycle = useMemo(
+    () => argSpec?.kind === "spotify" ? argMod?.spotifyRangeCycle(query) ?? null : null,
+    [argSpec, argMod, query],
+  );
   // A cycle only lives while the line still shows the word it put there.
   const cycleLive =
-    argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : null;
+    argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : spotifyCycle;
   // The arg-suggestion row currently selected (only when the row takeover is
   // active — `combined` is then entirely arg-suggestion rows).
   const selectedArgRow =
@@ -4468,8 +4474,8 @@ function App() {
           return true;
         }
         const pair = TRANSLATE_LANGS[commandKind];
-        const src = arg.trim();
-        if (!pair || !src) return true;
+        const src = arg;
+        if (!pair || !src.trim()) return true;
         const cacheKey = `${pair.sl}|${pair.tl}|${src}`;
         let out: string | null =
           liveTranslation?.status === "ok" ? liveTranslation.text : null;
@@ -5517,7 +5523,6 @@ function App() {
       !convertFocus &&
       !cleanFocus &&
       !transcribeFocus &&
-      !spotifyFocus &&
       !githubFocus &&
       !snitchFocus &&
       !shazamFocus,

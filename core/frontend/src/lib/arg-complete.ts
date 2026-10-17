@@ -21,9 +21,11 @@ import type { CommandKind } from "./commands";
 import { palettesFor } from "./retro";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { t, type MessageKey } from "./i18n";
+import { parseSpotifyArg, SPOTIFY_RANGES } from "./spotify";
 
 export interface ArgOption {
   value: string;
+  aliases?: readonly string[];
   /** Short explanation shown next to the ghost text. */
   hint: string;
   /** What may follow this word. Absent = nothing (or free text). */
@@ -64,6 +66,10 @@ const SPOTIFY_HISTORY: ArgNode = () => [
   { value: "gestern", hint: "arg.yesterday", next: SPOTIFY_HISTORY },
   { value: "woche", hint: "arg.week", next: SPOTIFY_HISTORY },
   { value: "monat", hint: "arg.month", next: SPOTIFY_HISTORY },
+  { value: "today", hint: "arg.today", next: SPOTIFY_HISTORY },
+  { value: "yesterday", hint: "arg.yesterday", next: SPOTIFY_HISTORY },
+  { value: "week", hint: "arg.week", next: SPOTIFY_HISTORY },
+  { value: "month", hint: "arg.month", next: SPOTIFY_HISTORY },
   {
     value: "artist",
     hint: "arg.artist",
@@ -73,15 +79,17 @@ const SPOTIFY_HISTORY: ArgNode = () => [
 ];
 
 const SPOTIFY: readonly ArgOption[] = [
-  { value: "now", hint: "arg.now" },
-  { value: "history", hint: "arg.history_days", next: SPOTIFY_HISTORY },
+  { value: "now", aliases: ["jetzt"], hint: "arg.now" },
+  { value: "history", aliases: ["verlauf", "h"], hint: "arg.history_days", next: SPOTIFY_HISTORY },
   { value: "play", hint: "arg.play" },
   { value: "pause", hint: "arg.pause" },
+  { value: "stop", hint: "arg.pause" },
   { value: "toggle", hint: "arg.toggle" },
-  { value: "next", hint: "arg.next" },
-  { value: "previous", hint: "arg.previous" },
+  { value: "next", aliases: ["weiter", "skip"], hint: "arg.next" },
+  { value: "previous", aliases: ["prev", "back", "zurück"], hint: "arg.previous" },
   {
     value: "volume",
+    aliases: ["vol", "lautstärke"],
     hint: "arg.volume",
     next: [
       { value: "25", hint: "arg.quiet" },
@@ -90,7 +98,7 @@ const SPOTIFY: readonly ArgOption[] = [
       { value: "100", hint: "arg.full" },
     ],
   },
-  { value: "seek", hint: "arg.seek" },
+  { value: "seek", aliases: ["spulen"], hint: "arg.seek" },
 ];
 
 const GITHUB_EXPORT: readonly ArgOption[] = [
@@ -364,6 +372,17 @@ function splitLine(line: string): { keyword: string; arg: string } | null {
   return m ? { keyword: m[1], arg: m[2] ?? "" } : null;
 }
 
+/** A complete Spotify control runs on Enter even when its numeric value
+ * also prefixes a preset. Presets remain available through Tab. */
+export function showArgSuggestions(kind: CommandKind, line: string): boolean {
+  return !FREE_VALUE_ARG_KINDS.has(kind) &&
+    !(kind === "spotify" && parseSpotifyArg(splitLine(line)?.arg ?? "").kind === "control");
+}
+
+function spellings(option: ArgOption): readonly string[] {
+  return [option.value, ...(option.aliases ?? [])];
+}
+
 /** Follow the typed words through the tree to the position being typed. */
 function walk(kind: CommandKind, line: string): Walk | null {
   let node: ArgNode | undefined = ARG_TREES[kind];
@@ -385,7 +404,7 @@ function walk(kind: CommandKind, line: string): Walk | null {
       return { node, path, head: `${keyword} ${arg.slice(0, at)}`, partial: left === 0 ? "" : toks[i].text };
     }
     const w = fold(toks[i].text);
-    const hit: ArgOption | undefined = options(node).find((o) => fold(o.value) === w);
+    const hit: ArgOption | undefined = options(node).find((o) => spellings(o).some((s) => fold(s) === w));
     if (!hit?.next) return null; // free text or the end of the tree
     path.push(hit.value);
     node = hit.next;
@@ -413,7 +432,7 @@ export function completeArg(kind: CommandKind, line: string, ctx: CompleteContex
   if (!w) return null;
   const opts = isSource(w.node) ? (ctx.sources?.[w.node.source] ?? []) : options(w.node);
   const prefix = fold(w.partial);
-  let matches = opts.filter((o) => fold(o.value).startsWith(prefix));
+  let matches = opts.filter((o) => spellings(o).some((s) => fold(s).startsWith(prefix)));
   let fix = false;
   if (matches.length === 0) {
     const typed = prefix.trim();
@@ -426,17 +445,25 @@ export function completeArg(kind: CommandKind, line: string, ctx: CompleteContex
   }
   if (matches.length === 0) return null;
   // A word typed out in full with nothing longer to offer: done.
-  if (!fix && matches.length === 1 && fold(matches[0].value) === prefix) return null;
+  if (!fix && matches.length === 1 && spellings(matches[0]).some((s) => fold(s) === prefix)) return null;
   const ranked = fix ? matches : rank(matches, ctx.usage, usageKey(kind, w.path), ctx.now ?? 0);
   return {
     partial: w.partial,
-    candidates: ranked.map((o) => ({
-      value: o.value,
-      hint: t(o.hint as MessageKey),
-      completion: `${w.head}${o.value}`,
-      hasNext: !!o.next,
-      ...(fix ? { fix: true } : {}),
-    })),
+    candidates: ranked.map((o) => {
+      const range = kind === "spotify" && !isSource(w.node) && !!SPOTIFY_RANGES[o.value];
+      // Time intervals are alternatives. Keep other filters, replace any
+      // earlier interval, and leave a completed range ready for Enter.
+      const head = range
+        ? w.head.split(/\s+/).filter((word) => word && !SPOTIFY_RANGES[word.toLowerCase()]).join(" ") + " "
+        : w.head;
+      return {
+        value: o.value,
+        hint: t(o.hint as MessageKey),
+        completion: `${head}${o.value}`,
+        hasNext: !range && !!o.next,
+        ...(fix ? { fix: true } : {}),
+      };
+    }),
   };
 }
 
@@ -470,7 +497,7 @@ export function recordUse(usage: ArgUsage, kind: CommandKind, line: string, ctx:
       break;
     }
     const w = fold(toks[i].text);
-    const hit: ArgOption | undefined = options(node).find((o) => fold(o.value) === w);
+    const hit: ArgOption | undefined = options(node).find((o) => spellings(o).some((s) => fold(s) === w));
     if (!hit) break;
     bump(path, hit.value);
     path.push(hit.value);
@@ -496,6 +523,17 @@ export interface ArgCycle {
   cands: ArgCandidate[];
   /** The candidate currently on screen. */
   index: number;
+}
+
+/** A completed interval remains switchable with Tab, whether it was typed,
+ * clicked, or accepted with Enter. Rebuild all alternatives, not just the
+ * prefix matches that originally completed this word. */
+export function spotifyRangeCycle(line: string): ArgCycle | null {
+  const value = line.trimEnd().split(/\s+/).pop()?.toLowerCase() ?? "";
+  if (!SPOTIFY_RANGES[value] || /\s$/.test(line)) return null;
+  const cands = completeArg("spotify", line + " ")?.candidates.filter((c) => !!SPOTIFY_RANGES[c.value]) ?? [];
+  const index = cands.findIndex((c) => c.value === value);
+  return index < 0 ? null : { cands, index };
 }
 
 /**

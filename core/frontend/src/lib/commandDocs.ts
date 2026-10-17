@@ -76,7 +76,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Live-Übersetzung in der Preview — Enter kopiert, ⇧Enter öffnet Google Translate.",
     synopsis: "tr <text>   ·   tren|trde <text>   ·   trde2it|trit2de|trde2sp|trsp2de|trde2pl|trpl2de <text>",
     description:
-      "Shows a live translation in the preview while you type (keyless Google gtx → MyMemory). Enter copies the result to the clipboard; Shift+Enter opens Google Translate in the browser with the text pre-filled. Click the source or target box to copy that side. The keyword picks the language pair: `tr` auto-detects → German; `tren` English→German, `trde` German→English; the `tr<a>2<b>` forms are fixed pairs between German and Italian/Spanish/Polish.",
+      "Shows a live translation in the preview while you type (keyless Google gtx → MyMemory). Enter copies the result to the clipboard; Shift+Enter opens Google Translate in the browser with the text pre-filled. Click the source or target box to copy that side. Pasted line breaks appear as ↵ in the search field; translation, preview and copying preserve blank lines and indentation. The keyword picks the language pair: `tr` auto-detects → German; `tren` English→German, `trde` German→English; the `tr<a>2<b>` forms are fixed pairs between German and Italian/Spanish/Polish.",
     arguments: [{ name: "text", required: true, description: "The text to translate (rest of the line).", default: undefined }],
     flags: [],
     examples: [
@@ -87,6 +87,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "`tr` auto-detects the source language, so it's the one to reach for when unsure.",
       "Click either language box in the preview to copy that text without leaving the popup.",
+      "Paste multiline text after the keyword: ↵ marks line breaks in the search field; the preview and copied result keep real newlines, blank lines and indentation.",
     ],
     caveats: [
       "Live translate and ⇧Enter both send the text to an external provider (Google / MyMemory / Google Translate in the browser).",
@@ -1114,13 +1115,13 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.206.0",
     tagline: "Spotify: now playing, local play history, export, control.",
     tagline_de: "Spotify: läuft gerade, lokaler Verlauf, Export, Steuerung.",
-    synopsis: "spotify [now | history [heute|woche|artist <name>|<suche>] [export json|csv|md] | play | pause | toggle | next | previous | volume <0-100> | seek <s>]",
+    synopsis: "spotify [now | history [today|yesterday|week|month|heute|gestern|woche|monat|artist <name>|<suche>] [export json|csv|md] | play | pause | stop | toggle | next | previous | volume <0-100> | seek <s>]",
     description:
-      "Works with the Spotify desktop app — no account, no Web API, nothing leaves the Mac. Inspector records every play locally from Spotify's own playback notification: start, end, actually heard time, and listened / partial / skipped. Pause and resume stay one entry. `spotify` shows the current track with progress and controls, `spotify history` the log grouped by day with search, filters and export. Reads show while you type; controls and export run on Enter.",
+      "Works with the Spotify desktop app — no account, no Web API, nothing leaves the Mac. Inspector records every play locally from Spotify's own playback notification: start, end, actually heard time, and listened / partial / skipped. Pause and resume stay one entry. `spotify` shows the current track with progress and controls, `spotify history` the log grouped by day with search, filters and export. Reads show while you type; controls and export run on Enter, including repeated commands while the panel is focused. `stop` pauses playback. German and English range words are always available regardless of the app language; choosing another range replaces the previous one and Tab cycles through ranges.",
     arguments: [
       { name: "now", required: false, description: "Current track, progress, controls and the last plays.", default: "(now)" },
-      { name: "history", required: false, description: "Play log. Then: heute / gestern / woche / monat, artist <name>, free text (track, artist, album), export json|csv|md." },
-      { name: "play | pause | toggle | next | previous", required: false, description: "Control the Spotify app." },
+      { name: "history", required: false, description: "Play log. Then: today / yesterday / week / month (also heute / gestern / woche / monat), artist <name>, free text (track, artist, album), export json|csv|md." },
+      { name: "play | pause | stop | toggle | next | previous", required: false, description: "Control the Spotify app; stop is an alias for pause." },
       { name: "volume <0-100> | seek <s|m:ss>", required: false, description: "Spotify's own volume; jump to a position." },
     ],
     flags: [],
@@ -1130,6 +1131,8 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "spotify history artist Kanye West", result: "Only plays by that artist." },
       { input: "spotify history export csv", result: "Whole history as CSV in ~/Downloads (never overwrites)." },
       { input: "spotify volume 40", result: "Enter sets Spotify's volume to 40." },
+      { input: "spotify stop", result: "Enter pauses playback, just like spotify pause; repeated commands also work while the panel is focused." },
+      { input: "spotify history today", result: "Today's plays, even when the app language is German. Tab switches to another interval instead of appending it." },
     ],
     tips: [
       "With the panel focused: Space plays/pauses, ←/→ previous/next; in the history ↑/↓ scroll.",

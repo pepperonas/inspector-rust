@@ -249,7 +249,7 @@ function TranslatePreview({
                 )}
               </span>
             </div>
-            <div className="mt-1 text-[13px] leading-snug">{text}</div>
+            <div className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-snug">{text}</div>
           </button>
 
           <button
@@ -283,7 +283,7 @@ function TranslatePreview({
             </div>
             {live?.status === "ok" ? (
               <>
-                <div className="mt-1 text-[15px] font-semibold leading-snug">{live.text}</div>
+                <div className="mt-1 whitespace-pre-wrap break-words text-[15px] font-semibold leading-snug">{live.text}</div>
                 <div className="mt-2 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
                   {t("tr.via", { provider: live.provider })}
                 </div>
@@ -660,7 +660,7 @@ export function PreviewPanel({
       return (
         <TranslatePreview
           kind={entry.data.commandKind as CommandKind}
-          text={entry.data.arg.trim()}
+          text={entry.data.arg}
           live={liveTranslation}
         />
       );

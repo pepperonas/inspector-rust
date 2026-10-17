@@ -70,6 +70,7 @@ describe("parseSpotifyArg", () => {
   });
 
   it("controls with validated values", () => {
+    expect(parseSpotifyArg("stop")).toEqual({ kind: "control", action: "pause" });
     expect(parseSpotifyArg("next")).toEqual({ kind: "control", action: "next" });
     expect(parseSpotifyArg("prev")).toEqual({ kind: "control", action: "previous" });
     expect(parseSpotifyArg("toggle")).toEqual({ kind: "control", action: "toggle" });
@@ -82,6 +83,16 @@ describe("parseSpotifyArg", () => {
     // Still typing a known word: not an error yet.
     expect(parseSpotifyArg("hi")).toEqual({ kind: "now" });
     expect(parseSpotifyArg("vol")).toEqual({ kind: "invalid", message: expect.stringContaining("Lautstärke") });
+  });
+
+  it.each(["today", "yesterday", "week", "month"])("accepts English interval %s while the app is German", (range) => {
+    expect(parseSpotifyArg(`history ${range}`)).toMatchObject({ kind: "history", filter: { range } });
+  });
+
+  it("uses the last interval instead of searching for earlier intervals", () => {
+    expect(parseSpotifyArg("history heute gestern gestern week")).toEqual({
+      kind: "history", filter: { range: "week" }, export: undefined,
+    });
   });
 });
 

@@ -2,7 +2,10 @@
 
 The `tr*` search-bar commands translate a phrase without leaving the popup: the result appears **in the preview while you type**. <kbd>Enter</kbd> copies the translation to the clipboard; <kbd>Shift</kbd>+<kbd>Enter</kbd> opens Google Translate in the browser. Click either language box to copy that side.
 
+Pasted multiline text keeps its line breaks, blank lines and indentation in the translation, preview and clipboard. The single-line search field displays line breaks as `↵`. Non-empty lines are translated separately so providers cannot collapse paragraph spacing; this requires one request per non-empty line per provider attempt.
+
 Landed in **v0.93.0** (live preview); Enter=copy / click-to-copy in **v0.101.5**.
+Multiline layout preservation is available in **v0.215.1**.
 
 ---
 
@@ -36,6 +39,77 @@ tren enhancement
 ```
 
 ---
+
+## Multiline text and formatting (v0.215.1)
+
+Type a translation keyword and a space, then paste the complete text. For
+example, paste this after `tren `:
+
+```text
+Hello Anna,
+
+Thank you for your message.
+
+
+  Best regards
+  Martin
+```
+
+The search bar stays one line and displays this as:
+
+```text
+tren Hello Anna,↵↵Thank you for your message.↵↵↵  Best regards↵  Martin
+```
+
+The source and translated boxes display actual lines. The two empty lines
+before the closing, and the indentation of the closing, survive translation.
+Leading/trailing empty lines and whitespace-only lines are retained too.
+Pasting a complete command, such as `tren Hello…` followed by several lines,
+also works. Pasting over a selection replaces just that selection and leaves
+the surrounding text intact.
+
+| Action | Result |
+|---|---|
+| Paste after any `tr*` keyword | Line breaks become visible `↵` markers in the search bar |
+| View the source or translation | Actual newlines, blank lines and indentation are shown |
+| Click the source box | Copies the original multiline text |
+| Click the translated box or press Enter | Copies the translation with real newlines, without marker characters |
+| Press Shift+Enter | Opens Google Translate with the multiline source encoded in the URL |
+
+LF, Windows CRLF and bare CR pasted line endings are accepted and normalised
+to LF by the search field. This preserves text layout; it does not retain
+rich-text styling such as fonts, colours or bold formatting. A single-line
+argument keeps the existing behaviour of trimming surrounding whitespace.
+Enter keeps its copy action, and Shift+Enter keeps its browser action.
+
+### How layout survives the providers
+
+`translatePaste` intercepts the paste before the browser's single-line input
+can discard newlines. `parseCommand` restores the markers before the source
+reaches the preview, IPC, cache key or browser URL. Both preview boxes use
+`whitespace-pre-wrap`, so HTML whitespace collapsing does not hide the layout.
+
+The Rust `translate_lines` helper sends each non-empty line to the selected
+provider and reassembles the result using the original separators and outer
+whitespace of each line. Empty lines never produce requests. If any line
+fails, that provider's partial result is discarded and the fallback retries
+the entire text; a mixed or partially translated result is never returned.
+The detected source language comes from the first line that reports one.
+
+Each non-empty line requires a request, with the existing 2.5-second timeout
+per request. Consequently long multiline text can take longer than a single
+line, and translation context is limited to each line. The frontend still
+debounces and caches the complete source, including its layout, and discards
+stale responses after editing.
+
+### Regression checks
+
+Frontend tests cover every translation language pair, multiple consecutive
+blank lines, indentation, leading/trailing blank lines, CRLF pastes, selection
+replacement, complete-command pastes and browser URL encoding. SearchBar and
+PreviewPanel tests cover paste interception and exact source/target clipboard
+contents. Rust tests retain LF/CRLF layout and verify that a provider failing
+on a later line cannot leak its earlier partial result into the fallback.
 
 ## Why these providers
 
@@ -73,7 +147,7 @@ trait Provider {
 1. **`GoogleGtx`** — `translate.googleapis.com/translate_a/single?client=gtx&dt=t`. Supports every source including `auto`.
 2. **`MyMemory`** — `api.mymemory.translated.net/get?langpair=<sl>|<tl>`. `supports_source` returns `false` for `auto`, so it is **skipped**, not attempted and counted as a failure.
 
-Each attempt has a **2.5 s** timeout (`TIMEOUT`) — this drives a live preview, so a hanging provider must fall through quickly rather than freeze the panel. If everything fails the error surfaces in the panel and <kbd>Shift</kbd>+<kbd>Enter</kbd> still opens Google Translate.
+Each HTTP request has a **2.5 s** timeout (`TIMEOUT`). Multiline attempts make one request per non-empty line; the timeout is not a deadline for the whole document. If everything fails the error surfaces in the panel and <kbd>Shift</kbd>+<kbd>Enter</kbd> still opens Google Translate.
 
 ### Adding a provider
 

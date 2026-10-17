@@ -26,6 +26,7 @@
 import { MEME_ENABLED } from "./meme";
 import { CURRENT_PLATFORM, type Platform } from "./platform";
 import { locale } from "./i18n";
+import { LINE_BREAK } from "./touch";
 
 export type CommandKind =
   | "iris"
@@ -1075,7 +1076,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "spotify",
     keyword: "spotify",
-    syntax: "spotify [now | history [heute|woche|artist <name>|<suche>] [export json|csv|md] | play | pause | toggle | next | previous | volume <0-100> | seek <s>]",
+    syntax: "spotify [now | history [today|yesterday|week|month|heute|gestern|woche|monat|artist <name>|<suche>] [export json|csv|md] | play | pause | stop | toggle | next | previous | volume <0-100> | seek <s>]",
     description:
       "Spotify desktop app: what's playing, your local play history (recorded on this Mac), export, and playback control",
     description_de: "Spotify-Desktop-App: was läuft, dein lokaler Wiedergabeverlauf (auf diesem Mac aufgezeichnet), Export und Steuerung",
@@ -1453,12 +1454,18 @@ export function parseCommand(query: string): ParsedCommand | null {
   // Find the first whitespace to split keyword from args.
   const space = trimmed.search(/\s/);
   const keyword = space === -1 ? trimmed : trimmed.slice(0, space);
-  const arg = space === -1 ? "" : trimmed.slice(space + 1).trim();
+  const rawArg = space === -1 ? "" : trimmed.slice(space + 1);
+  let arg = rawArg.trim();
 
   const spec = lookupKeyword(keyword);
   if (!spec) return null;
 
-  if (spec.requiresArg && arg.length === 0) {
+  // SearchBar keeps pasted line breaks visible in its single-line input.
+  if (isTranslateKind(spec.kind) && /[↵\r\n]/.test(rawArg)) {
+    arg = rawArg.split(LINE_BREAK).join("\n");
+  }
+
+  if (spec.requiresArg && arg.trim().length === 0) {
     // Keyword recognised but argument missing — caller can surface
     // an autocomplete suggestion instead of running the command.
     return null;
@@ -1567,6 +1574,28 @@ export const TRANSLATE_LANGS: Partial<
 /** Whether a command kind is one of the Google-Translate commands. */
 export function isTranslateKind(kind: CommandKind): boolean {
   return kind in TRANSLATE_LANGS;
+}
+
+/** Preserve a multiline paste in the single-line search field, including
+ * when the clipboard contains the command itself. Markers are restored by
+ * parseCommand before preview, IPC, copying or opening the browser. */
+export function translatePaste(
+  value: string,
+  start: number,
+  end: number,
+  text: string,
+): { value: string; caret: number } | null {
+  if (!/[\r\n]/.test(text)) return null;
+  const before = value.slice(0, start);
+  const next = before + text + value.slice(end);
+  const keyword = next.trimStart().split(/\s/, 1)[0];
+  const spec = lookupKeyword(keyword);
+  if (!spec || !isTranslateKind(spec.kind)) return null;
+  const prefixEnd = next.match(/^\s*\S+\s/)?.[0].length ?? 0;
+  const marked = text.replace(/\r\n?|\n/g, (_break, offset: number) =>
+    before.length + offset < prefixEnd ? " " : LINE_BREAK,
+  );
+  return { value: before + marked + value.slice(end), caret: before.length + marked.length };
 }
 
 /** Build the Google Translate URL for a translate command. */

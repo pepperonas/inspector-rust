@@ -156,16 +156,22 @@ fn translate_with(
     tl: &str,
     timeout: Duration,
 ) -> Result<Translation, String> {
-    let text = text.trim();
-    if text.is_empty() {
+    if text.trim().is_empty() {
         return Err("empty text".into());
     }
+    // Keep multiline layout ourselves: providers may collapse blank lines.
+    // Single-line input retains its existing trim behaviour.
+    let text = if text.contains(['\r', '\n']) {
+        text
+    } else {
+        text.trim()
+    };
     let mut last_err = String::from("no provider available");
     for p in providers {
         if !p.supports_source(sl) {
             continue;
         }
-        match p.translate(text, sl, tl, timeout) {
+        match translate_lines(*p, text, sl, tl, timeout) {
             Ok(t) => {
                 tracing::debug!(
                     "translate {sl}->{tl} via {}: {} chars",
@@ -183,6 +189,42 @@ fn translate_with(
     Err(last_err)
 }
 
+/// Translate non-empty lines, retaining every separator, blank line and
+/// indentation. A failed line rejects the entire attempt so the fallback
+/// never returns a partially translated document.
+fn translate_lines(
+    provider: &dyn Provider,
+    text: &str,
+    sl: &str,
+    tl: &str,
+    timeout: Duration,
+) -> Result<Translation, String> {
+    let mut result = Translation {
+        text: String::new(),
+        detected_source: String::new(),
+        provider: provider.name().into(),
+    };
+    for line in text.split_inclusive(['\r', '\n']) {
+        let content = line.trim();
+        if content.is_empty() {
+            result.text.push_str(line);
+            continue;
+        }
+        let translated = provider.translate(content, sl, tl, timeout)?;
+        if translated.text.trim().is_empty() {
+            return Err(format!("{}: empty translation", provider.name()));
+        }
+        let start = line.len() - line.trim_start().len();
+        result.text.push_str(&line[..start]);
+        result.text.push_str(translated.text.trim());
+        result.text.push_str(&line[start + content.len()..]);
+        if result.detected_source.is_empty() {
+            result.detected_source = translated.detected_source;
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,15 +239,16 @@ mod tests {
         /// "can't do `auto`" case).
         handles_auto: bool,
         ok: bool,
+        fail_on: Option<&'static str>,
         asked: Cell<bool>,
     }
 
     impl Stub {
         fn new(name: &'static str, ok: bool) -> Self {
-            Self { name, handles_auto: true, ok, asked: Cell::new(false) }
+            Self { name, handles_auto: true, ok, fail_on: None, asked: Cell::new(false) }
         }
         fn no_auto(name: &'static str, ok: bool) -> Self {
-            Self { name, handles_auto: false, ok, asked: Cell::new(false) }
+            Self { name, handles_auto: false, ok, fail_on: None, asked: Cell::new(false) }
         }
     }
 
@@ -224,7 +267,7 @@ mod tests {
             _t: Duration,
         ) -> Result<Translation, String> {
             self.asked.set(true);
-            if self.ok {
+            if self.ok && self.fail_on != Some(text) {
                 Ok(Translation {
                     text: format!("{text} [{}]", self.name),
                     detected_source: String::new(),
@@ -307,6 +350,29 @@ mod tests {
         let p = Stub::new("p", true);
         let out = translate_with(&[&p], "  hello  ", "en", "de", T).unwrap();
         assert_eq!(out.text, "hello [p]");
+    }
+
+    #[test]
+    fn multiline_layout_survives_translation_and_fallback() {
+        for input in [
+            "\n  hello\n\n\n\tworld  \n",
+            "\r\n  hello\r\n\r\n\r\n\tworld  \r\n",
+        ] {
+            let mut failing = Stub::new("failing", true);
+            // Fail after the first line succeeded: partial results must be
+            // discarded, and the fallback must translate the entire text.
+            failing.fail_on = Some("world");
+            let working = Stub::new("working", true);
+            let out = translate_with(&[&failing, &working], input, "en", "de", T).unwrap();
+            assert_eq!(
+                out.text,
+                input
+                    .replace("hello", "hello [working]")
+                    .replace("world", "world [working]")
+            );
+            assert!(failing.asked.get());
+            assert_eq!(out.provider, "working");
+        }
     }
 
     #[test]

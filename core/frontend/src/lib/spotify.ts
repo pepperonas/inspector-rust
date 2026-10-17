@@ -22,7 +22,7 @@ export type SpotifyCmd =
   | { kind: "invalid"; message: string };
 
 const HISTORY_WORDS = new Set(["history", "verlauf", "h"]);
-const RANGES: Record<string, HistoryRange> = {
+export const SPOTIFY_RANGES: Readonly<Record<string, HistoryRange>> = {
   today: "today",
   heute: "today",
   yesterday: "yesterday",
@@ -36,6 +36,7 @@ const ARTIST_WORDS = new Set(["artist", "künstler", "kuenstler"]);
 const CONTROLS: Record<string, SpotifyControl> = {
   play: "play",
   pause: "pause",
+  stop: "pause",
   toggle: "toggle",
   next: "next",
   weiter: "next",
@@ -79,8 +80,8 @@ function parseHistory(words: string[]): SpotifyCmd {
       }
     } else if (ARTIST_WORDS.has(lower) && i + 1 >= words.length) {
       // `artist` with the name still to come: no filter yet, not a search.
-    } else if (RANGES[lower] && !filter.range) {
-      filter.range = RANGES[lower];
+    } else if (SPOTIFY_RANGES[lower]) {
+      filter.range = SPOTIFY_RANGES[lower];
     } else if (ARTIST_WORDS.has(lower) && i + 1 < words.length && filter.artist == null) {
       // Everything up to an `export` keyword is the artist's name.
       const rest: string[] = [];

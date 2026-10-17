@@ -9,6 +9,8 @@ import {
   ghostSuffix,
   missingSource,
   recordUse,
+  showArgSuggestions,
+  spotifyRangeCycle,
   SOURCE_SPOTIFY_ARTISTS,
   tabStep,
   typoDistance,
@@ -53,9 +55,9 @@ describe("completeArg", () => {
 
   it("offers everything after a space, nothing before one", () => {
     expect(values("spotify ")[0]).toBe("now");
-    expect(values("spotify ").length).toBe(9);
+    expect(values("spotify ").length).toBe(10);
     // The bare keyword is the keyword's own business.
-    expect(complete("spotify")?.candidates.length).toBe(9);
+    expect(complete("spotify")?.candidates.length).toBe(10);
   });
 
   it("walks the tree: nested words, self-reference, the end of the tree", () => {
@@ -101,6 +103,61 @@ describe("completeArg", () => {
   it("only keys real command kinds", () => {
     const kinds = new Set(COMMANDS.map((c) => c.kind));
     for (const k of Object.keys(ARG_TREES)) expect(kinds.has(k as never)).toBe(true);
+  });
+});
+
+describe("Spotify command arguments", () => {
+  it.each(["heute", "gestern", "woche", "monat", "today", "yesterday", "week", "month"])(
+    "replaces previous intervals with %s, including legacy duplicates",
+    (value) => {
+      const c = complete("spotify history heute gestern gestern ")!.candidates.find((x) => x.value === value)!;
+      expect(c.completion).toBe(`spotify history ${value}`);
+      expect(c.hasNext).toBe(false);
+      expect(complete(c.completion)).toBeNull(); // Enter runs, no further fill
+    },
+  );
+
+  it("keeps filter/export options and completes aliases in both languages", () => {
+    expect(complete("spotify verlauf heute ye")?.candidates[0].completion).toBe("spotify verlauf yesterday");
+    expect(complete("spotify h week mo")?.candidates[0].completion).toBe("spotify h monat");
+    expect(complete("spotify history today ex")?.candidates[0].completion).toBe("spotify history today export");
+    expect(values("spotify vol ")).toEqual(["25", "50", "75", "100"]);
+  });
+
+  it("cycles intervals without appending or duplicating them", () => {
+    const completion = complete("spotify history ")!;
+    const cands = completion.candidates.filter((c) => !c.hasNext);
+    let cycle = tabStep(null, { ...completion, candidates: cands }, false)!;
+    expect(cycle.cands[cycle.index].completion).toBe("spotify history heute");
+    cycle = tabStep(cycle, null, false)!;
+    expect(cycle.cands[cycle.index].completion).toBe("spotify history gestern");
+    cycle = tabStep(cycle, null, true)!;
+    expect(cycle.cands[cycle.index].completion).toBe("spotify history heute");
+  });
+
+  it("keeps all intervals switchable after typing or accepting a complete range", () => {
+    const cycle = spotifyRangeCycle("spotify history yesterday")!;
+    expect(cycle.cands).toHaveLength(8);
+    expect(cycle.cands[cycle.index].value).toBe("yesterday");
+    const next = tabStep(cycle, null, false)!;
+    expect(next.cands[next.index].completion).toBe("spotify history week");
+    expect(spotifyRangeCycle("spotify history artist today")).toBeNull();
+    expect(spotifyRangeCycle("spotify history today ")).toBeNull();
+    const artist = complete("spotify history week artist to", {
+      sources: { [SOURCE_SPOTIFY_ARTISTS]: [{ value: "today", hint: "artist" }] },
+    })!.candidates[0];
+    expect(artist.completion).toBe("spotify history week artist today");
+  });
+
+  it.each(["play", "pause", "stop", "toggle", "next", "skip", "weiter", "previous", "prev", "back", "zurück", "volume 7", "vol 7", "lautstärke 7", "volume 0", "volume 100", "seek 90", "seek 1:30", "spulen 1:02:05"])(
+    "keeps Enter on the complete control %s, even with preset suggestions",
+    (arg) => expect(showArgSuggestions("spotify", `spotify ${arg}`)).toBe(false),
+  );
+  it("still offers incomplete controls and interval options", () => {
+    expect(showArgSuggestions("spotify", "spotify p")).toBe(true);
+    expect(showArgSuggestions("spotify", "spotify volume ")).toBe(true);
+    expect(showArgSuggestions("spotify", "spotify history ")).toBe(true);
+    expect(values("spotify history ")).toEqual(expect.arrayContaining(["today", "yesterday", "week", "month"]));
   });
 });
 

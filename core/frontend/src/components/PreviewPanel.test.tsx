@@ -24,6 +24,7 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => p }));
 
 import { PreviewPanel } from "./PreviewPanel";
 import { IS_MAC } from "../lib/platform";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 function textClip(text: string, over: Partial<ClipEntry> = {}): ListEntry {
   return {
@@ -323,6 +324,25 @@ describe("PreviewPanel — typed text", () => {
     expect(screen.getByText("Hello Bridge")).toBeTruthy();
     await screen.findByText("UPPERCASE");
   });
+});
+
+it("keeps multiline source and translation intact when copying from the preview", async () => {
+  const source = "\n  Hello\n\n\nWorld\n";
+  const translated = "\n  Hallo\n\n\nWelt\n";
+  const entry: ListEntry = {
+    kind: "command",
+    data: { commandKind: "translate-en", rawInput: `tren ${source}`, arg: source, label: "Translate", hint: "" },
+  };
+  render(<PreviewPanel entry={entry} liveTranslation={{ status: "ok", text: translated, provider: "google", detectedSource: "en" }} />);
+  const boxes = screen.getAllByRole("button");
+  const sourceBox = boxes.find((box) => box.textContent?.includes("Hello"))!;
+  const targetBox = boxes.find((box) => box.textContent?.includes("Hallo"))!;
+  expect(sourceBox.querySelector(".whitespace-pre-wrap")?.textContent).toBe(source);
+  expect(targetBox.querySelector(".whitespace-pre-wrap")?.textContent).toBe(translated);
+  fireEvent.click(sourceBox);
+  await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(source));
+  fireEvent.click(targetBox);
+  await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(translated));
 });
 
 describe("touch / echo file preview", () => {

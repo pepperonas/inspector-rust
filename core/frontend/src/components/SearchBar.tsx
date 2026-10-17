@@ -1,6 +1,7 @@
 import { Calculator, ChevronRight, X } from "lucide-react";
 import { forwardRef, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { touchPaste } from "../lib/touch";
+import { translatePaste } from "../lib/commands";
 import { useT } from "../lib/i18n";
 
 /** What Tab would do right now (argument completion, see lib/arg-complete). */
@@ -128,15 +129,16 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
           onChange={(e) => onChange(e.target.value)}
           onPaste={(e) => {
             // A single-line <input> strips newlines from a paste. Inside the
-            // content of `touch name > …` they matter (the file's lines), so
-            // they're kept as visible ↵ markers — see lib/touch.ts.
+            // translation text and `touch`/`echo` content they matter, so
+            // they're kept as visible ↵ markers and restored by the parsers.
             const el = e.currentTarget;
-            const r = touchPaste(
+            const args = [
               el.value,
               el.selectionStart ?? el.value.length,
               el.selectionEnd ?? el.value.length,
               e.clipboardData.getData("text/plain"),
-            );
+            ] as const;
+            const r = translatePaste(...args) ?? touchPaste(...args);
             if (!r) return;
             e.preventDefault();
             onChange(r.value);

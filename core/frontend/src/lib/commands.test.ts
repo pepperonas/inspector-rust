@@ -32,6 +32,7 @@ import {
   formatBytes,
   resizePresetSuggestions,
   translateUrl,
+  translatePaste,
   isTranslateKind,
   TRANSLATE_LANGS,
   SEARCH_BANGS,
@@ -453,6 +454,33 @@ describe("commandSuggestions", () => {
   it("stays prefix-only for 1–2 char queries (no fuzzy flood)", () => {
     // "tr" must not pull in "timer" via subsequence — only real prefixes.
     expect(commandSuggestions("tr").map((s) => s.keyword)).not.toContain("timer");
+  });
+});
+
+describe("multiline translation input", () => {
+  it.each(COMMANDS.filter((c) => isTranslateKind(c.kind)))("preserves blank lines for $keyword", ({ keyword }) => {
+    const value = `${keyword} `;
+    const pasted = translatePaste(value, value.length, value.length, "First\r\n\r\n\r\n  Second\n");
+    expect(pasted?.value).toBe(`${keyword} First↵↵↵  Second↵`);
+    const parsed = parseCommand(pasted!.value)!;
+    expect(parsed.arg).toBe("First\n\n\n  Second\n");
+    expect(new URL(translateUrl(parsed.spec.kind, parsed.arg)).searchParams.get("text")).toBe(parsed.arg);
+  });
+
+  it("accepts a pasted command and replaces only the selected text", () => {
+    const pasted = translatePaste("tren old end", 5, 8, "New\n\nparagraph");
+    expect(parseCommand(pasted!.value)?.arg).toBe("New\n\nparagraph end");
+    expect(pasted?.caret).toBe("tren New↵↵paragraph".length);
+    expect(parseCommand(translatePaste("", 0, 0, "tren\nFirst\n\nSecond")!.value)?.arg).toBe("First\n\nSecond");
+  });
+
+  it("leaves other commands and single-line pastes alone", () => {
+    expect(translatePaste("g ", 2, 2, "First\nSecond")).toBeNull();
+    expect(translatePaste("tren ", 5, 5, "First")).toBeNull();
+    expect(parseCommand("tren ↵↵")).toBeNull();
+    expect(parseCommand("tren First\n\nSecond")?.arg).toBe("First\n\nSecond");
+    const text = "\n  First\n\n  Second  \n\n";
+    expect(parseCommand(translatePaste("tren ", 5, 5, text)!.value)?.arg).toBe(text);
   });
 });
 

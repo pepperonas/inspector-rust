@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.215.1] - 2026-10-17
+
+### Fixed
+- Spotify commands and exports run with Enter repeatedly while the panel is focused; custom numeric values are preserved. `spotify stop` pauses playback. History interval completion replaces the previous interval, Tab cycles through intervals, and German/English interval names are offered in either app language.
+- Translation commands (`tren`, `trde`, `tr` and all language pairs) preserve pasted line breaks, blank lines and indentation in the live preview and copied translation.
+
 ## [0.215.0] - 2026-10-13
 
 ### Fixed

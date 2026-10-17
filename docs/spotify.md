@@ -79,7 +79,9 @@ The text label stays next to the time, and the icon carries an `aria-label`.
 ## Commands
 
 All under `spotify` (type `spotify?` for the in-app help). Reads show while you
-type; actions (controls, export) run on **Enter**.
+type; actions (controls, export) run on **Enter**, including repeated runs while the panel is focused. Custom values such as `volume 7` run as entered rather than accepting a preset. `stop` is an alias for `pause`.
+
+Both German and English interval words are always offered, independent of the app language. Choosing another interval replaces the existing one; Tab cycles through intervals without appending them. Enter accepts a suggested interval, and another Enter runs the completed command. Add a space to continue with another filter or an export. If multiple intervals are typed manually, the last one wins.
 
 | Command | What it does |
 |---|---|
@@ -88,13 +90,109 @@ type; actions (controls, export) run on **Enter**.
 | `spotify history heute` · `gestern` · `woche` · `monat` | Range filters (also `today`, `yesterday`, `week`, `month`) |
 | `spotify history artist <name>` | Only that artist |
 | `spotify history <text>` | Search track, artist and album (all words must match) |
-| `spotify play` · `pause` · `toggle` · `next` · `previous` | Control the app (`play` may launch Spotify) |
+| `spotify play` · `pause` · `stop` · `toggle` · `next` · `previous` | Control the app (`play` may launch Spotify) |
 | `spotify volume <0-100>` | Spotify's own volume |
 | `spotify seek <90 \| 1:30>` | Jump to a position |
 
 With the panel focused (Enter): Space plays/pauses, ←/→ previous/next, ↑/↓
 scroll the history, Esc leaves. The history loads 100 entries at a time
 ("Mehr laden").
+
+### Enter, completion and repeated commands (v0.215.1)
+
+A fully typed control runs on the first Enter. It also runs after another
+Spotify command has already focused the panel: `spotify pause`, Enter,
+`spotify play`, Enter, `spotify pause`, Enter does not require a list click.
+Each Enter dispatches the current command once. Merely changing the text
+does not execute a control or export.
+
+| Input | Action on Enter | Accepted aliases |
+|---|---|---|
+| `spotify` / `spotify now` | Shows/focuses the current track | `jetzt` |
+| `spotify play` | Starts/resumes playback | — |
+| `spotify pause` | Pauses playback | `stop` |
+| `spotify toggle` | Toggles play/pause | — |
+| `spotify next` | Next track | `weiter`, `skip` |
+| `spotify previous` | Previous track | `prev`, `back`, `zurück` |
+| `spotify volume 7` | Sets Spotify volume to exactly 7% | `vol`, `lautstärke` |
+| `spotify seek 1:30` | Seeks to 90 seconds | `spulen` |
+| `spotify history` | Shows/focuses the local history | `verlauf`, `h` |
+| `spotify history export csv` | Exports the current filter as CSV | Also `json`, `md`, `markdown`; no format defaults to JSON |
+
+Volume accepts 0–100; presets are suggestions, so a typed `7` is not replaced
+by the `75` suggestion when Enter is pressed. Seek accepts seconds, fractional
+seconds using a dot or comma, `m:ss`, or `h:mm:ss`. Invalid values remain
+validation errors. Tab can still accept a numeric preset explicitly.
+
+An incomplete option, such as `spotify p`, keeps the selectable completion
+rows. Enter accepts the selected option first; another Enter runs the
+completed command. After `spotify history`, select a range, artist filter or
+export in the same way. Names from the local artist history remain one value,
+including names containing spaces.
+
+### Switching history intervals
+
+The following interval words are always offered, whether the app interface
+is English or German:
+
+| English | German | Window |
+|---|---|---|
+| `today` | `heute` | Since local midnight |
+| `yesterday` | `gestern` | Previous local day, ending at today's midnight |
+| `week` | `woche` | Today and the preceding six local days |
+| `month` | `monat` | Today and the preceding 29 local days |
+
+These bounds follow local calendar dates, including daylight-saving changes;
+`month` means 30 days, rather than the current calendar month.
+
+After entering or selecting `spotify history heute`, press Tab to switch to
+another interval and Shift+Tab to go back. This remains available when the
+interval was typed in full, clicked, or accepted with Enter. The query has
+one interval at a time:
+
+```text
+spotify history heute
+spotify history gestern
+spotify history woche
+```
+
+Adding a space reopens filter/export suggestions. Choosing a different range
+there replaces the earlier range too. It does not produce
+`spotify history heute gestern gestern`. For manually typed or previously
+saved commands containing several intervals, the last interval wins and the
+other interval words do not become search terms.
+
+Ranges combine with text, artist and export filters, for example:
+
+```text
+spotify history today
+spotify history week artist Kraftwerk
+spotify history gestern export md
+spotify history month artist Parra for Cuva export csv
+```
+
+The artist name extends up to `export`; therefore place the interval before
+`artist <name>`. With no range, `spotify history` shows all recorded plays.
+
+### Implementation and verification
+
+`App.tsx` keeps its Enter/list handler enabled when Spotify is focused.
+`SpotifyPanel` consumes its own playback/history shortcuts and native button
+Enter, leaving Enter from the search field available for command dispatch.
+Its run-signal guard continues to prevent an action from replaying on remount.
+
+`SPOTIFY_RANGES` in `lib/spotify.ts` supplies the parser and completion logic.
+Range candidates replace earlier range tokens and complete without a trailing
+space, so Enter can run them. `spotifyRangeCycle` reconstructs all eight
+spellings for Tab switching. `showArgSuggestions` keeps valid controls
+runnable even if their numeric value prefixes a preset; root aliases are
+also recognised while walking the completion tree.
+
+Regression tests cover controls and aliases through repeated keyboard Enter,
+all three export formats, custom numeric values, English ranges with a
+German interface, replacement of duplicate intervals, forward/backward Tab
+cycling, and artist names that happen to match interval words. IPC calls are
+mocked in these tests; they do not control a real Spotify session.
 
 ## Export
 

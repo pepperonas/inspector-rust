@@ -505,13 +505,21 @@ export function SpotifyPanel({ cmd, focused, runSignal, onExit, onQuery }: Props
         onExit();
         return;
       }
-      const target = e.target as HTMLElement | null;
+      const target = e.target instanceof HTMLElement ? e.target : null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      // Keep native button activation local; Enter in the search field
+      // continues through App's command dispatch, even after a prior run.
+      if (target?.closest("button") && e.key === "Enter") {
+        e.stopPropagation();
+        return;
+      }
       if (view === "history" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
         e.preventDefault();
+        e.stopPropagation();
         scrollRef.current?.scrollBy({ top: e.key === "ArrowDown" ? 80 : -80 });
       } else if (view === "now" && !e.repeat && (e.key === " " || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         e.preventDefault();
+        e.stopPropagation();
         void control(e.key === " " ? "toggle" : e.key === "ArrowLeft" ? "previous" : "next");
       }
     };

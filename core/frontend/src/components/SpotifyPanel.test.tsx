@@ -36,6 +36,8 @@ import { SpotifyPanel } from "./SpotifyPanel";
 import de from "../locales/de.json";
 import en from "../locales/en.json";
 import { setCatalog } from "../lib/i18n";
+import { useState } from "react";
+import { useKeyboardNav } from "../hooks/useKeyboardNav";
 
 // These pins were written against the German wording; run them in German.
 beforeEach(() => setCatalog("de", de));
@@ -162,5 +164,47 @@ describe("SpotifyPanel", () => {
     render(<SpotifyPanel cmd={parseSpotifyArg("")} focused runSignal={0} onExit={onExit} onQuery={noop} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onExit).toHaveBeenCalled();
+  });
+
+  it("runs every control and export through Enter repeatedly while the panel is focused", async () => {
+    function Commands() {
+      const [arg, setArg] = useState("");
+      const [focused, setFocused] = useState(false);
+      const [signal, setSignal] = useState(100);
+      useKeyboardNav({
+        length: 1, selected: 0, setSelected: noop,
+        onEnter: () => { setFocused(true); setSignal((n) => n + 1); },
+        onEscape: noop,
+      });
+      return <>
+        <input aria-label="Spotify command" value={arg} onChange={(e) => setArg(e.target.value)} />
+        <SpotifyPanel cmd={parseSpotifyArg(arg)} focused={focused} runSignal={signal} onExit={noop} onQuery={noop} />
+      </>;
+    }
+    ipc.now = now();
+    render(<Commands />);
+    const input = screen.getByLabelText("Spotify command");
+    const controls: Array<[string, string, number?]> = [
+      ["play", "play"], ["pause", "pause"], ["stop", "pause"], ["pause", "pause"],
+      ["toggle", "toggle"], ["next", "next"], ["weiter", "next"], ["skip", "next"],
+      ["previous", "previous"], ["prev", "previous"], ["back", "previous"], ["zurück", "previous"],
+      ["volume 7", "volume", 7], ["vol 0", "volume", 0], ["lautstärke 100", "volume", 100],
+      ["seek 90", "seek", 90], ["seek 1:30", "seek", 90], ["spulen 1:02:05", "seek", 3725],
+    ];
+    for (const [arg, action, value] of controls) {
+      const count = ipc.controls.length;
+      fireEvent.change(input, { target: { value: arg } });
+      expect(ipc.controls).toHaveLength(count); // typing never runs it
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(ipc.controls).toHaveLength(count + 1));
+      expect(ipc.controls[ipc.controls.length - 1]).toEqual([action, value]);
+    }
+    for (const format of ["json", "csv", "md"]) {
+      const count = ipc.exports.length;
+      fireEvent.change(input, { target: { value: `history today export ${format}` } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(ipc.exports).toHaveLength(count + 1));
+      expect(ipc.exports[ipc.exports.length - 1]).toEqual([format, expect.objectContaining({ since_ms: expect.any(Number) })]);
+    }
   });
 });

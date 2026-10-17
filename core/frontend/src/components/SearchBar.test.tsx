@@ -23,3 +23,14 @@ describe("SearchBar — clear button", () => {
     expect(fireEvent.mouseDown(getByLabelText("Clear input"))).toBe(false);
   });
 });
+
+it("intercepts multiline translation pastes before the input strips line breaks", () => {
+  const onChange = vi.fn();
+  const { getByRole } = render(<SearchBar value="tren " onChange={onChange} />);
+  const input = getByRole("textbox") as HTMLInputElement;
+  input.setSelectionRange(5, 5);
+  expect(fireEvent.paste(input, {
+    clipboardData: { getData: () => "Hello\n\nWorld" },
+  })).toBe(false);
+  expect(onChange).toHaveBeenCalledWith("tren Hello↵↵World");
+});

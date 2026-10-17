@@ -48,6 +48,28 @@ spotify history artist kr|aftwerk   ⇥ Tab  Kraftwerk · 31× gehört
 
 ## What is suggested
 
+### Spotify intervals and complete controls (v0.215.1)
+
+Spotify offers `heute`, `gestern`, `woche`, `monat` and the English
+`today`, `yesterday`, `week`, `month` in either interface language. These are
+mutually exclusive intervals. Choosing one replaces the previous interval;
+Tab and Shift+Tab switch between the alternatives instead of appending more
+words. A complete interval stays switchable even after typing it in full or
+accepting it with Enter. A space opens further filter/export options again.
+
+For example, Tab can change `spotify history heute` to
+`spotify history gestern`, keeping a single interval. If several intervals
+are typed manually, Spotify uses the last one. Artist names remain free-text
+values and are not rewritten as intervals.
+
+Complete controls, including aliases (`stop` = `pause`, `vol` = `volume`),
+run on Enter even while the Spotify panel is already focused. Numeric
+presets keep their ghost hint but do not take over Enter for valid values:
+`spotify volume 7` runs with 7%, while Tab can explicitly accept 75%.
+See [spotify.md](./spotify.md) for all controls, aliases and interval bounds.
+
+### Available values
+
 1. **Fixed words** of each command (`wakelock on|off|dark`, `spotify play|…`,
    `adb remote|apps|wifi`, `settings <section>` …).
 2. **Typical values** where a command takes a number: `spotify volume` 25 / 50
@@ -84,7 +106,7 @@ social link's video/audio switch. Commands with their own suggestion rows
 ## Adding a command
 
 One entry in `ARG_TREES` (`core/frontend/src/lib/arg-complete.ts`), keyed by
-the command kind: a list of `{ value, hint, next? }`. `next` leads to the
+the command kind: a list of `{ value, aliases?, hint, next? }`. `next` leads to the
 next level (it may point back to itself, like the combinable history
 filters), `{ source, hint }` marks a free-text slot filled from live data.
 Lists owned elsewhere (retro palettes, settings sections) are read from their

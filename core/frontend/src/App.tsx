@@ -3055,7 +3055,7 @@ function App() {
     });
   }, [otpQuery, totpEntries, totpCodes]);
 
-  // Pasting a social-media URL (YouTube / IG / TikTok / FB) into the search bar
+  // Pasting a supported social-media URL (including X / Twitter) into the search bar
   // surfaces a download suggestion at the top; the preview offers video/audio.
   const socialEntry = useMemo<ListEntry | null>(() => {
     const t = detectSocial(query);

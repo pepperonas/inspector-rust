@@ -38,6 +38,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("LinkGrabber", () => {
+  it("downloads X and Twitter posts alongside YouTube without offering mixed audio", async () => {
+    const x = "https://x.com/elonmusk/status/2110923689797808453";
+    const twitter = "https://twitter.com/user/status/123";
+    render(<LinkGrabber />);
+    paste(`${x}\n${YT_A}\n${twitter}\n${x}`);
+    start();
+    await waitFor(() => expect(socialDownload).toHaveBeenCalledTimes(3));
+    expect(socialDownload.mock.calls).toEqual([
+      [x, "video", false], [YT_A, "video", false], [twitter, "video", false],
+    ]);
+  });
   it("downloads every pasted link, deduplicated", async () => {
     render(<LinkGrabber />);
     paste(`${YT_A}\n${YT_B}\n${YT_A}`);

@@ -1,4 +1,4 @@
-//! Download social-media content (YouTube / Instagram / TikTok / Facebook) via
+//! Download social-media content (YouTube / Instagram / TikTok / Facebook / Dailymotion / X) via
 //! `yt-dlp`. IR auto-detects a social URL (in a clip or the search bar) and the
 //! preview offers a download — **video or audio** for YouTube, **video** for the
 //! rest. Output lands in `~/Downloads` and is revealed in Finder.
@@ -19,6 +19,7 @@ pub enum Platform {
     TikTok,
     Facebook,
     Dailymotion,
+    X,
 }
 
 impl Platform {
@@ -29,6 +30,7 @@ impl Platform {
             Platform::TikTok => "TikTok",
             Platform::Facebook => "Facebook",
             Platform::Dailymotion => "Dailymotion",
+            Platform::X => "X",
         }
     }
 }
@@ -36,22 +38,26 @@ impl Platform {
 /// Recognise a supported social-media URL by host. Returns `None` for anything
 /// else (so the preview only offers a download when it makes sense).
 pub fn detect_platform(url: &str) -> Option<Platform> {
-    let u = url.trim().to_lowercase();
-    if !(u.starts_with("http://") || u.starts_with("https://")) {
+    let parsed = tauri::Url::parse(url.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
         return None;
     }
-    if u.contains("youtube.com") || u.contains("youtu.be") {
+    let host = parsed.host_str()?;
+    let matches_host = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
+    if matches_host("youtube.com") || matches_host("youtu.be") {
         Some(Platform::YouTube)
-    } else if u.contains("instagram.com") {
+    } else if matches_host("instagram.com") {
         Some(Platform::Instagram)
-    } else if u.contains("tiktok.com") {
+    } else if matches_host("tiktok.com") {
         Some(Platform::TikTok)
-    } else if u.contains("facebook.com") || u.contains("fb.watch") || u.contains("fb.com") {
+    } else if matches_host("facebook.com") || matches_host("fb.watch") || matches_host("fb.com") {
         Some(Platform::Facebook)
-    } else if u.contains("dailymotion.com") || u.contains("dai.ly") {
+    } else if matches_host("dailymotion.com") || matches_host("dai.ly") {
         // `dai.ly` is Dailymotion's own short form — recognising only the long
         // host would silently refuse half the links people actually share.
         Some(Platform::Dailymotion)
+    } else if matches_host("x.com") || matches_host("twitter.com") {
+        Some(Platform::X)
     } else {
         None
     }
@@ -609,6 +615,35 @@ mod tests {
         assert_eq!(detect_platform("https://www.tiktok.com/@u/video/123"), Some(Platform::TikTok));
         assert_eq!(detect_platform("https://www.facebook.com/watch/?v=1"), Some(Platform::Facebook));
         assert_eq!(detect_platform("https://fb.watch/abc/"), Some(Platform::Facebook));
+    }
+
+    #[test]
+    fn detects_x_and_legacy_twitter_video_links() {
+        for url in [
+            "https://x.com/elonmusk/status/2110923689797808453",
+            "https://www.x.com/elonmusk/status/2110923689797808453?s=20",
+            "https://twitter.com/elonmusk/status/2110923689797808453",
+            "https://mobile.twitter.com/elonmusk/status/2110923689797808453",
+            "https://x.com/i/status/2110923689797808453",
+            "HTTPS://X.COM/elonmusk/status/2110923689797808453",
+        ] {
+            assert_eq!(detect_platform(url), Some(Platform::X), "{url}");
+        }
+        assert_eq!(Platform::X.display_name(), "X");
+    }
+
+    #[test]
+    fn classifies_the_hostname_instead_of_domain_text_elsewhere() {
+        for url in [
+            "https://notx.com/elonmusk/status/1",
+            "https://x.com.example.org/elonmusk/status/1",
+            "https://example.org/?next=https://x.com/elonmusk/status/1",
+            "https://x.com@example.org/elonmusk/status/1",
+            "https://example.org/youtube.com/watch?v=1",
+            "https://notyoutube.com/watch?v=1",
+        ] {
+            assert_eq!(detect_platform(url), None, "{url}");
+        }
     }
 
     #[test]

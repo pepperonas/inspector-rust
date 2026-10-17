@@ -95,8 +95,33 @@ describe("dailymotion", () => {
   it("every platform has a label — a new one must not fall through", () => {
     // The list row used to hard-code its label chain, so an unlisted platform
     // was silently announced as "Facebook".
-    for (const p of ["youtube", "instagram", "tiktok", "facebook", "dailymotion"] as const) {
+    for (const p of ["youtube", "instagram", "tiktok", "facebook", "dailymotion", "x"] as const) {
       expect(platformLabel(p).length, p).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("X / Twitter", () => {
+  it.each([
+    "https://x.com/elonmusk/status/2110923689797808453",
+    "https://www.x.com/elonmusk/status/2110923689797808453?s=20",
+    "https://twitter.com/elonmusk/status/2110923689797808453",
+    "https://mobile.twitter.com/elonmusk/status/2110923689797808453",
+    "https://x.com/i/status/2110923689797808453",
+    "HTTPS://X.COM/elonmusk/status/2110923689797808453",
+  ])("offers video for %s without changing the URL", (url) => {
+    expect(detectSocial(url)).toEqual({ platform: "x", url });
+    expect(platformLabel("x")).toBe("X");
+  });
+
+  it.each([
+    "https://notx.com/elonmusk/status/1",
+    "https://x.com.example.org/elonmusk/status/1",
+    "https://example.org/?next=https://x.com/elonmusk/status/1",
+    "https://x.com@example.org/elonmusk/status/1",
+    "https://example.org/youtube.com/watch?v=1",
+    "https://notyoutube.com/watch?v=1",
+  ])("does not classify domain text outside a supported hostname: %s", (url) => {
+    expect(detectSocial(url)).toBeNull();
   });
 });

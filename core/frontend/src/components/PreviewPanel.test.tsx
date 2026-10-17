@@ -2,19 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import type { ClipEntry, ListEntry } from "../lib/types";
 
-const { commitTransformedText, socialYtdlpAvailable, imageChromaticity } = vi.hoisted(() => ({
+const { commitTransformedText, socialYtdlpAvailable, socialDownload, imageChromaticity } = vi.hoisted(() => ({
   // Typed so `.mock.calls[n][2]` (the transform kind) stays checkable.
   commitTransformedText:
     vi.fn<(text: string, sourceId?: number | null, kind?: string | null) => Promise<void>>(
       async () => undefined,
     ),
   socialYtdlpAvailable: vi.fn(async () => true),
+  socialDownload: vi.fn(async () => "/Downloads/x-video.mp4"),
   imageChromaticity: vi.fn(async () => 0.5),
 }));
 vi.mock("../lib/ipc", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/ipc")>()),
   commitTransformedText,
   socialYtdlpAvailable,
+  socialDownload,
+  socialMetadata: vi.fn(async () => { throw new Error("no metadata in preview tests"); }),
+  setSuppressHide: vi.fn(async () => undefined),
   imageChromaticity,
   getClip: vi.fn(async () => null),
 }));
@@ -25,6 +29,7 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => p }));
 import { PreviewPanel } from "./PreviewPanel";
 import { IS_MAC } from "../lib/platform";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { detectSocial } from "../lib/social";
 
 function textClip(text: string, over: Partial<ClipEntry> = {}): ListEntry {
   return {
@@ -343,6 +348,16 @@ it("keeps multiline source and translation intact when copying from the preview"
   await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(source));
   fireEvent.click(targetBox);
   await waitFor(() => expect(writeText).toHaveBeenLastCalledWith(translated));
+});
+
+it("offers the reported X post as a video download and sends the original URL to IPC", async () => {
+  const url = "https://x.com/elonmusk/status/2110923689797808453";
+  const target = detectSocial(url)!;
+  render(<PreviewPanel entry={{ kind: "social", data: target }} />);
+  expect(screen.getByText("X download")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Download audio" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Download video" }));
+  await waitFor(() => expect(socialDownload).toHaveBeenCalledWith(url, "video", true, undefined));
 });
 
 describe("touch / echo file preview", () => {

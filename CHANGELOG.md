@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.215.2] - 2026-10-17
+
+### Fixed
+- X/Twitter video links, including `x.com`, `twitter.com` and mobile/www variants, now offer Download video in the search bar and clipboard preview and work in mixed batch downloads. The download row appears before the existing QR action. Frontend and backend classify the actual hostname rather than matching domain names inside another URL.
+
 ## [0.215.1] - 2026-10-17
 
 ### Fixed

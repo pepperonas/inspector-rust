@@ -46,7 +46,7 @@
   - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Selbstauslöser · Wiederholen; schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rechteck / Ellipse / Highlight / Blur / Schwärzen / nummerierte Schritt-Badges); **an Bildschirm pinnen**. Dateinamen enthalten die Quell-App.
   - 🎥 **Bildschirmaufnahme** (`Ctrl+Shift+Alt+S`) — Region ziehen → Audio wählen (System / Mikro / beide) → 3-2-1 → **MP4 (H.264)** nach Downloads; schwebende Leiste mit **Pause/Resume**; Multi-Monitor; System-Audio routet automatisch über ein Loopback. Braucht ffmpeg.
   - 🔍 **Bildschirm-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-Qualität-Texterkennung ins Clipboard.
-  - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube), mit optionalem **Ausschnitt** unter den Buttons: gelbe Griffe im QuickTime-Stil, per Ohr über einen kleinen Audio-Proxy scrubben — der Download lädt dann **nur den Schnitt** (framegenau; 20 s aus einem 83-Minuten-Set kommen als ~1,2 MiB statt Hunderter MB); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
+  - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook / X (Twitter) (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube), mit optionalem **Ausschnitt** unter den Buttons: gelbe Griffe im QuickTime-Stil, per Ohr über einen kleinen Audio-Proxy scrubben — der Download lädt dann **nur den Schnitt** (framegenau; 20 s aus einem 83-Minuten-Set kommen als ~1,2 MiB statt Hunderter MB); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - ⏱️ **Zeiterfassung / Timesheet** (`track on/off`; `track` oder **`Ctrl+Shift+T`**; macOS) — opt-in, event-basierte App-Nutzungserfassung per Fensterfokus mit rückwirkender Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tages-/Wochen-Ansicht, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Projekte), **manueller Pause/Weiter-Taste**, CSV- + eigenständigem HTML-Export im sichtbaren Umfang (Tag oder Mo–So-Woche), **wochenweitem Aufräumen** und globalem **Tracking-Hotkey** (`Ctrl+Shift+Alt+T`, umbelegbar); erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); optionale **Browser-Extension** (nur Loopback-Socket). Fenstertitel + URLs at-rest verschlüsselt.
   - 📊 **System-Stats** (`stats`) — Live-Inline-Dashboard: CPU (gesamt + pro Kern), Speicher + Swap, **Akku & Leistungsaufnahme in Watt**, Temperaturen + **Lüfter-RPM** (SMC / hwmon), Disks, Live-Netzwerk-Durchsatz, Uptime. **Live ↔ History**-Umschalter mit Linien-Charts pro Metrik (1 h / 6 h / 24 h / 7 d).
   - 📈 **KI-Nutzungslimits — `limits` / `quota`** *(v0.190.0+)* — die Limits deines **Claude**-Abos wie auf claude.ai (Sitzung, Woche, Woche je Modell, zusätzliche Nutzung, Wochenanteil je Bereich), je mit Balken, Prozent und Rücksetzzeit (relativ + Berliner Zeit). Darunter **Codex** (5-Stunden-Fenster und Woche aus seinen lokalen Session-Dateien — ohne Netz) und **Antigravity** (Kontingent erschöpft / wieder frei ab, aus seinen Logs). Der Claude-Code-Login wird **nur gelesen** — nie erneuert, nie zurückgeschrieben; fragt alle 5 Min. nur bei offenem Panel, bei 429 mit Backoff. [Details](./docs/claude-limits.md)
@@ -83,18 +83,20 @@
 
   **Korrekturen für Übersetzung und Spotify (v0.215.1).** Mehrzeiligen Text nach einem `tr*`-Befehl einfügen: Zeilenumbrüche, Leerzeilen und Einrückungen bleiben in Vorschau und kopierter Übersetzung erhalten ([Details](./docs/translation.md#multiline-text-and-formatting-v02151)). Spotify-Steuerbefehle und Exporte funktionieren wiederholt mit Enter; `spotify stop` pausiert, und eigene Werte wie `spotify volume 7` bleiben erhalten. Zeitintervalle werden unabhängig von der App-Sprache auf Deutsch und Englisch angeboten: Eine neue Auswahl ersetzt die alte, Tab schaltet zwischen den Intervallen um ([Spotify-Bedienung](./docs/spotify.md#enter-completion-and-repeated-commands-v02151), [Vervollständigung](./docs/tab-completion.md)).
 
+  **X/Twitter-Video-Download (v0.215.2).** Einen öffentlichen `x.com`- oder `twitter.com`-Post einfügen: **Video laden** erscheint vor der QR-Aktion. Alte/mobile Links, Zwischenablage-Vorschau und gemischte Stapel-Downloads werden ebenfalls unterstützt. [Unterstützte Links und Fehlerbehebung](./docs/social-download.md).
+
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **5703 Unit-Tests (2172 Rust + 3531 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **5720 Unit-Tests (2174 Rust + 3546 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~237k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~238k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2172 Rust + 3531 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-5703%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2174 Rust + 3546 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-5720%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -116,11 +118,11 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](.github/badges/maintained-yes-brightgreen-f6453ee2.svg)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-5703%20(2172%20Rust%20%2B%203531%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-5720%20(2174%20Rust%20%2B%203546%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](.github/badges/prs-welcome-brightgreen-bf350bde.svg)](./CONTRIBUTING.md)
   [![Code Style](.github/badges/code-style-clippy-eslint-orange-216d70a2.svg)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-77-4f46e5?style=flat-square)](#commands)
-  [![Docs](https://img.shields.io/badge/docs-38%20pages-0ea5e9?style=flat-square)](./docs)
+  [![Docs](https://img.shields.io/badge/docs-39%20pages-0ea5e9?style=flat-square)](./docs)
   [![Rust modules](https://img.shields.io/badge/rust%20modules-107-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-869-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-497-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
@@ -131,7 +133,7 @@
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
   [![Hidden triggers](https://img.shields.io/badge/hidden%20triggers-11-ff69b4?style=flat-square)](./core/frontend/src/lib/feature-extras.ts)
   [![Frontend modules](https://img.shields.io/badge/frontend%20modules-118-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
-  [![Releases](https://img.shields.io/badge/releases-577-8957e5?style=flat-square)](./CHANGELOG.md)
+  [![Releases](https://img.shields.io/badge/releases-578-8957e5?style=flat-square)](./CHANGELOG.md)
   [![License](.github/badges/license-mit-blue-d5dc0172.svg)](./LICENSE)
   [![Tauri](.github/badges/tauri-2-24c8db-31b76b30.svg)](https://tauri.app)
   [![Offline first](.github/badges/offline-first-334155-52fd5d0d.svg)](#privacy)
@@ -202,8 +204,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](.github/badges/eslint-flat-config-4b32c3-cc02ea79.svg)](https://eslint.org)
   [![Vitest](.github/badges/vitest-3-6e9f18-d14e6138.svg)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-2172%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-3531%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-2174%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-3546%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](.github/badges/cargo-clippy-d-warnings-success-0e95b602.svg)](#)
   [![tsc strict](.github/badges/tsc-strict-3178c6-8998462e.svg)](#)
   [![Prettier](.github/badges/code-style-prettier-f7b93e-52e0150f.svg)](https://prettier.io)
@@ -236,7 +238,7 @@
   [![exe size](.github/badges/exe-14-mb-blue-2fcaaf46.svg)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-5703%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-5720%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-497-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-77-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-64-blueviolet?style=flat-square)](#)
@@ -1025,8 +1027,8 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3531 Tests
-cargo test --workspace  # Rust-Unit-Tests — 2172 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3546 Tests
+cargo test --workspace  # Rust-Unit-Tests — 2174 Tests
 ```
 
 Ein einzelnes Modul während der Iteration:
@@ -1114,6 +1116,7 @@ Entwurfsentscheidungen, Fehlerbilder und die Fallen, die es gekostet hat.
 | [disk.md](./docs/disk.md) | `disk` / `daisy` — the usage sunburst and its blind spot |
 | [repo.md](./docs/repo.md) | `repo` — git activity statistics |
 | [tab-completion.md](./docs/tab-completion.md) | Tab-Vervollständigung der Befehlsparameter: Werte, Tippfehler-Korrektur, Gewohnheiten zuerst |
+| [social-download.md](./docs/social-download.md) | Unterstützte Video-Links, X/Twitter-Erkennung, QR-Priorität, gemischte Stapel und Fehlerbehebung |
 | [spotify.md](./docs/spotify.md) | `spotify` — lokaler Hörverlauf, Export und Steuerung der Spotify-App (macOS) |
 | [github.md](./docs/github.md) | `github` — Follower, Sterne und Repo-Wachstum aus lokalen Snapshots; Anmeldung, Rate-Limits, Export |
 | [pagespeed.md](./docs/pagespeed.md) | `pagespeed` — PageSpeed Insights, keys, IP restrictions |

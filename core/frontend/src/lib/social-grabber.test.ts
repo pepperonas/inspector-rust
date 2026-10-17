@@ -2,6 +2,17 @@ import { describe, it, expect } from "vitest";
 import { extractSocialLinks, allYouTube } from "./social";
 
 describe("extractSocialLinks", () => {
+  it("includes X and legacy Twitter videos in a mixed batch, once each", () => {
+    const url = "https://x.com/elonmusk/status/2110923689797808453";
+    const legacy = "https://twitter.com/user/status/123";
+    const targets = extractSocialLinks(`(${url}), https://youtu.be/aaa ${legacy}. ${url}`);
+    expect(targets).toEqual([
+      { platform: "x", url },
+      { platform: "youtube", url: "https://youtu.be/aaa" },
+      { platform: "x", url: legacy },
+    ]);
+    expect(allYouTube(targets)).toBe(false);
+  });
   it("finds several links across mixed separators", () => {
     const text = `
       https://youtu.be/aaa

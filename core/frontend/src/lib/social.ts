@@ -1,6 +1,6 @@
 /**
  * Detect a downloadable social-media URL (YouTube / Instagram / TikTok /
- * Facebook / Dailymotion) in a string — a clip's text or the search query. Pure; mirrors the
+ * Facebook / Dailymotion / X) in a string — a clip's text or the search query. Pure; mirrors the
  * Rust `social_dl::detect_platform`. Used to surface a download suggestion in
  * the preview.
  */
@@ -10,7 +10,8 @@ export type SocialPlatform =
   | "instagram"
   | "tiktok"
   | "facebook"
-  | "dailymotion";
+  | "dailymotion"
+  | "x";
 
 export interface SocialTarget {
   platform: SocialPlatform;
@@ -23,6 +24,7 @@ const LABELS: Record<SocialPlatform, string> = {
   tiktok: "TikTok",
   facebook: "Facebook",
   dailymotion: "Dailymotion",
+  x: "X",
 };
 
 export function platformLabel(p: SocialPlatform): string {
@@ -34,15 +36,22 @@ export function detectSocial(text: string): SocialTarget | null {
   const m = text.match(/https?:\/\/[^\s<>"']+/i);
   if (!m) return null;
   const url = m[0];
-  const u = url.toLowerCase();
-  if (u.includes("youtube.com") || u.includes("youtu.be")) return { platform: "youtube", url };
-  if (u.includes("instagram.com")) return { platform: "instagram", url };
-  if (u.includes("tiktok.com")) return { platform: "tiktok", url };
-  if (u.includes("facebook.com") || u.includes("fb.watch") || u.includes("fb.com"))
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  const matchesHost = (domain: string) => host === domain || host.endsWith(`.${domain}`);
+  if (matchesHost("youtube.com") || matchesHost("youtu.be")) return { platform: "youtube", url };
+  if (matchesHost("instagram.com")) return { platform: "instagram", url };
+  if (matchesHost("tiktok.com")) return { platform: "tiktok", url };
+  if (matchesHost("facebook.com") || matchesHost("fb.watch") || matchesHost("fb.com"))
     return { platform: "facebook", url };
   // `dai.ly` is Dailymotion's own short form.
-  if (u.includes("dailymotion.com") || u.includes("dai.ly"))
+  if (matchesHost("dailymotion.com") || matchesHost("dai.ly"))
     return { platform: "dailymotion", url };
+  if (matchesHost("x.com") || matchesHost("twitter.com")) return { platform: "x", url };
   return null;
 }
 

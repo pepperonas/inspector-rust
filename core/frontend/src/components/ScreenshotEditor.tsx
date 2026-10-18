@@ -9,6 +9,7 @@ import {
   Copy,
   Crop,
   Droplets,
+  Focus,
   Hash,
   Highlighter,
   Minus,
@@ -103,7 +104,7 @@ export function ScreenshotEditor() {
   const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [opacity, setOpacity] = useState<number>(1);
-  const [shadow] = useState<boolean>(false);
+  const [shadow, setShadow] = useState<boolean>(false);
   const [fontSize, setFontSize] = useState<number>(28);
   const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
 
@@ -345,6 +346,13 @@ export function ScreenshotEditor() {
       if (a) commitReplace(selectedId, restyleAnnotation(a, { fontSize: n }));
     }
   };
+  const applyShadow = (on: boolean) => {
+    setShadow(on);
+    if (selectedId) {
+      const a = annById(selectedId);
+      if (a) commitReplace(selectedId, restyleAnnotation(a, { shadow: on }));
+    }
+  };
 
   // ── Hotkeys ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -394,6 +402,7 @@ export function ScreenshotEditor() {
         else if (key === "n") setTool("step");
         else if (key === "p") setTool("pen");
         else if (key === "c") setTool("crop");
+        else if (key === "s") setTool("spotlight");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -615,6 +624,8 @@ export function ScreenshotEditor() {
           setOpacity={applyOpacity}
           fontSize={fontSize}
           setFontSize={applyFontSize}
+          shadow={shadow}
+          setShadow={applyShadow}
         />
         <div
           ref={fitBoxRef}
@@ -706,6 +717,8 @@ function Toolbar({
   setOpacity,
   fontSize,
   setFontSize,
+  shadow,
+  setShadow,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -717,6 +730,8 @@ function Toolbar({
   setOpacity: (n: number) => void;
   fontSize: number;
   setFontSize: (n: number) => void;
+  shadow: boolean;
+  setShadow: (on: boolean) => void;
 }) {
   useT();
   return (
@@ -733,6 +748,7 @@ function Toolbar({
       <ToolBtn t="redact" icon={<SquareSlash size={16} />} label={t("shot.redact")} shortcut="X" active={tool} onSelect={setTool} />
       <ToolBtn t="step" icon={<Hash size={16} />} label={t("shot.step_badge")} shortcut="N" active={tool} onSelect={setTool} />
       <ToolBtn t="pen" icon={<PenTool size={16} />} label={t("shot.pen")} shortcut="P" active={tool} onSelect={setTool} />
+      <ToolBtn t="spotlight" icon={<Focus size={16} />} label={t("shot.spotlight")} shortcut="S" active={tool} onSelect={setTool} />
       <ToolBtn t="crop" icon={<Crop size={16} />} label={t("shot.crop")} shortcut="C" active={tool} onSelect={setTool} />
 
       <div className="mt-3 grid grid-cols-2 place-items-center gap-1.5">
@@ -768,6 +784,20 @@ function Toolbar({
         onChange={(v) => setOpacity(v / 100)}
       />
       <SliderRow label={t("shot.font_size")} min={12} max={120} value={fontSize} onChange={setFontSize} />
+
+      <button
+        onClick={() => setShadow(!shadow)}
+        title={t("shot.shadow")}
+        className={
+          "mt-3 flex h-8 w-8 items-center justify-center rounded-md border " +
+          (shadow ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15" : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+        }
+      >
+        <span
+          className="h-3.5 w-3.5 rounded-[2px] bg-current"
+          style={{ boxShadow: shadow ? "2px 2px 0 rgba(0,0,0,0.55)" : "none" }}
+        />
+      </button>
     </div>
   );
 }
@@ -978,7 +1008,26 @@ function composeScene(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.restore();
   ctx.drawImage(img, 0, 0);
-  for (const a of list) drawAnnotation(ctx, a, img);
+  for (const a of list) if (a.type !== "spotlight") drawAnnotation(ctx, a, img);
+
+  // Spotlight: a dim layer over the whole image with a transparent hole for
+  // each spotlight rect, composited on top so the focused region shows at full
+  // brightness. Built on its own layer (destination-out would otherwise erase
+  // the content, not just the dim). This is CONTENT — it IS in the export.
+  const spots = list.filter((a) => a.type === "spotlight");
+  if (spots.length) {
+    const layer = document.createElement("canvas");
+    layer.width = img.naturalWidth;
+    layer.height = img.naturalHeight;
+    const lx = layer.getContext("2d");
+    if (lx) {
+      lx.fillStyle = "rgba(0,0,0,0.6)";
+      lx.fillRect(0, 0, layer.width, layer.height);
+      lx.globalCompositeOperation = "destination-out";
+      for (const s of spots) if (s.type === "spotlight") lx.fillRect(s.x, s.y, s.w, s.h);
+      ctx.drawImage(layer, 0, 0);
+    }
+  }
 }
 
 function drawPen(ctx: CanvasRenderingContext2D, a: PenAnnotation) {

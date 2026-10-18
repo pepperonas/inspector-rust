@@ -12,6 +12,7 @@ import {
   Focus,
   Hash,
   Highlighter,
+  Image as ImageIcon,
   Minus,
   MousePointer2,
   PenTool,
@@ -47,6 +48,7 @@ import {
   restyleAnnotation,
   type Annotation,
   type ArrowAnnotation,
+  type BackgroundSpec,
   type BlurAnnotation,
   type EditorDoc,
   type Handle,
@@ -56,6 +58,7 @@ import {
   type Style,
   type Tool,
 } from "../lib/editor-geometry";
+import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
 import { t, useT } from "../lib/i18n";
 
@@ -95,6 +98,22 @@ const EMOJIS = [
   "🔥", "✅", "❌", "⭐", "❤️", "🎉", "💡", "⚠️", "🚀", "💯", "📌", "➡️",
 ] as const;
 
+/** Backdrop presets (padding/radius in IMAGE px). Dependency-free solids +
+ *  gradients — no bundled wallpaper images. */
+const BACKGROUND_PRESETS: BackgroundSpec[] = [
+  { kind: "solid", color: "#0f172a", padding: 48, radius: 16, shadow: true },
+  { kind: "solid", color: "#ffffff", padding: 48, radius: 16, shadow: true },
+  { kind: "gradient", color: "#6366f1", color2: "#ec4899", padding: 48, radius: 16, shadow: true },
+  { kind: "gradient", color: "#0ea5e9", color2: "#22d3ee", padding: 48, radius: 16, shadow: true },
+  { kind: "gradient", color: "#f59e0b", color2: "#ef4444", padding: 48, radius: 16, shadow: true },
+  { kind: "gradient", color: "#10b981", color2: "#84cc16", padding: 48, radius: 16, shadow: true },
+];
+
+/** CSS background value for a preset swatch / the live editor frame. */
+function backdropCss(bg: BackgroundSpec): string {
+  return bg.kind === "gradient" && bg.color2 ? `linear-gradient(135deg, ${bg.color}, ${bg.color2})` : bg.color;
+}
+
 export function ScreenshotEditor() {
   useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -114,6 +133,9 @@ export function ScreenshotEditor() {
   const [shadow, setShadow] = useState<boolean>(false);
   const [fontSize, setFontSize] = useState<number>(28);
   const [emoji, setEmoji] = useState<string>(EMOJIS[0]);
+  // Background/padding wrapper. Component state (a presentation setting, not an
+  // undoable drawing action); reset when the screenshot changes.
+  const [background, setBackground] = useState<BackgroundSpec | null>(null);
   const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
 
   // Undo/redo history over the whole document.
@@ -139,6 +161,15 @@ export function ScreenshotEditor() {
 
   const annById = (id: string | null): Annotation | undefined =>
     id ? annotations.find((a) => a.id === id) : undefined;
+
+  // On-screen scene layout: with a background the crop is baked into the padded
+  // view; without one the canvas is the full image (crop shown as a dim
+  // overlay instead). `null` until the image is loaded.
+  const viewLayoutNow = (): SceneLayout | null => {
+    const img = imgRef.current;
+    if (!img) return null;
+    return sceneLayout(img.naturalWidth, img.naturalHeight, background ? hist.present.crop : null, background);
+  };
 
   // Canvas→CSS pixel ratio: a Retina shot's backing store is 2× its display
   // size, so handle hit-radii and selection chrome must scale by this to stay
@@ -173,19 +204,15 @@ export function ScreenshotEditor() {
   const fitCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const box = fitBoxRef.current;
-    const img = imgRef.current;
-    if (!canvas || !box || !img) return;
+    if (!canvas || !box || !canvas.width || !canvas.height) return;
     const cs = getComputedStyle(box);
     const availW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const availH = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
     if (availW <= 0 || availH <= 0) return;
-    const scale = Math.min(
-      availW / img.naturalWidth,
-      availH / img.naturalHeight,
-      1 / (window.devicePixelRatio || 1),
-    );
-    canvas.style.width = `${Math.max(1, Math.round(img.naturalWidth * scale))}px`;
-    canvas.style.height = `${Math.max(1, Math.round(img.naturalHeight * scale))}px`;
+    // The backing store is the SCENE size (image + any padding); scale that.
+    const scale = Math.min(availW / canvas.width, availH / canvas.height, 1 / (window.devicePixelRatio || 1));
+    canvas.style.width = `${Math.max(1, Math.round(canvas.width * scale))}px`;
+    canvas.style.height = `${Math.max(1, Math.round(canvas.height * scale))}px`;
   }, []);
 
   useEffect(() => {
@@ -220,6 +247,7 @@ export function ScreenshotEditor() {
     void listen("editor-screenshot-changed", () => {
       dispatch({ type: "reset", present: EMPTY_DOC });
       setSelectedId(null);
+      setBackground(null);
       void loadImage();
     }).then((u) => {
       unlisten = u;
@@ -238,40 +266,49 @@ export function ScreenshotEditor() {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
-    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+    const layout = sceneLayout(img.naturalWidth, img.naturalHeight, background ? hist.present.crop : null, background);
+    const W = Math.round(layout.width);
+    const H = Math.round(layout.height);
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W;
+      canvas.height = H;
       fitCanvas();
     }
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.restore();
 
     // Substitute the live-dragged annotation during a move/resize.
     const list =
       interaction && (interaction.kind === "move" || interaction.kind === "resize")
         ? annotations.map((a) => (a.id === interaction.id ? interaction.live : a))
         : annotations;
-    composeScene(ctx, img, list);
+    const px = pxRatio();
 
-    // Preview of an in-progress draw.
-    if (interaction && interaction.kind === "draw" && tool !== "text" && tool !== "step") {
-      const preview = makeDragAnnotation(tool, interaction.start, interaction.current, styleObj, "preview");
-      if (preview) drawAnnotation(ctx, preview, img);
+    paintScene(ctx, img, list, layout, background, (c) => {
+      // In-progress previews + selection chrome, in image space.
+      if (interaction && interaction.kind === "draw" && tool !== "text" && tool !== "step") {
+        const preview = makeDragAnnotation(tool, interaction.start, interaction.current, styleObj, "preview");
+        if (preview) drawAnnotation(c, preview, img);
+      }
+      if (interaction && interaction.kind === "pen") {
+        drawAnnotation(c, { id: "preview", type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow }, img);
+      }
+      const sel = tool !== "crop" ? list.find((a) => a.id === selectedId) : undefined;
+      if (sel) drawSelection(c, sel, px);
+    });
+
+    // Crop chrome (dim outside + border) — only in the bg-off view (full image,
+    // offset 0). With a background the crop is baked into the padded scene.
+    if (!background) {
+      const crop = interaction && interaction.kind === "crop" ? dragRect(interaction.start, interaction.current) : hist.present.crop;
+      if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, W, H, px);
     }
-    // Preview of an in-progress freehand pen stroke.
-    if (interaction && interaction.kind === "pen") {
-      drawAnnotation(ctx, { id: "preview", type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow }, img);
-    }
-
-    // Crop chrome (dim outside + border) — editor-only, never in the export.
-    const crop = interaction && interaction.kind === "crop" ? dragRect(interaction.start, interaction.current) : hist.present.crop;
-    if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, canvas.width, canvas.height, pxRatio());
-
-    // Selection chrome (follows a live drag; hidden while cropping).
-    const sel = tool !== "crop" ? list.find((a) => a.id === selectedId) : undefined;
-    if (sel) drawSelection(ctx, sel, pxRatio());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hist, interaction, selectedId, tool, color, strokeWidth, opacity, shadow, fontSize, imgReady, fitCanvas, pxRatio]);
+  }, [hist, interaction, selectedId, tool, color, strokeWidth, opacity, shadow, fontSize, background, imgReady, fitCanvas, pxRatio]);
 
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
@@ -282,21 +319,16 @@ export function ScreenshotEditor() {
   const exportDataUrl = useCallback((): string | null => {
     const img = imgRef.current;
     if (!img) return null;
-    const crop = hist.present.crop;
+    const crop = hist.present.crop && hist.present.crop.w >= 1 && hist.present.crop.h >= 1 ? hist.present.crop : null;
+    const layout = sceneLayout(img.naturalWidth, img.naturalHeight, crop, background);
     const off = document.createElement("canvas");
+    off.width = Math.max(1, Math.round(layout.width));
+    off.height = Math.max(1, Math.round(layout.height));
     const ctx = off.getContext("2d");
     if (!ctx) return null;
-    if (crop && crop.w >= 1 && crop.h >= 1) {
-      off.width = Math.round(crop.w);
-      off.height = Math.round(crop.h);
-      ctx.translate(-Math.round(crop.x), -Math.round(crop.y));
-    } else {
-      off.width = img.naturalWidth;
-      off.height = img.naturalHeight;
-    }
-    composeScene(ctx, img, hist.present.annotations);
+    paintScene(ctx, img, hist.present.annotations, layout, background);
     return off.toDataURL("image/png");
-  }, [hist.present]);
+  }, [hist.present, background]);
   const save = useCallback(async () => {
     if (saving) return;
     const dataUrl = exportDataUrl();
@@ -443,13 +475,17 @@ export function ScreenshotEditor() {
   }, []);
 
   // ── Mouse helpers ────────────────────────────────────────────────
+  // Screen → IMAGE coordinates: scale into scene (canvas) space, then subtract
+  // the layout offset so every handler keeps working in image space.
   const toCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width;
     const sy = canvas.height / rect.height;
-    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+    const scene = { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+    const l = viewLayoutNow();
+    return l ? toImagePoint(l, scene) : scene;
   };
 
   const grabHandle = (p: Point): Handle | null => {
@@ -641,6 +677,8 @@ export function ScreenshotEditor() {
           setFontSize={applyFontSize}
           shadow={shadow}
           setShadow={applyShadow}
+          background={background}
+          setBackground={setBackground}
         />
         <div
           ref={fitBoxRef}
@@ -735,6 +773,8 @@ function Toolbar({
   setFontSize,
   shadow,
   setShadow,
+  background,
+  setBackground,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -748,6 +788,8 @@ function Toolbar({
   setFontSize: (n: number) => void;
   shadow: boolean;
   setShadow: (on: boolean) => void;
+  background: BackgroundSpec | null;
+  setBackground: (b: BackgroundSpec | null) => void;
 }) {
   useT();
   return (
@@ -815,6 +857,49 @@ function Toolbar({
           style={{ boxShadow: shadow ? "2px 2px 0 rgba(0,0,0,0.55)" : "none" }}
         />
       </button>
+
+      {/* Background / padding wrapper */}
+      <div className="mt-3 flex w-full flex-col items-center gap-1 border-t border-[var(--color-border)] pt-2">
+        <button
+          onClick={() => setBackground(background ? null : BACKGROUND_PRESETS[0])}
+          title={t("shot.background")}
+          className={
+            "flex h-8 w-8 items-center justify-center rounded-md border " +
+            (background ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+          }
+        >
+          <ImageIcon size={15} />
+        </button>
+        {background && (
+          <>
+            <div className="mt-1 grid grid-cols-2 place-items-center gap-1">
+              {BACKGROUND_PRESETS.map((p, i) => {
+                const sel = background.kind === p.kind && background.color === p.color && background.color2 === p.color2;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setBackground({ ...p, padding: background.padding, radius: background.radius, shadow: background.shadow })}
+                    className={"h-5 w-5 rounded border-2 " + (sel ? "border-[var(--color-accent)] scale-110" : "border-[var(--color-border)]")}
+                    style={{ background: backdropCss(p) }}
+                  />
+                );
+              })}
+            </div>
+            <SliderRow label={t("shot.padding")} min={0} max={160} value={background.padding} onChange={(v) => setBackground({ ...background, padding: v })} />
+            <SliderRow label={t("shot.radius")} min={0} max={80} value={background.radius} onChange={(v) => setBackground({ ...background, radius: v })} />
+            <button
+              onClick={() => setBackground({ ...background, shadow: !background.shadow })}
+              title={t("shot.shadow")}
+              className={
+                "mt-1 flex h-7 w-7 items-center justify-center rounded-md border " +
+                (background.shadow ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15" : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+              }
+            >
+              <span className="h-3 w-3 rounded-[2px] bg-current" style={{ boxShadow: background.shadow ? "2px 2px 0 rgba(0,0,0,0.55)" : "none" }} />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -1041,15 +1126,11 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
   ctx.restore();
 }
 
-/** Draw the full scene CONTENT (image + annotations) — no selection chrome,
- *  no crop dim, no in-progress preview. Shared by the on-screen redraw and the
- *  offscreen export so the baked PNG is always clean. Clears in device space
- *  so it is correct under the export's crop translate. */
-function composeScene(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list: Annotation[]) {
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  ctx.restore();
+/** Draw the full scene CONTENT (image + annotations) in IMAGE coordinates —
+ *  no selection chrome, no crop dim, no in-progress preview, and no clear (the
+ *  caller owns clearing + any crop/background transform + clip). Shared by the
+ *  on-screen redraw and the offscreen export so the baked PNG is always clean. */
+function drawSceneContent(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list: Annotation[]) {
   ctx.drawImage(img, 0, 0);
   for (const a of list) if (a.type !== "spotlight") drawAnnotation(ctx, a, img);
 
@@ -1070,6 +1151,75 @@ function composeScene(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list
       for (const s of spots) if (s.type === "spotlight") lx.fillRect(s.x, s.y, s.w, s.h);
       ctx.drawImage(layer, 0, 0);
     }
+  }
+}
+
+/** Fill the backdrop (solid or diagonal gradient) behind a padded screenshot. */
+function fillBackdrop(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, bg: BackgroundSpec) {
+  if (bg.kind === "gradient" && bg.color2) {
+    const g = ctx.createLinearGradient(x, y, x + w, y + h);
+    g.addColorStop(0, bg.color);
+    g.addColorStop(1, bg.color2);
+    ctx.fillStyle = g;
+  } else {
+    ctx.fillStyle = bg.color;
+  }
+  ctx.fillRect(x, y, w, h);
+}
+
+/** Path a rounded rectangle (native roundRect when available, else manual). */
+function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, radius: number) {
+  const rad = Math.max(0, Math.min(radius, r.w / 2, r.h / 2));
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(r.x, r.y, r.w, r.h, rad);
+    return;
+  }
+  ctx.moveTo(r.x + rad, r.y);
+  ctx.arcTo(r.x + r.w, r.y, r.x + r.w, r.y + r.h, rad);
+  ctx.arcTo(r.x + r.w, r.y + r.h, r.x, r.y + r.h, rad);
+  ctx.arcTo(r.x, r.y + r.h, r.x, r.y, rad);
+  ctx.arcTo(r.x, r.y, r.x + r.w, r.y, rad);
+  ctx.closePath();
+}
+
+/** Draw the whole scene (backdrop + optional shadow + rounded-clipped content)
+ *  into `ctx` using `layout`. Shared by the on-screen redraw and the export so
+ *  they can't diverge; `extra` paints in-progress previews / selection chrome
+ *  in image space (offset-translated) after the content. */
+function paintScene(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  list: Annotation[],
+  layout: SceneLayout,
+  bg: BackgroundSpec | null,
+  extra?: (ctx: CanvasRenderingContext2D) => void,
+) {
+  if (bg) fillBackdrop(ctx, 0, 0, layout.width, layout.height, bg);
+  const contentRect: Rect = { x: layout.pad, y: layout.pad, w: layout.content.w, h: layout.content.h };
+  ctx.save();
+  if (bg) {
+    if (bg.shadow) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = layout.pad * 0.5 + 12;
+      ctx.shadowOffsetY = layout.pad * 0.2 + 4;
+      ctx.fillStyle = "#000";
+      roundRectPath(ctx, contentRect, layout.radius);
+      ctx.fill();
+      ctx.restore();
+    }
+    roundRectPath(ctx, contentRect, layout.radius);
+    ctx.clip();
+  }
+  ctx.translate(layout.offsetX, layout.offsetY);
+  drawSceneContent(ctx, img, list);
+  ctx.restore();
+  if (extra) {
+    ctx.save();
+    ctx.translate(layout.offsetX, layout.offsetY);
+    extra(ctx);
+    ctx.restore();
   }
 }
 

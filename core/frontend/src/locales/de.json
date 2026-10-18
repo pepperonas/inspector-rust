@@ -2555,7 +2555,7 @@
   "fx.cutout.note": "Bei einem Bild in der Vorschau — Motiv per U²-Net freistellen → Downloads.",
   "fx.annotate.name": "Bildschirmfoto beschriften",
   "fx.annotate.trigger": "Vorschau → Bearbeiten",
-  "fx.annotate.note": "Pfeil/Linie/Text/Rechteck/Ellipse/Markierung/Weichzeichnen/Schwärzen/Schrittnummer auf einer Leinwand.",
+  "fx.annotate.note": "Objekt-Editor: auswählen/verschieben/skalieren/umstylen/löschen + Undo/Redo. Pfeil, Linie, Text, Rechteck, Ellipse, Markierung, Weichzeichnen, Schwärzen, Schritt, Stift, Emoji, Spotlight; Farbe/Deckkraft/Textgröße, Schlagschatten, Zuschneiden, Hintergrund & Rand.",
   "fx.pin_screenshot.name": "Bildschirmfoto anheften",
   "fx.pin_screenshot.trigger": "Vorschau → An Bildschirm heften",
   "fx.pin_screenshot.note": "Das Foto schwebt als Fenster immer im Vordergrund; mehrere möglich; jedes einzeln schließbar.",

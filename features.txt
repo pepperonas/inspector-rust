@@ -48,7 +48,7 @@ Volume/Mute-HUD „Klangaura" — beim 3-Finger-Swipe/Tap (und Shift+↑/↓): S
 Popup — Ctrl+Space (+ zweiter Verlaufs-Hotkey Ctrl+Shift+V), beide konfigurierbar
 OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract)
 Screenshot-Region — Ctrl+Shift+S: Bereich → Clipboard + schwebende Vorschau; auch Vollbild/Fenster/Timer (`shot`, `shotfull`, `shotwin`, `shotlast`)
-Screenshot-Editor — Pfeile, Text, Formen, Blur, Redact, Schritt-Badges; Pin-to-Screen-Fenster
+Screenshot-Editor — objektbasiert: Annotationen auswählen/verschieben/skalieren/umstylen/löschen mit echtem Undo/Redo; Pfeil, Linie, Text, Rechteck, Ellipse, Markierung, Weichzeichnen, Schwärzen, Schritt-Badges, Freihand-Stift, Emoji, Spotlight; freie Farbe + Deckkraft + Textgröße, Schlagschatten, Zuschneiden, Hintergrund & Rand (Farbe/Verlauf, Padding, Ecken, Schatten); Pin-to-Screen-Fenster
 Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor
 Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard; auch der „Vom Bildschirm“-Knopf im Farbwähler kopiert die gepickte Farbe und blendet das Overlay danach aus (Abbrechen bringt es unverschoben zurück) (v0.196.1)
 Finder-Auswahl — Ctrl+Shift+F: markierte Dateien im Popup; Bilder resizen/optimieren/freistellen

@@ -2555,7 +2555,7 @@
   "fx.cutout.note": "On an image entry in the preview — U²-Net subject cut-out → Downloads.",
   "fx.annotate.name": "Screenshot annotate",
   "fx.annotate.trigger": "preview → Edit",
-  "fx.annotate.note": "Arrow/line/text/rect/ellipse/highlight/blur/redact/step-badge on a canvas.",
+  "fx.annotate.note": "Object editor: select/move/resize/restyle/delete + undo/redo. Arrow, line, text, rect, ellipse, highlight, blur, redact, step, pen, emoji, spotlight; colour/opacity/text-size, drop shadow, crop, background & padding.",
   "fx.pin_screenshot.name": "Pin screenshot to screen",
   "fx.pin_screenshot.trigger": "preview → Pin to screen",
   "fx.pin_screenshot.note": "Float the capture as an always-on-top window; multiple pins; close per pin.",

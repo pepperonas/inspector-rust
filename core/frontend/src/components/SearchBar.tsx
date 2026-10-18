@@ -4,22 +4,12 @@ import { touchPaste } from "../lib/touch";
 import { translatePaste } from "../lib/commands";
 import { useT } from "../lib/i18n";
 
-/** What Tab would do right now (argument completion, see lib/arg-complete). */
+/** Inline completion state (argument completion, see lib/arg-complete).
+ * The choices themselves are rows in the list below — the field only shows
+ * the rest of the selected word as grey ghost text. */
 export interface CompletionHint {
-  /** Set for a typo correction: the word as typed, which Tab replaces. */
-  fix?: string;
-  /** Grey text after the caret — the rest of the word Tab inserts. */
+  /** Grey text after the caret — the rest of the word Tab / → insert. */
   ghost: string;
-  /** The word the NEXT Tab inserts. */
-  value: string;
-  /** Short explanation of that word. */
-  hint: string;
-  /** Position of the word on screen among the candidates (0-based; -1 =
-   *  nothing taken yet) and how many there are. */
-  index: number;
-  total: number;
-  /** True right after a Tab: the next Tab swaps in the next candidate. */
-  cycling: boolean;
 }
 
 interface Props {
@@ -28,35 +18,6 @@ interface Props {
   /** When true, swap the input glyph for a calculator icon (calc-mode hint). */
   calcMode?: boolean;
   completion?: CompletionHint | null;
-}
-
-/** The pill at the right end of the field: which word Tab takes, and why. */
-function CompletionPill({ c }: { c: CompletionHint }) {
-  const t = useT();
-  return (
-    <span
-      data-testid="completion-pill"
-      className="pop-enter pointer-events-none absolute left-[46px] top-[calc(100%-11px)] z-20 flex max-w-[calc(100%-60px)] items-center gap-1.5 whitespace-nowrap rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[11px] text-[var(--color-muted)] shadow-md"
-    >
-      <kbd className="shrink-0 whitespace-nowrap rounded bg-rose-500/15 px-1 font-sans text-[10px] font-semibold text-rose-500">⇥ Tab</kbd>
-      <span className="truncate">
-        {c.cycling && <span>{t("search.cycling")} </span>}
-        {c.fix && !c.cycling && (
-          <span>
-            <span className="line-through decoration-rose-500/70">{c.fix}</span> →{" "}
-          </span>
-        )}
-        <span className="text-[var(--color-fg)]">{c.value}</span>
-        <span> · {c.hint}</span>
-      </span>
-      {c.total > 1 && c.index >= 0 && (
-        <span className="shrink-0 tabular-nums" aria-label={t("search.suggestion_n", { i: c.index + 1, n: c.total })}>
-          {c.index + 1}/{c.total}
-        </span>
-      )}
-      {c.total > 1 && c.index < 0 && <span className="shrink-0 tabular-nums">+{c.total - 1}</span>}
-    </span>
-  );
 }
 
 export const SearchBar = forwardRef<HTMLInputElement, Props>(
@@ -117,7 +78,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
         )}
         <input
           ref={setRefs}
-          aria-autocomplete={completion ? "inline" : undefined}
+          aria-autocomplete={ghost ? "inline" : undefined}
           type="text"
           autoFocus
           spellCheck={false}
@@ -150,7 +111,6 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
           }
         />
         </div>
-        {completion && <CompletionPill key={`${completion.value}-${completion.index}`} c={completion} />}
         {value && (
           // Clear the whole input. `onMouseDown preventDefault` keeps focus on
           // the field (a plain click would blur it), so typing continues right

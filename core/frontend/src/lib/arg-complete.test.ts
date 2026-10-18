@@ -3,7 +3,6 @@ import { COMMANDS, lookupKeyword } from "./commands";
 import {
   ARG_TREES,
   completeArg,
-  cycleIndex,
   editDistance,
   FREE_VALUE_ARG_KINDS,
   ghostSuffix,
@@ -11,8 +10,9 @@ import {
   recordUse,
   showArgSuggestions,
   spotifyRangeCycle,
+  suggestionRows,
+  tabOpens,
   SOURCE_SPOTIFY_ARTISTS,
-  tabStep,
   typoDistance,
   usageKey,
   usageScore,
@@ -124,23 +124,16 @@ describe("Spotify command arguments", () => {
     expect(values("spotify vol ")).toEqual(["25", "50", "75", "100"]);
   });
 
-  it("cycles intervals without appending or duplicating them", () => {
-    const completion = complete("spotify history ")!;
-    const cands = completion.candidates.filter((c) => !c.hasNext);
-    let cycle = tabStep(null, { ...completion, candidates: cands }, false)!;
-    expect(cycle.cands[cycle.index].completion).toBe("spotify history heute");
-    cycle = tabStep(cycle, null, false)!;
-    expect(cycle.cands[cycle.index].completion).toBe("spotify history gestern");
-    cycle = tabStep(cycle, null, true)!;
-    expect(cycle.cands[cycle.index].completion).toBe("spotify history heute");
-  });
-
   it("keeps all intervals switchable after typing or accepting a complete range", () => {
     const cycle = spotifyRangeCycle("spotify history yesterday")!;
     expect(cycle.cands).toHaveLength(8);
     expect(cycle.cands[cycle.index].value).toBe("yesterday");
-    const next = tabStep(cycle, null, false)!;
-    expect(next.cands[next.index].completion).toBe("spotify history week");
+    // As rows: the current interval first, every other one below it.
+    const rows = suggestionRows("spotify", "spotify history yesterday", complete("spotify history yesterday"), false);
+    expect(rows.range).toBe(true);
+    expect(rows.cands[0].value).toBe("yesterday");
+    expect(rows.cands.map((c) => c.value)).toEqual(expect.arrayContaining(["today", "week", "month"]));
+    expect(rows.cands).toHaveLength(8);
     expect(spotifyRangeCycle("spotify history artist today")).toBeNull();
     expect(spotifyRangeCycle("spotify history today ")).toBeNull();
     const artist = complete("spotify history week artist to", {
@@ -170,34 +163,41 @@ describe("ghost + cycling", () => {
     expect(ghostSuffix("spotify history artist kr", complete("spotify history artist kr", ARTISTS)!.candidates[0])).toBe("aftwerk");
     expect(ghostSuffix("spotify ", complete("spotify ")!.candidates[0])).toBe("now");
   });
-
-  it("cycles forward and back with wrap-around", () => {
-    expect(cycleIndex(0, 3, false)).toBe(1);
-    expect(cycleIndex(2, 3, false)).toBe(0);
-    expect(cycleIndex(0, 3, true)).toBe(2);
-    expect(cycleIndex(0, 0, false)).toBe(0);
-  });
 });
 
-describe("tabStep", () => {
-  it("takes the first candidate, then cycles through the rest, Shift goes back", () => {
-    const c = complete("spotify p")!;
-    const first = tabStep(null, c, false)!;
-    expect(first.cands[first.index].completion).toBe("spotify play");
-    const second = tabStep(first, null, false)!;
-    expect(second.cands[second.index].completion).toBe("spotify pause");
-    const back = tabStep(second, null, true)!;
-    expect(back.cands[back.index].completion).toBe("spotify play");
-    expect(tabStep(back, null, true)!.index).toBe(2);
+describe("rows in the list + Tab (v0.218.0)", () => {
+  it("shows no rows for a bare keyword — its own row stays", () => {
+    expect(suggestionRows("spotify", "spotify", complete("spotify"), false).cands).toEqual([]);
   });
 
-  it("Shift+Tab without a cycle starts at the last candidate", () => {
-    const s = tabStep(null, complete("spotify p"), true)!;
-    expect(s.cands[s.index].value).toBe("previous");
+  it("shows enumerated options as rows once a space follows the keyword", () => {
+    const rows = suggestionRows("spotify", "spotify p", complete("spotify p"), false);
+    expect(rows.cands.map((c) => c.value)).toEqual(expect.arrayContaining(["play", "pause", "previous"]));
   });
 
-  it("does nothing without candidates", () => {
-    expect(tabStep(null, null, false)).toBeNull();
+  it("hides free-value presets until Tab opens the menu", () => {
+    const c = complete("iris 5");
+    expect(suggestionRows("iris", "iris 5", c, false).cands).toEqual([]);
+    expect(suggestionRows("iris", "iris 5", c, true).cands.map((x) => x.value)).toEqual(["55"]);
+  });
+
+  it("keeps a ready Spotify control runnable, but the menu still offers presets", () => {
+    const c = complete("spotify volume 7");
+    expect(suggestionRows("spotify", "spotify volume 7", c, false).cands).toEqual([]);
+    expect(suggestionRows("spotify", "spotify volume 7", c, true).cands.map((x) => x.value)).toEqual(["75"]);
+  });
+
+  it("Tab on a bare keyword adds the space so the rows appear, without a menu", () => {
+    expect(tabOpens("spotify", "spotify", complete("spotify"))).toEqual({ line: "spotify ", menu: false });
+  });
+
+  it("Tab on a free-value command opens the menu on the current line", () => {
+    expect(tabOpens("pwgen", "pwgen", complete("pwgen"))).toEqual({ line: "pwgen ", menu: true });
+    expect(tabOpens("iris", "iris 5", complete("iris 5"))).toEqual({ line: "iris 5", menu: true });
+  });
+
+  it("Tab does nothing without candidates", () => {
+    expect(tabOpens("spotify", "spotify zzzz", null)).toBeNull();
   });
 });
 

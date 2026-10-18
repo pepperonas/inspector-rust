@@ -5,7 +5,7 @@ import { isJobActive } from "./lib/transcribe";
 
 /** localStorage key of the argument-usage memory (Tab ranking). */
 const ARG_USAGE_KEY = "ir.arg-usage.v1";
-import type { ArgCycle, ArgOption, ArgUsage } from "./lib/arg-complete";
+import type { ArgOption, ArgUsage } from "./lib/arg-complete";
 import type { CompletionHint } from "./components/SearchBar";
 import { commandLabel as spotifyLabel, parseSpotifyArg } from "./lib/spotify";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -3236,15 +3236,18 @@ function App() {
   }, [argMod, neededSource]);
   // Suggestions become rows once the user is in argument territory — a space
   // after the keyword (so a bare `spotify` keeps its command row + ghost and
-  // Enter still opens its panel). Enumerated args only; free-value commands
-  // keep the ghost.
-  const inArgTerritory = /^\s*\S+\s/.test(query);
+  // Enter still opens its panel). The list is the ONE suggestion surface:
+  // ↑/↓ browse it, Tab/→ fill the selected word, Enter fills and — when the
+  // word ends the command — runs it (see `activate`). Free-value commands
+  // (`iris`, `pwgen`, …) and a ready Spotify control keep their rows hidden
+  // so Enter never hijacks a typed number; Tab opens them on request
+  // (`argMenuFor` = the line the menu was opened on, closed by typing or Esc).
+  const [argMenuFor, setArgMenuFor] = useState<string | null>(null);
+  const argMenuOpen = argMenuFor !== null && argMenuFor === query;
   const argSuggestionEntries: ListEntry[] = useMemo(() => {
-    if (!inArgTerritory || !argMod || !argSpec || !argComplete) return [];
-    // A valid Spotify control is ready to run, including custom numbers
-    // such as `volume 7` (the `75` preset must not steal Enter).
-    if (!argMod.showArgSuggestions(argSpec.kind, query)) return [];
-    return argComplete.candidates.map(
+    if (!argMod || !argSpec) return [];
+    const { cands, range } = argMod.suggestionRows(argSpec.kind, query, argComplete, argMenuOpen);
+    return cands.map(
       (c): ListEntry => ({
         kind: "arg-suggestion",
         data: {
@@ -3252,11 +3255,11 @@ function App() {
           hint: c.hint,
           completion: c.completion,
           hasNext: !!c.hasNext,
-          ...(c.fix ? { fix: argComplete.partial.trim() } : {}),
+          ...(!range && c.fix && argComplete ? { fix: argComplete.partial.trim() } : {}),
         },
       }),
     );
-  }, [inArgTerritory, argMod, argSpec, argComplete, query]);
+  }, [argMod, argSpec, argComplete, argMenuOpen, query]);
 
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
@@ -3584,75 +3587,46 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSuggestion, gameMode]);
 
-  // ── Argument completion — UI (v0.207.0; rows v0.214.0) ────────────────
+  // ── Argument completion — UI (v0.207.0; rows v0.214.0; list-only v0.218.0)
   // The data (argComplete, argSuggestionEntries) is built above `combined`
   // because the candidates are selectable ROWS in the list. Here live the
-  // inline ghost + the Tab/→ accept shortcut. With rows visible (enumerated
-  // args) they FOLLOW the selected row, so ghost + pill + Enter all agree;
-  // for a bare keyword or a free-value command (no rows) the ghost shows the
-  // first candidate and Tab cycles zsh-style (unchanged from v0.207.0).
-  const [argCycle, setArgCycle] = useState<ArgCycle | null>(null);
-  const spotifyCycle = useMemo(
-    () => argSpec?.kind === "spotify" ? argMod?.spotifyRangeCycle(query) ?? null : null,
-    [argSpec, argMod, query],
-  );
-  // A cycle only lives while the line still shows the word it put there.
-  const cycleLive =
-    argCycle && query === argCycle.cands[argCycle.index]?.completion ? argCycle : spotifyCycle;
-  // The arg-suggestion row currently selected (only when the row takeover is
-  // active — `combined` is then entirely arg-suggestion rows).
+  // inline ghost and the keys. The list is the only suggestion surface — no
+  // floating hint, no zsh-style cycling inside the input:
+  //   rows visible → Tab/→ fill the selected row (Enter: see `activate`);
+  //   no rows yet  → Tab opens them (`keyword ` / the free-value menu),
+  //                  → takes the ghost word directly (fish-style).
+  // The ghost follows the selected row, so ghost, row and Enter agree.
   const selectedArgRow =
     argSuggestionEntries.length > 0 && combined[selected]?.kind === "arg-suggestion"
       ? combined[selected]
       : null;
   const completionHint: CompletionHint | null = useMemo(() => {
-    if (cycleLive) {
-      const n = cycleLive.cands.length;
-      if (n < 2) return null;
-      const next = cycleLive.cands[argMod ? argMod.cycleIndex(cycleLive.index, n, false) : 0];
-      return { ghost: "", value: next.value, hint: next.hint, index: cycleLive.index, total: n, cycling: true };
-    }
-    // Rows visible → ghost/pill track the selected suggestion row so the
-    // inline preview matches what Enter/Tab/→ would fill.
     if (selectedArgRow && selectedArgRow.kind === "arg-suggestion") {
       const d = selectedArgRow.data;
-      const idx = argSuggestionEntries.findIndex(
-        (e) => e.kind === "arg-suggestion" && e.data.completion === d.completion,
-      );
       return {
-        fix: d.fix,
-        ghost: argMod ? argMod.ghostSuffix(query, { value: d.value, hint: d.hint, completion: d.completion }) : "",
-        value: d.value,
-        hint: d.hint,
-        index: idx,
-        total: argSuggestionEntries.length,
-        cycling: false,
+        ghost: d.fix || !argMod
+          ? ""
+          : argMod.ghostSuffix(query, { value: d.value, hint: d.hint, completion: d.completion }),
       };
     }
-    // Bare keyword / free-value command: the first candidate, Tab cycles.
-    if (!argComplete) return null;
+    if (!argComplete || argComplete.candidates.length === 0) return null;
     const first = argComplete.candidates[0];
-    return {
-      fix: first.fix ? argComplete.partial.trim() : undefined,
-      ghost: argMod ? argMod.ghostSuffix(query, first) : "",
-      value: first.value,
-      hint: first.hint,
-      index: -1,
-      total: argComplete.candidates.length,
-      cycling: false,
-    };
-  }, [argMod, cycleLive, selectedArgRow, argSuggestionEntries, argComplete, query]);
+    // A typo fix replaces the typed word — there is nothing to append.
+    return { ghost: first.fix || !argMod ? "" : argMod.ghostSuffix(query, first) };
+  }, [argMod, selectedArgRow, argComplete, query]);
+  const putCaretAtEnd = useCallback((line: string) => {
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      searchRef.current?.setSelectionRange(line.length, line.length);
+    });
+  }, []);
   // Fill the chosen argument word into the search bar (+ a trailing space
-  // when it has further options so the next level appears). The popup stays
-  // open; a second Enter runs the now-complete command.
+  // when it has further options so the next level appears).
   const fillArg = useCallback((completion: string, hasNext: boolean) => {
     const next = completion + (hasNext ? " " : "");
     setQuery(next);
-    requestAnimationFrame(() => {
-      searchRef.current?.focus();
-      searchRef.current?.setSelectionRange(next.length, next.length);
-    });
-  }, []);
+    putCaretAtEnd(next);
+  }, [putCaretAtEnd]);
   // Reach the selected arg row from the global key handler without
   // re-subscribing the listener every render (`combined` is a fresh array
   // each render). Written in an effect, never during render.
@@ -3666,21 +3640,27 @@ function App() {
   }, [combined, selected, argSuggestionEntries]);
   useEffect(() => {
     if (gameMode) return;
-    const rows = inArgTerritory && argSuggestionEntries.length > 0;
-    if (!rows && !argComplete && !cycleLive) return;
+    const rows = argSuggestionEntries.length > 0;
+    if (!rows && !argComplete) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape" && argMenuOpen) {
+        // Esc closes a menu Tab opened — one step back, not the popup.
+        e.preventDefault();
+        e.stopPropagation();
+        setArgMenuFor(null);
+        return;
+      }
       const tab = e.key === "Tab";
       if (!tab && e.key !== "ArrowRight") return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
       const input = searchRef.current;
       if (!input) return;
       if (!tab) {
         // → only takes a visible ghost, and only from the end of the line.
         const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-        if (e.shiftKey || !atEnd || !completionHint?.ghost) return;
-        if (!rows && cycleLive) return; // a live cycle has no ghost to the right
+        if (!atEnd || !completionHint?.ghost) return;
       }
-      // Rows visible: Tab / → accept the SELECTED row (arrows do the browsing).
       if (rows) {
         const sel = selectedArgRef.current;
         if (!sel) return;
@@ -3689,23 +3669,27 @@ function App() {
         fillArg(sel.completion, sel.hasNext);
         return;
       }
-      // Bare keyword / free-value: zsh-style cycle (unchanged).
-      if (!argMod) return;
-      const step = argMod.tabStep(tab ? cycleLive : null, argComplete, tab && e.shiftKey);
-      if (!step) return;
+      if (!argMod || !argSpec) return;
+      if (!tab) {
+        const first = argComplete?.candidates[0];
+        if (!first) return;
+        e.preventDefault();
+        e.stopPropagation();
+        fillArg(first.completion, first.hasNext ?? false);
+        return;
+      }
+      // Tab with no rows yet: open them in the list.
+      const open = argMod.tabOpens(argSpec.kind, input.value, argComplete);
+      if (!open) return;
       e.preventDefault();
       e.stopPropagation();
-      const next = step.cands[step.index].completion;
-      setArgCycle(step);
-      setQuery(next);
-      requestAnimationFrame(() => {
-        searchRef.current?.focus();
-        searchRef.current?.setSelectionRange(next.length, next.length);
-      });
+      setQuery(open.line);
+      setArgMenuFor(open.menu ? open.line : null);
+      putCaretAtEnd(open.line);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [argMod, argComplete, cycleLive, completionHint, gameMode, inArgTerritory, argSuggestionEntries, fillArg]);
+  }, [argMod, argSpec, argComplete, argMenuOpen, completionHint, gameMode, argSuggestionEntries, fillArg, putCaretAtEnd]);
 
   // Tab / → on a selected figlet-font row fills `@font` into the search bar
   // (rz-preset semantics) so the user can keep tweaking the text before Enter.
@@ -5129,12 +5113,19 @@ function App() {
     };
 
     try {
-      // Argument-suggestion row — Enter fills the chosen word into the search
-      // bar (a word with further options gets a trailing space so the next
-      // level appears). The popup stays open; a second Enter runs the now
-      // complete command. Same accept action as Tab / → (see fillArg).
+      // Argument-suggestion row. A word with further options descends (fill
+      // + trailing space → the next level appears). A word that ends the
+      // command RUNS it in the same keystroke — the command-suggestion rule;
+      // Tab / → fill without running when the line is still to be edited.
+      // Commands dispatchCommand doesn't own (kill → kill mode) just fill.
       if (target.kind === "arg-suggestion") {
-        fillArg(target.data.completion, target.data.hasNext);
+        const { completion, hasNext } = target.data;
+        const parsed = hasNext ? null : parseCommand(completion);
+        if (parsed && isCommandAvailable(parsed.spec)) {
+          setQuery(completion);
+          if (await dispatchCommand(parsed.spec.kind, parsed.arg, parsed.spec.keyword)) return;
+        }
+        fillArg(completion, hasNext);
         return;
       }
       // bpm trigger — Enter swaps the popup body for the BPM

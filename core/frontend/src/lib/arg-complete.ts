@@ -536,27 +536,46 @@ export function spotifyRangeCycle(line: string): ArgCycle | null {
   return index < 0 ? null : { cands, index };
 }
 
-/**
- * What one Tab does. A live cycle (the line still shows the word the last
- * Tab put there) moves to the next / previous candidate; otherwise the first
- * candidate is taken (Shift+Tab: the last). Null = nothing to do.
- */
-export function tabStep(
-  cycle: ArgCycle | null,
-  completion: ArgCompletion | null,
-  back: boolean,
-): ArgCycle | null {
-  if (cycle && cycle.cands.length > 0) {
-    return { cands: cycle.cands, index: cycleIndex(cycle.index, cycle.cands.length, back) };
-  }
-  if (completion && completion.candidates.length > 0) {
-    return { cands: completion.candidates, index: back ? completion.candidates.length - 1 : 0 };
-  }
-  return null;
+/** True once the line has a space after the keyword — argument territory. */
+export function inArgTerritory(line: string): boolean {
+  return /^\s*\S+\s/.test(line);
 }
 
-/** zsh-style cycling: the next index, wrapping, in either direction. */
-export function cycleIndex(index: number, total: number, back: boolean): number {
-  if (total <= 0) return 0;
-  return (index + (back ? -1 : 1) + total) % total;
+/**
+ * The candidates shown as selectable rows in the list (v0.218.0 — the list
+ * is the only suggestion surface). Empty = no rows, the normal list stays.
+ * - Only in argument territory: a bare keyword keeps its own row.
+ * - A completed Spotify interval lists EVERY interval, the current one first,
+ *   so switching it is ↓ + Enter.
+ * - Free-value commands and a ready Spotify control hide their rows (Enter
+ *   must not swap a typed number for a preset) unless Tab opened the menu.
+ */
+export function suggestionRows(
+  kind: CommandKind,
+  line: string,
+  completion: ArgCompletion | null,
+  menuOpen: boolean,
+): { cands: ArgCandidate[]; range: boolean } {
+  if (!inArgTerritory(line)) return { cands: [], range: false };
+  const range = kind === "spotify" ? spotifyRangeCycle(line) : null;
+  if (range) {
+    return { cands: [range.cands[range.index], ...range.cands.filter((_, i) => i !== range.index)], range: true };
+  }
+  if (!completion || (!menuOpen && !showArgSuggestions(kind, line))) return { cands: [], range: false };
+  return { cands: completion.candidates, range: false };
+}
+
+/**
+ * What Tab does while no rows are visible: put the line into argument
+ * territory and say whether the rows need the explicit menu (free values /
+ * a ready control — they would stay hidden otherwise). Null = no candidates.
+ */
+export function tabOpens(
+  kind: CommandKind,
+  line: string,
+  completion: ArgCompletion | null,
+): { line: string; menu: boolean } | null {
+  if (!completion || completion.candidates.length === 0) return null;
+  const next = inArgTerritory(line) ? line : line.trimEnd() + " ";
+  return { line: next, menu: !showArgSuggestions(kind, next) };
 }

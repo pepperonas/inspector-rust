@@ -1,50 +1,53 @@
 # Completion for command arguments
 
 Inspector completes the **arguments** of search-bar commands, not only the
-command word. While you type, the rest of the word appears in grey right in
-the search field, and a small hint under the field says which word Tab takes
-and what it means.
+command word. The options are rows in the list — the one place where you
+browse them with ↑/↓. The search field only shows the rest of the selected
+word in grey (the "ghost").
 
-## Suggestions as a list (v0.214.0)
+## One surface: the list (v0.218.0)
 
-Once you are **in argument territory** — there is a space after the keyword —
-a command with enumerated parameters shows **all** its options as rows at the
-top of the list, and they take over the whole list (like the `kill`/`meme`
-pickers). So **↓ / ↑ walk through the options** instead of dropping into the
-clipboard history, and **Enter / Tab / →** accept the highlighted one: the
-word is filled into the search bar (a word with further options adds a
-trailing space so the next level appears), the popup stays open, and a second
-Enter runs the now-complete command.
+Until v0.217 a small hint floated under the search field (`⇥ Tab play ·
+abspielen +2`) and Tab cycled words inside the field, zsh-style. Both are
+gone: the hint covered the first list row and repeated what that row already
+said, and cycling inside the field showed only one option at a time. The rule
+now follows launchers like Raycast and Spotlight and editor completion
+(VS Code): **the list shows the options, the arrows choose, the keys act.**
 
 ```text
-spotify ␣          →  now · history · play · pause · toggle · …   (↓ to browse)
+spotify ␣          →  now · history · play · pause · toggle · …
 spotify history ␣  →  heute · gestern · woche · monat · artist · export
 wakelock ␣         →  on · off · dark
 ```
 
-A **bare keyword** (no space yet, e.g. `spotify`) keeps its command row and
-the grey ghost — Enter still opens its panel. **Free-value commands** whose
-argument is really a number — `timer`, `iris`, `pwgen`, `uuid`, `random`,
-`shot` — keep only the grey ghost and never take over the list, so Enter
-never overrides a custom value (`iris 5` runs `iris 5`, it is not turned into
-`iris 55`).
-
-```text
-spotify hi|story            ⇥ Tab  history · Verlauf nach Tagen
-spotify p|lay               ⇥ Tab  play · abspielen  +2
-spotify histroy             ⇥ Tab  histroy → history · Verlauf nach Tagen
-spotify history artist kr|aftwerk   ⇥ Tab  Kraftwerk · 31× gehört
-```
+Once there is a space after the keyword, a command with enumerated
+parameters shows **all** its options as rows that take over the list, so ↓/↑
+walk through them instead of dropping into the clipboard history.
 
 ## Keys
 
 | Key | What it does |
 |---|---|
-| **Tab** | takes the suggestion (the grey text, or the corrected word) |
-| **Tab** again | cycles to the next alternative (`play` → `pause` → `previous`); the hint shows the next one: `weiter: pause · 2/3` |
-| **Shift+Tab** | cycles back (without a cycle: starts at the last alternative) |
-| **→** at the end of the line | takes the grey text |
-| **Space** | opens the next level: `spotify history ` → `heute`, `woche`, `export` … |
+| **↓ / ↑** | browse the options; the grey ghost follows the selected row |
+| **Enter** | takes the selected option. A word with further options descends (`history` → the intervals appear); a word that ends the command **runs it** in the same keystroke (`wakelock ` ↓ Enter = `wakelock off` runs) |
+| **Tab** | fills the selected word without running, so the line can still be edited |
+| **→** at the end of the line | takes the grey ghost |
+| **Tab** on a bare keyword | adds the space: `spotify` + Tab = `spotify ` with the options in the list |
+| **Tab** on a free-value command | opens the presets as rows (see below) |
+| **Esc** | closes a preset list Tab opened; otherwise closes the popup as before |
+
+A **bare keyword** (no space yet) keeps its own command row, so Enter still
+opens its panel.
+
+**Free-value commands**, whose argument is really a number (`timer`, `iris`,
+`pwgen`, `uuid`, `random`, `shot`), and a Spotify control that is already
+complete (`spotify volume 7`) do not show their presets on their own — Enter
+must run the number you typed, not swap it for a preset (`iris 5` stays
+`iris 5`). Tab opens the presets as rows on request; typing or Esc closes
+them again.
+
+A **typo fix** shows in the row as `histroy → history`; there is no ghost,
+because the word is replaced rather than extended.
 
 ## What is suggested
 
@@ -52,20 +55,20 @@ spotify history artist kr|aftwerk   ⇥ Tab  Kraftwerk · 31× gehört
 
 Spotify offers `heute`, `gestern`, `woche`, `monat` and the English
 `today`, `yesterday`, `week`, `month` in either interface language. These are
-mutually exclusive intervals. Choosing one replaces the previous interval;
-Tab and Shift+Tab switch between the alternatives instead of appending more
-words. A complete interval stays switchable even after typing it in full or
-accepting it with Enter. A space opens further filter/export options again.
+mutually exclusive intervals. Choosing one replaces the previous interval
+instead of appending more words. After a complete interval the list shows
+every interval, the current one first, so ↓ + Enter switches it. A space
+opens further filter/export options again.
 
-For example, Tab can change `spotify history heute` to
+For example, `spotify history heute` ↓ Enter becomes
 `spotify history gestern`, keeping a single interval. If several intervals
 are typed manually, Spotify uses the last one. Artist names remain free-text
 values and are not rewritten as intervals.
 
 Complete controls, including aliases (`stop` = `pause`, `vol` = `volume`),
 run on Enter even while the Spotify panel is already focused. Numeric
-presets keep their ghost hint but do not take over Enter for valid values:
-`spotify volume 7` runs with 7%, while Tab can explicitly accept 75%.
+presets do not take over Enter for valid values: `spotify volume 7` runs with
+7%, while Tab opens the presets and 75% can be picked explicitly.
 See [spotify.md](./spotify.md) for all controls, aliases and interval bounds.
 
 ### Available values
@@ -80,7 +83,7 @@ See [spotify.md](./spotify.md) for all controls, aliases and interval bounds.
    value.
 4. **Typo correction**: when nothing matches by prefix, a word one slip away
    (two for long words; a swapped pair counts as one) is offered — shown as
-   `histroy → history`. Tab replaces the typed word. Words under three letters
+   `histroy → history`. Choosing it replaces the typed word. Words under three letters
    and anything with digits are never "corrected" (`timer 7min` is not a typo
    of `5min`).
 

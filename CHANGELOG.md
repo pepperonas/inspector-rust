@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.218.0] - 2026-10-18
+
+### Changed
+- **Argument completion lives in the list only.** The floating hint under the search field and the zsh-style Tab cycling inside the field are gone — the options are rows in the list, ↓/↑ choose, the ghost follows the selected row.
+- **Enter on an option that ends the command runs it in one keystroke** (`wakelock ` ↓ Enter, `settings ` ↓ Enter). Options with a further level still descend; **Tab** fills without running, so the line can still be edited.
+- **Tab on a bare keyword opens the list** (`spotify` + Tab → `spotify ` with all options). On free-value commands (`iris`, `pwgen`, `timer`, …) Tab opens the presets as rows; Esc closes them.
+- After a complete Spotify interval the list shows every interval, the current one first, so ↓ + Enter switches it (replaces Tab/Shift+Tab cycling).
+
 ## [0.217.0] - 2026-10-18
 
 ### Added

@@ -81,7 +81,7 @@ The text label stays next to the time, and the icon carries an `aria-label`.
 All under `spotify` (type `spotify?` for the in-app help). Reads show while you
 type; actions (controls, export) run on **Enter**, including repeated runs while the panel is focused. Custom values such as `volume 7` run as entered rather than accepting a preset. `stop` is an alias for `pause`.
 
-Both German and English interval words are always offered, independent of the app language. Choosing another interval replaces the existing one; Tab cycles through intervals without appending them. Enter accepts a suggested interval, and another Enter runs the completed command. Add a space to continue with another filter or an export. If multiple intervals are typed manually, the last one wins.
+Both German and English interval words are always offered, independent of the app language. Choosing another interval replaces the existing one instead of appending it. Enter on a suggested interval runs the completed command; after a complete interval the list shows all intervals, the current one first. Add a space to continue with another filter or an export. If multiple intervals are typed manually, the last one wins.
 
 | Command | What it does |
 |---|---|
@@ -145,10 +145,10 @@ is English or German:
 These bounds follow local calendar dates, including daylight-saving changes;
 `month` means 30 days, rather than the current calendar month.
 
-After entering or selecting `spotify history heute`, press Tab to switch to
-another interval and Shift+Tab to go back. This remains available when the
-interval was typed in full, clicked, or accepted with Enter. The query has
-one interval at a time:
+After entering or selecting `spotify history heute`, the list shows every
+interval, the current one first: ↓/↑ pick another, Enter switches and runs
+(v0.218.0 — the list replaced the old Tab cycling). This also works when the
+interval was typed in full or clicked. The query has one interval at a time:
 
 ```text
 spotify history heute
@@ -184,14 +184,13 @@ Its run-signal guard continues to prevent an action from replaying on remount.
 `SPOTIFY_RANGES` in `lib/spotify.ts` supplies the parser and completion logic.
 Range candidates replace earlier range tokens and complete without a trailing
 space, so Enter can run them. `spotifyRangeCycle` reconstructs all eight
-spellings for Tab switching. `showArgSuggestions` keeps valid controls
+spellings, shown as rows with the current one first (`suggestionRows`). `showArgSuggestions` keeps valid controls
 runnable even if their numeric value prefixes a preset; root aliases are
 also recognised while walking the completion tree.
 
 Regression tests cover controls and aliases through repeated keyboard Enter,
 all three export formats, custom numeric values, English ranges with a
-German interface, replacement of duplicate intervals, forward/backward Tab
-cycling, and artist names that happen to match interval words. IPC calls are
+German interface, replacement of duplicate intervals, the interval rows, and artist names that happen to match interval words. IPC calls are
 mocked in these tests; they do not control a real Spotify session.
 
 ## Export

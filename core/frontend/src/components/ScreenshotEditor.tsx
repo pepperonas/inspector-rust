@@ -94,9 +94,9 @@ export function ScreenshotEditor() {
   // later phases; the state exists now because new annotations carry them.
   const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
-  const [opacity] = useState<number>(1);
+  const [opacity, setOpacity] = useState<number>(1);
   const [shadow] = useState<boolean>(false);
-  const [fontSize] = useState<number>(28);
+  const [fontSize, setFontSize] = useState<number>(28);
   const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
 
   // Undo/redo history over the whole document.
@@ -290,6 +290,20 @@ export function ScreenshotEditor() {
     if (selectedId) {
       const a = annById(selectedId);
       if (a) commitReplace(selectedId, restyleAnnotation(a, { width: w }));
+    }
+  };
+  const applyOpacity = (o: number) => {
+    setOpacity(o);
+    if (selectedId) {
+      const a = annById(selectedId);
+      if (a) commitReplace(selectedId, restyleAnnotation(a, { opacity: o }));
+    }
+  };
+  const applyFontSize = (n: number) => {
+    setFontSize(n);
+    if (selectedId) {
+      const a = annById(selectedId);
+      if (a) commitReplace(selectedId, restyleAnnotation(a, { fontSize: n }));
     }
   };
 
@@ -523,7 +537,18 @@ export function ScreenshotEditor() {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <Toolbar tool={tool} setTool={setTool} color={color} setColor={applyColor} strokeWidth={strokeWidth} setStrokeWidth={applyWidth} />
+        <Toolbar
+          tool={tool}
+          setTool={setTool}
+          color={color}
+          setColor={applyColor}
+          strokeWidth={strokeWidth}
+          setStrokeWidth={applyWidth}
+          opacity={opacity}
+          setOpacity={applyOpacity}
+          fontSize={fontSize}
+          setFontSize={applyFontSize}
+        />
         <div
           ref={fitBoxRef}
           className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0f0f0f] p-4"
@@ -610,6 +635,10 @@ function Toolbar({
   setColor,
   strokeWidth,
   setStrokeWidth,
+  opacity,
+  setOpacity,
+  fontSize,
+  setFontSize,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -617,6 +646,10 @@ function Toolbar({
   setColor: (c: string) => void;
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
+  opacity: number;
+  setOpacity: (n: number) => void;
+  fontSize: number;
+  setFontSize: (n: number) => void;
 }) {
   useT();
   return (
@@ -633,34 +666,74 @@ function Toolbar({
       <ToolBtn t="redact" icon={<SquareSlash size={16} />} label={t("shot.redact")} shortcut="X" active={tool} onSelect={setTool} />
       <ToolBtn t="step" icon={<Hash size={16} />} label={t("shot.step_badge")} shortcut="N" active={tool} onSelect={setTool} />
 
-      <div className="mt-3 flex flex-col items-center gap-1.5">
+      <div className="mt-3 grid grid-cols-2 place-items-center gap-1.5">
         {COLOR_PRESETS.map((c) => (
           <button
             key={c}
             onClick={() => setColor(c)}
             title={c}
             className={
-              "h-6 w-6 rounded-full border-2 " +
+              "h-5 w-5 rounded-full border-2 " +
               (color === c ? "border-[var(--color-accent)] scale-110" : "border-[var(--color-border)]")
             }
             style={{ backgroundColor: c }}
           />
         ))}
+        {/* Custom colour — opens the native colour panel. */}
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : "#ffffff"}
+          onChange={(e) => setColor(e.target.value)}
+          title={t("shot.custom_color")}
+          className="h-5 w-5 cursor-pointer rounded-full border-2 border-dashed border-[var(--color-border)] bg-transparent p-0"
+        />
       </div>
 
-      <div className="mt-3 flex flex-col items-center gap-1">
-        <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted)]">{t("shot.size")}</span>
-        <input
-          type="range"
-          min={2}
-          max={16}
-          value={strokeWidth}
-          onChange={(e) => setStrokeWidth(parseInt(e.target.value, 10))}
-          className="h-1 w-10 rotate-90 cursor-pointer accent-[var(--color-accent)]"
-          style={{ marginTop: 16 }}
-        />
-        <span className="mt-7 text-[10px] tabular-nums text-[var(--color-muted)]">{strokeWidth}px</span>
-      </div>
+      <SliderRow label={t("shot.size")} min={2} max={16} value={strokeWidth} suffix="px" onChange={setStrokeWidth} />
+      <SliderRow
+        label={t("shot.opacity")}
+        min={10}
+        max={100}
+        value={Math.round(opacity * 100)}
+        suffix="%"
+        onChange={(v) => setOpacity(v / 100)}
+      />
+      <SliderRow label={t("shot.font_size")} min={12} max={120} value={fontSize} onChange={setFontSize} />
+    </div>
+  );
+}
+
+/** A compact labelled horizontal slider for the toolbar. */
+function SliderRow({
+  label,
+  min,
+  max,
+  value,
+  suffix,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  value: number;
+  suffix?: string;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="mt-2 flex w-full flex-col items-center gap-0.5">
+      <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted)]">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        className="w-11 cursor-pointer accent-[var(--color-accent)]"
+      />
+      <span className="text-[10px] tabular-nums text-[var(--color-muted)]">
+        {value}
+        {suffix ?? ""}
+      </span>
     </div>
   );
 }

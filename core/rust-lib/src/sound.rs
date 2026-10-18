@@ -15,14 +15,15 @@
 //! the settings DB at startup and updated by the `set_sound_enabled` IPC, so
 //! the hot path never touches the DB.
 //!
-//! **Screenshot sound is selectable (v0.111.0):** the `Screenshot` cue plays
-//! one of three shutter styles from the `sound-effects` archive — `snap`
-//! (sharp finger snap, the default), `dslr` (rich mirror-slap + double
-//! curtain, `screenshot_dslr` in the archive) or `switch` (mechanical switch
-//! click) — or nothing at all (`off`). Same atomic-seeded pattern as the
-//! master toggle (settings key `sound.screenshot_style`, `AtomicU8`); the
-//! per-style cache filenames are distinct so switching styles re-materialises
-//! the right WAV.
+//! **Screenshot sound is selectable (v0.111.0; `camera` default since
+//! v0.217.0):** the `Screenshot` cue plays one of four shutter styles from the
+//! `sound-effects` archive — `camera` (classic camera shutter, crisp/light,
+//! `screenshot` in the archive; the default), `snap` (sharp finger snap),
+//! `dslr` (rich mirror-slap + double curtain, `screenshot_dslr` in the
+//! archive) or `switch` (mechanical switch click) — or nothing at all
+//! (`off`). Same atomic-seeded pattern as the master toggle (settings key
+//! `sound.screenshot_style`, `AtomicU8`); the per-style cache filenames are
+//! distinct so switching styles re-materialises the right WAV.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -50,25 +51,31 @@ pub fn is_enabled() -> bool {
 /// other cue keeps following the master toggle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenshotStyle {
+    /// Classic camera shutter (the shipped default since v0.217.0) — a crisp,
+    /// light "a photo was taken" cue, vendored from the `sound-effects` archive.
+    Camera,
     Snap,
     Dslr,
     Switch,
     Off,
 }
 
-/// Current screenshot style as an in-process atomic (0/1/2/3 in enum order) —
-/// same "hot path never reads the DB" pattern as the master toggle.
+/// Current screenshot style as an in-process atomic (0..=4 in enum order) —
+/// same "hot path never reads the DB" pattern as the master toggle. The
+/// numbers are internal only; the SETTING persists the string, so this
+/// ordering can be renumbered freely.
 static SCREENSHOT_STYLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// Whitelist an arbitrary stored/IPC string to a valid style, defaulting to
-/// `"snap"` (the shipped default) on anything unknown — a hand-edited or
+/// `"camera"` (the shipped default) on anything unknown — a hand-edited or
 /// legacy value must never disable the cue by accident.
 pub fn normalise_screenshot_style(s: &str) -> &'static str {
     match s.trim().to_ascii_lowercase().as_str() {
+        "snap" => "snap",
         "dslr" => "dslr",
         "switch" => "switch",
         "off" => "off",
-        _ => "snap",
+        _ => "camera",
     }
 }
 
@@ -76,27 +83,38 @@ pub fn normalise_screenshot_style(s: &str) -> &'static str {
 /// by the `set_screenshot_sound` IPC.
 pub fn set_screenshot_style(style: &str) {
     let v = match normalise_screenshot_style(style) {
-        "dslr" => 1,
-        "switch" => 2,
-        "off" => 3,
+        "snap" => 1,
+        "dslr" => 2,
+        "switch" => 3,
+        "off" => 4,
         _ => 0,
     };
     SCREENSHOT_STYLE.store(v, Ordering::Relaxed);
 }
 
+/// Pure u8 → style mapping (the atomic's encoding). `0` — including a never-set
+/// atomic — is the shipped default, so an install without a stored setting
+/// hears it. Kept separate from the atomic read so it is testable without
+/// touching the process-global (parallel tests mutate it).
+fn screenshot_style_from_u8(v: u8) -> ScreenshotStyle {
+    match v {
+        1 => ScreenshotStyle::Snap,
+        2 => ScreenshotStyle::Dslr,
+        3 => ScreenshotStyle::Switch,
+        4 => ScreenshotStyle::Off,
+        _ => ScreenshotStyle::Camera,
+    }
+}
+
 /// The current screenshot style.
 pub fn screenshot_style() -> ScreenshotStyle {
-    match SCREENSHOT_STYLE.load(Ordering::Relaxed) {
-        1 => ScreenshotStyle::Dslr,
-        2 => ScreenshotStyle::Switch,
-        3 => ScreenshotStyle::Off,
-        _ => ScreenshotStyle::Snap,
-    }
+    screenshot_style_from_u8(SCREENSHOT_STYLE.load(Ordering::Relaxed))
 }
 
 /// The current screenshot style as its settings/IPC string.
 pub fn screenshot_style_str() -> &'static str {
     match screenshot_style() {
+        ScreenshotStyle::Camera => "camera",
         ScreenshotStyle::Snap => "snap",
         ScreenshotStyle::Dslr => "dslr",
         ScreenshotStyle::Switch => "switch",
@@ -108,6 +126,9 @@ pub fn screenshot_style_str() -> &'static str {
 /// per-style accessor so tests never depend on the process-global atomic.
 fn screenshot_asset(style: ScreenshotStyle) -> Option<(&'static str, &'static [u8])> {
     match style {
+        ScreenshotStyle::Camera => {
+            Some(("shutter_camera.wav", include_bytes!("../assets/shutter_camera.wav")))
+        }
         ScreenshotStyle::Snap => Some(("shutter_snap.wav", include_bytes!("../assets/shutter_snap.wav"))),
         ScreenshotStyle::Dslr => Some(("shutter_dslr.wav", include_bytes!("../assets/shutter_dslr.wav"))),
         ScreenshotStyle::Switch => {
@@ -141,11 +162,12 @@ impl Sound {
         match self {
             Sound::Expand => include_bytes!("../assets/paste_mechkey.wav"),
             Sound::Ocr => include_bytes!("../assets/ocr.wav"),
-            // Style-selected; `play` returns early on Off, and the Snap asset
-            // is the defensive fallback if this is ever reached with Off.
+            // Style-selected; `play` returns early on Off, and the Camera asset
+            // (the default) is the defensive fallback if this is ever reached
+            // with Off.
             Sound::Screenshot => {
                 screenshot_asset(screenshot_style())
-                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Snap).unwrap())
+                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Camera).unwrap())
                     .1
             }
             Sound::RecordStart => include_bytes!("../assets/record_start.wav"),
@@ -161,7 +183,7 @@ impl Sound {
             Sound::Ocr => "ocr.wav",
             Sound::Screenshot => {
                 screenshot_asset(screenshot_style())
-                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Snap).unwrap())
+                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Camera).unwrap())
                     .0
             }
             Sound::RecordStart => "record_start.wav",
@@ -274,10 +296,20 @@ fn play_file(_path: &std::path::Path) {}
 mod tests {
     use super::*;
 
-    /// Every embedded asset as (name, bytes) — the 5 fixed cues + the three
+    /// Every audible screenshot style, resolved through the PURE per-style
+    /// accessor — the single source of truth for the structural WAV tests + the
+    /// `off`-has-no-asset test, so neither depends on the process-global atomic
+    /// (parallel tests mutate it).
+    const AUDIBLE_STYLES: [ScreenshotStyle; 4] = [
+        ScreenshotStyle::Camera,
+        ScreenshotStyle::Snap,
+        ScreenshotStyle::Dslr,
+        ScreenshotStyle::Switch,
+    ];
+
+    /// Every embedded asset as (name, bytes) — the 5 fixed cues + the audible
     /// screenshot styles resolved through the PURE per-style accessor, so no
-    /// structural test depends on the process-global style atomic (parallel
-    /// tests mutate it).
+    /// structural test depends on the process-global style atomic.
     fn all_assets() -> Vec<(&'static str, &'static [u8])> {
         let mut v: Vec<(&'static str, &'static [u8])> = vec![
             (Sound::Expand.file_name(), Sound::Expand.bytes()),
@@ -286,7 +318,7 @@ mod tests {
             (Sound::RecordStop.file_name(), Sound::RecordStop.bytes()),
             (Sound::Copy.file_name(), Sound::Copy.bytes()),
         ];
-        for style in [ScreenshotStyle::Snap, ScreenshotStyle::Dslr, ScreenshotStyle::Switch] {
+        for style in AUDIBLE_STYLES {
             v.push(screenshot_asset(style).expect("audible style has an asset"));
         }
         v
@@ -393,34 +425,42 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_style_normalisation_defaults_to_snap() {
+    fn screenshot_style_normalisation_defaults_to_camera() {
         // Unknown / legacy / hand-edited values must fall back to the shipped
-        // default, never to silence.
+        // default (camera since v0.217.0), never to silence.
+        assert_eq!(normalise_screenshot_style("camera"), "camera");
         assert_eq!(normalise_screenshot_style("snap"), "snap");
         assert_eq!(normalise_screenshot_style("DSLR"), "dslr");
         assert_eq!(normalise_screenshot_style(" switch "), "switch");
         assert_eq!(normalise_screenshot_style("off"), "off");
-        assert_eq!(normalise_screenshot_style(""), "snap");
-        assert_eq!(normalise_screenshot_style("shutter"), "snap");
-        assert_eq!(normalise_screenshot_style("none"), "snap");
+        assert_eq!(normalise_screenshot_style(""), "camera");
+        assert_eq!(normalise_screenshot_style("shutter"), "camera");
+        assert_eq!(normalise_screenshot_style("none"), "camera");
     }
 
     #[test]
     fn screenshot_style_round_trips_through_the_atomic() {
         let prev = screenshot_style_str().to_string();
-        for style in ["dslr", "switch", "off", "snap"] {
+        for style in ["camera", "dslr", "switch", "off", "snap"] {
             set_screenshot_style(style);
             assert_eq!(screenshot_style_str(), style);
         }
         set_screenshot_style("definitely-invalid");
-        assert_eq!(screenshot_style_str(), "snap", "invalid input must land on the default");
+        assert_eq!(screenshot_style_str(), "camera", "invalid input must land on the default");
         set_screenshot_style(&prev);
+    }
+
+    #[test]
+    fn the_fresh_atomic_default_is_camera() {
+        // A never-set atomic (value 0) MUST resolve to the shipped default, so
+        // an install without a stored setting hears the camera shutter.
+        assert_eq!(screenshot_style_from_u8(0), ScreenshotStyle::Camera);
     }
 
     #[test]
     fn off_style_has_no_asset_and_audible_styles_do() {
         assert!(screenshot_asset(ScreenshotStyle::Off).is_none());
-        for style in [ScreenshotStyle::Snap, ScreenshotStyle::Dslr, ScreenshotStyle::Switch] {
+        for style in AUDIBLE_STYLES {
             let (name, bytes) = screenshot_asset(style).unwrap();
             assert!(name.starts_with("shutter_"), "style filename convention: {name}");
             assert!(!bytes.is_empty());

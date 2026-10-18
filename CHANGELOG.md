@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.217.0] - 2026-10-18
+
+### Added
+- **Click an existing object to edit it in any draw tool.** While the Arrow (or any other add-object) tool is active, clicking an existing annotation now selects it for editing — move, resize, restyle, delete — exactly like the Select tool, instead of only being able to draw new ones. Clicking empty space still starts a new object.
+
+### Changed
+- **Dynamic CleanShot-style arrows.** Arrows are now drawn as a single solid, filled shape with a tapered shaft and a bold triangular head, replacing the old thin stroked line + separate head — far more legible on a busy screenshot. Opacity and drop shadow still apply.
+- **The default screenshot sound is now a classic camera shutter** (crisp and light), vendored from the `sound-effects` archive — a clearer "a photo was taken" cue than the previous finger-snap default. The old sounds remain selectable in Settings → Sounds (Camera / Snap / DSLR / Switch / Off); an explicit earlier choice is kept.
+
 ## [0.216.0] - 2026-10-18
 
 ### Added

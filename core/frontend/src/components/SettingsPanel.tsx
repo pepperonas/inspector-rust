@@ -1310,11 +1310,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             <Row label={t("set.sounds.shot")}>
               <div className="flex flex-col gap-1 text-[12px]">
                 <select
-                  value={shotSound ?? "snap"}
+                  value={shotSound ?? "camera"}
                   disabled={shotSound === null}
                   onChange={(e) => void changeShotSound(e.target.value as ScreenshotSoundStyle)}
                   className="w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
                 >
+                  <option value="camera">{t("set.sounds.camera")}</option>
                   <option value="snap">{t("set.sounds.snap")}</option>
                   <option value="dslr">{t("set.sounds.dslr")}</option>
                   <option value="switch">{t("set.sounds.switch")}</option>

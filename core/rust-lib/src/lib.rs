@@ -373,8 +373,8 @@ pub fn run(context: tauri::Context<Wry>) {
             // on) so the hot path never has to read the DB.
             sound::set_enabled(settings::get_bool(&db_handle, "sound.enabled", true).unwrap_or(true));
             sound::set_screenshot_style(
-                &settings::get_or(&db_handle, "sound.screenshot_style", "snap")
-                    .unwrap_or_else(|_| "snap".into()),
+                &settings::get_or(&db_handle, "sound.screenshot_style", "camera")
+                    .unwrap_or_else(|_| "camera".into()),
             );
 
             if let Err(e) = hotkey::register(app.handle()) {

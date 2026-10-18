@@ -2137,8 +2137,8 @@ pub fn set_sound_enabled(db: State<'_, DbHandle>, enabled: bool) -> Result<(), S
 
 const KEY_SCREENSHOT_SOUND: &str = "sound.screenshot_style";
 
-/// The screenshot cue's shutter style: "snap" (default) | "dslr" | "switch" |
-/// "off". Reads the live in-process atomic — seeded from settings at startup
+/// The screenshot cue's shutter style: "camera" (default) | "snap" | "dslr" |
+/// "switch" | "off". Reads the live in-process atomic — seeded from settings at startup
 /// and updated by every set, so it is always in sync with the DB and already
 /// normalised.
 #[tauri::command]

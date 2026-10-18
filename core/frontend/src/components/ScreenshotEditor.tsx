@@ -521,23 +521,35 @@ export function ScreenshotEditor() {
       // else fall through into the tool branch
     }
 
-    if (tool === "select") {
-      const handle = grabHandle(p);
-      if (handle && selectedId) {
-        const orig = annById(selectedId);
-        if (orig) setInteraction({ kind: "resize", id: selectedId, handle, startPt: p, orig, live: orig });
-        return;
-      }
-      const hit = hitTest(annotations, p, 6 * pxRatio());
-      if (hit) {
-        setSelectedId(hit);
-        const orig = annotations.find((a) => a.id === hit)!;
-        setInteraction({ kind: "move", id: hit, startPt: p, orig, live: orig });
-      } else {
-        setSelectedId(null);
-      }
+    // Crop has its own gesture (independent of annotations).
+    if (tool === "crop") {
+      setInteraction({ kind: "crop", start: p, current: p });
       return;
     }
+
+    // In EVERY tool (not just Select), grabbing a handle of the current
+    // selection resizes it, and clicking an existing object selects + moves it
+    // — so you can tweak a shape without first switching to the Select tool.
+    const handle = grabHandle(p);
+    if (handle && selectedId) {
+      const orig = annById(selectedId);
+      if (orig) {
+        setInteraction({ kind: "resize", id: selectedId, handle, startPt: p, orig, live: orig });
+        return;
+      }
+    }
+    const hit = hitTest(annotations, p, 6 * pxRatio());
+    if (hit) {
+      setSelectedId(hit);
+      const orig = annotations.find((a) => a.id === hit)!;
+      setInteraction({ kind: "move", id: hit, startPt: p, orig, live: orig });
+      return;
+    }
+
+    // Empty space: the Select tool just deselects; the other tools create a new
+    // object (clearing any previous selection first).
+    setSelectedId(null);
+    if (tool === "select") return;
     if (tool === "text") {
       setTextInput({ x: p.x, y: p.y, value: "" });
       return;
@@ -554,10 +566,6 @@ export function ScreenshotEditor() {
     }
     if (tool === "pen") {
       setInteraction({ kind: "pen", points: [p] });
-      return;
-    }
-    if (tool === "crop") {
-      setInteraction({ kind: "crop", start: p, current: p });
       return;
     }
     setInteraction({ kind: "draw", start: p, current: p });
@@ -1311,40 +1319,47 @@ function drawStep(
   ctx.restore();
 }
 
+/** A bold, dynamic arrow (CleanShot-X style): ONE filled shape — a shaft that
+ *  tapers from a thin tail to the head base, flowing into a sharp triangular
+ *  head. Drawn as a single rounded-join polygon so it reads clean at any size. */
 function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   const dx = a.x2 - a.x1;
   const dy = a.y2 - a.y1;
   const len = Math.hypot(dx, dy);
   if (len < 1) return;
-  const angle = Math.atan2(dy, dx);
-  const ux = Math.cos(angle);
-  const uy = Math.sin(angle);
-  const headLen = Math.min(len * 0.9, Math.min(48, Math.max(16, a.width * 4.5)));
-  const barb = Math.PI / 6;
-  const notch = headLen * 0.62;
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy; // perpendicular
+  const py = ux;
+  const w = a.width;
+  // Proportions scale with the stroke width, capped relative to the length so
+  // short drags still look right.
+  const headLen = Math.min(len * 0.6, Math.max(18, w * 5.5));
+  const headHalf = headLen * 0.55; // head barb half-width (the wide part)
+  const shaftHalf = Math.min(Math.max(w * 1.0, 2), headHalf * 0.5); // half-width at the head base
+  const tailHalf = shaftHalf * 0.5; // taper down to a thinner tail
   const tipX = a.x2;
   const tipY = a.y2;
-  const lx = tipX - headLen * Math.cos(angle - barb);
-  const ly = tipY - headLen * Math.sin(angle - barb);
-  const rx = tipX - headLen * Math.cos(angle + barb);
-  const ry = tipY - headLen * Math.sin(angle + barb);
-  const nx = tipX - ux * notch;
-  const ny = tipY - uy * notch;
+  const baseX = tipX - ux * headLen;
+  const baseY = tipY - uy * headLen;
+  const pt = (bx: number, by: number, s: number) => [bx + px * s, by + py * s] as const;
   ctx.save();
-  ctx.strokeStyle = a.color;
   ctx.fillStyle = a.color;
-  ctx.lineWidth = a.width;
-  ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(a.x1, a.y1);
-  ctx.lineTo(nx, ny);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(tipX, tipY);
-  ctx.lineTo(lx, ly);
-  ctx.lineTo(nx, ny);
-  ctx.lineTo(rx, ry);
+  let q = pt(a.x1, a.y1, tailHalf);
+  ctx.moveTo(q[0], q[1]);
+  q = pt(baseX, baseY, shaftHalf);
+  ctx.lineTo(q[0], q[1]);
+  q = pt(baseX, baseY, headHalf);
+  ctx.lineTo(q[0], q[1]);
+  ctx.lineTo(tipX, tipY);
+  q = pt(baseX, baseY, -headHalf);
+  ctx.lineTo(q[0], q[1]);
+  q = pt(baseX, baseY, -shaftHalf);
+  ctx.lineTo(q[0], q[1]);
+  q = pt(a.x1, a.y1, -tailHalf);
+  ctx.lineTo(q[0], q[1]);
   ctx.closePath();
   ctx.fill();
   ctx.restore();

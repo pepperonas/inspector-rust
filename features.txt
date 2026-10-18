@@ -30,7 +30,7 @@ Expander-Hotkey (Alt+1) — Kürzel vor dem Cursor ersetzen, funktioniert auch i
 Direkt-Hotkey→Snippet — beliebige Hotkeys fest an einzelne Snippets binden
 Passive Auto-Expansion — aText-Stil: Kürzel expandiert beim Tippen ohne Hotkey (opt-in)
 Platzhalter — {date}, {time}, {datetime}, {clipboard}, {cursor} werden beim Einfügen gerendert
-Feedback-Sounds — mechanischer Klick bei Expansion, Cues für OCR/Screenshot/Recording (abschaltbar); Screenshot-Sound wählbar in den Settings (Snap [Default] / DSLR-Shutter / Schalter-Klick / Aus, aus dem sound-effects-Archiv, Auswahl spielt Vorschau)
+Feedback-Sounds — mechanischer Klick bei Expansion, Cues für OCR/Screenshot/Recording (abschaltbar); Screenshot-Sound wählbar in den Settings (Kamera-Shutter [Default] / Snap / DSLR-Shutter / Schalter-Klick / Aus, aus dem sound-effects-Archiv, Auswahl spielt Vorschau)
 
 == Notes ==
 Notizen — dauerhafte Lesezeichen aus Clips, kategorisierbar, nie geprunt
@@ -48,7 +48,7 @@ Volume/Mute-HUD „Klangaura" — beim 3-Finger-Swipe/Tap (und Shift+↑/↓): S
 Popup — Ctrl+Space (+ zweiter Verlaufs-Hotkey Ctrl+Shift+V), beide konfigurierbar
 OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract)
 Screenshot-Region — Ctrl+Shift+S: Bereich → Clipboard + schwebende Vorschau; auch Vollbild/Fenster/Timer (`shot`, `shotfull`, `shotwin`, `shotlast`)
-Screenshot-Editor — objektbasiert: Annotationen auswählen/verschieben/skalieren/umstylen/löschen mit echtem Undo/Redo; Pfeil, Linie, Text, Rechteck, Ellipse, Markierung, Weichzeichnen, Schwärzen, Schritt-Badges, Freihand-Stift, Emoji, Spotlight; freie Farbe + Deckkraft + Textgröße, Schlagschatten, Zuschneiden, Hintergrund & Rand (Farbe/Verlauf, Padding, Ecken, Schatten); Pin-to-Screen-Fenster
+Screenshot-Editor — objektbasiert: Annotationen auswählen/verschieben/skalieren/umstylen/löschen mit echtem Undo/Redo, und in JEDEM Zeichen-Werkzeug ein bestehendes Objekt anklicken wählt es zum Bearbeiten aus (wie das Auswahl-Werkzeug); dynamische CleanShot-Pfeile (eine gefüllte Form, getaperter Schaft + kräftige Dreiecks-Spitze); Pfeil, Linie, Text, Rechteck, Ellipse, Markierung, Weichzeichnen, Schwärzen, Schritt-Badges, Freihand-Stift, Emoji, Spotlight; freie Farbe + Deckkraft + Textgröße, Schlagschatten, Zuschneiden, Hintergrund & Rand (Farbe/Verlauf, Padding, Ecken, Schatten); Pin-to-Screen-Fenster
 Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor
 Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard; auch der „Vom Bildschirm“-Knopf im Farbwähler kopiert die gepickte Farbe und blendet das Overlay danach aus (Abbrechen bringt es unverschoben zurück) (v0.196.1)
 Finder-Auswahl — Ctrl+Shift+F: markierte Dateien im Popup; Bilder resizen/optimieren/freistellen

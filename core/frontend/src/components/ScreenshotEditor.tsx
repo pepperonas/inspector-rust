@@ -16,6 +16,7 @@ import {
   MousePointer2,
   PenTool,
   Redo2,
+  Smile,
   Square,
   SquareSlash,
   Type,
@@ -88,6 +89,12 @@ type Interaction =
   | { kind: "crop"; start: Point; current: Point }
   | null;
 
+/** A curated sticker set (no dependency — just characters). */
+const EMOJIS = [
+  "😀", "😂", "😍", "🤔", "😎", "🤯", "👍", "👎", "🙏", "👀", "🙌", "👋",
+  "🔥", "✅", "❌", "⭐", "❤️", "🎉", "💡", "⚠️", "🚀", "💯", "📌", "➡️",
+] as const;
+
 export function ScreenshotEditor() {
   useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,6 +113,7 @@ export function ScreenshotEditor() {
   const [opacity, setOpacity] = useState<number>(1);
   const [shadow, setShadow] = useState<boolean>(false);
   const [fontSize, setFontSize] = useState<number>(28);
+  const [emoji, setEmoji] = useState<string>(EMOJIS[0]);
   const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
 
   // Undo/redo history over the whole document.
@@ -403,6 +411,7 @@ export function ScreenshotEditor() {
         else if (key === "p") setTool("pen");
         else if (key === "c") setTool("crop");
         else if (key === "s") setTool("spotlight");
+        else if (key === "m") setTool("emoji");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -499,6 +508,12 @@ export function ScreenshotEditor() {
     }
     if (tool === "step") {
       placeStep(p);
+      return;
+    }
+    if (tool === "emoji") {
+      const a: Annotation = { id: nextId(), type: "emoji", x: p.x, y: p.y, char: emoji, size: Math.max(48, fontSize), opacity, shadow };
+      commitAppend(a);
+      setSelectedId(a.id);
       return;
     }
     if (tool === "pen") {
@@ -633,6 +648,7 @@ export function ScreenshotEditor() {
         >
           {imgReady ? (
             <div className="relative">
+              {tool === "emoji" && <EmojiBar current={emoji} onPick={setEmoji} />}
               <canvas
                 ref={canvasRef}
                 onMouseDown={onCanvasMouseDown}
@@ -748,6 +764,7 @@ function Toolbar({
       <ToolBtn t="redact" icon={<SquareSlash size={16} />} label={t("shot.redact")} shortcut="X" active={tool} onSelect={setTool} />
       <ToolBtn t="step" icon={<Hash size={16} />} label={t("shot.step_badge")} shortcut="N" active={tool} onSelect={setTool} />
       <ToolBtn t="pen" icon={<PenTool size={16} />} label={t("shot.pen")} shortcut="P" active={tool} onSelect={setTool} />
+      <ToolBtn t="emoji" icon={<Smile size={16} />} label={t("shot.emoji")} shortcut="M" active={tool} onSelect={setTool} />
       <ToolBtn t="spotlight" icon={<Focus size={16} />} label={t("shot.spotlight")} shortcut="S" active={tool} onSelect={setTool} />
       <ToolBtn t="crop" icon={<Crop size={16} />} label={t("shot.crop")} shortcut="C" active={tool} onSelect={setTool} />
 
@@ -857,6 +874,26 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+/** Floating emoji/sticker palette, shown while the emoji tool is active. */
+function EmojiBar({ current, onPick }: { current: string; onPick: (e: string) => void }) {
+  return (
+    <div className="absolute left-1/2 top-2 z-10 flex max-w-[92%] -translate-x-1/2 flex-wrap justify-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 shadow-lg">
+      {EMOJIS.map((e) => (
+        <button
+          key={e}
+          onClick={() => onPick(e)}
+          className={
+            "flex h-7 w-7 items-center justify-center rounded text-[18px] leading-none " +
+            (current === e ? "bg-[var(--color-accent)]/25 ring-1 ring-[var(--color-accent)]" : "hover:bg-[var(--color-bg)]")
+          }
+        >
+          {e}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -993,6 +1030,12 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       break;
     case "pen":
       drawPen(ctx, a);
+      break;
+    case "emoji":
+      ctx.font = `${a.size}px var(--font-sans, sans-serif)`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(a.char, a.x, a.y);
       break;
   }
   ctx.restore();

@@ -3204,6 +3204,7 @@
   "shot.saving": "Saving…",
   "shot.save_s": "Save (⌘S)",
   "shot.loading_screenshot": "Loading screenshot…",
+  "shot.select": "Select / move",
   "shot.arrow": "Arrow",
   "shot.line": "Line",
   "shot.text": "Text",

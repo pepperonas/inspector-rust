@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -11,6 +11,7 @@ import {
   Hash,
   Highlighter,
   Minus,
+  MousePointer2,
   Redo2,
   Square,
   SquareSlash,
@@ -27,99 +28,127 @@ import {
 } from "../lib/ipc";
 import {
   COLOR_PRESETS,
+  EMPTY_DOC,
+  boundsOf,
+  handlesFor,
+  hitTest,
   makeDragAnnotation,
+  moveAnnotation,
   nextStepNumber,
+  normalizeAnnotation,
+  reflowSteps,
+  resizeAnnotation,
+  restyleAnnotation,
   type Annotation,
   type ArrowAnnotation,
   type BlurAnnotation,
+  type EditorDoc,
+  type Handle,
+  type Point,
+  type Style,
   type Tool,
 } from "../lib/editor-geometry";
+import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
 import { t, useT } from "../lib/i18n";
 
 /**
  * Screenshot annotation editor (mounted in the `screenshot-editor`
  * Tauri window). Loads the currently-pending screenshot, renders it
- * onto a canvas, and lets the user layer annotation types on top:
+ * onto a canvas, and lets the user layer annotation types on top.
  *
- *   • Arrow      — line + filled arrowhead.
- *   • Line       — plain straight line.
- *   • Text       — click position, type, Enter commits.
- *   • Rectangle  — empty-outline box.
- *   • Ellipse    — empty-outline ellipse.
- *   • Highlight  — translucent yellow box (CleanShot-style marker).
- *   • Blur       — pixelate the underlying pixels (mosaic, no deps).
- *   • Redact     — opaque black block (fully hides content).
- *   • Step       — click-placed numbered badge (auto-incrementing).
+ * Since the CleanShot-X-parity rework the editor is **object-based**: the
+ * `select` tool selects an existing annotation (click its body, or grab a
+ * resize handle), moves it, resizes it, restyles it (the toolbar controls act
+ * on the selection), or deletes it (Delete/Backspace). Undo/redo is a snapshot
+ * history of the whole document (`lib/editor-history.ts`), so a move/resize/
+ * restyle/delete is each an undoable step — not just "added the last shape".
  *
  * Geometry + the annotation data model live in `lib/editor-geometry.ts`
- * (pure, unit-tested); this component owns the canvas drawing.
+ * (pure, unit-tested); this component owns the canvas drawing + interaction.
  *
- * Save bakes the canvas to PNG and ships it to the backend, which
- * writes it to ~/Downloads with the captured app-name + `-edited`
- * suffix, pushes to clipboard + history, and re-shows the preview.
+ * Save bakes the canvas to PNG and ships it to the backend, which writes it to
+ * ~/Downloads, pushes to clipboard + history, and re-shows the preview.
  *
- * Hotkeys (all macOS, also work on Windows/Linux via Ctrl):
- *   ⌘Z / Ctrl+Z         — Undo.
- *   ⌘⇧Z / Ctrl+Shift+Z  — Redo.
- *   ⌘S / Ctrl+S         — Save.
- *   Esc                 — Cancel (close without saving).
- *
- * The canvas is sized to the screenshot's *natural* pixel dimensions
- * so the saved PNG is full-resolution. CSS scales it down to fit the
- * viewport. Mouse coords are converted via `canvas.width / rect.width`.
+ * Hotkeys: V select · A/L/T/R/E/H/B/X/N tools · ⌘Z / ⌘⇧Z undo/redo ·
+ * ⌘S save · ⌘C copy · Delete/Backspace remove selection · Esc deselect/cancel.
  */
+
+type Interaction =
+  | { kind: "draw"; start: Point; current: Point }
+  | { kind: "move"; id: string; startPt: Point; orig: Annotation; live: Annotation }
+  | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation }
+  | null;
 
 export function ScreenshotEditor() {
   useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** The decoded screenshot image. Kept in a ref because we need it
-   *  for every redraw (background) and for blur (sampling source
-   *  pixels). State would re-create the Image on every render. */
+   *  for every redraw (background) and for blur (sampling source pixels). */
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   const [imgReady, setImgReady] = useState(false);
   const [tool, setTool] = useState<Tool>("arrow");
+
+  // Live drawing style. Changing a control also restyles the current
+  // selection (see applyStyle). opacity/shadow/fontSize controls arrive in
+  // later phases; the state exists now because new annotations carry them.
   const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  /** Annotations popped by Undo, available for Redo. Cleared on any
-   *  new annotation (standard undo-stack semantics). */
-  const [redoStack, setRedoStack] = useState<Annotation[]>([]);
+  const [opacity] = useState<number>(1);
+  const [shadow] = useState<boolean>(false);
+  const [fontSize] = useState<number>(28);
+  const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
 
-  /** In-progress drag (mousedown..mouseup). When non-null, the
-   *  redraw loop also paints a *preview* of what the drag will
-   *  commit to, so the user gets live feedback. */
-  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(
-    null,
+  // Undo/redo history over the whole document.
+  const [hist, dispatch] = useReducer(
+    (s: Parameters<typeof historyReducer<EditorDoc>>[0], a: Parameters<typeof historyReducer<EditorDoc>>[1]) =>
+      historyReducer(s, a),
+    undefined,
+    () => initHistory(EMPTY_DOC),
   );
-  const [dragCurrent, setDragCurrent] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
+  const annotations = hist.present.annotations;
 
-  /** Inline text-input state. Only non-null while the user is typing.
-   *  Position is in canvas coords; the input is rendered absolutely
-   *  on top of the canvas, scaled by the same factor as the canvas. */
-  const [textInput, setTextInput] = useState<{
-    x: number;
-    y: number;
-    value: string;
-  } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [interaction, setInteraction] = useState<Interaction>(null);
+
+  /** Inline text-input state. Only non-null while the user is typing. */
+  const [textInput, setTextInput] = useState<{ x: number; y: number; value: string } | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const fitBoxRef = useRef<HTMLDivElement>(null);
+  const idRef = useRef(0);
+  const nextId = () => `a${++idRef.current}`;
+
+  const annById = (id: string | null): Annotation | undefined =>
+    id ? annotations.find((a) => a.id === id) : undefined;
+
+  // Canvas→CSS pixel ratio: a Retina shot's backing store is 2× its display
+  // size, so handle hit-radii and selection chrome must scale by this to stay
+  // a consistent visual size.
+  const pxRatio = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return 1;
+    const w = c.getBoundingClientRect().width;
+    return w > 0 ? c.width / w : 1;
+  }, []);
+
+  // ── Commit helpers (each is one undoable history step) ───────────
+  const commitAnns = useCallback(
+    (anns: Annotation[]) => dispatch({ type: "commit", next: { ...hist.present, annotations: anns } }),
+    [hist.present],
+  );
+  const commitAppend = useCallback((a: Annotation) => commitAnns([...annotations, a]), [commitAnns, annotations]);
+  const commitReplace = useCallback(
+    (id: string, a: Annotation) => commitAnns(annotations.map((x) => (x.id === id ? a : x))),
+    [commitAnns, annotations],
+  );
+  const commitDelete = useCallback(
+    (id: string) => commitAnns(reflowSteps(annotations.filter((x) => x.id !== id))),
+    [commitAnns, annotations],
+  );
 
   // ── Fit the canvas into the viewport, deterministically ─────────
-  // The canvas' backing store is the screenshot's NATURAL (physical) pixels;
-  // its on-screen size is set here explicitly. The old CSS-only clamp
-  // (`max-w-full max-h-[78vh]`) silently failed horizontally: the canvas sits
-  // in a content-sized wrapper (needed for the absolutely-positioned text
-  // overlay), and `max-width: 100%` against a parent whose width comes from
-  // the child is circular — so a Retina screenshot rendered at full physical
-  // width, overflowed the window, and the editor showed only a crop behind
-  // invisible scrollbars. Scale = fit into the container, but never above the
-  // image's true on-screen size (1 physical px = 1/dpr CSS px).
   const fitCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const box = fitBoxRef.current;
@@ -138,8 +167,6 @@ export function ScreenshotEditor() {
     canvas.style.height = `${Math.max(1, Math.round(img.naturalHeight * scale))}px`;
   }, []);
 
-  // Refit on container resizes (editor window is user-resizable) + once the
-  // image is in.
   useEffect(() => {
     if (!imgReady) return;
     fitCanvas();
@@ -152,10 +179,6 @@ export function ScreenshotEditor() {
 
   // ── Load the pending screenshot on mount ─────────────────────────
   const loadImage = useCallback(async () => {
-    // Load the PNG as a base64 data URL (not convertFileSrc). On Windows
-    // the asset protocol fails to render inside this webview and taints
-    // the canvas; a data URL is same-origin, always renders, and lets the
-    // Save path's canvas.toDataURL() succeed. See the backend command.
     const dataUrl = await getPendingScreenshotDataUrl().catch(() => null);
     if (!dataUrl) {
       console.error("editor: no pending screenshot data URL");
@@ -164,14 +187,9 @@ export function ScreenshotEditor() {
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      // NOTE: no canvas sizing here — the canvas is not mounted yet (it
-      // renders behind `imgReady`), so `canvasRef.current` is null at this
-      // point; the redraw effect below owns the backing-store size.
       setImgReady(true);
     };
-    img.onerror = (e) => {
-      console.error("editor: screenshot image failed to load", e);
-    };
+    img.onerror = (e) => console.error("editor: screenshot image failed to load", e);
     img.src = dataUrl;
   }, []);
 
@@ -179,8 +197,8 @@ export function ScreenshotEditor() {
     void loadImage();
     let unlisten: UnlistenFn | undefined;
     void listen("editor-screenshot-changed", () => {
-      setAnnotations([]);
-      setRedoStack([]);
+      dispatch({ type: "reset", present: EMPTY_DOC });
+      setSelectedId(null);
       void loadImage();
     }).then((u) => {
       unlisten = u;
@@ -188,19 +206,17 @@ export function ScreenshotEditor() {
     return () => unlisten?.();
   }, [loadImage]);
 
+  // Drop a selection whose annotation vanished (undo past its creation, delete).
+  useEffect(() => {
+    if (selectedId && !annotations.some((a) => a.id === selectedId)) setSelectedId(null);
+  }, [annotations, selectedId]);
+
   // ── Redraw on every state change ─────────────────────────────────
   useEffect(() => {
     if (!imgReady) return;
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
-    // Size the backing store HERE — the canvas is conditionally rendered
-    // (`{imgReady ? <canvas/> : …}`), so during `img.onload` the ref is still
-    // null and any sizing there is silently skipped. The canvas then mounted
-    // at the browser default 300×150 and `drawImage(img, 0, 0)` painted only
-    // the screenshot's top-left 300×150 crop, upscaled — THE "editor doesn't
-    // show the full screenshot" bug. This effect runs after the canvas is in
-    // the DOM, so the natural-size assignment is guaranteed to land.
     if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
@@ -212,47 +228,34 @@ export function ScreenshotEditor() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0);
 
-    for (const a of annotations) {
-      drawAnnotation(ctx, a, img);
-    }
+    // Substitute the live-dragged annotation during a move/resize.
+    const list =
+      interaction && (interaction.kind === "move" || interaction.kind === "resize")
+        ? annotations.map((a) => (a.id === interaction.id ? interaction.live : a))
+        : annotations;
+    for (const a of list) drawAnnotation(ctx, a, img);
 
-    // Preview of an in-progress drag (drag-based tools only).
-    if (dragStart && dragCurrent && tool !== "text" && tool !== "step") {
-      const preview = makeDragAnnotation(
-        tool,
-        dragStart,
-        dragCurrent,
-        color,
-        strokeWidth,
-      );
+    // Preview of an in-progress draw.
+    if (interaction && interaction.kind === "draw" && tool !== "text" && tool !== "step") {
+      const preview = makeDragAnnotation(tool, interaction.start, interaction.current, styleObj, "preview");
       if (preview) drawAnnotation(ctx, preview, img);
     }
-  }, [annotations, dragStart, dragCurrent, tool, color, strokeWidth, imgReady, fitCanvas]);
+
+    // Selection chrome for the selected annotation (follows a live drag).
+    const sel = list.find((a) => a.id === selectedId);
+    if (sel) drawSelection(ctx, sel, pxRatio());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hist, interaction, selectedId, tool, color, strokeWidth, opacity, shadow, fontSize, imgReady, fitCanvas, pxRatio]);
 
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
-  const undo = useCallback(() => {
-    setAnnotations((cur) => {
-      if (cur.length === 0) return cur;
-      const next = cur.slice(0, -1);
-      setRedoStack((r) => [...r, cur[cur.length - 1]]);
-      return next;
-    });
-  }, []);
-  const redo = useCallback(() => {
-    setRedoStack((cur) => {
-      if (cur.length === 0) return cur;
-      const last = cur[cur.length - 1];
-      setAnnotations((a) => [...a, last]);
-      return cur.slice(0, -1);
-    });
-  }, []);
+  const undo = useCallback(() => dispatch({ type: "undo" }), []);
+  const redo = useCallback(() => dispatch({ type: "redo" }), []);
   const save = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas || saving) return;
     setSaving(true);
     try {
-      const dataUrl = canvas.toDataURL("image/png");
-      await editorSave(dataUrl);
+      await editorSave(canvas.toDataURL("image/png"));
     } catch (e) {
       console.error("editor save failed", e);
     } finally {
@@ -262,8 +265,6 @@ export function ScreenshotEditor() {
   const cancel = useCallback(() => {
     void editorCancel().catch(() => undefined);
   }, []);
-  /** Copy the edited canvas to the clipboard (Cmd/Ctrl+C) — stay in the
-   *  editor. Briefly flips the toolbar's "Copy" affordance to "Copied". */
   const copy = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -276,12 +277,26 @@ export function ScreenshotEditor() {
     }
   }, []);
 
+  // Changing a style control also restyles the current selection.
+  const applyColor = (c: string) => {
+    setColor(c);
+    if (selectedId) {
+      const a = annById(selectedId);
+      if (a) commitReplace(selectedId, restyleAnnotation(a, { color: c }));
+    }
+  };
+  const applyWidth = (w: number) => {
+    setStrokeWidth(w);
+    if (selectedId) {
+      const a = annById(selectedId);
+      if (a) commitReplace(selectedId, restyleAnnotation(a, { width: w }));
+    }
+  };
+
   // ── Hotkeys ──────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Don't intercept while the user is typing into the text-input
-      // overlay — typing Z there shouldn't undo.
-      if (textInput) return;
+      if (textInput) return; // typing into the text overlay
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -293,16 +308,29 @@ export function ScreenshotEditor() {
         e.preventDefault();
         void save();
       } else if (mod && e.key.toLowerCase() === "c") {
-        // Copy the edited screenshot to the clipboard, stay in the editor.
         e.preventDefault();
         void copy();
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+        e.preventDefault();
+        commitDelete(selectedId);
+        setSelectedId(null);
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") && selectedId) {
+        e.preventDefault();
+        const a = annById(selectedId);
+        if (a) {
+          const step = e.shiftKey ? 10 : 1;
+          const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+          const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+          commitReplace(selectedId, moveAnnotation(a, dx, dy));
+        }
       } else if (e.key === "Escape") {
         e.preventDefault();
-        cancel();
+        if (selectedId) setSelectedId(null);
+        else cancel();
       } else if (!mod && e.key.length === 1) {
-        // Single-key tool shortcuts. Match CleanShot-X reasonably.
         const key = e.key.toLowerCase();
-        if (key === "a") setTool("arrow");
+        if (key === "v") setTool("select");
+        else if (key === "a") setTool("arrow");
         else if (key === "l") setTool("line");
         else if (key === "t") setTool("text");
         else if (key === "r") setTool("rect");
@@ -315,9 +343,9 @@ export function ScreenshotEditor() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, save, copy, cancel, textInput]);
+  });
 
-  // Persist the editor window size (debounced) so the next open restores it.
+  // Persist the editor window size (debounced).
   useEffect(() => {
     const win = getCurrentWebviewWindow();
     let timer: number | undefined;
@@ -327,12 +355,8 @@ export function ScreenshotEditor() {
         if (timer) window.clearTimeout(timer);
         timer = window.setTimeout(() => {
           void (async () => {
-            // onResized gives a physical size; store logical px so the
-            // builder's inner_size restores the same visual size.
             const sf = await win.scaleFactor().catch(() => 1);
-            void setEditorSize(payload.width / sf, payload.height / sf).catch(
-              () => undefined,
-            );
+            void setEditorSize(payload.width / sf, payload.height / sf).catch(() => undefined);
           })();
         }, 400);
       })
@@ -346,143 +370,125 @@ export function ScreenshotEditor() {
   }, []);
 
   // ── Mouse helpers ────────────────────────────────────────────────
-  const toCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const toCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width;
     const sy = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * sx,
-      y: (e.clientY - rect.top) * sy,
-    };
+    return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
+  };
+
+  const grabHandle = (p: Point): Handle | null => {
+    const a = annById(selectedId);
+    if (!a) return null;
+    const r = 9 * pxRatio();
+    for (const h of handlesFor(a)) {
+      if (Math.abs(p.x - h.x) <= r && Math.abs(p.y - h.y) <= r) return h.pos;
+    }
+    return null;
+  };
+
+  const placeStep = (p: Point) => {
+    const a: Annotation = { id: nextId(), type: "step", x: p.x, y: p.y, number: nextStepNumber(annotations), color, size: fontSize, opacity, shadow };
+    commitAppend(a);
+    setSelectedId(a.id);
   };
 
   const onCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const p = toCanvasCoords(e);
-    // v0.66.0 — when a text input is open, suppress the default focus
-    // shift this click would cause. In WKWebView `mousedown` fires
-    // *before* the input's `blur`, so without this the blur handler would
-    // run after we've already committed + opened the next input here and
-    // would wrongly close that fresh input (text-adding felt broken —
-    // you couldn't place a second text by clicking). preventDefault keeps
-    // focus on the overlay input so no stray blur fires; we commit and
-    // re-open here ourselves. (Toolbar/button clicks still blur → commit.)
+    // Commit an open text input first (single-click semantics).
     if (textInput) {
       e.preventDefault();
-    }
-    // If a text input is open, commit it first (single-click semantics,
-    // consistent with native macOS apps — TextEdit, Pages, etc.).
-    if (textInput) {
       const v = textInput.value.trim();
       if (v.length > 0) {
-        setAnnotations((cur) => [
-          ...cur,
-          {
-            type: "text",
-            x: textInput.x,
-            y: textInput.y,
-            text: v,
-            color,
-            size: Math.max(14, strokeWidth * 4),
-          },
-        ]);
-        setRedoStack([]);
+        commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow });
       }
       setTextInput(null);
-      // Fall through — the click that committed the text now ALSO
-      // starts the next action (drag-start or text-relocate). Only
-      // skip the new-action if user is still on the text tool AND
-      // we want a clean "click outside to dismiss" UX → re-place
-      // the text input at the new spot, which matches Spotlight-style
-      // text-placement editors.
       if (tool === "text") {
         setTextInput({ x: p.x, y: p.y, value: "" });
         return;
       }
-      // Non-text tool → fall through to the drag-start path below.
+      // else fall through into the tool branch
+    }
+
+    if (tool === "select") {
+      const handle = grabHandle(p);
+      if (handle && selectedId) {
+        const orig = annById(selectedId);
+        if (orig) setInteraction({ kind: "resize", id: selectedId, handle, startPt: p, orig, live: orig });
+        return;
+      }
+      const hit = hitTest(annotations, p, 6 * pxRatio());
+      if (hit) {
+        setSelectedId(hit);
+        const orig = annotations.find((a) => a.id === hit)!;
+        setInteraction({ kind: "move", id: hit, startPt: p, orig, live: orig });
+      } else {
+        setSelectedId(null);
+      }
+      return;
     }
     if (tool === "text") {
-      // Click-to-place text input — no existing input to dismiss.
       setTextInput({ x: p.x, y: p.y, value: "" });
       return;
     }
     if (tool === "step") {
-      // Click-to-place numbered badge; number auto-increments.
-      setAnnotations((cur) => [
-        ...cur,
-        {
-          type: "step",
-          x: p.x,
-          y: p.y,
-          number: nextStepNumber(cur),
-          color,
-          size: Math.max(14, strokeWidth * 4),
-        },
-      ]);
-      setRedoStack([]);
+      placeStep(p);
       return;
     }
-    setDragStart(p);
-    setDragCurrent(p);
+    setInteraction({ kind: "draw", start: p, current: p });
   };
+
   const onCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragStart) return;
-    setDragCurrent(toCanvasCoords(e));
-  };
-  const onCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragStart) return;
-    const end = toCanvasCoords(e);
-    const a = makeDragAnnotation(tool, dragStart, end, color, strokeWidth);
-    if (a) {
-      setAnnotations((cur) => [...cur, a]);
-      setRedoStack([]); // any new annotation invalidates redo
+    if (!interaction) return;
+    const p = toCanvasCoords(e);
+    if (interaction.kind === "draw") {
+      setInteraction({ ...interaction, current: p });
+    } else if (interaction.kind === "move") {
+      setInteraction({ ...interaction, live: moveAnnotation(interaction.orig, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
+    } else if (interaction.kind === "resize") {
+      setInteraction({ ...interaction, live: resizeAnnotation(interaction.orig, interaction.handle, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
     }
-    setDragStart(null);
-    setDragCurrent(null);
+  };
+
+  const onCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!interaction) return;
+    if (interaction.kind === "draw") {
+      const end = toCanvasCoords(e);
+      const a = makeDragAnnotation(tool, interaction.start, end, styleObj, nextId());
+      if (a && !isDegenerate(a)) {
+        commitAppend(a);
+        setSelectedId(a.id);
+      }
+    } else if (interaction.kind === "move" || interaction.kind === "resize") {
+      commitReplace(interaction.id, normalizeAnnotation(interaction.live));
+    }
+    setInteraction(null);
   };
 
   const commitTextInput = () => {
     if (!textInput) return;
     const v = textInput.value.trim();
     if (v.length > 0) {
-      setAnnotations((cur) => [
-        ...cur,
-        {
-          type: "text",
-          x: textInput.x,
-          y: textInput.y,
-          text: v,
-          color,
-          size: Math.max(14, strokeWidth * 4),
-        },
-      ]);
-      setRedoStack([]);
+      commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow });
     }
     setTextInput(null);
   };
 
+  const cursor =
+    tool === "select" ? "default" : tool === "text" ? "text" : tool === "blur" ? "cell" : "crosshair";
+
   // ── Render ────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen w-screen flex-col bg-[var(--color-bg)] text-[var(--color-fg)]">
-      {/* Top bar */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
-        <span className="text-[12px] font-semibold text-[var(--color-muted)]">
-          {t("shot.edit")}
-        </span>
+        <span className="text-[12px] font-semibold text-[var(--color-muted)]">{t("shot.edit")}</span>
         <div className="flex items-center gap-1">
-          <IconButton
-            onClick={undo}
-            disabled={annotations.length === 0}
-            title={t("shot.undo_z")}
-          >
+          <IconButton onClick={undo} disabled={!canUndo(hist)} title={t("shot.undo_z")}>
             <Undo2 size={14} />
           </IconButton>
-          <IconButton
-            onClick={redo}
-            disabled={redoStack.length === 0}
-            title={t("shot.redo_z")}
-          >
+          <IconButton onClick={redo} disabled={!canRedo(hist)} title={t("shot.redo_z")}>
             <Redo2 size={14} />
           </IconButton>
           <div className="mx-2 h-5 w-px bg-[var(--color-border)]" />
@@ -516,16 +522,8 @@ export function ScreenshotEditor() {
         </div>
       </div>
 
-      {/* Body: tool palette + canvas. */}
       <div className="flex min-h-0 flex-1">
-        <Toolbar
-          tool={tool}
-          setTool={setTool}
-          color={color}
-          setColor={setColor}
-          strokeWidth={strokeWidth}
-          setStrokeWidth={setStrokeWidth}
-        />
+        <Toolbar tool={tool} setTool={setTool} color={color} setColor={applyColor} strokeWidth={strokeWidth} setStrokeWidth={applyWidth} />
         <div
           ref={fitBoxRef}
           className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0f0f0f] p-4"
@@ -538,34 +536,25 @@ export function ScreenshotEditor() {
                 onMouseMove={onCanvasMouseMove}
                 onMouseUp={onCanvasMouseUp}
                 onMouseLeave={(e) => {
-                  // Commit the drag if the cursor leaves the canvas
-                  // mid-stroke — feels less buggy than abandoning it.
-                  if (dragStart) onCanvasMouseUp(e);
+                  if (interaction) onCanvasMouseUp(e);
                 }}
-                className="cursor-crosshair shadow-2xl"
-                style={{
-                  cursor:
-                    tool === "text" ? "text" : tool === "blur" ? "cell" : "crosshair",
-                }}
+                className="shadow-2xl"
+                style={{ cursor }}
               />
               {textInput && (
                 <TextInputOverlay
                   canvasRef={canvasRef}
                   input={textInput}
                   color={color}
-                  fontSize={Math.max(14, strokeWidth * 4)}
-                  onChange={(v) =>
-                    setTextInput((cur) => (cur ? { ...cur, value: v } : cur))
-                  }
+                  fontSize={fontSize}
+                  onChange={(v) => setTextInput((cur) => (cur ? { ...cur, value: v } : cur))}
                   onCommit={commitTextInput}
                   onCancel={() => setTextInput(null)}
                 />
               )}
             </div>
           ) : (
-            <span className="text-[12px] text-[var(--color-muted)]">
-              {t("shot.loading_screenshot")}
-            </span>
+            <span className="text-[12px] text-[var(--color-muted)]">{t("shot.loading_screenshot")}</span>
           )}
         </div>
       </div>
@@ -573,12 +562,18 @@ export function ScreenshotEditor() {
   );
 }
 
+/** Reject a degenerate drag (a click, not a drag) so draw tools don't drop
+ *  zero-size dots/lines. */
+function isDegenerate(a: Annotation): boolean {
+  if (a.type === "arrow" || a.type === "line") return Math.hypot(a.x2 - a.x1, a.y2 - a.y1) < 3;
+  const b = boundsOf(a);
+  return b.w < 3 && b.h < 3;
+}
+
 // ── Toolbar component ───────────────────────────────────────────────
 
-/** A single tool button. Module-level (not defined during render) so it's
- *  a stable component identity. */
 function ToolBtn({
-  t,
+  t: toolId,
   icon,
   label,
   shortcut,
@@ -594,11 +589,11 @@ function ToolBtn({
 }) {
   return (
     <button
-      onClick={() => onSelect(t)}
+      onClick={() => onSelect(toolId)}
       title={`${label} (${shortcut})`}
       className={
         "flex h-10 w-10 items-center justify-center rounded-md border transition-colors " +
-        (active === t
+        (active === toolId
           ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
           : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
       }
@@ -625,7 +620,9 @@ function Toolbar({
 }) {
   useT();
   return (
-    <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+    <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 overflow-y-auto border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+      <ToolBtn t="select" icon={<MousePointer2 size={16} />} label={t("shot.select")} shortcut="V" active={tool} onSelect={setTool} />
+      <div className="my-0.5 h-px w-8 bg-[var(--color-border)]" />
       <ToolBtn t="arrow" icon={<ArrowUpRight size={16} />} label={t("shot.arrow")} shortcut="A" active={tool} onSelect={setTool} />
       <ToolBtn t="line" icon={<Minus size={16} />} label={t("shot.line")} shortcut="L" active={tool} onSelect={setTool} />
       <ToolBtn t="text" icon={<Type size={16} />} label={t("shot.text")} shortcut="T" active={tool} onSelect={setTool} />
@@ -644,9 +641,7 @@ function Toolbar({
             title={c}
             className={
               "h-6 w-6 rounded-full border-2 " +
-              (color === c
-                ? "border-[var(--color-accent)] scale-110"
-                : "border-[var(--color-border)]")
+              (color === c ? "border-[var(--color-accent)] scale-110" : "border-[var(--color-border)]")
             }
             style={{ backgroundColor: c }}
           />
@@ -654,9 +649,7 @@ function Toolbar({
       </div>
 
       <div className="mt-3 flex flex-col items-center gap-1">
-        <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted)]">
-          {t("shot.size")}
-        </span>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--color-muted)]">{t("shot.size")}</span>
         <input
           type="range"
           min={2}
@@ -666,9 +659,7 @@ function Toolbar({
           className="h-1 w-10 rotate-90 cursor-pointer accent-[var(--color-accent)]"
           style={{ marginTop: 16 }}
         />
-        <span className="mt-7 text-[10px] tabular-nums text-[var(--color-muted)]">
-          {strokeWidth}px
-        </span>
+        <span className="mt-7 text-[10px] tabular-nums text-[var(--color-muted)]">{strokeWidth}px</span>
       </div>
     </div>
   );
@@ -718,8 +709,6 @@ function TextInputOverlay({
 }) {
   useT();
   const inputRef = useRef<HTMLInputElement>(null);
-  // Read the canvas geometry in a layout effect (refs must not be read during
-  // render) — runs before paint, so the input is positioned with no flash.
   const [geom, setGeom] = useState<{ left: number; top: number; fontPx: number } | null>(null);
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -729,8 +718,6 @@ function TextInputOverlay({
     const cssScaleY = rect.height / canvas.height;
     setGeom({
       left: input.x * cssScaleX,
-      // Center the input vertically on the click point, like the bake-out
-      // text-y position (which uses fillText baseline=middle).
       top: input.y * cssScaleY - (fontSize * cssScaleY) / 2,
       fontPx: fontSize * cssScaleY,
     });
@@ -754,8 +741,6 @@ function TextInputOverlay({
           e.preventDefault();
           onCancel();
         }
-        // Swallow keystrokes so the global ⌘Z / ⌘S hotkeys don't fire
-        // while typing into the overlay.
         e.stopPropagation();
       }}
       style={{
@@ -779,17 +764,20 @@ function TextInputOverlay({
 
 // ── Drawing helpers ────────────────────────────────────────────────
 
-function drawAnnotation(
-  ctx: CanvasRenderingContext2D,
-  a: Annotation,
-  source: HTMLImageElement,
-) {
+function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HTMLImageElement) {
+  ctx.save();
+  const op = (a as { opacity?: number }).opacity;
+  if (typeof op === "number") ctx.globalAlpha = op;
+  if ((a as { shadow?: boolean }).shadow) {
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 2;
+  }
   switch (a.type) {
     case "arrow":
       drawArrow(ctx, a);
       break;
     case "line":
-      ctx.save();
       ctx.strokeStyle = a.color;
       ctx.lineWidth = a.width;
       ctx.lineCap = "round";
@@ -797,7 +785,6 @@ function drawAnnotation(
       ctx.moveTo(a.x1, a.y1);
       ctx.lineTo(a.x2, a.y2);
       ctx.stroke();
-      ctx.restore();
       break;
     case "rect":
       ctx.strokeStyle = a.color;
@@ -805,54 +792,60 @@ function drawAnnotation(
       ctx.strokeRect(a.x, a.y, a.w, a.h);
       break;
     case "ellipse":
-      ctx.save();
       ctx.strokeStyle = a.color;
       ctx.lineWidth = a.width;
       ctx.beginPath();
-      ctx.ellipse(
-        a.x + a.w / 2,
-        a.y + a.h / 2,
-        Math.abs(a.w / 2),
-        Math.abs(a.h / 2),
-        0,
-        0,
-        Math.PI * 2,
-      );
+      ctx.ellipse(a.x + a.w / 2, a.y + a.h / 2, Math.abs(a.w / 2), Math.abs(a.h / 2), 0, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.restore();
       break;
     case "highlight":
-      ctx.save();
       ctx.fillStyle = a.color;
       ctx.globalAlpha = 0.35;
       ctx.fillRect(a.x, a.y, a.w, a.h);
-      ctx.restore();
       break;
     case "blur":
       drawBlur(ctx, a, source);
       break;
     case "redact":
-      // Opaque black block — fully hides the content (vs. blur's mosaic).
-      ctx.save();
       ctx.fillStyle = "#000000";
       ctx.fillRect(a.x, a.y, a.w, a.h);
-      ctx.restore();
       break;
     case "step":
       drawStep(ctx, a);
       break;
     case "text":
-      ctx.save();
       ctx.fillStyle = a.color;
       ctx.font = `bold ${a.size}px var(--font-sans, sans-serif)`;
       ctx.textBaseline = "middle";
       ctx.fillText(a.text, a.x, a.y);
-      ctx.restore();
       break;
   }
+  ctx.restore();
 }
 
-/** Numbered badge: filled circle + centred white number. */
+/** Dashed outline + square handles around the selected annotation. Sizes are
+ *  scaled by `px` (canvas→CSS ratio) so they read consistently on Retina. */
+function drawSelection(ctx: CanvasRenderingContext2D, a: Annotation, px: number) {
+  const b = boundsOf(a);
+  ctx.save();
+  ctx.strokeStyle = "#3b82f6";
+  ctx.lineWidth = 1.5 * px;
+  ctx.setLineDash([6 * px, 4 * px]);
+  ctx.strokeRect(b.x, b.y, b.w, b.h);
+  ctx.setLineDash([]);
+  const s = 5 * px;
+  for (const h of handlesFor(a)) {
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#3b82f6";
+    ctx.lineWidth = 1.5 * px;
+    ctx.beginPath();
+    ctx.rect(h.x - s, h.y - s, s * 2, s * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawStep(
   ctx: CanvasRenderingContext2D,
   a: { x: number; y: number; number: number; color: string; size: number },
@@ -871,11 +864,6 @@ function drawStep(
   ctx.restore();
 }
 
-/** A sleek arrow: rounded shaft into a **concave-back** arrowhead (the
- *  back edges cave inward toward the tip, the polished CleanShot-style
- *  look rather than a plain flat triangle). Head scales with stroke width
- *  but is capped so it stays proportional, and the shaft stops at the
- *  head's notch so the two flow into one another with no overshoot. */
 function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   const dx = a.x2 - a.x1;
   const dy = a.y2 - a.y1;
@@ -884,13 +872,9 @@ function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   const angle = Math.atan2(dy, dx);
   const ux = Math.cos(angle);
   const uy = Math.sin(angle);
-
-  // Head length scales with stroke width, capped, and never longer than
-  // the arrow itself (short drags still look right).
   const headLen = Math.min(len * 0.9, Math.min(48, Math.max(16, a.width * 4.5)));
-  const barb = Math.PI / 6; // 30° half-angle
-  const notch = headLen * 0.62; // back-center pulled toward the tip → concave
-
+  const barb = Math.PI / 6;
+  const notch = headLen * 0.62;
   const tipX = a.x2;
   const tipY = a.y2;
   const lx = tipX - headLen * Math.cos(angle - barb);
@@ -899,21 +883,16 @@ function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   const ry = tipY - headLen * Math.sin(angle + barb);
   const nx = tipX - ux * notch;
   const ny = tipY - uy * notch;
-
   ctx.save();
   ctx.strokeStyle = a.color;
   ctx.fillStyle = a.color;
   ctx.lineWidth = a.width;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-
-  // Shaft — flows into the head's notch (not the bare tip).
   ctx.beginPath();
   ctx.moveTo(a.x1, a.y1);
   ctx.lineTo(nx, ny);
   ctx.stroke();
-
-  // Concave arrowhead: tip → left barb → notch → right barb.
   ctx.beginPath();
   ctx.moveTo(tipX, tipY);
   ctx.lineTo(lx, ly);
@@ -924,24 +903,12 @@ function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   ctx.restore();
 }
 
-/** Mosaic-style pixelation. We sample the *source image* (not the
- *  canvas) so blur is non-destructive: undoing the blur restores the
- *  pixels as they were in the original screenshot, not over whatever
- *  annotations happened to be drawn there. */
-function drawBlur(
-  ctx: CanvasRenderingContext2D,
-  a: BlurAnnotation,
-  source: HTMLImageElement,
-) {
+function drawBlur(ctx: CanvasRenderingContext2D, a: BlurAnnotation, source: HTMLImageElement) {
   const x = Math.round(a.x);
   const y = Math.round(a.y);
   const w = Math.round(a.w);
   const h = Math.round(a.h);
   if (w < 1 || h < 1) return;
-
-  // Off-screen canvas to read pixel data from the source image.
-  // Doing this every redraw is wasteful for very long sessions but
-  // simple and correct. Optimisation candidate if it bites.
   const off = document.createElement("canvas");
   off.width = w;
   off.height = h;
@@ -949,23 +916,15 @@ function drawBlur(
   if (!offCtx) return;
   offCtx.drawImage(source, x, y, w, h, 0, 0, w, h);
   const imgData = offCtx.getImageData(0, 0, w, h);
-
   const block = Math.round(a.blockSize);
   for (let by = 0; by < h; by += block) {
     for (let bx = 0; bx < w; bx += block) {
-      // Sample the top-left pixel of the block. Faster than averaging
-      // every pixel; the mosaic look hides the asymmetry.
-      const off = (by * w + bx) * 4;
-      const r = imgData.data[off];
-      const g = imgData.data[off + 1];
-      const b = imgData.data[off + 2];
+      const o = (by * w + bx) * 4;
+      const r = imgData.data[o];
+      const g = imgData.data[o + 1];
+      const b = imgData.data[o + 2];
       ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(
-        x + bx,
-        y + by,
-        Math.min(block, w - bx),
-        Math.min(block, h - by),
-      );
+      ctx.fillRect(x + bx, y + by, Math.min(block, w - bx), Math.min(block, h - by));
     }
   }
 }

@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.216.0] - 2026-10-18
+
 ### Added
 - **The screenshot editor is now a full object-based annotation editor (CleanShot-X-class).** After drawing, any annotation can be selected, moved, resized, restyled and deleted with the new Select tool (V) — and move/resize/restyle/delete each undo and redo properly. New tools: freehand pen (P), emoji/sticker (M), spotlight that dims around a region (S), and non-destructive crop (C). New styling: a custom colour picker alongside the presets, opacity, a text size independent of stroke width, a drop-shadow toggle, and a "beautiful background" wrapper (solid or gradient backdrop with padding, rounded corners and a shadow). What you see in the editor is exactly what gets saved — the baked PNG never includes the selection handles or the crop dimming.
 

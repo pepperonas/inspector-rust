@@ -488,3 +488,14 @@ export function normalizeAnnotation(a: Annotation): Annotation {
   if (isBox(a)) return { ...a, ...normRect({ x: a.x, y: a.y, w: a.w, h: a.h }) };
   return a;
 }
+
+/** Clamp a (possibly negative / out-of-bounds) rect to the image, so a crop
+ *  can never export pixels outside the screenshot. */
+export function clampRectToImage(r: Rect, imgW: number, imgH: number): Rect {
+  const n = normRect(r);
+  const x0 = Math.max(0, n.x);
+  const y0 = Math.max(0, n.y);
+  const x1 = Math.min(imgW, n.x + n.w);
+  const y1 = Math.min(imgH, n.y + n.h);
+  return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+}

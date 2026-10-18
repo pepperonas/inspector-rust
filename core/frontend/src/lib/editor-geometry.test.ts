@@ -4,6 +4,7 @@ import {
   normRect,
   makeDragAnnotation,
   nextStepNumber,
+  clampRectToImage,
   boundsOf,
   hitTest,
   handlesFor,
@@ -309,6 +310,19 @@ describe("reflowSteps", () => {
     const out = reflowSteps(anns);
     expect(out.filter((a) => a.type === "step").map((a) => (a as { number: number }).number)).toEqual([1, 2]);
     expect(out[1]).toBe(anns[1]); // non-step kept by reference
+  });
+});
+
+describe("clampRectToImage", () => {
+  it("clips a rect that overhangs the top-left corner", () => {
+    expect(clampRectToImage({ x: -10, y: -10, w: 50, h: 50 }, 100, 100)).toEqual({ x: 0, y: 0, w: 40, h: 40 });
+  });
+  it("clips a rect that overhangs the bottom-right corner", () => {
+    expect(clampRectToImage({ x: 90, y: 90, w: 50, h: 50 }, 100, 100)).toEqual({ x: 90, y: 90, w: 10, h: 10 });
+  });
+  it("leaves a fully-contained rect unchanged and normalises negatives", () => {
+    expect(clampRectToImage({ x: 10, y: 10, w: 20, h: 20 }, 100, 100)).toEqual({ x: 10, y: 10, w: 20, h: 20 });
+    expect(clampRectToImage({ x: 40, y: 40, w: -20, h: -20 }, 100, 100)).toEqual({ x: 20, y: 20, w: 20, h: 20 });
   });
 });
 

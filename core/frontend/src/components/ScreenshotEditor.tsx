@@ -7,11 +7,13 @@ import {
   Check,
   Circle,
   Copy,
+  Crop,
   Droplets,
   Hash,
   Highlighter,
   Minus,
   MousePointer2,
+  PenTool,
   Redo2,
   Square,
   SquareSlash,
@@ -30,6 +32,8 @@ import {
   COLOR_PRESETS,
   EMPTY_DOC,
   boundsOf,
+  clampRectToImage,
+  dragRect,
   handlesFor,
   hitTest,
   makeDragAnnotation,
@@ -44,7 +48,9 @@ import {
   type BlurAnnotation,
   type EditorDoc,
   type Handle,
+  type PenAnnotation,
   type Point,
+  type Rect,
   type Style,
   type Tool,
 } from "../lib/editor-geometry";
@@ -77,6 +83,8 @@ type Interaction =
   | { kind: "draw"; start: Point; current: Point }
   | { kind: "move"; id: string; startPt: Point; orig: Annotation; live: Annotation }
   | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation }
+  | { kind: "pen"; points: Point[] }
+  | { kind: "crop"; start: Point; current: Point }
   | null;
 
 export function ScreenshotEditor() {
@@ -146,6 +154,10 @@ export function ScreenshotEditor() {
   const commitDelete = useCallback(
     (id: string) => commitAnns(reflowSteps(annotations.filter((x) => x.id !== id))),
     [commitAnns, annotations],
+  );
+  const commitCrop = useCallback(
+    (crop: Rect | null) => dispatch({ type: "commit", next: { ...hist.present, crop } }),
+    [hist.present],
   );
 
   // ── Fit the canvas into the viewport, deterministically ─────────
@@ -225,24 +237,29 @@ export function ScreenshotEditor() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-
     // Substitute the live-dragged annotation during a move/resize.
     const list =
       interaction && (interaction.kind === "move" || interaction.kind === "resize")
         ? annotations.map((a) => (a.id === interaction.id ? interaction.live : a))
         : annotations;
-    for (const a of list) drawAnnotation(ctx, a, img);
+    composeScene(ctx, img, list);
 
     // Preview of an in-progress draw.
     if (interaction && interaction.kind === "draw" && tool !== "text" && tool !== "step") {
       const preview = makeDragAnnotation(tool, interaction.start, interaction.current, styleObj, "preview");
       if (preview) drawAnnotation(ctx, preview, img);
     }
+    // Preview of an in-progress freehand pen stroke.
+    if (interaction && interaction.kind === "pen") {
+      drawAnnotation(ctx, { id: "preview", type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow }, img);
+    }
 
-    // Selection chrome for the selected annotation (follows a live drag).
-    const sel = list.find((a) => a.id === selectedId);
+    // Crop chrome (dim outside + border) — editor-only, never in the export.
+    const crop = interaction && interaction.kind === "crop" ? dragRect(interaction.start, interaction.current) : hist.present.crop;
+    if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, canvas.width, canvas.height, pxRatio());
+
+    // Selection chrome (follows a live drag; hidden while cropping).
+    const sel = tool !== "crop" ? list.find((a) => a.id === selectedId) : undefined;
     if (sel) drawSelection(ctx, sel, pxRatio());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hist, interaction, selectedId, tool, color, strokeWidth, opacity, shadow, fontSize, imgReady, fitCanvas, pxRatio]);
@@ -250,32 +267,54 @@ export function ScreenshotEditor() {
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const redo = useCallback(() => dispatch({ type: "redo" }), []);
+  // Bake the final PNG on a FRESH offscreen canvas (content only — no
+  // selection handles / crop chrome / in-progress preview, which live on the
+  // on-screen canvas) and honour the crop viewport.
+  const exportDataUrl = useCallback((): string | null => {
+    const img = imgRef.current;
+    if (!img) return null;
+    const crop = hist.present.crop;
+    const off = document.createElement("canvas");
+    const ctx = off.getContext("2d");
+    if (!ctx) return null;
+    if (crop && crop.w >= 1 && crop.h >= 1) {
+      off.width = Math.round(crop.w);
+      off.height = Math.round(crop.h);
+      ctx.translate(-Math.round(crop.x), -Math.round(crop.y));
+    } else {
+      off.width = img.naturalWidth;
+      off.height = img.naturalHeight;
+    }
+    composeScene(ctx, img, hist.present.annotations);
+    return off.toDataURL("image/png");
+  }, [hist.present]);
   const save = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || saving) return;
+    if (saving) return;
+    const dataUrl = exportDataUrl();
+    if (!dataUrl) return;
     setSaving(true);
     try {
-      await editorSave(canvas.toDataURL("image/png"));
+      await editorSave(dataUrl);
     } catch (e) {
       console.error("editor save failed", e);
     } finally {
       setSaving(false);
     }
-  }, [saving]);
+  }, [saving, exportDataUrl]);
   const cancel = useCallback(() => {
     void editorCancel().catch(() => undefined);
   }, []);
   const copy = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const dataUrl = exportDataUrl();
+    if (!dataUrl) return;
     try {
-      await editorCopy(canvas.toDataURL("image/png"));
+      await editorCopy(dataUrl);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch (e) {
       console.error("editor copy failed", e);
     }
-  }, []);
+  }, [exportDataUrl]);
 
   // Changing a style control also restyles the current selection.
   const applyColor = (c: string) => {
@@ -353,6 +392,8 @@ export function ScreenshotEditor() {
         else if (key === "b") setTool("blur");
         else if (key === "x") setTool("redact");
         else if (key === "n") setTool("step");
+        else if (key === "p") setTool("pen");
+        else if (key === "c") setTool("crop");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -451,6 +492,14 @@ export function ScreenshotEditor() {
       placeStep(p);
       return;
     }
+    if (tool === "pen") {
+      setInteraction({ kind: "pen", points: [p] });
+      return;
+    }
+    if (tool === "crop") {
+      setInteraction({ kind: "crop", start: p, current: p });
+      return;
+    }
     setInteraction({ kind: "draw", start: p, current: p });
   };
 
@@ -463,6 +512,10 @@ export function ScreenshotEditor() {
       setInteraction({ ...interaction, live: moveAnnotation(interaction.orig, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
     } else if (interaction.kind === "resize") {
       setInteraction({ ...interaction, live: resizeAnnotation(interaction.orig, interaction.handle, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
+    } else if (interaction.kind === "pen") {
+      setInteraction({ ...interaction, points: [...interaction.points, p] });
+    } else if (interaction.kind === "crop") {
+      setInteraction({ ...interaction, current: p });
     }
   };
 
@@ -477,6 +530,20 @@ export function ScreenshotEditor() {
       }
     } else if (interaction.kind === "move" || interaction.kind === "resize") {
       commitReplace(interaction.id, normalizeAnnotation(interaction.live));
+    } else if (interaction.kind === "pen") {
+      if (interaction.points.length > 1) {
+        const a: Annotation = { id: nextId(), type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow };
+        commitAppend(a);
+        setSelectedId(a.id);
+      }
+    } else if (interaction.kind === "crop") {
+      const img = imgRef.current;
+      const r = dragRect(interaction.start, interaction.current);
+      if (r.w < 5 && r.h < 5) {
+        if (hist.present.crop) commitCrop(null); // a click clears an existing crop
+      } else if (img) {
+        commitCrop(clampRectToImage(r, img.naturalWidth, img.naturalHeight));
+      }
     }
     setInteraction(null);
   };
@@ -665,6 +732,8 @@ function Toolbar({
       <ToolBtn t="blur" icon={<Droplets size={16} />} label={t("shot.blur")} shortcut="B" active={tool} onSelect={setTool} />
       <ToolBtn t="redact" icon={<SquareSlash size={16} />} label={t("shot.redact")} shortcut="X" active={tool} onSelect={setTool} />
       <ToolBtn t="step" icon={<Hash size={16} />} label={t("shot.step_badge")} shortcut="N" active={tool} onSelect={setTool} />
+      <ToolBtn t="pen" icon={<PenTool size={16} />} label={t("shot.pen")} shortcut="P" active={tool} onSelect={setTool} />
+      <ToolBtn t="crop" icon={<Crop size={16} />} label={t("shot.crop")} shortcut="C" active={tool} onSelect={setTool} />
 
       <div className="mt-3 grid grid-cols-2 place-items-center gap-1.5">
         {COLOR_PRESETS.map((c) => (
@@ -892,7 +961,60 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       ctx.textBaseline = "middle";
       ctx.fillText(a.text, a.x, a.y);
       break;
+    case "pen":
+      drawPen(ctx, a);
+      break;
   }
+  ctx.restore();
+}
+
+/** Draw the full scene CONTENT (image + annotations) — no selection chrome,
+ *  no crop dim, no in-progress preview. Shared by the on-screen redraw and the
+ *  offscreen export so the baked PNG is always clean. Clears in device space
+ *  so it is correct under the export's crop translate. */
+function composeScene(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list: Annotation[]) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.restore();
+  ctx.drawImage(img, 0, 0);
+  for (const a of list) drawAnnotation(ctx, a, img);
+}
+
+function drawPen(ctx: CanvasRenderingContext2D, a: PenAnnotation) {
+  if (a.points.length === 0) return;
+  if (a.points.length === 1) {
+    ctx.fillStyle = a.color;
+    ctx.beginPath();
+    ctx.arc(a.points[0].x, a.points[0].y, a.width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  ctx.strokeStyle = a.color;
+  ctx.lineWidth = a.width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(a.points[0].x, a.points[0].y);
+  for (let i = 1; i < a.points.length; i++) ctx.lineTo(a.points[i].x, a.points[i].y);
+  ctx.stroke();
+}
+
+/** Dim everything outside the crop + a dashed border. Editor-only chrome —
+ *  the export is cropped instead, so this is never baked in. `crop` is already
+ *  normalised (dragRect / clampRectToImage). */
+function drawCropChrome(ctx: CanvasRenderingContext2D, crop: Rect, W: number, H: number, px: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(0, 0, W, crop.y);
+  ctx.fillRect(0, crop.y + crop.h, W, H - (crop.y + crop.h));
+  ctx.fillRect(0, crop.y, crop.x, crop.h);
+  ctx.fillRect(crop.x + crop.w, crop.y, W - (crop.x + crop.w), crop.h);
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5 * px;
+  ctx.setLineDash([6 * px, 4 * px]);
+  ctx.strokeRect(crop.x, crop.y, crop.w, crop.h);
+  ctx.setLineDash([]);
   ctx.restore();
 }
 

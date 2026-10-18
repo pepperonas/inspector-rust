@@ -3214,6 +3214,8 @@
   "shot.blur": "Weichzeichnen",
   "shot.redact": "Schwärzen",
   "shot.step_badge": "Schrittnummer",
+  "shot.pen": "Stift (frei)",
+  "shot.crop": "Zuschneiden",
   "shot.size": "Größe",
   "shot.opacity": "Deckkraft",
   "shot.font_size": "Textgröße",

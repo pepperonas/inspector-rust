@@ -3214,6 +3214,8 @@
   "shot.blur": "Blur",
   "shot.redact": "Redact",
   "shot.step_badge": "Step badge",
+  "shot.pen": "Pen (freehand)",
+  "shot.crop": "Crop",
   "shot.size": "Size",
   "shot.opacity": "Opacity",
   "shot.font_size": "Text size",

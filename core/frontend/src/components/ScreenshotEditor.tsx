@@ -1122,6 +1122,16 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       ctx.textBaseline = "middle";
       ctx.fillText(a.char, a.x, a.y);
       break;
+    case "spotlight":
+      // Only the in-progress drag preview reaches here (committed spotlights
+      // are drawn as the dim-with-hole layer in drawSceneContent). Show a
+      // dashed outline so the region is visible while dragging.
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([9, 6]);
+      ctx.strokeRect(a.x, a.y, a.w, a.h);
+      ctx.setLineDash([]);
+      break;
   }
   ctx.restore();
 }

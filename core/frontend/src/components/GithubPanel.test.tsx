@@ -169,6 +169,14 @@ describe("GithubPanel", () => {
     expect(screen.getAllByText(/History collecting… \(1 snapshot\)/).length).toBe(2);
   });
 
+  it("opens on the last year", async () => {
+    ipc.status = status();
+    ipc.dash = dash();
+    render(<GithubPanel cmd={parseGithubArg("")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    await waitFor(() => expect(ipc.dashCalls[0]?.[0]).toBe("1y"));
+    expect(screen.getByRole("button", { name: "1Y" }).className).toContain("bg-[var(--color-accent)]");
+  });
+
   it("opens with a gated refresh — never a forced one", async () => {
     ipc.status = status();
     ipc.dash = dash();

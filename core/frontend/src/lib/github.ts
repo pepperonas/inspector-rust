@@ -18,6 +18,9 @@ export type GithubCmd =
   | { kind: "connect" }
   | { kind: "invalid"; message: string };
 
+/** The range the panel opens with: the last year. */
+export const DEFAULT_RANGE: GithubRange = "1y";
+
 export const RANGES: { id: GithubRange; label: string }[] = [
   { id: "7d", label: "7D" },
   { id: "30d", label: "30D" },

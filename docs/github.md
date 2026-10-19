@@ -24,7 +24,8 @@ github connect              sign in through the browser
 
 The panel shows while you type and renders from the local cache. `refresh`,
 `export` and `connect` run on Enter. With the panel focused, ←/→ switch the
-chart range (7D · 30D · 90D · 1Y · 5Y · ALL). Tab completes subcommands, sort keys
+chart range (7D · 30D · 90D · 1Y · 5Y · ALL); the panel opens on 1Y and keeps
+your choice until the app restarts. Tab completes subcommands, sort keys
 and your repository names.
 
 ## Authentication

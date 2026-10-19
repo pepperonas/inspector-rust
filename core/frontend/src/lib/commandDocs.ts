@@ -1176,7 +1176,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "github refresh", result: "Enter fetches fresh numbers; the panel says when it last did." },
     ],
     tips: [
-      "With the panel focused, ←/→ switch the chart range (7D · 30D · 90D · 1Y · 5Y · ALL).",
+      "Charts open on the last year (1Y); with the panel focused, ←/→ switch the range (7D · 30D · 90D · 1Y · 5Y · ALL).",
       "Left of the dashed line a chart is reconstructed from GitHub's lists; right of it real snapshots count.",
       "Tab completes subcommands, sort keys and your repository names.",
       "A change shows as “—” until the history reaches back that far — never as a fake 0.",

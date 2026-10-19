@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.219.1] - 2026-10-19
+
+### Changed
+- `github` charts open on the last year (1Y) instead of 30 days.
+
 ## [0.219.0] - 2026-10-19
 
 ### Added

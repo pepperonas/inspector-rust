@@ -35,6 +35,7 @@ import {
   type GithubStatus,
 } from "../lib/ipc";
 import {
+  DEFAULT_RANGE,
   NO_LANGUAGE,
   RANGES,
   SORTS,
@@ -73,7 +74,7 @@ import { locale, t, tn, useT, type MessageKey } from "../lib/i18n";
 /** Signals already handled — module-level so a remount never replays one. */
 let lastHandledRun = 0;
 /** The range survives closing the panel (per session). */
-let rememberedRange: GithubRange = "30d";
+let rememberedRange: GithubRange = DEFAULT_RANGE;
 
 const KPI_LABEL: Record<GithubKpi["key"], MessageKey> = {
   followers: "github.kpi.followers",

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  DORMANT_DAYS,
+  ageParts,
+  composition,
+  concentration,
+  createdByYear,
+  fastestGrowing,
+  formatAge,
+  formatRate,
+  formatSize,
+  monthLabel,
+  repoInsight,
+  yearsSince,
   commandLabel,
   errorText,
   formatAgo,
@@ -18,7 +30,7 @@ import {
   timeDomain,
   toSeries,
 } from "./github";
-import type { GithubStatus } from "./ipc";
+import type { GithubRepo, GithubStatus } from "./ipc";
 
 const MIN = 60_000;
 const H = 60 * MIN;
@@ -104,8 +116,8 @@ describe("deltas", () => {
   });
 
   it("knows when the history is still collecting", () => {
-    expect(historyCollecting({ d24h: null, d7d: null, d30d: null, d90d: null })).toBe(true);
-    expect(historyCollecting({ d24h: 0, d7d: null, d30d: null, d90d: null })).toBe(false);
+    expect(historyCollecting({ d24h: null, d7d: null, d30d: null, d90d: null, d1y: null })).toBe(true);
+    expect(historyCollecting({ d24h: 0, d7d: null, d30d: null, d90d: null, d1y: null })).toBe(false);
   });
 });
 
@@ -233,7 +245,7 @@ describe("charts", () => {
   });
 
   it("offers the documented ranges and sorts", () => {
-    expect(RANGES.map((r) => r.label)).toEqual(["7D", "30D", "90D", "1Y", "ALL"]);
+    expect(RANGES.map((r) => r.label)).toEqual(["7D", "30D", "90D", "1Y", "5Y", "ALL"]);
     expect(SORTS.map((s) => s.id)).toEqual(["stars", "forks", "updated", "name", "growth7d", "growth30d"]);
   });
 });
@@ -268,5 +280,107 @@ describe("contract with the Rust side", () => {
     ];
     expect(sentinels.length).toBeGreaterThan(8);
     for (const s of new Set(sentinels)) expect(errorText(s), s).not.toBe(s);
+  });
+});
+
+describe("insights", () => {
+  const D = 86_400_000;
+  const NOW = new Date(2026, 9, 15, 12).getTime();
+  const repo = (over: Partial<GithubRepo>): GithubRepo => ({
+    id: 1, name: "r", full_name: "o/r", private: false, archived: false, fork: false, language: null, html_url: "",
+    description: null, license: null, stars: 0, forks: 0, watchers: null, open_issues: 0, updated_at_ms: null,
+    pushed_at_ms: null, created_at_ms: null, size_kb: null, topics: [], homepage: null, default_branch: null, ...over,
+  });
+
+  it("account age in calendar years and months", () => {
+    expect(ageParts(new Date(2013, 5, 20).getTime(), NOW)).toEqual({ years: 13, months: 3 });
+    // The 20th hasn't come round yet this month → one month less.
+    expect(ageParts(new Date(2026, 8, 20).getTime(), NOW)).toEqual({ years: 0, months: 0 });
+    expect(formatAge(new Date(2013, 5, 20).getTime(), NOW)).toBe("13 yr 3 mo");
+    expect(formatAge(new Date(2025, 9, 1).getTime(), NOW)).toBe("1 yr");
+    expect(formatAge(new Date(2026, 6, 1).getTime(), NOW)).toBe("3 mo");
+    expect(formatAge(NOW - D, NOW)).toBe("<1 mo");
+    expect(formatAge(null, NOW)).toBe("—");
+    expect(yearsSince(NOW - 365.25 * D, NOW)).toBeCloseTo(1);
+  });
+
+  it("per-repository rates: none under a month, forks per star, dormancy", () => {
+    const r = repoInsight(repo({ stars: 120, forks: 30, created_at_ms: NOW - 365 * D, pushed_at_ms: NOW - 200 * D }), NOW);
+    expect(r.starsPerMonth).toBeCloseTo(120 / (365 / 30.44));
+    expect(r.forkRatio).toBe(0.25);
+    expect(r.dormant).toBe(true);
+    expect(repoInsight(repo({ stars: 5, created_at_ms: NOW - 10 * D }), NOW).starsPerMonth).toBeNull();
+    expect(repoInsight(repo({ stars: 0 }), NOW).forkRatio).toBeNull();
+    // Archived is its own state, not dormant.
+    expect(repoInsight(repo({ archived: true, pushed_at_ms: NOW - 900 * D }), NOW).dormant).toBe(false);
+    expect(repoInsight(repo({ pushed_at_ms: NOW - (DORMANT_DAYS - 1) * D }), NOW).dormant).toBe(false);
+  });
+
+  it("composition counts every repository exactly once per axis", () => {
+    const c = composition(
+      [
+        repo({ id: 1, pushed_at_ms: NOW }),
+        repo({ id: 2, fork: true, pushed_at_ms: NOW - 400 * D }),
+        repo({ id: 3, archived: true, private: true }),
+        repo({ id: 4 }),
+      ],
+      NOW,
+    );
+    expect(c).toEqual({ total: 4, originals: 3, forks: 1, archived: 1, dormant: 1, active: 2, private: 1 });
+    expect(c.active + c.dormant + c.archived).toBe(c.total);
+  });
+
+  it("concentration: top share, top 3 and how many hold half", () => {
+    const c = concentration([
+      repo({ name: "a", stars: 60 }),
+      repo({ name: "b", stars: 30 }),
+      repo({ name: "c", stars: 5 }),
+      repo({ name: "d", stars: 5 }),
+      repo({ name: "e", stars: 0 }),
+    ]);
+    expect(c.top).toEqual({ name: "a", pct: 60 });
+    expect(c.top3Pct).toBe(95);
+    expect(c.halfBy).toBe(1);
+    expect(concentration([repo({ stars: 0 })]).top).toBeNull();
+  });
+
+  it("repositories per year fill the gaps; fastest growers skip the too-young", () => {
+    const y = createdByYear(
+      [repo({ created_at_ms: new Date(2022, 1).getTime() }), repo({ created_at_ms: new Date(2024, 1).getTime() })],
+      NOW,
+    );
+    expect(y).toEqual([
+      { year: 2022, count: 1 },
+      { year: 2023, count: 0 },
+      { year: 2024, count: 1 },
+      { year: 2025, count: 0 },
+      { year: 2026, count: 0 },
+    ]);
+    expect(createdByYear([repo({})], NOW)).toEqual([]);
+    const fast = fastestGrowing(
+      [
+        repo({ name: "old", stars: 100, created_at_ms: NOW - 1000 * D }),
+        repo({ name: "new", stars: 100, created_at_ms: NOW - 100 * D }),
+        repo({ name: "baby", stars: 50, created_at_ms: NOW - 5 * D }),
+      ],
+      NOW,
+    );
+    expect(fast.map((f) => f.name)).toEqual(["new", "old"]);
+  });
+
+  it("sizes and month labels", () => {
+    expect(formatSize(840)).toBe("840 KB");
+    expect(formatSize(12_700)).toBe("12.4 MB");
+    expect(formatSize(null)).toBe("—");
+    expect(monthLabel(Date.UTC(2026, 0, 1))).toBe("Jan");
+  });
+});
+
+describe("formatRate", () => {
+  it("keeps small rates visible", () => {
+    expect(formatRate(0.04)).toBe("0.04");
+    expect(formatRate(4.56)).toBe("4.6");
+    expect(formatRate(31.4)).toBe("31");
+    expect(formatRate(null)).toBe("—");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { areaPath, linePath, seriesExtent, type SeriesPoint } from "./stats-chart";
+import { areaPath, linePath, seriesExtent, stepAreaPath, stepPath, type SeriesPoint } from "./stats-chart";
 
 describe("seriesExtent", () => {
   it("returns [0,1] for an empty series", () => {
@@ -128,5 +128,26 @@ describe("seriesExtent — flat series away from zero", () => {
       expect((lo + hi) / 2).toBeCloseTo(v, 6);
       expect(hi).toBeGreaterThan(lo); // never a zero-height box → no /0 later
     }
+  });
+});
+
+describe("stepPath", () => {
+  const pts: SeriesPoint[] = [
+    { t: 0, v: 0 },
+    { t: 5, v: 10 },
+    { t: 10, v: 10 },
+  ];
+  it("holds each value until the next point — no diagonals", () => {
+    expect(stepPath(pts, 0, 10, 100, 10, 0, 10)).toBe(
+      "M0.00 10.00 L50.00 10.00 L50.00 0.00 L100.00 0.00 L100.00 0.00",
+    );
+  });
+  it("empty input → empty path, one point → a lone move", () => {
+    expect(stepPath([], 0, 1, 10, 10, 0, 1)).toBe("");
+    expect(stepPath([{ t: 0, v: 1 }], 0, 1, 10, 10, 0, 1)).toBe("M0.00 0.00");
+  });
+  it("the area closes to the baseline", () => {
+    expect(stepAreaPath(pts, 0, 10, 100, 10, 0, 10)).toMatch(/L100\.00 10\.00 L0\.00 10\.00 Z$/);
+    expect(stepAreaPath([], 0, 1, 10, 10, 0, 1)).toBe("");
   });
 });

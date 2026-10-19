@@ -81,3 +81,46 @@ export function areaPath(
   const x1 = x(pts[pts.length - 1].t);
   return `${line} L${x1.toFixed(2)} ${h.toFixed(2)} L${x0.toFixed(2)} ${h.toFixed(2)} Z`;
 }
+
+/**
+ * A step line: each value holds until the next point (horizontal, then
+ * vertical). For counts that only change at events — stars, forks — where a
+ * diagonal would claim values that never existed. Empty input → `""`.
+ */
+export function stepPath(
+  pts: SeriesPoint[],
+  tMin: number,
+  tMax: number,
+  w: number,
+  h: number,
+  vMin: number,
+  vMax: number,
+): string {
+  if (pts.length === 0) return "";
+  const tSpan = tMax - tMin || 1;
+  const vSpan = vMax - vMin || 1;
+  const x = (t: number) => clamp(((t - tMin) / tSpan) * w, 0, w).toFixed(2);
+  const y = (v: number) => clamp(h - ((v - vMin) / vSpan) * h, 0, h).toFixed(2);
+  let d = `M${x(pts[0].t)} ${y(pts[0].v)}`;
+  for (let i = 1; i < pts.length; i++) {
+    d += ` L${x(pts[i].t)} ${y(pts[i - 1].v)} L${x(pts[i].t)} ${y(pts[i].v)}`;
+  }
+  return d;
+}
+
+/** The area under a step line, closed to the baseline. Empty input → `""`. */
+export function stepAreaPath(
+  pts: SeriesPoint[],
+  tMin: number,
+  tMax: number,
+  w: number,
+  h: number,
+  vMin: number,
+  vMax: number,
+): string {
+  if (pts.length === 0) return "";
+  const tSpan = tMax - tMin || 1;
+  const x = (t: number) => clamp(((t - tMin) / tSpan) * w, 0, w).toFixed(2);
+  const line = stepPath(pts, tMin, tMax, w, h, vMin, vMax);
+  return `${line} L${x(pts[pts.length - 1].t)} ${h.toFixed(2)} L${x(pts[0].t)} ${h.toFixed(2)} Z`;
+}

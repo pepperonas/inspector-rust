@@ -47,7 +47,7 @@ pub const WINDOWS: [(&str, i64); 5] = [
 
 // ── API types ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Account {
     pub id: i64,
     pub login: String,
@@ -56,10 +56,29 @@ pub struct Account {
     pub html_url: Option<String>,
     pub followers: i64,
     pub following: i64,
+    /// Public repositories only (GitHub's `public_repos`).
     pub public_repos: i64,
+    /// `total_private_repos` — 0 when the token may not see private ones.
+    #[serde(default)]
+    pub private_repos: i64,
+    #[serde(default)]
+    pub public_gists: i64,
+    /// When the account was created on GitHub (its age).
+    #[serde(default)]
+    pub created_at_ms: Option<i64>,
+    #[serde(default)]
+    pub bio: Option<String>,
+    #[serde(default)]
+    pub company: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    #[serde(default)]
+    pub blog: Option<String>,
+    #[serde(default)]
+    pub hireable: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Repo {
     /// GitHub's stable id — the identity, not the name.
     pub id: i64,
@@ -80,6 +99,18 @@ pub struct Repo {
     pub open_issues: i64,
     pub updated_at_ms: Option<i64>,
     pub pushed_at_ms: Option<i64>,
+    /// When the repository was created — its age and the start of its history.
+    #[serde(default)]
+    pub created_at_ms: Option<i64>,
+    /// GitHub's `size` (KB).
+    #[serde(default)]
+    pub size_kb: Option<i64>,
+    #[serde(default)]
+    pub topics: Vec<String>,
+    #[serde(default)]
+    pub homepage: Option<String>,
+    #[serde(default)]
+    pub default_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,9 +140,15 @@ pub fn parse_account(v: &Value) -> Option<Account> {
         html_url: opt_str(&v["html_url"]),
         followers: v["followers"].as_i64().unwrap_or(0),
         following: v["following"].as_i64().unwrap_or(0),
-        // Private repos count too when the token may see them.
-        public_repos: v["public_repos"].as_i64().unwrap_or(0)
-            + v["total_private_repos"].as_i64().unwrap_or(0),
+        public_repos: v["public_repos"].as_i64().unwrap_or(0),
+        private_repos: v["total_private_repos"].as_i64().unwrap_or(0),
+        public_gists: v["public_gists"].as_i64().unwrap_or(0),
+        created_at_ms: iso_ms(&v["created_at"]),
+        bio: opt_str(&v["bio"]).map(|b| b.trim().to_string()),
+        company: opt_str(&v["company"]),
+        location: opt_str(&v["location"]),
+        blog: opt_str(&v["blog"]),
+        hireable: v["hireable"].as_bool(),
     })
 }
 
@@ -135,6 +172,14 @@ pub fn parse_repo(v: &Value) -> Option<Repo> {
         open_issues: v["open_issues_count"].as_i64().unwrap_or(0),
         updated_at_ms: iso_ms(&v["updated_at"]),
         pushed_at_ms: iso_ms(&v["pushed_at"]),
+        created_at_ms: iso_ms(&v["created_at"]),
+        size_kb: v["size"].as_i64(),
+        topics: v["topics"]
+            .as_array()
+            .map(|a| a.iter().filter_map(opt_str).collect())
+            .unwrap_or_default(),
+        homepage: opt_str(&v["homepage"]),
+        default_branch: opt_str(&v["default_branch"]),
     })
 }
 
@@ -344,6 +389,370 @@ pub fn delta(series: &[Point], now: i64, window: i64) -> Option<i64> {
     Some(current - base)
 }
 
+// ── Reconstructed history ───────────────────────────────────────────────────
+//
+// Snapshots only start the day the account was connected. GitHub keeps two
+// timestamped lists that reach back to the start: when each CURRENT
+// stargazer starred (`starred_at`) and when each fork was created. Turned
+// into a cumulative count they give the history before the first snapshot.
+// What they can't show: stars that were removed again — the reconstruction
+// counts today's stargazers only, and the UI says so.
+
+/// Which timestamped list an event series comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventKind {
+    Stars,
+    Forks,
+}
+
+impl EventKind {
+    pub const ALL: [EventKind; 2] = [EventKind::Stars, EventKind::Forks];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stars => "stars",
+            Self::Forks => "forks",
+        }
+    }
+
+    /// The timestamp field of one list entry.
+    pub fn time_field(self) -> &'static str {
+        match self {
+            Self::Stars => "starred_at",
+            Self::Forks => "created_at",
+        }
+    }
+
+    /// The count on the repository this list belongs to.
+    pub fn value_of(self, r: &Repo) -> i64 {
+        match self {
+            Self::Stars => r.stars,
+            Self::Forks => r.forks,
+        }
+    }
+}
+
+/// Entries per page of the event lists.
+pub const EVENT_PAGE_SIZE: i64 = 100;
+/// Pages read at most for ONE repository (GitHub stops listing there too).
+pub const MAX_EVENT_PAGES: i64 = 400;
+/// Pages read at most per refresh, over all repositories (3 % of the
+/// hourly limit; most lists are one page, so an account with 100 small
+/// repositories is reconstructed in one or two refreshes).
+pub const BACKFILL_PAGE_BUDGET: i64 = 150;
+/// Below this many requests left, nothing is backfilled — the regular
+/// refresh must never run into the wall because of the history.
+pub const BACKFILL_MIN_RATE: i64 = 500;
+/// A changed repository is re-read at most this often (a busy repository
+/// would otherwise be re-read on every refresh).
+pub const BACKFILL_RESYNC_MS: i64 = 6 * 3_600_000;
+
+/// The timestamps of one page; None when the answer is not a list.
+pub fn parse_event_times(v: &Value, kind: EventKind) -> Option<Vec<i64>> {
+    Some(
+        v.as_array()?
+            .iter()
+            .filter_map(|e| iso_ms(&e[kind.time_field()]))
+            .collect(),
+    )
+}
+
+/// Pages one full read of a list of `value` entries takes.
+pub fn pages_for(value: i64) -> i64 {
+    ((value.max(1) + EVENT_PAGE_SIZE - 1) / EVENT_PAGE_SIZE).min(MAX_EVENT_PAGES)
+}
+
+/// One list that may need (re-)reading.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackfillCandidate {
+    pub repo_id: i64,
+    pub full_name: String,
+    pub kind: EventKind,
+    /// The repository's current count (stars / forks).
+    pub value: i64,
+    /// The count when the list was last read completely; None = never.
+    pub synced_value: Option<i64>,
+    pub synced_ms: Option<i64>,
+}
+
+impl BackfillCandidate {
+    /// Due: never read, or the count changed and the last read is old enough.
+    pub fn due(&self, now: i64) -> bool {
+        if self.value <= 0 {
+            return false;
+        }
+        match (self.synced_value, self.synced_ms) {
+            (None, _) | (_, None) => true,
+            (Some(v), Some(t)) => v != self.value && now - t >= BACKFILL_RESYNC_MS,
+        }
+    }
+}
+
+/// Which lists this refresh reads, within `budget` pages. Never-read lists
+/// first, the biggest first (they matter most); a list is only taken when it
+/// fits completely — a half-read list is never stored. The one exception: a
+/// list bigger than the whole budget may take a refresh of its own, or it
+/// would never be read.
+pub fn plan_backfill(
+    mut cands: Vec<BackfillCandidate>,
+    now: i64,
+    budget: i64,
+) -> Vec<BackfillCandidate> {
+    cands.retain(|c| c.due(now));
+    cands.sort_by(|a, b| {
+        a.synced_ms
+            .is_some()
+            .cmp(&b.synced_ms.is_some())
+            .then(b.value.cmp(&a.value))
+            .then(a.repo_id.cmp(&b.repo_id))
+            .then(a.kind.as_str().cmp(b.kind.as_str()))
+    });
+    let mut left = budget;
+    let mut out: Vec<BackfillCandidate> = Vec::new();
+    for c in cands {
+        let need = pages_for(c.value);
+        if need <= left {
+            left -= need;
+            out.push(c);
+        } else if out.is_empty() {
+            out.push(c);
+            break;
+        }
+    }
+    out
+}
+
+/// Event times → a cumulative count, oldest first (one point per event).
+pub fn cumulative(events: &[i64]) -> Vec<Point> {
+    let mut ts = events.to_vec();
+    ts.sort_unstable();
+    ts.into_iter()
+        .enumerate()
+        .map(|(i, t)| (t, i as i64 + 1))
+        .collect()
+}
+
+/// The reconstruction before the first real snapshot, the snapshots from
+/// then on. Snapshots win where both exist: they also see removed stars.
+pub fn merge_history(reconstructed: &[Point], snapshots: &[Point]) -> Vec<Point> {
+    match snapshots.first() {
+        None => reconstructed.to_vec(),
+        Some(&(first, _)) => reconstructed
+            .iter()
+            .copied()
+            .filter(|(t, _)| *t < first)
+            .chain(snapshots.iter().copied())
+            .collect(),
+    }
+}
+
+/// A series for a step chart over `[now - range, now]`: the value carried
+/// in at the start, every change inside, and the current value at `now` —
+/// a value holds until it changes, so a quiet repository still has a line.
+/// Empty when nothing is known by `now`.
+pub fn window(series: &[Point], now: i64, range: Option<i64>) -> Vec<Point> {
+    let start = range.map(|r| now - r);
+    let mut out: Vec<Point> = Vec::new();
+    if let Some(s) = start {
+        if let Some(v) = value_at(series, s) {
+            out.push((s, v));
+        }
+    }
+    for &(t, v) in series {
+        if t > now {
+            break;
+        }
+        if start.is_some_and(|s| t <= s) {
+            continue;
+        }
+        out.push((t, v));
+    }
+    if let Some(&(t, v)) = out.last() {
+        if t < now {
+            out.push((now, v));
+        }
+    }
+    out
+}
+
+/// Gain per calendar month (UTC), the last `months` up to `now`, oldest
+/// first. `zero_before` = the series is a full reconstruction, so before its
+/// first point the count was 0; otherwise an unknown month is None.
+pub fn gains_by_month(
+    series: &[Point],
+    now: i64,
+    months: u32,
+    zero_before: bool,
+) -> Vec<(i64, Option<i64>)> {
+    use chrono::{Datelike, TimeZone, Utc};
+    let Some(n) = Utc.timestamp_millis_opt(now).single() else {
+        return Vec::new();
+    };
+    let month_start = |y: i32, m: u32| {
+        Utc.with_ymd_and_hms(y, m, 1, 0, 0, 0)
+            .single()
+            .map(|d| d.timestamp_millis())
+    };
+    let mut starts = Vec::new();
+    let (mut y, mut m) = (n.year(), n.month());
+    for _ in 0..months {
+        if let Some(s) = month_start(y, m) {
+            starts.push(s);
+        }
+        if m == 1 {
+            y -= 1;
+            m = 12;
+        } else {
+            m -= 1;
+        }
+    }
+    starts.reverse();
+    let at = |t: i64| {
+        value_at(series, t).or(if zero_before && !series.is_empty() {
+            Some(0)
+        } else {
+            None
+        })
+    };
+    starts
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| {
+            let end = starts.get(i + 1).copied().unwrap_or(now);
+            (s, at(end).zip(at(s)).map(|(e, b)| e - b))
+        })
+        .collect()
+}
+
+// ── Repository extras (detail view, cached) ─────────────────────────────────
+
+/// Extra data the repository detail fetches on demand (cached for a day).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExtraKind {
+    CommitActivity,
+    Releases,
+    Languages,
+    TrafficViews,
+    TrafficClones,
+}
+
+impl ExtraKind {
+    pub const ALL: [ExtraKind; 5] = [
+        ExtraKind::CommitActivity,
+        ExtraKind::Releases,
+        ExtraKind::Languages,
+        ExtraKind::TrafficViews,
+        ExtraKind::TrafficClones,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CommitActivity => "commit_activity",
+            Self::Releases => "releases",
+            Self::Languages => "languages",
+            Self::TrafficViews => "traffic_views",
+            Self::TrafficClones => "traffic_clones",
+        }
+    }
+
+    pub fn path(self) -> &'static str {
+        match self {
+            Self::CommitActivity => "stats/commit_activity",
+            Self::Releases => "releases?per_page=100",
+            Self::Languages => "languages",
+            Self::TrafficViews => "traffic/views",
+            Self::TrafficClones => "traffic/clones",
+        }
+    }
+}
+
+/// How long a fetched extra is reused.
+pub const EXTRAS_TTL_MS: i64 = 86_400_000;
+
+/// `stats/commit_activity`: commits per week, last 52 weeks (week start ms).
+pub fn parse_commit_activity(v: &Value) -> Option<Vec<Point>> {
+    Some(
+        v.as_array()?
+            .iter()
+            .filter_map(|w| Some((w["week"].as_i64()? * 1000, w["total"].as_i64()?)))
+            .collect(),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ReleaseSummary {
+    /// Releases on the first page (up to 100).
+    pub count: i64,
+    pub latest_tag: Option<String>,
+    pub latest_ms: Option<i64>,
+    /// Asset downloads over those releases.
+    pub downloads: i64,
+    /// Release dates, newest first — the cadence.
+    pub dates: Vec<i64>,
+}
+
+pub fn parse_releases(v: &Value) -> Option<ReleaseSummary> {
+    let list = v.as_array()?;
+    let mut s = ReleaseSummary::default();
+    for r in list {
+        if r["draft"].as_bool() == Some(true) {
+            continue;
+        }
+        s.count += 1;
+        let when = iso_ms(&r["published_at"]).or_else(|| iso_ms(&r["created_at"]));
+        if let Some(t) = when {
+            s.dates.push(t);
+            if s.latest_ms.is_none_or(|l| t > l) {
+                s.latest_ms = Some(t);
+                s.latest_tag = opt_str(&r["tag_name"]);
+            }
+        }
+        s.downloads += r["assets"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x["download_count"].as_i64()).sum::<i64>())
+            .unwrap_or(0);
+    }
+    s.dates.sort_unstable_by(|a, b| b.cmp(a));
+    Some(s)
+}
+
+/// `languages`: bytes per language, largest first.
+pub fn parse_languages(v: &Value) -> Option<Vec<(String, i64)>> {
+    let mut out: Vec<(String, i64)> = v
+        .as_object()?
+        .iter()
+        .filter_map(|(k, b)| Some((k.clone(), b.as_i64()?)))
+        .filter(|(_, b)| *b > 0)
+        .collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    Some(out)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Traffic {
+    pub count: i64,
+    pub uniques: i64,
+    /// Per day: (day ms, count).
+    pub days: Vec<Point>,
+}
+
+/// `traffic/views` or `traffic/clones` (last 14 days).
+pub fn parse_traffic(v: &Value, list: &str) -> Option<Traffic> {
+    Some(Traffic {
+        count: v["count"].as_i64()?,
+        uniques: v["uniques"].as_i64().unwrap_or(0),
+        days: v[list]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|d| Some((iso_ms(&d["timestamp"])?, d["count"].as_i64()?)))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
 // ── Refresh gating ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -470,6 +879,7 @@ mod tests {
             open_issues: 0,
             updated_at_ms: Some(id * 1000),
             pushed_at_ms: None,
+            ..Default::default()
         }
     }
 
@@ -489,8 +899,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            (a.id, a.login.as_str(), a.followers, a.public_repos),
-            (7, "pepperonas", 142, 52)
+            (a.id, a.login.as_str(), a.followers, a.public_repos, a.private_repos),
+            (7, "pepperonas", 142, 47, 5),
+            "public stays public — private repositories are counted apart"
         );
         assert!(parse_account(&json!({"login": "x"})).is_none());
         let repos = parse_repos(&json!([
@@ -769,5 +1180,145 @@ mod tests {
         );
         sort_rows(&mut rows, SortKey::Updated);
         assert_eq!(names(&rows)[0], "kapsel");
+    }
+
+    #[test]
+    fn repo_parse_keeps_age_size_and_topics() {
+        let r = parse_repo(&json!({"id": 1, "name": "x", "created_at": "2020-03-01T00:00:00Z",
+            "size": 2048, "topics": ["rust", "", "tauri"], "homepage": "", "default_branch": "main"}))
+        .unwrap();
+        assert_eq!(r.created_at_ms, Some(1_583_020_800_000));
+        assert_eq!(r.size_kb, Some(2048));
+        assert_eq!(r.topics, vec!["rust".to_string(), "tauri".to_string()]);
+        assert_eq!(r.homepage, None, "an empty homepage is no homepage");
+        assert_eq!(r.default_branch.as_deref(), Some("main"));
+        let a = parse_account(&json!({"id": 1, "login": "p", "created_at": "2013-03-04T10:00:00Z",
+            "bio": " Builder \n", "public_gists": 4, "hireable": null}))
+        .unwrap();
+        assert_eq!(a.created_at_ms, Some(1_362_391_200_000));
+        assert_eq!(a.bio.as_deref(), Some("Builder"));
+        assert_eq!(a.public_gists, 4);
+        assert_eq!(a.hireable, None);
+    }
+
+    #[test]
+    fn events_become_a_cumulative_history_that_snapshots_take_over() {
+        let ev = cumulative(&[30, 10, 20]);
+        assert_eq!(ev, vec![(10, 1), (20, 2), (30, 3)], "sorted, counting up");
+        // Snapshots win from their first point on (they also see removed stars).
+        assert_eq!(
+            merge_history(&ev, &[(25, 1), (40, 2)]),
+            vec![(10, 1), (20, 2), (25, 1), (40, 2)]
+        );
+        assert_eq!(merge_history(&ev, &[]), ev);
+        assert_eq!(merge_history(&[], &[(5, 9)]), vec![(5, 9)]);
+    }
+
+    #[test]
+    fn a_window_carries_the_value_in_and_ends_now() {
+        let s = [(10, 1), (20, 2), (30, 3)];
+        // A quiet range still has a line: the value at its start, held to now.
+        assert_eq!(window(&s, 100, Some(50)), vec![(50, 3), (100, 3)]);
+        assert_eq!(window(&s, 100, Some(85)), vec![(15, 1), (20, 2), (30, 3), (100, 3)]);
+        // Before the first point there was nothing: no invented start.
+        assert_eq!(window(&s, 25, Some(20)), vec![(10, 1), (20, 2), (25, 2)]);
+        assert_eq!(window(&s, 100, None), vec![(10, 1), (20, 2), (30, 3), (100, 3)]);
+        assert_eq!(window(&s, 30, None), vec![(10, 1), (20, 2), (30, 3)]);
+        assert!(window(&s, 5, Some(3)).is_empty(), "nothing known yet");
+        assert!(window(&[], 5, None).is_empty());
+    }
+
+    #[test]
+    fn monthly_gains_are_unknown_before_the_history_unless_reconstructed() {
+        use chrono::{TimeZone, Utc};
+        let ms = |y, m, d| Utc.with_ymd_and_hms(y, m, d, 12, 0, 0).unwrap().timestamp_millis();
+        let s = [(ms(2026, 8, 5), 1), (ms(2026, 9, 10), 2), (ms(2026, 9, 20), 4)];
+        let now = ms(2026, 10, 15);
+        let g = gains_by_month(&s, now, 3, true);
+        assert_eq!(g.len(), 3);
+        assert_eq!(g[0].0, Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap().timestamp_millis());
+        assert_eq!(g.iter().map(|x| x.1).collect::<Vec<_>>(), vec![Some(1), Some(3), Some(0)]);
+        // Without a full reconstruction August is unknown, not "+1".
+        let g = gains_by_month(&s, now, 3, false);
+        assert_eq!(g[0].1, None);
+        assert_eq!(g[1].1, Some(3));
+        // Across a year boundary.
+        let g = gains_by_month(&s, ms(2027, 1, 2), 3, true);
+        assert_eq!(g[0].0, Utc.with_ymd_and_hms(2026, 11, 1, 0, 0, 0).unwrap().timestamp_millis());
+    }
+
+    fn cand(id: i64, value: i64, synced: Option<(i64, i64)>) -> BackfillCandidate {
+        BackfillCandidate {
+            repo_id: id,
+            full_name: format!("o/r{id}"),
+            kind: EventKind::Stars,
+            value,
+            synced_value: synced.map(|s| s.0),
+            synced_ms: synced.map(|s| s.1),
+        }
+    }
+
+    #[test]
+    fn backfill_plan_reads_whole_lists_within_the_budget() {
+        const H: i64 = 3_600_000;
+        let now = 100 * H;
+        // Due: never read; changed and old enough. Not due: unchanged, too
+        // recent, or nothing to read.
+        assert!(cand(1, 5, None).due(now));
+        assert!(cand(1, 6, Some((5, now - 7 * H))).due(now));
+        assert!(!cand(1, 5, Some((5, 0))).due(now));
+        assert!(!cand(1, 6, Some((5, now - H))).due(now));
+        assert!(!cand(1, 0, None).due(now));
+        assert_eq!(pages_for(1), 1);
+        assert_eq!(pages_for(100), 1);
+        assert_eq!(pages_for(101), 2);
+        assert_eq!(pages_for(10_000_000), MAX_EVENT_PAGES);
+        // Never-read first, biggest first; one that doesn't fit is skipped,
+        // a smaller one still fits.
+        let plan = plan_backfill(
+            vec![cand(1, 250, Some((200, 0))), cand(2, 3000, None), cand(3, 150, None), cand(4, 40, None)],
+            now,
+            33,
+        );
+        let ids: Vec<i64> = plan.iter().map(|c| c.repo_id).collect();
+        assert_eq!(ids, vec![2, 3, 4], "30 + 2 + 1 pages; repo 1 (3 pages) no longer fits");
+        // A list bigger than the whole budget gets a refresh of its own.
+        let plan = plan_backfill(vec![cand(1, 9000, None), cand(2, 10, None)], now, 60);
+        assert_eq!(plan.iter().map(|c| c.repo_id).collect::<Vec<_>>(), vec![1]);
+        assert!(plan_backfill(vec![cand(1, 5, Some((5, 0)))], now, 60).is_empty());
+    }
+
+    #[test]
+    fn extras_parse() {
+        let times = parse_event_times(
+            &json!([{"starred_at": "2026-01-01T00:00:00Z", "user": {}}, {"starred_at": null}]),
+            EventKind::Stars,
+        )
+        .unwrap();
+        assert_eq!(times, vec![1_767_225_600_000]);
+        assert!(parse_event_times(&json!({"message": "x"}), EventKind::Forks).is_none());
+        assert_eq!(
+            parse_commit_activity(&json!([{"week": 100, "total": 4, "days": []}])),
+            Some(vec![(100_000, 4)])
+        );
+        let r = parse_releases(&json!([
+            {"tag_name": "v1", "published_at": "2026-01-01T00:00:00Z", "assets": [{"download_count": 3}, {"download_count": 4}]},
+            {"tag_name": "v2", "published_at": "2026-02-01T00:00:00Z", "assets": []},
+            {"tag_name": "draft", "draft": true, "assets": [{"download_count": 99}]}
+        ]))
+        .unwrap();
+        assert_eq!((r.count, r.downloads, r.latest_tag.as_deref()), (2, 7, Some("v2")));
+        assert!(r.dates[0] > r.dates[1], "newest first");
+        assert_eq!(
+            parse_languages(&json!({"TypeScript": 10, "Rust": 90, "Empty": 0})),
+            Some(vec![("Rust".into(), 90), ("TypeScript".into(), 10)])
+        );
+        let t = parse_traffic(
+            &json!({"count": 12, "uniques": 5, "views": [{"timestamp": "2026-01-01T00:00:00Z", "count": 12}]}),
+            "views",
+        )
+        .unwrap();
+        assert_eq!((t.count, t.uniques, t.days.len()), (12, 5, 1));
+        assert!(parse_traffic(&json!({"message": "Must have push access"}), "views").is_none());
     }
 }

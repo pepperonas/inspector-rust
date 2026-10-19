@@ -14,9 +14,12 @@
 use super::client::{self, CallInfo, Transport};
 use super::store::{self, AccountField};
 use super::{
-    delta, refresh_gate, sort_rows, Gate, Point, PollResult, RateLimit, Repo, RepoNumbers, RepoRow,
-    SortKey, DEFAULT_INTERVAL_MS, ERR_NOT_CONNECTED, ERR_NOT_FOUND, GROWTH_CHART_TOP,
-    INTERVAL_CHOICES_H, WINDOWS,
+    cumulative, delta, gains_by_month, merge_history, parse_commit_activity,
+    parse_languages, parse_releases, parse_traffic, plan_backfill, refresh_gate, sort_rows, window,
+    EventKind, ExtraKind, Gate, Point, PollResult, RateLimit, ReleaseSummary, Repo, RepoNumbers,
+    RepoRow, SortKey, Traffic, BACKFILL_MIN_RATE, BACKFILL_PAGE_BUDGET, DEFAULT_INTERVAL_MS,
+    ERR_FORBIDDEN, ERR_NETWORK, ERR_NOT_CONNECTED, ERR_NOT_FOUND, EVENT_PAGE_SIZE, EXTRAS_TTL_MS,
+    GROWTH_CHART_TOP, INTERVAL_CHOICES_H, MAX_EVENT_PAGES, WINDOWS,
 };
 use crate::db::DbHandle;
 use crate::settings;
@@ -44,6 +47,13 @@ pub const ERR_BUSY: &str = "github.busy";
 /// interval itself (1–24 h) decides when GitHub is actually asked.
 const BACKGROUND_TICK: Duration = Duration::from_secs(300);
 const BACKGROUND_FIRST: Duration = Duration::from_secs(20);
+/// After a network error the next automatic try comes this soon, not a
+/// whole interval later.
+pub const RETRY_AFTER_ERROR_MS: i64 = 5 * 60_000;
+/// Watchers (single-repository endpoint) checked per refresh, and how old a
+/// check may get before it's repeated.
+pub const WATCHERS_PER_REFRESH: usize = 5;
+pub const WATCHERS_RECHECK_MS: i64 = 86_400_000;
 
 const K_AUTO: &str = "github.auto_refresh";
 const K_INTERVAL: &str = "github.interval_h";
@@ -233,6 +243,8 @@ pub struct RefreshResult {
     pub fetched: bool,
     pub account_snapshot: bool,
     pub repo_snapshots: usize,
+    pub watchers_checked: usize,
+    pub backfill: BackfillRun,
 }
 
 /// Refresh if the gate allows it. `force` = the user asked (`github refresh`).
@@ -271,6 +283,8 @@ pub fn refresh_with(
             fetched: false,
             account_snapshot: false,
             repo_snapshots: 0,
+            watchers_checked: 0,
+            backfill: BackfillRun::default(),
         });
     }
     put(db, K_CHECKED, &now.to_string());
@@ -278,32 +292,159 @@ pub fn refresh_with(
     let fetched = client::fetch_account(t, token, &mut info)
         .and_then(|a| client::fetch_repos(t, token, &mut info).map(|r| (a, r)));
     // The rate limit is worth keeping even from a failed call.
-    if let Some(r) = info.rate {
-        put(db, K_RATE, &serde_json::to_string(&r).unwrap_or_default());
-    }
-    let (account, repos) = match fetched {
+    store_rate(db, info.rate);
+    let (account, (repos, complete)) = match fetched {
         Ok(v) => v,
         Err(e) => {
             put(db, K_ERROR, &e);
+            if e == ERR_NETWORK {
+                // Offline for a moment: try again soon, not a full interval later.
+                let retry_from = now - cfg.interval_ms() + RETRY_AFTER_ERROR_MS;
+                put(db, K_CHECKED, &retry_from.min(now).to_string());
+            }
             return Err(e);
         }
     };
     let recorded = {
         let mut conn = db.lock();
-        store::record(&mut conn, &account, &repos, now, cfg.interval_ms())
-            .map_err(|e| e.to_string())?
+        store::record(&mut conn, &account, &repos, now, cfg.interval_ms(), complete)
+    };
+    let recorded = match recorded {
+        Ok(r) => r,
+        Err(e) => {
+            put(db, K_ERROR, "github.db");
+            return Err(e.to_string());
+        }
     };
     put(db, K_USER, &account.id.to_string());
     put(db, K_LOGIN, &account.login);
     put(db, K_OK, &now.to_string());
     put(db, K_SCOPES, info.scopes.as_deref().unwrap_or(""));
     let _ = settings::delete(db, K_ERROR);
+    // The fresh numbers are visible now; history and watchers follow.
+    emit();
+    let watchers = refresh_watchers(t, db, token, account.id, now);
+    let backfill = backfill_with(t, db, token, account.id, now);
     Ok(RefreshResult {
         gate,
         fetched: true,
         account_snapshot: recorded.account_snapshot,
         repo_snapshots: recorded.repo_snapshots,
+        watchers_checked: watchers,
+        backfill,
     })
+}
+
+fn store_rate(db: &DbHandle, rate: Option<RateLimit>) {
+    if let Some(r) = rate {
+        put(db, K_RATE, &serde_json::to_string(&r).unwrap_or_default());
+    }
+}
+
+fn rate_low(rate: Option<RateLimit>) -> bool {
+    rate.is_some_and(|r| r.remaining < BACKFILL_MIN_RATE)
+}
+
+/// Check the watchers of a few repositories (the list endpoint lacks them);
+/// a change becomes a snapshot. Stops at the first error.
+fn refresh_watchers(t: &dyn Transport, db: &DbHandle, token: &str, user: i64, now: i64) -> usize {
+    if rate_low(rate_of(db)) {
+        return 0;
+    }
+    let due = store::watchers_due(&db.lock(), user, now, WATCHERS_RECHECK_MS, WATCHERS_PER_REFRESH)
+        .unwrap_or_default();
+    let mut info = CallInfo::default();
+    let mut checked = 0;
+    for (id, full_name) in due {
+        match client::fetch_repo(t, token, &full_name, &mut info) {
+            Ok(r) => {
+                if let Some(w) = r.watchers {
+                    let _ = store::record_watchers(&mut db.lock(), id, w, now);
+                    checked += 1;
+                }
+            }
+            Err(_) => break,
+        }
+        if rate_low(info.rate) {
+            break;
+        }
+    }
+    store_rate(db, info.rate);
+    checked
+}
+
+/// What the history reconstruction did in one refresh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+pub struct BackfillRun {
+    /// Lists (stars or forks of one repository) read completely and stored.
+    pub lists: usize,
+    /// Requests it took.
+    pub pages: i64,
+    /// Stopped because few requests are left.
+    pub stopped_by_rate: bool,
+}
+
+/// Read the stargazer / fork lists the plan picks, within the page budget.
+/// A list is stored only when read completely — an error or a rate-limit
+/// stop drops the half-read list and keeps the previous one.
+pub fn backfill_with(t: &dyn Transport, db: &DbHandle, token: &str, user: i64, now: i64) -> BackfillRun {
+    let mut run = BackfillRun::default();
+    if rate_low(rate_of(db)) {
+        run.stopped_by_rate = true;
+        return run;
+    }
+    let cands = store::backfill_candidates(&db.lock(), user).unwrap_or_default();
+    let mut info = CallInfo::default();
+    'lists: for c in plan_backfill(cands, now, BACKFILL_PAGE_BUDGET) {
+        let mut times = Vec::new();
+        let mut truncated = false;
+        let mut page = 1;
+        loop {
+            let got = client::fetch_event_page(t, token, &c.full_name, c.kind, page, &mut info);
+            run.pages += 1;
+            let Ok(got) = got else {
+                // A failing list (deleted meanwhile, network) — skip it.
+                break;
+            };
+            let n = got.len() as i64;
+            times.extend(got);
+            if rate_low(info.rate) {
+                run.stopped_by_rate = true;
+                break 'lists;
+            }
+            if n < EVENT_PAGE_SIZE || times.len() as i64 >= c.value {
+                let _ = store::replace_events(
+                    &mut db.lock(),
+                    c.repo_id,
+                    c.kind,
+                    &times,
+                    c.value,
+                    truncated,
+                    now,
+                );
+                run.lists += 1;
+                break;
+            }
+            if page >= MAX_EVENT_PAGES {
+                // GitHub lists no further — keep what exists, flagged.
+                truncated = true;
+                let _ = store::replace_events(
+                    &mut db.lock(),
+                    c.repo_id,
+                    c.kind,
+                    &times,
+                    c.value,
+                    truncated,
+                    now,
+                );
+                run.lists += 1;
+                break;
+            }
+            page += 1;
+        }
+    }
+    store_rate(db, info.rate);
+    run
 }
 
 // ── Device flow ─────────────────────────────────────────────────────────────
@@ -501,8 +642,8 @@ pub fn status(db: &DbHandle) -> Status {
         user_id,
         html_url: get_str(db, K_LOGIN).map(|l| format!("https://github.com/{l}")),
         login: get_str(db, K_LOGIN),
-        name: profile.as_ref().and_then(|p| p.1.clone()),
-        avatar_url: profile.and_then(|p| p.2),
+        name: profile.as_ref().and_then(|p| p.name.clone()),
+        avatar_url: profile.and_then(|p| p.avatar_url),
         last_ok_ms: get_i64(db, K_OK),
         last_checked_ms: last_checked,
         last_error: get_str(db, K_ERROR),
@@ -523,7 +664,8 @@ pub fn user_id(db: &DbHandle) -> Option<i64> {
 
 // ── Views ───────────────────────────────────────────────────────────────────
 
-/// A chart range in ms; `None` = all history.
+/// A chart range in ms; `None` = everything known (since creation where the
+/// history is reconstructed).
 pub fn range_ms(name: &str) -> Option<i64> {
     const D: i64 = 86_400_000;
     match name.trim().to_ascii_lowercase().as_str() {
@@ -531,30 +673,19 @@ pub fn range_ms(name: &str) -> Option<i64> {
         "30d" => Some(30 * D),
         "90d" => Some(90 * D),
         "1y" => Some(365 * D),
+        "5y" => Some(5 * 365 * D),
         _ => None,
     }
 }
 
-/// The points inside the range — real snapshots only, nothing invented at
-/// the edges.
-pub fn in_range(series: &[Point], now: i64, range: Option<i64>) -> Vec<Point> {
-    match range {
-        None => series.to_vec(),
-        Some(r) => series
-            .iter()
-            .copied()
-            .filter(|(t, _)| *t >= now - r)
-            .collect(),
-    }
-}
-
-/// 24h / 7d / 30d / 90d changes; None where the history is too short.
+/// 24h / 7d / 30d / 90d / 1y changes; None where the history is too short.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 pub struct Deltas {
     pub d24h: Option<i64>,
     pub d7d: Option<i64>,
     pub d30d: Option<i64>,
     pub d90d: Option<i64>,
+    pub d1y: Option<i64>,
 }
 
 pub fn deltas(series: &[Point], now: i64) -> Deltas {
@@ -569,6 +700,7 @@ pub fn deltas(series: &[Point], now: i64) -> Deltas {
         d7d: w("7d"),
         d30d: w("30d"),
         d90d: w("90d"),
+        d1y: w("1y"),
     }
 }
 
@@ -586,22 +718,98 @@ pub struct GrowthLine {
     pub points: Vec<Point>,
 }
 
+/// How far the history reconstruction got: lists (stars + forks per own
+/// repository with a count > 0) read at least once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+pub struct BackfillStatus {
+    pub done: usize,
+    pub total: usize,
+    /// Lists cut at GitHub's listing limit.
+    pub truncated: usize,
+    /// All star lists read — months before observation are real, not unknown.
+    pub stars_complete: bool,
+    /// All fork lists read.
+    pub forks_complete: bool,
+}
+
+pub fn backfill_status(conn: &rusqlite::Connection, user_id: i64) -> rusqlite::Result<BackfillStatus> {
+    let mut st = BackfillStatus {
+        stars_complete: true,
+        forks_complete: true,
+        ..Default::default()
+    };
+    for c in store::backfill_candidates(conn, user_id)? {
+        if c.value <= 0 {
+            continue;
+        }
+        st.total += 1;
+        match store::synced(conn, c.repo_id, c.kind)? {
+            Some(s) => {
+                st.done += 1;
+                if s.truncated {
+                    st.truncated += 1;
+                }
+            }
+            None if c.kind == EventKind::Stars => st.stars_complete = false,
+            None => st.forks_complete = false,
+        }
+    }
+    Ok(st)
+}
+
+/// A month and what it gained (None = unknown, before the history).
+pub type MonthGain = (i64, Option<i64>);
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Dashboard {
     pub user_id: i64,
+    pub profile: Option<store::Profile>,
     pub kpis: Vec<Kpi>,
     pub followers: Vec<Point>,
     pub stars: Vec<Point>,
+    pub forks: Vec<Point>,
+    pub repos: Vec<Point>,
     pub rows: Vec<RepoRow>,
     pub growth: Vec<GrowthLine>,
-    /// First stored snapshot — "history since …".
+    /// First stored snapshot — real observation starts here.
     pub history_since_ms: Option<i64>,
+    /// First point of the reconstructed history (first star / repository),
+    /// when it reaches back further than the observation.
+    pub reconstructed_from_ms: Option<i64>,
     pub snapshot_count: usize,
     pub private_count: usize,
+    /// Stars gained per month, the last 12 months (UTC month starts).
+    pub star_gains: Vec<MonthGain>,
+    pub backfill: BackfillStatus,
 }
 
-fn stars_points(series: &[(i64, RepoNumbers)]) -> Vec<Point> {
-    series.iter().map(|(t, n)| (*t, n.stars)).collect()
+fn pick(series: &[(i64, RepoNumbers)], f: fn(&RepoNumbers) -> i64) -> Vec<Point> {
+    series.iter().map(|(t, n)| (*t, f(n))).collect()
+}
+
+/// A repository's stars or forks over its whole life: the stored event list
+/// before the first snapshot, the snapshots after.
+fn repo_history(
+    conn: &rusqlite::Connection,
+    repo_id: i64,
+    kind: EventKind,
+    snapshots: &[Point],
+) -> rusqlite::Result<Vec<Point>> {
+    let ev = store::events(conn, repo_id, kind)?;
+    Ok(merge_history(&cumulative(&ev), snapshots))
+}
+
+/// Growth ranking for the multi-line chart: the most stars gained in 30 days,
+/// unknown growth last, ties by stars — "growing", not "big".
+fn by_growth(a: &(Option<i64>, i64, GrowthLine), b: &(Option<i64>, i64, GrowthLine)) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let g = match (a.0, b.0) {
+        (Some(x), Some(y)) => y.cmp(&x),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    };
+    g.then(b.1.cmp(&a.1)).then(a.2.name.cmp(&b.2.name))
 }
 
 /// Everything the dashboard shows, from the local history only.
@@ -616,9 +824,26 @@ pub fn build_dashboard(
         return Ok(None);
     };
     let followers = store::account_series(conn, user_id, AccountField::Followers)?;
-    let stars = store::account_series(conn, user_id, AccountField::TotalStars)?;
-    let repo_count = store::account_series(conn, user_id, AccountField::RepoCount)?;
-    let forks = store::account_series(conn, user_id, AccountField::TotalForks)?;
+    let repos: Vec<Repo> = store::current_repos(conn, user_id)?;
+    let backfill = backfill_status(conn, user_id)?;
+    // The account total is a SUM over repositories: with only some lists read
+    // the reconstruction would sit far below the first snapshot and every
+    // change across that edge would be a fake jump. Until all lists of a kind
+    // are read, the account curve is snapshots only.
+    let account_curve = |kind: EventKind, field: AccountField, complete: bool| -> rusqlite::Result<Vec<Point>> {
+        let snaps = store::account_series(conn, user_id, field)?;
+        if !complete {
+            return Ok(snaps);
+        }
+        Ok(merge_history(&cumulative(&store::owner_events(conn, user_id, kind)?), &snaps))
+    };
+    let stars = account_curve(EventKind::Stars, AccountField::TotalStars, backfill.stars_complete)?;
+    let forks = account_curve(EventKind::Forks, AccountField::TotalForks, backfill.forks_complete)?;
+    let created: Vec<i64> = repos.iter().filter_map(|r| r.created_at_ms).collect();
+    let repo_count = merge_history(
+        &cumulative(&created),
+        &store::account_series(conn, user_id, AccountField::RepoCount)?,
+    );
     let kpis = vec![
         Kpi {
             key: "followers",
@@ -641,43 +866,58 @@ pub fn build_dashboard(
             deltas: deltas(&forks, now),
         },
     ];
-    let repos: Vec<Repo> = store::current_repos(conn, user_id)?;
     let private_count = repos.iter().filter(|r| r.private).count();
     let mut rows = Vec::with_capacity(repos.len());
     let mut lines = Vec::new();
     for r in repos {
-        let s = stars_points(&store::repo_series(conn, r.id)?);
+        let snaps = pick(&store::repo_series(conn, r.id)?, |n| n.stars);
+        let s = repo_history(conn, r.id, EventKind::Stars, &snaps)?;
+        let g30 = delta(&s, now, 30 * 86_400_000);
         rows.push(RepoRow {
             growth_7d: delta(&s, now, 7 * 86_400_000),
-            growth_30d: delta(&s, now, 30 * 86_400_000),
+            growth_30d: g30,
             repo: r.clone(),
         });
         lines.push((
+            g30,
             r.stars,
             GrowthLine {
                 id: r.id,
                 name: r.name,
-                points: in_range(&s, now, range),
+                points: window(&s, now, range),
             },
         ));
     }
     sort_rows(&mut rows, sort);
-    lines.sort_by_key(|l| std::cmp::Reverse(l.0));
+    lines.sort_by(by_growth);
     let growth: Vec<GrowthLine> = lines
         .into_iter()
+        .filter(|l| !l.2.points.is_empty())
         .take(GROWTH_CHART_TOP)
-        .map(|(_, l)| l)
+        .map(|l| l.2)
         .collect();
+    let reconstructed_from_ms = [stars.first(), repo_count.first()]
+        .into_iter()
+        .flatten()
+        .map(|p| p.0)
+        .min()
+        .filter(|t| followers.first().is_none_or(|f| *t < f.0));
     Ok(Some(Dashboard {
         user_id,
+        profile: store::account(conn, user_id)?,
         kpis,
         history_since_ms: followers.first().map(|p| p.0),
+        reconstructed_from_ms,
         snapshot_count: followers.len(),
-        followers: in_range(&followers, now, range),
-        stars: in_range(&stars, now, range),
+        star_gains: gains_by_month(&stars, now, 12, backfill.stars_complete),
+        followers: window(&followers, now, range),
+        stars: window(&stars, now, range),
+        forks: window(&forks, now, range),
+        repos: window(&repo_count, now, range),
         rows,
         growth,
         private_count,
+        backfill,
     }))
 }
 
@@ -686,10 +926,27 @@ pub struct RepoDetail {
     pub repo: Repo,
     pub stars: Vec<Point>,
     pub forks: Vec<Point>,
+    pub watchers: Vec<Point>,
     pub open_issues: Vec<Point>,
     pub star_deltas: Deltas,
     pub fork_deltas: Deltas,
+    /// First stored snapshot — real observation starts here.
     pub first_seen_ms: Option<i64>,
+    /// What the reconstruction read (None = not yet).
+    pub stars_synced: Option<store::Synced>,
+    pub forks_synced: Option<store::Synced>,
+    /// Stars gained per month, the last 12 months.
+    pub star_gains: Vec<MonthGain>,
+}
+
+/// A full reconstruction starts at zero at the repository's creation.
+fn from_creation(mut series: Vec<Point>, created: Option<i64>, complete: bool) -> Vec<Point> {
+    if let (true, Some(c)) = (complete, created) {
+        if series.first().is_none_or(|p| p.0 > c) {
+            series.insert(0, (c, 0));
+        }
+    }
+    series
 }
 
 pub fn build_repo_detail(
@@ -703,49 +960,133 @@ pub fn build_repo_detail(
         return Ok(None);
     };
     let series = store::repo_series(conn, repo.id)?;
-    let pick = |f: fn(&RepoNumbers) -> i64| -> Vec<Point> {
-        series.iter().map(|(t, n)| (*t, f(n))).collect()
-    };
-    let stars = pick(|n| n.stars);
-    let forks = pick(|n| n.forks);
-    let issues = pick(|n| n.open_issues);
+    let stars_synced = store::synced(conn, repo.id, EventKind::Stars)?;
+    let forks_synced = store::synced(conn, repo.id, EventKind::Forks)?;
+    let full = |s: &Option<store::Synced>| s.is_some_and(|s| !s.truncated);
+    let stars = from_creation(
+        repo_history(conn, repo.id, EventKind::Stars, &pick(&series, |n| n.stars))?,
+        repo.created_at_ms,
+        full(&stars_synced),
+    );
+    let forks = from_creation(
+        repo_history(conn, repo.id, EventKind::Forks, &pick(&series, |n| n.forks))?,
+        repo.created_at_ms,
+        full(&forks_synced),
+    );
+    let watchers: Vec<Point> = series
+        .iter()
+        .filter_map(|(t, n)| n.watchers.map(|w| (*t, w)))
+        .collect();
+    let issues = pick(&series, |n| n.open_issues);
     Ok(Some(RepoDetail {
         star_deltas: deltas(&stars, now),
         fork_deltas: deltas(&forks, now),
         first_seen_ms: series.first().map(|s| s.0),
-        stars: in_range(&stars, now, range),
-        forks: in_range(&forks, now, range),
-        open_issues: in_range(&issues, now, range),
+        star_gains: gains_by_month(&stars, now, 12, full(&stars_synced)),
+        stars: window(&stars, now, range),
+        forks: window(&forks, now, range),
+        watchers: window(&watchers, now, range),
+        open_issues: window(&issues, now, range),
+        stars_synced,
+        forks_synced,
         repo,
     }))
 }
 
-/// The detail view, plus the watchers count fetched once on demand (the
-/// list endpoint doesn't carry it). Offline or rate-limited: the cached view.
+/// The detail view — from the local data only (watchers come from the
+/// background refresh; nothing here waits for GitHub).
 pub fn repo_detail(db: &DbHandle, query: &str, range: Option<i64>) -> Result<RepoDetail, String> {
     let user = user_id(db).ok_or_else(|| ERR_NOT_CONNECTED.to_string())?;
-    let now = now_ms();
-    let load = || build_repo_detail(&db.lock(), user, query, now, range).map_err(|e| e.to_string());
-    let detail = load()?.ok_or_else(|| ERR_NOT_FOUND.to_string())?;
-    if detail.repo.watchers.is_some() {
-        return Ok(detail);
+    build_repo_detail(&db.lock(), user, query, now_ms(), range)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| ERR_NOT_FOUND.to_string())
+}
+
+/// Extra data of the detail view, each part optional: a missing permission
+/// (traffic needs push access) just leaves its card out.
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+pub struct RepoExtras {
+    /// Commits per week, last 52 weeks.
+    pub commits: Option<Vec<Point>>,
+    /// GitHub is still computing the statistics (202) — ask again shortly.
+    pub commits_pending: bool,
+    pub releases: Option<ReleaseSummary>,
+    /// Bytes per language, largest first.
+    pub languages: Option<Vec<(String, i64)>>,
+    pub views: Option<Traffic>,
+    pub clones: Option<Traffic>,
+    /// Oldest fetch time among the parts shown.
+    pub fetched_ms: Option<i64>,
+}
+
+fn apply_extra(out: &mut RepoExtras, kind: ExtraKind, json: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
+        return;
+    };
+    match kind {
+        ExtraKind::CommitActivity => out.commits = parse_commit_activity(&v),
+        ExtraKind::Releases => out.releases = parse_releases(&v),
+        ExtraKind::Languages => out.languages = parse_languages(&v),
+        ExtraKind::TrafficViews => out.views = parse_traffic(&v, "views"),
+        ExtraKind::TrafficClones => out.clones = parse_traffic(&v, "clones"),
     }
+}
+
+/// The extras: cached ones younger than a day are used as they are, older
+/// or missing ones fetched when a token and requests are available. An
+/// answer that says "not for you" (403/404) is cached as nothing for a day —
+/// it would only fail again. Offline: whatever is cached.
+pub fn repo_extras_with(
+    t: &dyn Transport,
+    db: &DbHandle,
+    token: Option<&str>,
+    query: &str,
+    now: i64,
+) -> Result<RepoExtras, String> {
+    let user = user_id(db).ok_or_else(|| ERR_NOT_CONNECTED.to_string())?;
+    let repo = store::find_repo(&db.lock(), user, query)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| ERR_NOT_FOUND.to_string())?;
     let limited = rate_of(db).is_some_and(|r| r.remaining <= 0 && now < r.reset_at_ms);
-    if let (Some((token, _)), false) = (resolve_token(), limited) {
-        let mut info = CallInfo::default();
-        if let Ok(fresh) =
-            client::fetch_repo(&client::Ureq, &token, &detail.repo.full_name, &mut info)
-        {
-            if let Some(w) = fresh.watchers {
-                let _ = store::set_watchers(&db.lock(), detail.repo.id, w);
+    let mut out = RepoExtras::default();
+    let mut info = CallInfo::default();
+    let mut online = true;
+    for kind in ExtraKind::ALL {
+        let cached = store::extra(&db.lock(), repo.id, kind).ok().flatten();
+        let fresh = cached
+            .as_ref()
+            .is_some_and(|(at, _)| now - at < EXTRAS_TTL_MS);
+        let mut json = cached.as_ref().map(|c| (c.0, c.1.clone()));
+        if !fresh && online && !limited {
+            if let Some(tok) = token {
+                match client::fetch_extra(t, tok, &repo.full_name, kind, &mut info) {
+                    Ok(client::ExtraAnswer::Data(v)) => {
+                        let text = v.to_string();
+                        let _ = store::put_extra(&db.lock(), repo.id, kind, &text, now);
+                        json = Some((now, text));
+                    }
+                    Ok(client::ExtraAnswer::Pending) => out.commits_pending = true,
+                    Err(e) if e == ERR_FORBIDDEN || e == ERR_NOT_FOUND => {
+                        let _ = store::put_extra(&db.lock(), repo.id, kind, "null", now);
+                        json = Some((now, "null".into()));
+                    }
+                    // Network or rate limit: keep the cache, stop asking.
+                    Err(_) => online = false,
+                }
             }
         }
-        if let Some(r) = info.rate {
-            put(db, K_RATE, &serde_json::to_string(&r).unwrap_or_default());
+        if let Some((at, text)) = json {
+            apply_extra(&mut out, kind, &text);
+            out.fetched_ms = Some(out.fetched_ms.map_or(at, |f| f.min(at)));
         }
-        return Ok(load()?.unwrap_or(detail));
     }
-    Ok(detail)
+    store_rate(db, info.rate);
+    Ok(out)
+}
+
+pub fn repo_extras(db: &DbHandle, query: &str) -> Result<RepoExtras, String> {
+    let token = resolve_token().map(|(t, _)| t);
+    repo_extras_with(&client::Ureq, db, token.as_deref(), query, now_ms())
 }
 
 // ── Export ──────────────────────────────────────────────────────────────────
@@ -763,8 +1104,10 @@ pub fn export_text(
     let history = store::account_snapshots(conn, user_id).map_err(e)?;
     let repos = store::current_repos(conn, user_id).map_err(e)?;
     let repo_history = store::all_repo_snapshots(conn, user_id).map_err(e)?;
+    let profile = store::account(conn, user_id).map_err(e)?;
     let data = super::export::ExportData {
         login,
+        profile: profile.as_ref(),
         current: history.last().map(|h| h.1),
         account_history: &history,
         repos: &repos,
@@ -1026,11 +1369,12 @@ mod tests {
         assert_eq!(d.rows[0].growth_7d, Some(10));
         assert_eq!(d.private_count, 1);
         assert_eq!(d.history_since_ms, Some(t0));
-        // The range keeps only real points inside it.
+        // The range carries the value in at its start (a value holds until
+        // it changes) and ends at now.
         let d = build_dashboard(&db.lock(), 7, now, range_ms("7d"), SortKey::Stars)
             .unwrap()
             .unwrap();
-        assert_eq!(d.followers, vec![(now, 108)]);
+        assert_eq!(d.followers, vec![(now - 7 * D, 100), (now, 108)]);
     }
 
     #[test]
@@ -1070,6 +1414,249 @@ mod tests {
         assert_eq!(range_ms("7D"), Some(7 * D));
         assert_eq!(range_ms("1y"), Some(365 * D));
         assert_eq!(range_ms("all"), None);
-        assert_eq!(in_range(&[(0, 1), (10, 2)], 10, Some(5)), vec![(10, 2)]);
+        assert_eq!(range_ms("5y"), Some(5 * 365 * D));
+    }
+
+    const RL: [(&str, &str); 3] = [
+        ("x-ratelimit-limit", "5000"),
+        ("x-ratelimit-remaining", "4900"),
+        ("x-ratelimit-reset", "2000000000"),
+    ];
+
+    fn star_page(times: &[&str]) -> String {
+        serde_json::to_string(
+            &times
+                .iter()
+                .map(|t| serde_json::json!({"starred_at": t, "user": {"login": "x"}}))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    fn stars_url(repo: &str, page: i64) -> String {
+        format!("{API}/repos/{repo}/stargazers?per_page=100&page={page}")
+    }
+
+    fn forks_url(repo: &str, page: i64) -> String {
+        format!("{API}/repos/{repo}/forks?sort=oldest&per_page=100&page={page}")
+    }
+
+    #[test]
+    fn a_refresh_reconstructs_the_star_history_with_the_star_media_type() {
+        let db = db();
+        let now = 20_000 * D; // 2024-10-03
+        let fake = api(10, 3, 4990)
+            .route(
+                &stars_url("octo/a", 1),
+                200,
+                &star_page(&["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"]),
+                &RL,
+            )
+            .route(&forks_url("octo/a", 1), 200, r#"[{"created_at":"2023-05-01T00:00:00Z"},{"created_at":"2024-01-01T00:00:00Z"}]"#, &RL)
+            .route(&stars_url("octo/b", 1), 200, &star_page(&["2019-01-01T00:00:00Z"]), &RL);
+        let r = refresh_with(&fake, &db, "tok", now, false).unwrap();
+        assert_eq!(r.backfill.lists, 3, "stars + forks of a, stars of b (no forks)");
+        // The stargazer request asked for the media type that carries `starred_at`.
+        let calls = fake.calls.borrow();
+        let (_, hs) = calls.iter().find(|(u, _)| u.contains("stargazers")).unwrap();
+        assert!(hs.contains(&("Accept".into(), client::STAR_ACCEPT.into())));
+        drop(calls);
+        // The dashboard reaches back to the first star, not to today.
+        let d = build_dashboard(&db.lock(), 7, now, None, SortKey::Stars).unwrap().unwrap();
+        assert_eq!(d.stars.first().map(|p| p.1), Some(1));
+        assert_eq!(d.stars.first().map(|p| p.0), Some(1_546_300_800_000), "b's star in 2019");
+        assert!(d.reconstructed_from_ms.unwrap() < now - 1000 * D);
+        assert_eq!(d.backfill, BackfillStatus { done: 3, total: 3, truncated: 0, stars_complete: true, forks_complete: true });
+        // Year-over-year delta comes from the reconstruction (1 star in 2022→now).
+        assert_eq!(d.kpis[1].deltas.d1y, Some(0));
+        // Second refresh: nothing changed, nothing re-read.
+        let fake2 = api(10, 3, 4990);
+        let r = refresh_with(&fake2, &db, "tok", now + 2 * H, false).unwrap();
+        assert_eq!(r.backfill.lists, 0);
+        assert!(!fake2.calls.borrow().iter().any(|(u, _)| u.contains("stargazers")));
+    }
+
+    #[test]
+    fn a_failing_or_rate_limited_list_is_never_stored_half() {
+        let db = db();
+        let now = 20_000 * D;
+        // Stars of `a` are 150: page 1 full, page 2 errors → nothing stored.
+        let full: Vec<String> = (0..100).map(|i| format!("2020-01-01T00:{:02}:{:02}Z", i / 60, i % 60)).collect();
+        let full: Vec<&str> = full.iter().map(String::as_str).collect();
+        let fake = api(1, 150, 4990)
+            .route(&stars_url("octo/a", 1), 200, &star_page(&full), &RL)
+            .route(&stars_url("octo/a", 2), 500, "", &RL);
+        refresh_with(&fake, &db, "tok", now, false).unwrap();
+        assert!(store::events(&db.lock(), 1, EventKind::Stars).unwrap().is_empty());
+        assert!(store::synced(&db.lock(), 1, EventKind::Stars).unwrap().is_none());
+        // With few requests left nothing is backfilled at all.
+        let db = db_fresh();
+        let fake = api(1, 5, 400).route(&stars_url("octo/a", 1), 200, &star_page(&["2020-01-01T00:00:00Z"]), &RL);
+        let r = refresh_with(&fake, &db, "tok", now, false).unwrap();
+        assert!(r.backfill.stopped_by_rate && r.backfill.lists == 0);
+        assert!(!fake.calls.borrow().iter().any(|(u, _)| u.contains("stargazers")));
+    }
+
+    #[test]
+    fn a_partial_reconstruction_never_bends_the_account_curve() {
+        let db = db();
+        let now = 20_000 * D;
+        // Only a's stars are readable; b's list fails → the account total
+        // would be 3 of 4 before the first snapshot: a fake +1 jump.
+        let fake = api(10, 3, 4990).route(
+            &stars_url("octo/a", 1),
+            200,
+            &star_page(&["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z"]),
+            &RL,
+        );
+        refresh_with(&fake, &db, "tok", now, false).unwrap();
+        let d = build_dashboard(&db.lock(), 7, now, None, SortKey::Stars).unwrap().unwrap();
+        assert!(!d.backfill.stars_complete);
+        assert_eq!(d.stars, vec![(now, 4)], "snapshots only until every list is read");
+        assert_eq!(d.kpis[1].deltas, Deltas::default());
+        // The repository itself is complete and keeps its own history.
+        let r = build_repo_detail(&db.lock(), 7, "a", now, None).unwrap().unwrap();
+        assert_eq!(r.stars.len(), 4);
+    }
+
+    #[test]
+    fn running_low_on_requests_mid_list_stops_without_storing_it() {
+        let db = db();
+        let low = [
+            ("x-ratelimit-limit", "5000"),
+            ("x-ratelimit-remaining", "450"),
+            ("x-ratelimit-reset", "2000000000"),
+        ];
+        let fake = api(1, 5, 4990)
+            .route(&stars_url("octo/a", 1), 200, &star_page(&["2020-01-01T00:00:00Z"]), &low)
+            .route(&stars_url("octo/b", 1), 200, &star_page(&["2020-01-01T00:00:00Z"]), &RL);
+        let r = refresh_with(&fake, &db, "tok", 20_000 * D, false).unwrap();
+        assert!(r.backfill.stopped_by_rate);
+        assert_eq!(r.backfill.lists, 0, "the list that hit the floor is dropped, the rest waits");
+        assert!(store::synced(&db.lock(), 1, EventKind::Stars).unwrap().is_none());
+        assert!(!fake.calls.borrow().iter().any(|(u, _)| u.contains("octo/b/stargazers")));
+    }
+
+    fn db_fresh() -> DbHandle {
+        db()
+    }
+
+    #[test]
+    fn the_repo_detail_starts_at_creation_and_holds_its_value() {
+        let db = db();
+        let now = 20_000 * D;
+        let repos = r#"[{"id":1,"name":"a","full_name":"octo/a","stargazers_count":2,"forks_count":0,"created_at":"2019-06-01T00:00:00Z"}]"#;
+        let fake = Fake::default()
+            .route(&format!("{API}/user"), 200, r#"{"id":7,"login":"octo","followers":1}"#, &RL)
+            .route(&repos_url(), 200, repos, &RL)
+            .route(&stars_url("octo/a", 1), 200, &star_page(&["2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"]), &RL);
+        refresh_with(&fake, &db, "tok", now, false).unwrap();
+        let d = build_repo_detail(&db.lock(), 7, "a", now, None).unwrap().unwrap();
+        assert_eq!(d.stars.first(), Some(&(1_559_347_200_000, 0)), "zero at creation");
+        assert_eq!(d.stars.last(), Some(&(now, 2)));
+        // A 30-day window over a quiet repository still has a (flat) line.
+        let d = build_repo_detail(&db.lock(), 7, "a", now + 40 * D, range_ms("30d")).unwrap().unwrap();
+        assert_eq!(d.stars, vec![(now + 10 * D, 2), (now + 40 * D, 2)]);
+        assert!(d.stars_synced.is_some());
+    }
+
+    #[test]
+    fn the_growth_chart_shows_who_grows_not_who_is_biggest() {
+        let db = db();
+        let t0 = 1_000 * D;
+        let two = |a: i64, b: i64| {
+            Fake::default()
+                .route(&format!("{API}/user"), 200, r#"{"id":7,"login":"octo"}"#, &RL)
+                .route(
+                    &repos_url(),
+                    200,
+                    &format!(
+                        r#"[{{"id":1,"name":"big","full_name":"octo/big","stargazers_count":{a},"fork":true}},
+                            {{"id":2,"name":"rising","full_name":"octo/rising","stargazers_count":{b},"fork":true}}]"#
+                    ),
+                    &RL,
+                )
+        };
+        refresh_with(&two(1000, 1), &db, "tok", t0, false).unwrap();
+        refresh_with(&two(1000, 40), &db, "tok", t0 + 31 * D, false).unwrap();
+        let d = build_dashboard(&db.lock(), 7, t0 + 31 * D, None, SortKey::Stars).unwrap().unwrap();
+        assert_eq!(d.growth[0].name, "rising");
+    }
+
+    #[test]
+    fn after_a_network_error_the_next_try_comes_in_minutes() {
+        let db = db();
+        let t0 = 1_000 * H;
+        refresh_with(&api(1, 1, 4990), &db, "tok", t0, false).unwrap();
+        let dead = Fake { offline: true, ..Default::default() };
+        refresh_with(&dead, &db, "tok", t0 + 2 * H, false).unwrap_err();
+        let gate = refresh_gate(t0 + 2 * H + 4 * 60_000, get_i64(&db, K_CHECKED), H, false, None);
+        assert!(matches!(gate, Gate::TooSoon { .. }));
+        let gate = refresh_gate(t0 + 2 * H + RETRY_AFTER_ERROR_MS, get_i64(&db, K_CHECKED), H, false, None);
+        assert_eq!(gate, Gate::Go);
+    }
+
+    #[test]
+    fn extras_are_cached_and_a_missing_permission_hides_its_card() {
+        let db = db();
+        refresh_with(&api(1, 1, 4990), &db, "tok", 1_000 * D, false).unwrap();
+        let base = format!("{API}/repos/octo/a");
+        let fake = || {
+            Fake::default()
+                .route(&format!("{base}/stats/commit_activity"), 202, "{}", &RL)
+                .route(&format!("{base}/releases?per_page=100"), 200, "[]", &RL)
+                .route(&format!("{base}/languages"), 200, r#"{"Rust":10}"#, &RL)
+                .route(&format!("{base}/traffic/views"), 403, r#"{"message":"Must have push access"}"#, &RL)
+                .route(&format!("{base}/traffic/clones"), 403, "{}", &RL)
+        };
+        let f = fake();
+        let x = repo_extras_with(&f, &db, Some("tok"), "a", 1_000 * D).unwrap();
+        assert!(x.commits_pending && x.commits.is_none());
+        assert_eq!(x.languages, Some(vec![("Rust".into(), 10)]));
+        assert_eq!(x.releases.unwrap().count, 0);
+        assert!(x.views.is_none() && x.clones.is_none());
+        assert_eq!(f.calls.borrow().len(), 5);
+        // An hour later only the still-pending statistics are asked again.
+        let f = fake();
+        repo_extras_with(&f, &db, Some("tok"), "a", 1_000 * D + H).unwrap();
+        let calls: Vec<String> = f.calls.borrow().iter().map(|c| c.0.clone()).collect();
+        assert_eq!(calls, vec![format!("{base}/stats/commit_activity")]);
+        // Offline and without a token: the cache, no request.
+        let x = repo_extras_with(&Fake::default(), &db, None, "a", 1_000 * D + H).unwrap();
+        assert_eq!(x.languages, Some(vec![("Rust".into(), 10)]));
+    }
+
+    /// Live check against the real account (uses the `gh` login; never runs
+    /// in CI): `cargo test -p inspector-rust-core --lib github_live -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn github_live() {
+        let db = db();
+        let token = crate::repo_clone::gh_token().expect("gh auth login first");
+        let now = now_ms();
+        let r = refresh_with(&client::Ureq, &db, &token, now, true).unwrap();
+        println!("refresh: {r:?}");
+        let user = user_id(&db).unwrap();
+        let d = build_dashboard(&db.lock(), user, now, None, SortKey::Stars).unwrap().unwrap();
+        let p = d.profile.clone().unwrap();
+        println!("account created: {:?} · backfill {:?}", p.created_at_ms.map(super::super::export::iso), d.backfill);
+        println!("stars since: {:?} · first {:?} · last {:?}", d.reconstructed_from_ms.map(super::super::export::iso), d.stars.first(), d.stars.last());
+        println!("star kpi: {:?}", d.kpis[1]);
+        let events = store::owner_events(&db.lock(), user, EventKind::Stars).unwrap().len();
+        let fork_stars: i64 = d.rows.iter().filter(|r| r.repo.fork).map(|r| r.repo.stars).sum();
+        println!("events {events} vs total {} (fork-repo stars {fork_stars})", d.kpis[1].value);
+        println!("gains: {:?}", d.star_gains.iter().map(|g| g.1).collect::<Vec<_>>());
+        let top = d.rows.iter().max_by_key(|r| r.repo.stars).unwrap().repo.name.clone();
+        let x = repo_extras_with(&client::Ureq, &db, Some(&token), &top, now).unwrap();
+        println!(
+            "{top}: commits {:?} (pending {}), releases {:?}, languages {:?}, views {:?}",
+            x.commits.as_ref().map(|c| c.len()),
+            x.commits_pending,
+            x.releases.as_ref().map(|r| (r.count, r.downloads)),
+            x.languages.as_ref().map(|l| l.len()),
+            x.views.as_ref().map(|v| v.count)
+        );
+        let det = build_repo_detail(&db.lock(), user, &top, now, None).unwrap().unwrap();
+        println!("{top} stars first {:?} last {:?} synced {:?}", det.stars.first(), det.stars.last(), det.stars_synced);
     }
 }

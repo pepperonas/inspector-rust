@@ -108,6 +108,7 @@ const GITHUB_EXPORT: readonly ArgOption[] = [
 
 const GITHUB: readonly ArgOption[] = [
   { value: "stats", hint: "arg.gh.stats" },
+  { value: "insights", hint: "arg.gh.insights" },
   {
     value: "repos",
     hint: "arg.gh.top",

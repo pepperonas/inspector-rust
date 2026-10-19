@@ -971,6 +971,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::github_refresh,
             commands::github_dashboard,
             commands::github_repo,
+            commands::github_repo_extras,
             commands::github_export,
             commands::get_github_config,
             commands::set_github_config,

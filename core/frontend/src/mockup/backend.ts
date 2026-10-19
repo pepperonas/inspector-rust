@@ -443,7 +443,11 @@ const GH_STARS = ghSeries(301, 1.4);
 const GH_REPO = (id: number, name: string, stars: number, forks: number, lang: string, extra: Record<string, unknown> = {}) => ({
   id, name, full_name: `northwind-ana/${name}`, private: false, archived: false, fork: false, language: lang,
   html_url: "", description: null, license: "MIT", stars, forks, watchers: null, open_issues: id % 4,
-  updated_at_ms: GH_NOW - id * 3 * GH_DAY, pushed_at_ms: GH_NOW - [2, 19, 47, 96, 158, 290][(id - 1) % 6] * GH_DAY, ...extra,
+  updated_at_ms: GH_NOW - id * 3 * GH_DAY, pushed_at_ms: GH_NOW - [2, 19, 47, 96, 158, 290][(id - 1) % 6] * GH_DAY,
+  created_at_ms: GH_NOW - [1420, 980, 760, 610, 2100, 2400][(id - 1) % 6] * GH_DAY,
+  size_kb: [18_400, 6_200, 3_900, 1_200, 90, 640][(id - 1) % 6],
+  topics: [["rust", "cli", "devtools"], ["typescript", "data"], ["ui", "design-system"], ["go"], [], ["blog"]][(id - 1) % 6],
+  homepage: null, default_branch: "main", ...extra,
 });
 const GH_ROWS = [
   { ...GH_REPO(1, "harbor-cli", 214, 31, "Rust"), growth_7d: 9, growth_30d: 38 },
@@ -454,13 +458,38 @@ const GH_ROWS = [
   { ...GH_REPO(6, "old-blog", 3, 0, "HTML", { archived: true }), growth_7d: 0, growth_30d: 0 },
 ];
 const ghDeltas = (s: [number, number][]) => ({
-  d24h: s[59][1] - s[58][1], d7d: s[59][1] - s[52][1], d30d: s[59][1] - s[29][1], d90d: null,
+  d24h: s[59][1] - s[58][1], d7d: s[59][1] - s[52][1], d30d: s[59][1] - s[29][1], d90d: null, d1y: null,
+});
+/** Reconstructed stars: a slow start, then a launch bump ~14 months ago (invented). */
+const GH_STAR_HISTORY: [number, number][] = (() => {
+  const out: [number, number][] = [];
+  let v = 0;
+  for (let d = 1420; d >= 60; d -= 10) {
+    v += d > 440 ? 0.6 : d > 400 ? 9 : 2.1;
+    out.push([GH_NOW - d * GH_DAY, Math.round(v)]);
+  }
+  return [...out, ...GH_STARS];
+})();
+const GH_MONTHS: [number, number | null][] = Array.from({ length: 12 }, (_, i) => {
+  const d = new Date(GH_NOW);
+  return [Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 11 + i, 1), [9, 7, 12, 31, 18, 14, 22, 16, 11, 19, 38, 21][i]];
 });
 function githubDashboardMock(range: string) {
-  const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365 }[range] ?? 9999;
+  const days = { "7d": 7, "30d": 30, "90d": 90, "1y": 365, "5y": 1825 }[range] ?? 9999;
   const cut = (s: [number, number][]) => s.filter(([t]) => t >= GH_NOW - days * GH_DAY);
   return {
     user_id: 1,
+    profile: {
+      login: "northwind-ana", name: "Ana Lima", avatar_url: null, html_url: "https://github.com/northwind-ana",
+      created_at_ms: GH_NOW - 4615 * GH_DAY, bio: "Tools for small harbours and big data.", company: "Northwind",
+      location: "Lisbon", blog: "northwind.example", hireable: null, public_gists: 6, public_repos: 5,
+      private_repos: 1, followers: GH_FOLLOWERS[59][1], following: 64,
+    },
+    forks: cut(GH_STAR_HISTORY.map(([t, v]) => [t, Math.round(v / 7)] as [number, number])),
+    repos: cut([[GH_NOW - 2400 * GH_DAY, 1], [GH_NOW - 2100 * GH_DAY, 2], [GH_NOW - 1420 * GH_DAY, 3], [GH_NOW - 980 * GH_DAY, 4], [GH_NOW - 760 * GH_DAY, 5], [GH_NOW - 610 * GH_DAY, 6], [GH_NOW, 6]]),
+    reconstructed_from_ms: GH_STAR_HISTORY[0][0],
+    star_gains: GH_MONTHS,
+    backfill: { done: 9, total: 9, truncated: 0, stars_complete: true },
     kpis: [
       { key: "followers", value: GH_FOLLOWERS[59][1], deltas: ghDeltas(GH_FOLLOWERS) },
       { key: "stars", value: GH_STARS[59][1], deltas: ghDeltas(GH_STARS) },
@@ -468,7 +497,7 @@ function githubDashboardMock(range: string) {
       { key: "forks", value: 53, deltas: { d24h: 0, d7d: 2, d30d: 6, d90d: null } },
     ],
     followers: cut(GH_FOLLOWERS),
-    stars: cut(GH_STARS),
+    stars: cut(GH_STAR_HISTORY),
     rows: GH_ROWS,
     growth: GH_ROWS.slice(0, 5).map((r, i) => ({ id: r.id, name: r.name, points: cut(ghSeries(r.stars - 30 / (i + 1), 0.5 / (i + 1))) })),
     history_since_ms: GH_FOLLOWERS[0][0],
@@ -794,6 +823,34 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
     case "github_refresh": return { gate: { kind: "too_soon", next_at_ms: GH_NOW + 48 * 60_000 }, fetched: false, account_snapshot: false, repo_snapshots: 0 };
     case "github_dashboard": return githubDashboardMock(String((args as { range?: string })?.range ?? "30d"));
+    case "github_repo": {
+      const row = GH_ROWS.find((r) => r.name === String((args as { query?: string }).query ?? "").toLowerCase()) ?? GH_ROWS[0];
+      const share = row.stars / GH_STARS[59][1];
+      const stars = GH_STAR_HISTORY.filter(([t]) => t >= (row.created_at_ms ?? 0)).map(([t, v]) => [t, Math.round(v * share)] as [number, number]);
+      return {
+        repo: { ...row, watchers: 14, description: "A fast command-line companion for harbour logistics." },
+        stars: [[row.created_at_ms, 0], ...stars],
+        forks: stars.map(([t, v]) => [t, Math.round(v / 7)]),
+        watchers: [[GH_NOW - 40 * GH_DAY, 11], [GH_NOW - 12 * GH_DAY, 13], [GH_NOW, 14]],
+        open_issues: GH_FOLLOWERS.map(([t], i) => [t, 3 + (i % 5)]),
+        star_deltas: { d24h: 2, d7d: 9, d30d: 38, d90d: 71, d1y: 160 },
+        fork_deltas: { d24h: 0, d7d: 1, d30d: 4, d90d: 9, d1y: 21 },
+        first_seen_ms: GH_FOLLOWERS[0][0],
+        stars_synced: { synced_ms: GH_NOW, synced_value: row.stars, count: row.stars, truncated: false },
+        forks_synced: { synced_ms: GH_NOW, synced_value: row.forks, count: row.forks, truncated: false },
+        star_gains: GH_MONTHS,
+      };
+    }
+    case "github_repo_extras":
+      return {
+        commits: Array.from({ length: 52 }, (_, i) => [GH_NOW - (51 - i) * 7 * GH_DAY, Math.max(0, Math.round(6 + 5 * Math.sin(i / 4) + (i % 7)))]),
+        commits_pending: false,
+        releases: { count: 23, latest_tag: "v2.4.0", latest_ms: GH_NOW - 9 * GH_DAY, downloads: 4_812, dates: Array.from({ length: 23 }, (_, i) => GH_NOW - (9 + i * 38) * GH_DAY) },
+        languages: [["Rust", 812_000], ["TypeScript", 96_000], ["Shell", 12_000]],
+        views: { count: 1_204, uniques: 388, days: Array.from({ length: 14 }, (_, i) => [GH_NOW - (13 - i) * GH_DAY, 60 + Math.round(40 * Math.sin(i / 2) + i * 3)]) },
+        clones: { count: 143, uniques: 61, days: Array.from({ length: 14 }, (_, i) => [GH_NOW - (13 - i) * GH_DAY, 6 + (i % 5) * 3]) },
+        fetched_ms: GH_NOW,
+      };
     case "get_github_config": return { auto_refresh: true, interval_h: 1, private_repos: false };
     case "speedtest_running": return false;
     case "speedtest_run": return SPEED_RUNS[0];

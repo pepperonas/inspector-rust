@@ -17,6 +17,8 @@ pub fn iso(ms: i64) -> String {
 /// Everything an export may contain.
 pub struct ExportData<'a> {
     pub login: &'a str,
+    /// The stored profile (account age, bio …) when known.
+    pub profile: Option<&'a super::store::Profile>,
     pub current: Option<AccountTotals>,
     pub account_history: &'a [(i64, AccountTotals)],
     pub repos: &'a [Repo],
@@ -80,6 +82,13 @@ pub fn json(d: &ExportData, include_private: bool, exported_at: i64) -> String {
                 "watchers": r.watchers,
                 "open_issues": r.open_issues,
                 "updated_at": r.updated_at_ms.map(iso),
+                "pushed_at": r.pushed_at_ms.map(iso),
+                "created_at": r.created_at_ms.map(iso),
+                "description": r.description,
+                "license": r.license,
+                "topics": r.topics,
+                "size_kb": r.size_kb,
+                "homepage": r.homepage,
                 "html_url": r.html_url,
             })
         })
@@ -95,13 +104,16 @@ pub fn json(d: &ExportData, include_private: bool, exported_at: i64) -> String {
                 "public_repos": t.public_repos,
                 "total_stars": t.total_stars,
                 "total_forks": t.total_forks,
+                "repo_count": t.repo_count,
             })
         })
         .collect();
+    let current_ids: std::collections::HashSet<i64> = d.repos.iter().map(|r| r.id).collect();
     let repo_history: Vec<_> = d
         .repo_history
         .iter()
-        .filter(|(_, r, _)| keep(r))
+        // Only repositories the export lists (deleted ones have no entry).
+        .filter(|(_, r, _)| keep(r) && current_ids.contains(&r.id))
         .map(|(ts, r, n)| {
             serde_json::json!({
                 "timestamp": iso(*ts),
@@ -120,12 +132,14 @@ pub fn json(d: &ExportData, include_private: bool, exported_at: i64) -> String {
         "version": 1,
         "exported_at": iso(exported_at),
         "login": d.login,
+        "account_created_at": d.profile.and_then(|p| p.created_at_ms).map(iso),
         "account": d.current.map(|t| serde_json::json!({
             "followers": t.followers,
             "following": t.following,
             "public_repos": t.public_repos,
             "total_stars": t.total_stars,
             "total_forks": t.total_forks,
+            "repo_count": t.repo_count,
         })),
         "private_repositories_included": include_private,
         "private_repositories_left_out": private_left_out,
@@ -158,6 +172,7 @@ mod tests {
             open_issues: 3,
             updated_at_ms: Some(1_791_633_600_000),
             pushed_at_ms: None,
+            ..Default::default()
         }
     }
 
@@ -183,6 +198,7 @@ mod tests {
         ];
         let d = ExportData {
             login: "pepperonas",
+            profile: None,
             current: None,
             account_history: &[],
             repos: &[public, secret],
@@ -216,6 +232,7 @@ mod tests {
         };
         let d = ExportData {
             login: "pepperonas",
+            profile: None,
             current: Some(totals),
             account_history: &[(T, totals)],
             repos: &[public.clone(), secret.clone()],

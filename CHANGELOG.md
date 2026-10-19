@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.219.0] - 2026-10-19
+
+### Added
+- **`github`: history back to the start.** Star and fork curves now reach back to each repository's creation, rebuilt in the background from GitHub's stargazer and fork lists (dates only, no names; whole lists only, at most 60 requests per refresh, nothing below 500 requests left). A dashed line marks where real snapshots begin. Stars, forks and repositories get their 24h…1y changes right after the first refresh.
+- **Account age and profile** on the dashboard: years and months since the account was created, bio, company, location, website, stars and repositories per year, follower/following ratio, gists.
+- **Stars per month** (last 12 months) on the dashboard, the stars view and every repository.
+- **`github insights`:** composition (own/forks, active/dormant/archived), how concentrated the stars are, forks and repositories over time, repositories created per year, fastest-growing repositories, topics, dormant repositories.
+- **Repository detail:** age, size, topics, homepage, stars per month, fork ratio, last push, stars in 30 days and a year; watcher history; commits per week (52 weeks), releases with downloads and cadence, languages by code size, views and clones (with push access) — cached for a day.
+- Chart ranges 5Y and 1-year changes.
+
+### Changed
+- History charts are steps, not diagonals, and a range carries the value in from before it — a quiet repository still has a line.
+- The top-5 growth chart picks the repositories that grew most in 30 days, not the biggest.
+
+### Fixed
+- Watchers were never kept as history and went stale after the first look; the background refresh now checks them (5 per refresh, once a day each).
+- Switching repositories briefly showed the previous one.
+- A 30-day change of 0 was coloured green.
+- A repository list cut at the page limit marked the rest as deleted.
+- After a network error the next automatic refresh waited a whole interval; now 5 minutes.
+- "Public repositories" included private ones.
+- The JSON export lacked repository count, creation dates, licence and description, and listed history of deleted repositories.
+
 ## [0.218.0] - 2026-10-18
 
 ### Changed

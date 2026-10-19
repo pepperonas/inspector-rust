@@ -3,12 +3,12 @@
  * ranges, delta / time formatting, error texts and chart geometry. The data
  * and the snapshots live in Rust (`github/`); reference docs/github.md.
  */
-import type { GithubDeltas, GithubPoint, GithubSortKey, GithubStatus } from "./ipc";
+import type { GithubDeltas, GithubPoint, GithubRepo, GithubSortKey, GithubStatus } from "./ipc";
 import type { SeriesPoint } from "./stats-chart";
 import { locale, t, type MessageKey } from "./i18n";
 
-export type GithubView = "dashboard" | "repos" | "repo" | "followers" | "stars" | "trending";
-export type GithubRange = "7d" | "30d" | "90d" | "1y" | "all";
+export type GithubView = "dashboard" | "repos" | "repo" | "followers" | "stars" | "trending" | "insights";
+export type GithubRange = "7d" | "30d" | "90d" | "1y" | "5y" | "all";
 
 export type GithubCmd =
   | { kind: "view"; view: Exclude<GithubView, "repo">; sort?: GithubSortKey }
@@ -23,6 +23,7 @@ export const RANGES: { id: GithubRange; label: string }[] = [
   { id: "30d", label: "30D" },
   { id: "90d", label: "90D" },
   { id: "1y", label: "1Y" },
+  { id: "5y", label: "5Y" },
   { id: "all", label: "ALL" },
 ];
 
@@ -38,6 +39,7 @@ export const SORTS: { id: GithubSortKey; label: string; words: string[] }[] = [
 /** Every first word the grammar knows (Tab completion reads this). */
 export const SUBCOMMANDS = [
   { value: "stats", get hint() { return t("github.sub.stats"); } },
+  { value: "insights", get hint() { return t("github.sub.insights"); } },
   { value: "repos", get hint() { return t("github.sub.repos"); } },
   { value: "repo", get hint() { return t("github.sub.repo"); } },
   { value: "followers", get hint() { return t("github.sub.followers"); } },
@@ -75,6 +77,10 @@ export function parseGithubArg(arg: string): GithubCmd {
     case "followers":
     case "follower":
       return { kind: "view", view: "followers" };
+    case "insights":
+    case "analyse":
+    case "analysis":
+      return { kind: "view", view: "insights" };
     case "stars":
     case "sterne":
       return { kind: "view", view: "stars" };
@@ -288,4 +294,152 @@ export function metricBars<K extends "stars" | "forks" | "open_issues">(
     .slice(0, n);
   const max = Math.max(1, ...top.map((r) => r[key]));
   return top.map((r) => ({ name: r.name, value: r[key], frac: r[key] / max }));
+}
+
+// ── Insights (pure, from the current repository list) ───────────────────────
+
+/** A repository without a push for this long counts as dormant. */
+export const DORMANT_DAYS = 180;
+const DAY = 86_400_000;
+
+/** Whole years and months between two times (calendar, local time). */
+export function ageParts(fromMs: number, now: number): { years: number; months: number } {
+  const a = new Date(fromMs);
+  const b = new Date(now);
+  let months = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) months--;
+  months = Math.max(0, months);
+  return { years: Math.floor(months / 12), months: months % 12 };
+}
+
+/** `12 J 4 M`, `8 M`, `<1 M`; `—` when unknown. */
+export function formatAge(fromMs: number | null, now: number): string {
+  if (fromMs == null) return "—";
+  const { years, months } = ageParts(fromMs, now);
+  if (years === 0 && months === 0) return t("github.age.lt_month");
+  if (years === 0) return t("github.age.m", { m: months });
+  if (months === 0) return t("github.age.y", { y: years });
+  return t("github.age.ym", { y: years, m: months });
+}
+
+/** Age in (fractional) years — for per-year rates. */
+export function yearsSince(fromMs: number, now: number): number {
+  return Math.max(0, now - fromMs) / (365.25 * DAY);
+}
+
+/** A rate: whole above 10, one decimal below, two below 1. */
+export function formatRate(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  if (v >= 10) return Math.round(v).toLocaleString(locale());
+  // Small rates keep their size: 0.04 is not "0".
+  return v.toLocaleString(locale(), { maximumFractionDigits: v < 1 ? 2 : 1 });
+}
+
+export interface RepoInsight {
+  ageDays: number | null;
+  /** Stars per month since creation. */
+  starsPerMonth: number | null;
+  /** Forks per star (0..); null without stars. */
+  forkRatio: number | null;
+  daysSincePush: number | null;
+  dormant: boolean;
+}
+
+export function repoInsight(r: GithubRepo, now: number): RepoInsight {
+  const ageDays = r.created_at_ms != null ? Math.max(0, (now - r.created_at_ms) / DAY) : null;
+  const pushed = r.pushed_at_ms ?? r.updated_at_ms;
+  const daysSincePush = pushed != null ? Math.max(0, (now - pushed) / DAY) : null;
+  return {
+    ageDays,
+    // Under a month old the rate would be noise — none.
+    starsPerMonth: ageDays != null && ageDays >= 30 ? r.stars / (ageDays / 30.44) : null,
+    forkRatio: r.stars > 0 ? r.forks / r.stars : null,
+    daysSincePush,
+    dormant: !r.archived && daysSincePush != null && daysSincePush >= DORMANT_DAYS,
+  };
+}
+
+export interface Composition {
+  total: number;
+  originals: number;
+  forks: number;
+  archived: number;
+  /** Not archived, no push for `DORMANT_DAYS`. */
+  dormant: number;
+  /** Not archived, pushed within `DORMANT_DAYS`. */
+  active: number;
+  private: number;
+}
+
+export function composition(rows: ReadonlyArray<GithubRepo>, now: number): Composition {
+  const c: Composition = { total: rows.length, originals: 0, forks: 0, archived: 0, dormant: 0, active: 0, private: 0 };
+  for (const r of rows) {
+    if (r.fork) c.forks++;
+    else c.originals++;
+    if (r.private) c.private++;
+    if (r.archived) c.archived++;
+    else if (repoInsight(r, now).dormant) c.dormant++;
+    else c.active++;
+  }
+  return c;
+}
+
+/** How concentrated the stars are: the top repository's and the top 3's share. */
+export function concentration(rows: ReadonlyArray<GithubRepo>): {
+  total: number;
+  top: { name: string; pct: number } | null;
+  top3Pct: number;
+  /** Repositories holding half of all stars. */
+  halfBy: number;
+} {
+  const sorted = [...rows].filter((r) => r.stars > 0).sort((a, b) => b.stars - a.stars || a.name.localeCompare(b.name));
+  const total = sorted.reduce((a, r) => a + r.stars, 0);
+  if (total === 0) return { total: 0, top: null, top3Pct: 0, halfBy: 0 };
+  let acc = 0;
+  let halfBy = 0;
+  for (const r of sorted) {
+    acc += r.stars;
+    halfBy++;
+    if (acc * 2 >= total) break;
+  }
+  return {
+    total,
+    top: { name: sorted[0].name, pct: (sorted[0].stars / total) * 100 },
+    top3Pct: (sorted.slice(0, 3).reduce((a, r) => a + r.stars, 0) / total) * 100,
+    halfBy,
+  };
+}
+
+/** Repositories created per year, every year from the first to now (local). */
+export function createdByYear(rows: ReadonlyArray<GithubRepo>, now: number): { year: number; count: number }[] {
+  const years = rows.map((r) => r.created_at_ms).filter((t): t is number => t != null && t <= now).map((t) => new Date(t).getFullYear());
+  if (years.length === 0) return [];
+  const first = Math.min(...years);
+  const last = new Date(now).getFullYear();
+  const out: { year: number; count: number }[] = [];
+  for (let y = first; y <= last; y++) out.push({ year: y, count: years.filter((x) => x === y).length });
+  return out;
+}
+
+/** The repositories that gather stars fastest (stars per month since creation). */
+export function fastestGrowing(rows: ReadonlyArray<GithubRepo>, now: number, n = 6): { name: string; rate: number; stars: number }[] {
+  return rows
+    .map((r) => ({ name: r.name, stars: r.stars, rate: repoInsight(r, now).starsPerMonth }))
+    .filter((x): x is { name: string; stars: number; rate: number } => x.rate != null && x.rate > 0)
+    .sort((a, b) => b.rate - a.rate || a.name.localeCompare(b.name))
+    .slice(0, n);
+}
+
+/** Size from GitHub's KB: `840 KB`, `12.4 MB`. */
+export function formatSize(kb: number | null): string {
+  if (kb == null) return "—";
+  if (kb < 1024) return `${kb.toLocaleString(locale())} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toLocaleString(locale(), { maximumFractionDigits: 1 })} MB`;
+  return `${(mb / 1024).toLocaleString(locale(), { maximumFractionDigits: 1 })} GB`;
+}
+
+/** Short month label of a UTC month start (the backend counts in UTC). */
+export function monthLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString(locale(), { month: "short", timeZone: "UTC" });
 }

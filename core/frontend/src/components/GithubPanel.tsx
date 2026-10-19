@@ -12,7 +12,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { AlertTriangle, Copy, Download, ExternalLink, Loader2, Lock, RefreshCw, Star } from "lucide-react";
+import { AlertTriangle, Briefcase, CalendarDays, Copy, Download, ExternalLink, GitFork, Link2, Loader2, Lock, MapPin, RefreshCw, Star } from "lucide-react";
 import {
   githubDashboard,
   githubDeviceCancel,
@@ -20,12 +20,16 @@ import {
   githubExport,
   githubRefresh,
   githubRepo,
+  githubRepoExtras,
   githubStatus,
   type GithubDashboard,
   type GithubDeltas,
   type GithubKpi,
+  type GithubMonthGain,
   type GithubPoint,
+  type GithubProfile,
   type GithubRepoDetail,
+  type GithubRepoExtras,
   type GithubRepoRow,
   type GithubSortKey,
   type GithubStatus,
@@ -42,16 +46,28 @@ import {
   formatDelta,
   historyCollecting,
   activityByMonth,
+  ageParts,
+  composition,
+  concentration,
+  createdByYear,
+  fastestGrowing,
+  formatAge,
+  formatRate,
+  formatSize,
   languageShares,
   metricBars,
+  monthLabel,
+  repoInsight,
   statusLine,
   timeDomain,
   toSeries,
+  yearsSince,
+  DORMANT_DAYS,
   type GithubCmd,
   type GithubRange,
 } from "../lib/github";
-import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
-import { donutSegments } from "../lib/loc";
+import { areaPath, linePath, seriesExtent, stepAreaPath, stepPath } from "../lib/stats-chart";
+import { donutSegments, languageColor } from "../lib/loc";
 import { locale, t, tn, useT, type MessageKey } from "../lib/i18n";
 
 /** Signals already handled — module-level so a remount never replays one. */
@@ -84,14 +100,16 @@ interface Props {
   onQuery: (q: string) => void;
 }
 
+/** Up green, down red, no change (and unknown) neutral — a zero is not good news. */
+export const TONE_CLASS: Record<ReturnType<typeof deltaTone>, string> = {
+  up: "text-emerald-500",
+  down: "text-rose-500",
+  flat: "text-[var(--color-muted)]",
+  none: "text-[var(--color-muted)]",
+};
+
 function Delta({ label, d }: { label: string; d: number | null }) {
-  const tone = deltaTone(d);
-  const cls =
-    tone === "up"
-      ? "text-emerald-500"
-      : tone === "down"
-        ? "text-rose-500"
-        : "text-[var(--color-muted)]";
+  const cls = TONE_CLASS[deltaTone(d)];
   return (
     <span className="tabular-nums" title={d == null ? t("github.insufficient_history") : undefined}>
       <span className="text-[var(--color-muted)]">{label} </span>
@@ -110,6 +128,7 @@ function DeltaRow({ d }: { d: GithubDeltas }) {
       <Delta label="7d" d={d.d7d} />
       <Delta label="30d" d={d.d30d} />
       <Delta label="90d" d={d.d90d} />
+      <Delta label="1y" d={d.d1y} />
     </div>
   );
 }
@@ -124,7 +143,7 @@ function KpiCard({ kpi }: { kpi: GithubKpi }) {
           {kpi.value.toLocaleString(locale())}
         </span>
         {d30 != null && (
-          <span className={`text-xs tabular-nums ${deltaTone(d30) === "down" ? "text-rose-500" : "text-emerald-500"}`}>
+          <span className={`text-xs tabular-nums ${TONE_CLASS[deltaTone(d30)]}`}>
             {formatDelta(d30)} <span className="text-[var(--color-muted)]">30d</span>
           </span>
         )}
@@ -137,13 +156,25 @@ function KpiCard({ kpi }: { kpi: GithubKpi }) {
 const CHART_W = 300;
 const CHART_H = 70;
 
-/** Real snapshots only: one point is not a line, so it says so. */
+/**
+ * A history chart. Counts (stars, forks, followers) change only at events,
+ * so they are drawn as STEPS — a diagonal would claim values that never
+ * existed. `markAt` = where real observation starts: left of it the line is
+ * reconstructed from GitHub's stargazer / fork lists. One point is not a
+ * line, so it says so.
+ */
 function LineChart({
   title,
   lines,
+  step = true,
+  markAt,
+  testId = "gh-chart",
 }: {
   title: string;
   lines: { name: string; points: GithubPoint[] }[];
+  step?: boolean;
+  markAt?: number | null;
+  testId?: string;
 }) {
   const series = lines.map((l) => toSeries(l.points));
   const domain = timeDomain(series);
@@ -156,8 +187,14 @@ function LineChart({
   const current = lines.length === 1 ? lines[0].points[lines[0].points.length - 1]?.[1] : undefined;
   const last = series.length === 1 ? series[0][series[0].length - 1] : undefined;
   const gradId = `gh-grad-${useId().replace(/:/g, "")}`;
+  const path = step ? stepPath : linePath;
+  const area = step ? stepAreaPath : areaPath;
+  const markFrac =
+    markAt != null && domain && markAt / 1000 > domain[0] && markAt / 1000 < domain[1]
+      ? (markAt / 1000 - domain[0]) / (domain[1] - domain[0] || 1)
+      : null;
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid="gh-chart">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid={testId}>
       <div className="mb-1 flex items-center justify-between text-xs">
         <span className="text-[var(--color-muted)]">{title}</span>
         {current != null && <span className="tabular-nums text-[var(--color-fg)]">{current.toLocaleString(locale())}</span>}
@@ -179,12 +216,25 @@ function LineChart({
               <line key={f} x1={0} x2={CHART_W} y1={CHART_H * f} y2={CHART_H * f} stroke="var(--color-border)" strokeWidth={1} vectorEffect="non-scaling-stroke" strokeDasharray="2 3" />
             ))}
             {lines.length === 1 && (
-              <path d={areaPath(series[0], domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)} fill={`url(#${gradId})`} />
+              <path d={area(series[0], domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)} fill={`url(#${gradId})`} />
+            )}
+            {markFrac != null && (
+              <line
+                data-testid="gh-chart-mark"
+                x1={markFrac * CHART_W}
+                x2={markFrac * CHART_W}
+                y1={0}
+                y2={CHART_H}
+                stroke="var(--color-muted)"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+                strokeDasharray="3 3"
+              />
             )}
             {series.map((s, i) => (
               <path
                 key={lines[i].name}
-                d={linePath(s, domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)}
+                d={path(s, domain[0], domain[1], CHART_W, CHART_H, vMin, vMax)}
                 fill="none"
                 stroke={LINE_COLORS[i % LINE_COLORS.length]}
                 strokeWidth={1.8}
@@ -203,6 +253,15 @@ function LineChart({
                 background: LINE_COLORS[0],
               }}
             />
+          )}
+          {markFrac != null && markFrac > 0.3 && (
+            <span
+              className="pointer-events-none absolute top-0 -translate-x-full whitespace-nowrap rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] text-[var(--color-muted)]"
+              style={{ left: `${markFrac * 100}%` }}
+              title={t("github.reconstructed_hint")}
+            >
+              {t("github.reconstructed")}
+            </span>
           )}
           <span className="pointer-events-none absolute left-0 top-0 rounded bg-[var(--color-surface)]/80 px-0.5 text-[9px] tabular-nums text-[var(--color-muted)]">
             {t("github.max")} {fmtAxis(dataMax)}
@@ -388,6 +447,546 @@ function ActivityColumns({ rows, now }: { rows: GithubRepoRow[]; now: number }) 
   );
 }
 
+/** Generic columns: one bar per bucket; null = unknown (hatched, not 0). */
+function Columns({
+  items,
+  color = "var(--color-accent)",
+  height = 56,
+  highlightLast = false,
+}: {
+  items: { key: string | number; label: string; value: number | null; title?: string }[];
+  color?: string;
+  height?: number;
+  highlightLast?: boolean;
+}) {
+  const max = Math.max(1, ...items.map((m) => m.value ?? 0));
+  const every = Math.max(1, Math.ceil(items.length / 12));
+  return (
+    <div className="flex items-stretch gap-[2px]" style={{ height: height + 22 }}>
+      {items.map((m, i) => (
+        <div
+          key={m.key}
+          className="flex min-w-0 flex-1 flex-col items-center justify-end gap-0.5"
+          title={m.title ?? `${m.label}: ${m.value == null ? "—" : m.value.toLocaleString(locale())}`}
+        >
+          {m.value != null && m.value > 0 && items.length <= 16 && (
+            <span className="text-[8px] tabular-nums text-[var(--color-muted)]">{fmtAxis(m.value)}</span>
+          )}
+          <div
+            className="w-full rounded-t-sm"
+            style={{
+              height: `${m.value == null ? 2 : m.value === 0 ? 2 : Math.max(4, (m.value / max) * height)}px`,
+              background:
+                m.value == null
+                  ? "repeating-linear-gradient(90deg, var(--color-border) 0 2px, transparent 2px 4px)"
+                  : m.value === 0
+                    ? "var(--color-border)"
+                    : highlightLast && i === items.length - 1
+                      ? "#10b981"
+                      : color,
+              opacity: m.value ? 0.55 + 0.45 * (m.value / max) : 1,
+            }}
+          />
+          <span className="h-[10px] text-[8px] leading-[10px] text-[var(--color-muted)]">{i % every === 0 ? m.label : ""}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Stars gained per month (last 12). Unknown months are shown as such. */
+function GainBars({ title, gains, testId }: { title: string; gains: GithubMonthGain[]; testId?: string }) {
+  if (gains.length === 0) return null;
+  const known = gains.filter((g) => g[1] != null);
+  const sum = known.reduce((a, g) => a + (g[1] ?? 0), 0);
+  return (
+    <Card
+      title={title}
+      testId={testId ?? "gh-gains"}
+      aside={
+        known.length > 0 ? (
+          <span className="text-[10px] tabular-nums text-[var(--color-muted)]">
+            {t("github.gains_sum", { n: formatDelta(sum), months: known.length })}
+          </span>
+        ) : undefined
+      }
+    >
+      <Columns
+        items={gains.map(([ms, v]) => ({ key: ms, label: monthLabel(ms), value: v }))}
+        color="#f59e0b"
+        highlightLast
+      />
+    </Card>
+  );
+}
+
+/** Who the account is: since when, where, what — and per-year rates. */
+function ProfileCard({ profile, stars, repos, now }: { profile: GithubProfile; stars: number; repos: number; now: number }) {
+  const created = profile.created_at_ms;
+  const years = created != null ? yearsSince(created, now) : null;
+  const facts = [
+    profile.company && { icon: <Briefcase size={10} />, text: profile.company },
+    profile.location && { icon: <MapPin size={10} />, text: profile.location },
+    profile.blog && { icon: <Link2 size={10} />, text: profile.blog.replace(/^https?:\/\//, "") },
+  ].filter(Boolean) as { icon: React.ReactNode; text: string }[];
+  const ratio = profile.following > 0 ? profile.followers / profile.following : null;
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid="gh-profile">
+      <div className="flex items-start gap-2">
+        {profile.avatar_url ? (
+          <img src={profile.avatar_url} alt="" className="h-9 w-9 shrink-0 rounded-full" />
+        ) : (
+          <span className="mt-0.5 text-[var(--color-muted)]">
+            <GithubMark size={28} />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-[var(--color-fg)]">
+            {profile.name ?? profile.login} <span className="font-normal text-[var(--color-muted)]">@{profile.login}</span>
+          </div>
+          {profile.bio && <div className="line-clamp-2 text-[11px] text-[var(--color-muted)]">{profile.bio}</div>}
+          {facts.length > 0 && (
+            <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-muted)]">
+              {facts.map((f) => (
+                <span key={f.text} className="flex items-center gap-0.5">
+                  {f.icon}
+                  {f.text}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 text-right" data-testid="gh-account-age">
+          <div className="text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{t("github.account_age")}</div>
+          <div className="text-lg font-semibold tabular-nums text-[var(--color-fg)]">{formatAge(created, now)}</div>
+          {created != null && (
+            <div className="flex items-center justify-end gap-0.5 text-[10px] text-[var(--color-muted)]">
+              <CalendarDays size={10} /> {t("github.member_since", { date: formatDate(created) })}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mt-1.5 grid grid-cols-4 gap-1 text-center text-[10px]">
+        <Stat label={t("github.stars_per_year")} value={years && years >= 0.25 ? formatRate(stars / years) : "—"} />
+        <Stat label={t("github.repos_per_year")} value={years && years >= 0.25 ? formatRate(repos / years) : "—"} />
+        <Stat
+          label={t("github.follow_ratio")}
+          value={ratio == null ? "—" : formatRate(ratio)}
+          title={t("github.follow_ratio_hint", { followers: profile.followers, following: profile.following })}
+        />
+        <Stat label={t("github.gists")} value={profile.public_gists.toLocaleString(locale())} />
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="rounded bg-[var(--color-bg)]/40 px-1 py-0.5" title={title}>
+      <div className="text-sm font-semibold tabular-nums text-[var(--color-fg)]">{value}</div>
+      <div className="truncate text-[9px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+    </div>
+  );
+}
+
+/** Original / fork, active / dormant / archived as stacked bars. */
+function CompositionCard({ rows, now }: { rows: GithubRepoRow[]; now: number }) {
+  const c = composition(rows, now);
+  if (c.total === 0) return null;
+  const bar = (parts: { n: number; color: string; label: string }[]) => (
+    <div className="flex h-2.5 overflow-hidden rounded-full bg-[var(--color-border)]">
+      {parts
+        .filter((p) => p.n > 0)
+        .map((p) => (
+          <div key={p.label} style={{ width: `${(p.n / c.total) * 100}%`, background: p.color }} title={`${p.label}: ${p.n}`} />
+        ))}
+    </div>
+  );
+  const legend = (parts: { n: number; color: string; label: string }[]) => (
+    <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-muted)]">
+      {parts.map((p) => (
+        <span key={p.label} className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
+          {p.label} <span className="tabular-nums text-[var(--color-fg)]">{p.n}</span>
+        </span>
+      ))}
+    </div>
+  );
+  const origin = [
+    { n: c.originals, color: "var(--color-accent)", label: t("github.originals") },
+    { n: c.forks, color: "#8b5cf6", label: t("github.forks_of_others") },
+  ];
+  const life = [
+    { n: c.active, color: "#10b981", label: t("github.active") },
+    { n: c.dormant, color: "#f59e0b", label: t("github.dormant", { days: DORMANT_DAYS }) },
+    { n: c.archived, color: "#6b7280", label: t("github.archived") },
+  ];
+  return (
+    <Card title={t("github.composition")} testId="gh-composition" aside={<span className="text-[10px] tabular-nums text-[var(--color-muted)]">{c.total}</span>}>
+      {bar(origin)}
+      {legend(origin)}
+      <div className="h-1.5" />
+      {bar(life)}
+      {legend(life)}
+    </Card>
+  );
+}
+
+/** How concentrated the stars are. */
+function ConcentrationCard({ rows }: { rows: GithubRepoRow[] }) {
+  const c = concentration(rows);
+  if (!c.top) return null;
+  return (
+    <Card title={t("github.concentration")} testId="gh-concentration">
+      <div className="space-y-1 text-xs">
+        <div className="flex justify-between">
+          <span className="truncate text-[var(--color-muted)]">{t("github.top_repo_share", { name: c.top.name })}</span>
+          <span className="tabular-nums text-[var(--color-fg)]">{c.top.pct.toFixed(0)} %</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-[var(--color-muted)]">{t("github.top3_share")}</span>
+          <span className="tabular-nums text-[var(--color-fg)]">{c.top3Pct.toFixed(0)} %</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-[var(--color-muted)]">{t("github.half_by")}</span>
+          <span className="tabular-nums text-[var(--color-fg)]">{tn("github.repos_n", c.halfBy)}</span>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Most-used topics over the repositories. */
+function TopicsCard({ rows }: { rows: GithubRepoRow[] }) {
+  const counts = new Map<string, number>();
+  for (const r of rows) for (const tp of r.topics ?? []) counts.set(tp, (counts.get(tp) ?? 0) + 1);
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 16);
+  if (top.length === 0) return null;
+  return (
+    <Card title={t("github.topics")} testId="gh-topics">
+      <div className="flex flex-wrap gap-1">
+        {top.map(([name, n]) => (
+          <span key={name} className="rounded-full bg-[var(--color-accent)]/15 px-1.5 py-0.5 text-[10px] text-[var(--color-fg)]">
+            {name} <span className="tabular-nums text-[var(--color-muted)]">{n}</span>
+          </span>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/** Small tile: label + value (+ hint). */
+function Tile({ label, value, hint, testId }: { label: React.ReactNode; value: React.ReactNode; hint?: React.ReactNode; testId?: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2" data-testid={testId}>
+      <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="text-lg font-semibold tabular-nums text-[var(--color-fg)]">{value}</div>
+      {hint && <div className="text-[10px] text-[var(--color-muted)]">{hint}</div>}
+    </div>
+  );
+}
+
+/** Commit activity, releases, languages and traffic of one repository. */
+function RepoExtrasView({ extras, now }: { extras: GithubRepoExtras; now: number }) {
+  const langs = extras.languages ?? [];
+  const totalBytes = langs.reduce((a, l) => a + l[1], 0);
+  const segs =
+    totalBytes > 0
+      ? donutSegments(
+          langs.map(([name, b]) => ({ name, pct: (b / totalBytes) * 100 })),
+          { cx: 50, cy: 50, rOuter: 46, rInner: 30, minPct: 3 },
+        )
+      : [];
+  const commits = extras.commits ?? [];
+  const commitTotal = commits.reduce((a, w) => a + w[1], 0);
+  const rel = extras.releases;
+  return (
+    <>
+      <Card
+        title={t("github.commit_activity")}
+        testId="gh-commits"
+        aside={
+          commits.length > 0 ? (
+            <span className="text-[10px] tabular-nums text-[var(--color-muted)]">{t("github.commits_52w", { n: commitTotal.toLocaleString(locale()) })}</span>
+          ) : undefined
+        }
+      >
+        {extras.commits_pending && commits.length === 0 ? (
+          <div className="text-xs text-[var(--color-muted)]">{t("github.commits_pending")}</div>
+        ) : commits.length === 0 ? (
+          <div className="text-xs text-[var(--color-muted)]">{t("github.no_data")}</div>
+        ) : (
+          <Columns
+            items={commits.map(([ms, n]) => ({
+              key: ms,
+              label: new Date(ms).toLocaleDateString(locale(), { month: "short" }),
+              value: n,
+              title: `${formatDate(ms)}: ${n}`,
+            }))}
+            height={44}
+          />
+        )}
+      </Card>
+      <div className="grid grid-cols-2 gap-2">
+        {segs.length > 0 && (
+          <Card title={t("github.languages_bytes")} testId="gh-repo-languages">
+            <div className="flex items-center gap-2">
+              <svg viewBox="0 0 100 100" className="h-[72px] w-[72px] shrink-0">
+                {segs.map((seg) => (
+                  <path key={seg.name} d={seg.d} fill={seg.color}>
+                    <title>{`${seg.name} · ${seg.pct.toFixed(1)} %`}</title>
+                  </path>
+                ))}
+              </svg>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                {segs.slice(0, 5).map((seg) => (
+                  <div key={seg.name} className="flex items-center gap-1 text-[11px]">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.color ?? languageColor(seg.name) }} />
+                    <span className="truncate text-[var(--color-fg)]">{seg.name}</span>
+                    <span className="ml-auto tabular-nums text-[var(--color-muted)]">{seg.pct.toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
+        {rel && rel.count > 0 && (
+          <Card title={t("github.releases")} testId="gh-releases">
+            <div className="space-y-0.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-[var(--color-muted)]">{t("github.release_count")}</span>
+                <span className="tabular-nums">{rel.count}{rel.count >= 100 ? "+" : ""}</span>
+              </div>
+              {rel.latest_tag && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-[var(--color-muted)]">{t("github.latest_release")}</span>
+                  <span className="truncate tabular-nums" title={rel.latest_ms ? formatDate(rel.latest_ms) : undefined}>
+                    {rel.latest_tag}
+                    {rel.latest_ms && <span className="text-[var(--color-muted)]"> · {formatAge(rel.latest_ms, now)}</span>}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-[var(--color-muted)]">{t("github.downloads")}</span>
+                <span className="tabular-nums">{rel.downloads.toLocaleString(locale())}</span>
+              </div>
+              {rel.dates.length >= 2 && (
+                <div className="flex justify-between">
+                  <span className="text-[var(--color-muted)]">{t("github.release_cadence")}</span>
+                  <span className="tabular-nums">
+                    {t("github.every_days", {
+                      n: Math.max(1, Math.round((rel.dates[0] - rel.dates[rel.dates.length - 1]) / 86_400_000 / (rel.dates.length - 1))),
+                    })}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+      </div>
+      {(extras.views || extras.clones) && (
+        <div className="grid grid-cols-2 gap-2" data-testid="gh-traffic">
+          {extras.views && (
+            <LineChart
+              title={t("github.views_14d", { n: extras.views.count, u: extras.views.uniques })}
+              lines={[{ name: "views", points: extras.views.days }]}
+              step={false}
+            />
+          )}
+          {extras.clones && (
+            <LineChart
+              title={t("github.clones_14d", { n: extras.clones.count, u: extras.clones.uniques })}
+              lines={[{ name: "clones", points: extras.clones.days }]}
+              step={false}
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The detail matches the query: name, full name or id (case-insensitive). */
+export function detailMatches(d: GithubRepoDetail, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return d.repo.name.toLowerCase() === q || d.repo.full_name.toLowerCase() === q || String(d.repo.id) === q;
+}
+
+/** Where the history comes from: reconstructed lists + real snapshots. */
+function BackfillNote({ dash }: { dash: GithubDashboard }) {
+  const b = dash.backfill;
+  if (b.total === 0) return null;
+  const complete = b.done >= b.total;
+  return (
+    <div className="text-[10px] text-[var(--color-muted)]" data-testid="gh-backfill" title={t("github.reconstructed_hint")}>
+      {complete
+        ? t("github.backfill_done", { date: formatDate(dash.reconstructed_from_ms ?? dash.history_since_ms) })
+        : t("github.backfill_progress", { done: b.done, total: b.total })}
+      {b.truncated > 0 && ` · ${tn("github.backfill_truncated", b.truncated)}`}
+    </div>
+  );
+}
+
+/** Repositories that gather stars fastest (per month since creation). */
+function FastestCard({ rows, now, onOpen }: { rows: GithubRepoRow[]; now: number; onOpen: (n: string) => void }) {
+  const top = fastestGrowing(rows, now);
+  if (top.length === 0) return null;
+  const max = Math.max(...top.map((x) => x.rate));
+  return (
+    <Card title={t("github.fastest")} testId="gh-fastest">
+      <div className="space-y-1">
+        {top.map((x) => (
+          <button type="button" key={x.name} onClick={() => onOpen(x.name)} className="flex w-full items-center gap-2 text-left text-xs hover:opacity-80">
+            <span className="w-28 shrink-0 truncate text-[var(--color-fg)]">{x.name}</span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-border)]">
+              <div className="h-2 rounded-full bg-emerald-500" style={{ width: `${Math.max(3, (x.rate / max) * 100)}%` }} />
+            </div>
+            <span className="w-16 shrink-0 text-right tabular-nums">{t("github.per_month", { n: formatRate(x.rate) })}</span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/** Repositories without a push for half a year (not archived) — candidates to archive. */
+function DormantCard({ rows, now, onOpen }: { rows: GithubRepoRow[]; now: number; onOpen: (n: string) => void }) {
+  const dormant = rows
+    .map((r) => ({ r, i: repoInsight(r, now) }))
+    .filter((x) => x.i.dormant)
+    .sort((a, b) => (b.i.daysSincePush ?? 0) - (a.i.daysSincePush ?? 0));
+  if (dormant.length === 0) return null;
+  return (
+    <Card title={t("github.dormant_title", { days: DORMANT_DAYS })} testId="gh-dormant" aside={<span className="text-[10px] tabular-nums text-[var(--color-muted)]">{dormant.length}</span>}>
+      <div className="space-y-0.5">
+        {dormant.slice(0, 8).map(({ r }) => (
+          <button type="button" key={r.id} onClick={() => onOpen(r.name)} className="flex w-full justify-between gap-2 text-left text-xs hover:opacity-80">
+            <span className="truncate text-[var(--color-fg)]">{r.name}</span>
+            <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatAge(r.pushed_at_ms ?? r.updated_at_ms, now)}</span>
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function RepoDetailView({ d, extras, now }: { d: GithubRepoDetail; extras: GithubRepoExtras | null; now: number }) {
+  const r = d.repo;
+  const ins = repoInsight(r, now);
+  const reconstructed = d.stars_synced != null;
+  const age = r.created_at_ms != null ? ageParts(r.created_at_ms, now) : null;
+  return (
+    <div className="space-y-2" data-testid="gh-detail">
+      <div>
+        <div className="flex items-center gap-1 font-semibold text-[var(--color-fg)]">
+          {r.private && <Lock size={12} />}
+          {r.full_name}
+          {r.archived && <span className="text-[10px] uppercase text-amber-500">{t("github.archived")}</span>}
+          {r.fork && (
+            <span className="flex items-center gap-0.5 text-[10px] text-[var(--color-muted)]">
+              <GitFork size={10} /> {t("github.fork")}
+            </span>
+          )}
+          <button
+            type="button"
+            className="ml-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+            onClick={() => void openUrl(r.html_url)}
+            title={t("github.open_on_github")}
+          >
+            <ExternalLink size={12} />
+          </button>
+        </div>
+        {r.description && <div className="text-xs text-[var(--color-muted)]">{r.description}</div>}
+        <div className="text-[10px] text-[var(--color-muted)]">
+          {[
+            r.language,
+            r.license,
+            r.created_at_ms != null && t("github.created_on", { date: formatDate(r.created_at_ms), age: formatAge(r.created_at_ms, now) }),
+            r.size_kb != null && formatSize(r.size_kb),
+            r.default_branch,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </div>
+        {r.homepage && (
+          <button type="button" className="text-[10px] text-[var(--color-accent)]" onClick={() => void openUrl(r.homepage!)}>
+            {r.homepage.replace(/^https?:\/\//, "")}
+          </button>
+        )}
+        {r.topics.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1" data-testid="gh-repo-topics">
+            {r.topics.map((tp) => (
+              <span key={tp} className="rounded-full bg-[var(--color-accent)]/15 px-1.5 py-0.5 text-[10px] text-[var(--color-fg)]">
+                {tp}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+          <div className="flex items-center gap-1 text-[10px] uppercase text-[var(--color-muted)]">
+            <Star size={10} /> {t("github.sort.stars")}
+          </div>
+          <div className="text-lg font-semibold tabular-nums">{r.stars.toLocaleString(locale())}</div>
+          <DeltaRow d={d.star_deltas} />
+        </div>
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+          <div className="flex items-center gap-1 text-[10px] uppercase text-[var(--color-muted)]">
+            <GitFork size={10} /> {t("github.sort.forks")}
+          </div>
+          <div className="text-lg font-semibold tabular-nums">{r.forks.toLocaleString(locale())}</div>
+          <DeltaRow d={d.fork_deltas} />
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5" data-testid="gh-repo-insights">
+        <Tile label={t("github.age_label")} value={age ? formatAge(r.created_at_ms, now) : "—"} />
+        <Tile
+          label={t("github.stars_per_month_short")}
+          value={formatRate(ins.starsPerMonth)}
+          hint={r.created_at_ms ? t("github.since_creation") : undefined}
+        />
+        <Tile
+          label={t("github.fork_ratio")}
+          value={ins.forkRatio == null ? "—" : `${(ins.forkRatio * 100).toFixed(0)} %`}
+          hint={t("github.forks_per_100")}
+        />
+        <Tile
+          label={t("github.last_push_label")}
+          value={ins.daysSincePush == null ? "—" : formatAge(r.pushed_at_ms ?? r.updated_at_ms, now)}
+          hint={ins.dormant ? <span className="text-amber-500">{t("github.dormant_short")}</span> : undefined}
+        />
+        <Tile label={t("github.watchers")} value={r.watchers ?? "—"} />
+        <Tile label={t("github.open_issues")} value={r.open_issues} hint={t("github.issues_incl_prs")} />
+        <Tile
+          label={t("github.stars_30d")}
+          value={formatDelta(d.star_deltas.d30d)}
+        />
+        <Tile label={t("github.stars_1y")} value={formatDelta(d.star_deltas.d1y)} />
+      </div>
+      <LineChart title={t("github.stars_history")} lines={[{ name: "stars", points: d.stars }]} markAt={d.first_seen_ms} testId="gh-repo-stars" />
+      <div className="text-[10px] text-[var(--color-muted)]">
+        {reconstructed
+          ? `${t("github.reconstructed_note")}${d.stars_synced?.truncated ? ` ${t("github.truncated_note")}` : ""}`
+          : t("github.reconstruction_pending")}
+      </div>
+      <GainBars title={t("github.stars_per_month")} gains={d.star_gains} testId="gh-repo-gains" />
+      <div className="grid grid-cols-2 gap-2">
+        <LineChart title={t("github.sort.forks")} lines={[{ name: "forks", points: d.forks }]} markAt={d.first_seen_ms} testId="gh-repo-forks" />
+        <LineChart title={t("github.watchers")} lines={[{ name: "watchers", points: d.watchers }]} />
+      </div>
+      <LineChart title={t("github.open_issues")} lines={[{ name: "issues", points: d.open_issues }]} />
+      {extras ? (
+        <RepoExtrasView extras={extras} now={now} />
+      ) : (
+        <div className="flex items-center gap-2 text-[10px] text-[var(--color-muted)]">
+          <Loader2 size={10} className="animate-spin" /> {t("github.loading_extras")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RepoTable({ rows, onOpen }: { rows: GithubRepoRow[]; onOpen: (name: string) => void }) {
   if (rows.length === 0) return <div className="text-xs text-[var(--color-muted)]">{t("github.no_repositories")}</div>;
   return (
@@ -528,6 +1127,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
   const [status, setStatus] = useState<GithubStatus | null>(null);
   const [dash, setDash] = useState<GithubDashboard | null>(null);
   const [detail, setDetail] = useState<GithubRepoDetail | null>(null);
+  const [extras, setExtras] = useState<{ query: string; data: GithubRepoExtras } | null>(null);
   const [range, setRangeState] = useState<GithubRange>(rememberedRange);
   const [sortPick, setSortPick] = useState<GithubSortKey | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -592,7 +1192,11 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
     let cancelled = false;
     const t = window.setTimeout(() => {
       githubRepo(repoName, range)
-        .then((d) => !cancelled && setDetail(d))
+        .then((d) => {
+          if (cancelled) return;
+          setDetail(d);
+          setMessage(null);
+        })
         .catch((e) => {
           if (cancelled) return;
           setDetail(null);
@@ -604,6 +1208,22 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
       window.clearTimeout(t);
     };
   }, [repoName, range, revision]);
+
+  // Commit activity, releases, languages, traffic: fetched on demand (cached
+  // a day in the backend) — separately, so the detail never waits for them.
+  useEffect(() => {
+    if (!repoName) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      githubRepoExtras(repoName)
+        .then((data) => !cancelled && setExtras({ query: repoName, data }))
+        .catch(() => {});
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [repoName, revision]);
 
   const run = useCallback(
     async (f: () => Promise<string | null>) => {
@@ -673,6 +1293,9 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
   }, [dash, view]);
 
   const line = status ? statusLine(status, now) : null;
+  // Only the repository asked for — never the previous one while the next loads.
+  const shownDetail = detail && repoName && detailMatches(detail, repoName) ? detail : null;
+  const shownExtras = extras && repoName && extras.query === repoName ? extras.data : null;
   const openRepo = (name: string) => onQuery(`github repo ${name}`);
   const kpis = dash?.kpis ?? [];
   const followersKpi = kpis.find((k) => k.key === "followers");
@@ -752,15 +1375,25 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
 
             {view === "dashboard" && (
               <>
+                {dash.profile && (
+                  <ProfileCard
+                    profile={dash.profile}
+                    stars={kpis.find((k) => k.key === "stars")?.value ?? 0}
+                    repos={kpis.find((k) => k.key === "repos")?.value ?? 0}
+                    now={now}
+                  />
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {kpis.map((k) => (
                     <KpiCard key={k.key} kpi={k} />
                   ))}
                 </div>
+                <BackfillNote dash={dash} />
                 <div className="grid grid-cols-2 gap-2">
+                  <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} markAt={dash.history_since_ms} />
                   <LineChart title={t("github.followers")} lines={[{ name: "followers", points: dash.followers }]} />
-                  <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} />
                 </div>
+                <GainBars title={t("github.stars_per_month")} gains={dash.star_gains} />
                 <div className="grid grid-cols-2 gap-2">
                   <LanguageDonut rows={dash.rows} />
                   <ActivityColumns rows={dash.rows} now={now} />
@@ -770,12 +1403,49 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
                   <MetricBars title={t("github.forks_by_repository")} rows={dash.rows} metric="forks" color="#38bdf8" onOpen={openRepo} />
                 </div>
                 <RepoTable rows={rows.slice(0, 5)} onOpen={openRepo} />
-                {dash.rows.length > 5 && (
-                  <button type="button" className="text-xs text-[var(--color-accent)]" onClick={() => onQuery("github repos")}>
-                    {t("github.all_repos", { n: dash.rows.length })}
+                <div className="flex gap-3">
+                  {dash.rows.length > 5 && (
+                    <button type="button" className="text-xs text-[var(--color-accent)]" onClick={() => onQuery("github repos")}>
+                      {t("github.all_repos", { n: dash.rows.length })}
+                    </button>
+                  )}
+                  <button type="button" className="text-xs text-[var(--color-accent)]" onClick={() => onQuery("github insights")}>
+                    {t("github.more_insights")}
                   </button>
-                )}
+                </div>
               </>
+            )}
+
+            {view === "insights" && (
+              <div className="space-y-2" data-testid="gh-insights">
+                {dash.profile && (
+                  <ProfileCard
+                    profile={dash.profile}
+                    stars={kpis.find((k) => k.key === "stars")?.value ?? 0}
+                    repos={kpis.find((k) => k.key === "repos")?.value ?? 0}
+                    now={now}
+                  />
+                )}
+                <BackfillNote dash={dash} />
+                <div className="grid grid-cols-2 gap-2">
+                  <CompositionCard rows={dash.rows} now={now} />
+                  <ConcentrationCard rows={dash.rows} />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <LineChart title={t("github.total_forks")} lines={[{ name: "forks", points: dash.forks }]} markAt={dash.history_since_ms} />
+                  <LineChart title={t("github.repo_count")} lines={[{ name: "repos", points: dash.repos }]} markAt={dash.history_since_ms} />
+                </div>
+                <Card title={t("github.created_per_year")} testId="gh-created-years">
+                  <Columns
+                    items={createdByYear(dash.rows, now).map((y) => ({ key: y.year, label: String(y.year).slice(2), value: y.count, title: `${y.year}: ${y.count}` }))}
+                    color="#8b5cf6"
+                    height={44}
+                  />
+                </Card>
+                <FastestCard rows={dash.rows} now={now} onOpen={openRepo} />
+                <TopicsCard rows={dash.rows} />
+                <DormantCard rows={dash.rows} now={now} onOpen={openRepo} />
+              </div>
             )}
 
             {(view === "repos" || view === "trending") && (
@@ -792,70 +1462,30 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
               <>
                 <KpiCard kpi={followersKpi} />
                 <LineChart title={t("github.followers")} lines={[{ name: "followers", points: dash.followers }]} />
+                {dash.profile && (
+                  <div className="text-[10px] text-[var(--color-muted)]">{t("github.followers_no_history")}</div>
+                )}
               </>
             )}
 
             {view === "stars" && starsKpi && (
               <>
                 <KpiCard kpi={starsKpi} />
-                <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} />
+                <LineChart title={t("github.total_stars")} lines={[{ name: "stars", points: dash.stars }]} markAt={dash.history_since_ms} />
+                <GainBars title={t("github.stars_per_month")} gains={dash.star_gains} />
                 <MetricBars title={t("github.stars_by_repository")} rows={dash.rows} metric="stars" color="#f59e0b" onOpen={openRepo} />
-                <LineChart title={t("github.top_repositories_stars_over_time")} lines={dash.growth} />
+                <LineChart title={t("github.top_repositories_stars_over_time")} lines={dash.growth} markAt={dash.history_since_ms} />
               </>
             )}
           </>
         )}
 
-        {view === "repo" && detail && (
-          <div className="space-y-2" data-testid="gh-detail">
-            <div>
-              <div className="flex items-center gap-1 font-semibold text-[var(--color-fg)]">
-                {detail.repo.private && <Lock size={12} />}
-                {detail.repo.full_name}
-                {detail.repo.archived && <span className="text-[10px] uppercase text-amber-500">{t("github.archived")}</span>}
-                <button
-                  type="button"
-                  className="ml-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-                  onClick={() => void openUrl(detail.repo.html_url)}
-                  title={t("github.open_on_github")}
-                >
-                  <ExternalLink size={12} />
-                </button>
-              </div>
-              {detail.repo.description && <div className="text-xs text-[var(--color-muted)]">{detail.repo.description}</div>}
-              <div className="text-[10px] text-[var(--color-muted)]">
-                {[detail.repo.language, detail.repo.license, t("github.observed_since", { date: formatDate(detail.first_seen_ms) })]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-                <div className="flex items-center gap-1 text-[10px] uppercase text-[var(--color-muted)]">
-                  <Star size={10} /> {t("github.sort.stars")}
-                </div>
-                <div className="text-lg font-semibold tabular-nums">{detail.repo.stars}</div>
-                <DeltaRow d={detail.star_deltas} />
-              </div>
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-                <div className="text-[10px] uppercase text-[var(--color-muted)]">{t("github.sort.forks")}</div>
-                <div className="text-lg font-semibold tabular-nums">{detail.repo.forks}</div>
-                <DeltaRow d={detail.fork_deltas} />
-              </div>
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
-                {t("github.watchers")} <span className="float-right tabular-nums">{detail.repo.watchers ?? "—"}</span>
-              </div>
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs">
-                {t("github.open_issues")} <span className="float-right tabular-nums">{detail.repo.open_issues}</span>
-              </div>
-            </div>
-            <LineChart title={t("github.sort.stars")} lines={[{ name: "stars", points: detail.stars }]} />
-            <div className="grid grid-cols-2 gap-2">
-              <LineChart title={t("github.sort.forks")} lines={[{ name: "forks", points: detail.forks }]} />
-              <LineChart title={t("github.open_issues")} lines={[{ name: "issues", points: detail.open_issues }]} />
-            </div>
+        {view === "repo" && !shownDetail && !message && (
+          <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
+            <Loader2 size={12} className="animate-spin" /> {t("github.loading_repo")}
           </div>
         )}
+        {view === "repo" && shownDetail && <RepoDetailView d={shownDetail} extras={shownExtras} now={now} />}
         {status?.connected && status.last_ok_ms == null && !status.last_error && !dash && (
           <div className="text-[10px] text-[var(--color-muted)]">{t("github.first_refresh_this_takes_a")}</div>
         )}

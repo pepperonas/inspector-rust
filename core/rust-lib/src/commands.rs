@@ -9090,6 +9090,17 @@ pub async fn github_repo(
     gh_blocking(move || s::repo_detail(&db, &query, s::range_ms(&range))).await
 }
 
+/// Commit activity, releases, languages and traffic of one repository —
+/// cached a day; fetched on demand, so the detail never waits for it.
+#[tauri::command]
+pub async fn github_repo_extras(
+    db: State<'_, DbHandle>,
+    query: String,
+) -> Result<crate::github::service::RepoExtras, String> {
+    let db = db.inner().clone();
+    gh_blocking(move || crate::github::service::repo_extras(&db, &query)).await
+}
+
 /// Write `github-<login>-<date>.json|csv` to Downloads and reveal it.
 #[tauri::command]
 pub async fn github_export(

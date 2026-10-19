@@ -3,9 +3,9 @@
 //! `Authorization` header and never appear in an error.
 
 use super::{
-    classify_status, next_link, parse_account, parse_device_code, parse_poll, parse_repo,
-    parse_repos, Account, DeviceCode, PollResult, RateLimit, Repo, ERR_BAD_DATA, ERR_NETWORK,
-    MAX_REPO_PAGES,
+    classify_status, next_link, parse_account, parse_device_code, parse_event_times, parse_poll,
+    parse_repo, parse_repos, Account, DeviceCode, EventKind, ExtraKind, PollResult, RateLimit,
+    Repo, ERR_BAD_DATA, ERR_NETWORK, EVENT_PAGE_SIZE, MAX_REPO_PAGES,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -85,8 +85,15 @@ impl Transport for Ureq {
 }
 
 pub fn headers(token: &str) -> Vec<(&'static str, String)> {
+    headers_with(token, "application/vnd.github+json")
+}
+
+/// The stargazer list only carries `starred_at` with this media type.
+pub const STAR_ACCEPT: &str = "application/vnd.github.star+json";
+
+pub fn headers_with(token: &str, accept: &str) -> Vec<(&'static str, String)> {
     vec![
-        ("Accept", "application/vnd.github+json".to_string()),
+        ("Accept", accept.to_string()),
         ("X-GitHub-Api-Version", "2022-11-28".to_string()),
         ("User-Agent", "inspector-rust".to_string()),
         ("Authorization", format!("Bearer {}", token.trim())),
@@ -107,7 +114,17 @@ fn get_json(
     token: &str,
     info: &mut CallInfo,
 ) -> Result<(Value, Response), String> {
-    let r = t.get(url, &headers(token))?;
+    get_json_as(t, url, token, "application/vnd.github+json", info)
+}
+
+fn get_json_as(
+    t: &dyn Transport,
+    url: &str,
+    token: &str,
+    accept: &str,
+    info: &mut CallInfo,
+) -> Result<(Value, Response), String> {
+    let r = t.get(url, &headers_with(token, accept))?;
     if let Some(rate) = r.rate() {
         info.rate = Some(rate);
     }
@@ -131,12 +148,14 @@ pub fn fetch_account(
 }
 
 /// Every repository the user OWNS (public + private as far as the token
-/// allows), following `Link: rel="next"` up to `MAX_REPO_PAGES`.
+/// allows), following `Link: rel="next"` up to `MAX_REPO_PAGES`. The flag
+/// says whether the list is complete — a list cut at the page cap must not
+/// mark the repositories beyond it as deleted.
 pub fn fetch_repos(
     t: &dyn Transport,
     token: &str,
     info: &mut CallInfo,
-) -> Result<Vec<Repo>, String> {
+) -> Result<(Vec<Repo>, bool), String> {
     let mut url = Some(format!(
         "{API}/user/repos?affiliation=owner&per_page=100&sort=full_name"
     ));
@@ -149,12 +168,69 @@ pub fn fetch_repos(
         }
         out.extend(parse_repos(&v));
         pages += 1;
+        let next = r.header("link").and_then(|l| next_link(&l));
         if pages >= MAX_REPO_PAGES {
-            break;
+            return Ok((out, next.is_none()));
         }
-        url = r.header("link").and_then(|l| next_link(&l));
+        url = next;
     }
-    Ok(out)
+    Ok((out, true))
+}
+
+/// One page (1-based) of a repository's stargazers or forks: their times.
+pub fn fetch_event_page(
+    t: &dyn Transport,
+    token: &str,
+    full_name: &str,
+    kind: EventKind,
+    page: i64,
+    info: &mut CallInfo,
+) -> Result<Vec<i64>, String> {
+    let (url, accept) = match kind {
+        EventKind::Stars => (
+            format!("{API}/repos/{full_name}/stargazers?per_page={EVENT_PAGE_SIZE}&page={page}"),
+            STAR_ACCEPT,
+        ),
+        EventKind::Forks => (
+            format!(
+                "{API}/repos/{full_name}/forks?sort=oldest&per_page={EVENT_PAGE_SIZE}&page={page}"
+            ),
+            "application/vnd.github+json",
+        ),
+    };
+    let (v, _) = get_json_as(t, &url, token, accept, info)?;
+    parse_event_times(&v, kind).ok_or_else(|| ERR_BAD_DATA.into())
+}
+
+/// What an extra request answered: data, "GitHub is still computing it"
+/// (202, statistics only), or an error sentinel.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExtraAnswer {
+    Data(Value),
+    Pending,
+}
+
+pub fn fetch_extra(
+    t: &dyn Transport,
+    token: &str,
+    full_name: &str,
+    kind: ExtraKind,
+    info: &mut CallInfo,
+) -> Result<ExtraAnswer, String> {
+    let url = format!("{API}/repos/{full_name}/{}", kind.path());
+    let r = t.get(&url, &headers(token))?;
+    if let Some(rate) = r.rate() {
+        info.rate = Some(rate);
+    }
+    if r.status == 202 {
+        return Ok(ExtraAnswer::Pending);
+    }
+    if !(200..300).contains(&r.status) {
+        return Err(classify_status(r.status, r.rate().map(|x| x.remaining)).into());
+    }
+    serde_json::from_str(&r.body)
+        .map(ExtraAnswer::Data)
+        .map_err(|_| ERR_BAD_DATA.to_string())
 }
 
 /// One repository incl. subscribers ("watchers") — only for the detail view.
@@ -318,8 +394,9 @@ mod tests {
                 ],
             );
         let mut info = CallInfo::default();
-        let repos = fetch_repos(&t, "tok", &mut info).unwrap();
+        let (repos, complete) = fetch_repos(&t, "tok", &mut info).unwrap();
         assert_eq!(repos.len(), 230);
+        assert!(complete);
         assert_eq!(t.calls.borrow().len(), 3);
         assert_eq!(info.rate.unwrap().remaining, 4997);
     }
@@ -411,5 +488,30 @@ mod tests {
             PollResult::Pending,
             "a hiccup keeps polling"
         );
+    }
+
+    #[test]
+    fn a_list_cut_at_the_page_cap_says_so() {
+        let mut t = Fake::default();
+        for p in 1..=MAX_REPO_PAGES as u32 + 1 {
+            let url = if p == 1 { repos_url(None) } else { repos_url(Some(p)) };
+            let next = format!("<{}>; rel=\"next\"", repos_url(Some(p + 1)));
+            t = t.route(&url, 200, &page((p as i64) * 1000..(p as i64) * 1000 + 1), &[("link", &next)]);
+        }
+        let (repos, complete) = fetch_repos(&t, "tok", &mut CallInfo::default()).unwrap();
+        assert_eq!(repos.len(), MAX_REPO_PAGES);
+        assert!(!complete, "a next page existed beyond the cap");
+    }
+
+    #[test]
+    fn event_pages_send_the_token_only_in_the_header() {
+        let url = format!("{API}/repos/o/r/stargazers?per_page=100&page=2");
+        let t = Fake::default().route(&url, 200, r#"[{"starred_at":"2026-01-01T00:00:00Z"}]"#, &[]);
+        let got = fetch_event_page(&t, "sec", "o/r", EventKind::Stars, 2, &mut CallInfo::default()).unwrap();
+        assert_eq!(got.len(), 1);
+        let calls = t.calls.borrow();
+        assert!(!calls[0].0.contains("sec"));
+        assert!(calls[0].1.contains(&("Authorization".into(), "Bearer sec".into())));
+        assert!(calls[0].1.contains(&("Accept".into(), STAR_ACCEPT.into())));
     }
 }

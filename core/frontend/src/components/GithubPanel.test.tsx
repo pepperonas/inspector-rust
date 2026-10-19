@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { GithubDashboard, GithubStatus } from "../lib/ipc";
+import type { GithubDashboard, GithubRepoDetail, GithubStatus } from "../lib/ipc";
 import { parseGithubArg } from "../lib/github";
 
 const ipc = vi.hoisted(() => ({
@@ -10,6 +10,8 @@ const ipc = vi.hoisted(() => ({
   exports: [] as Array<[string, boolean]>,
   deviceStarts: 0,
   dashCalls: [] as Array<[string, string]>,
+  /** Repository details by query; a missing name never resolves (still loading). */
+  repos: {} as Record<string, GithubRepoDetail>,
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
@@ -25,9 +27,20 @@ vi.mock("../lib/ipc", () => ({
     ipc.refreshes.push(force);
     return { gate: { kind: "go" }, fetched: true, account_snapshot: false, repo_snapshots: 0 };
   }),
-  githubRepo: vi.fn(async () => {
-    throw "github.not_found";
+  githubRepo: vi.fn((name: string) => {
+    if (name === "pending") return new Promise(() => {});
+    const d = ipc.repos[name];
+    return d ? Promise.resolve(d) : Promise.reject("github.not_found");
   }),
+  githubRepoExtras: vi.fn(async () => ({
+    commits: [[Date.now() - 7 * 86_400_000, 3], [Date.now(), 5]],
+    commits_pending: false,
+    releases: { count: 2, latest_tag: "v2", latest_ms: Date.now(), downloads: 40, dates: [Date.now(), Date.now() - 30 * 86_400_000] },
+    languages: [["Rust", 900], ["TypeScript", 100]],
+    views: null,
+    clones: null,
+    fetched_ms: Date.now(),
+  })),
   githubExport: vi.fn(async (f: string, p: boolean) => {
     ipc.exports.push([f, p]);
     return `/Users/x/Downloads/github-octo.${f}`;
@@ -67,13 +80,14 @@ function status(over: Partial<GithubStatus> = {}): GithubStatus {
   };
 }
 
-const none = { d24h: null, d7d: null, d30d: null, d90d: null };
+const none = { d24h: null, d7d: null, d30d: null, d90d: null, d1y: null };
+const extra = { created_at_ms: null, size_kb: null, topics: [] as string[], homepage: null, default_branch: null };
 
 function dash(): GithubDashboard {
   return {
     user_id: 7,
     kpis: [
-      { key: "followers", value: 142, deltas: { d24h: 1, d7d: 4, d30d: 12, d90d: null } },
+      { key: "followers", value: 142, deltas: { d24h: 1, d7d: 4, d30d: 12, d90d: null, d1y: null } },
       { key: "stars", value: 384, deltas: none },
       { key: "repos", value: 2, deltas: none },
       { key: "forks", value: 9, deltas: none },
@@ -84,18 +98,24 @@ function dash(): GithubDashboard {
       {
         id: 1, name: "inspector-rust", full_name: "octo/inspector-rust", private: false, archived: false, fork: false,
         language: "Rust", html_url: "", description: null, license: null, stars: 380, forks: 9, watchers: null,
-        open_issues: 3, updated_at_ms: null, pushed_at_ms: null, growth_7d: 5, growth_30d: null,
+        open_issues: 3, updated_at_ms: null, pushed_at_ms: null, growth_7d: 5, growth_30d: null, ...extra,
       },
       {
         id: 2, name: "secret", full_name: "octo/secret", private: true, archived: true, fork: false,
         language: null, html_url: "", description: null, license: null, stars: 4, forks: 0, watchers: null,
-        open_issues: 0, updated_at_ms: null, pushed_at_ms: null, growth_7d: null, growth_30d: null,
+        open_issues: 0, updated_at_ms: null, pushed_at_ms: null, growth_7d: null, growth_30d: null, ...extra,
       },
     ],
     growth: [],
     history_since_ms: Date.now(),
+    reconstructed_from_ms: null,
     snapshot_count: 1,
     private_count: 1,
+    profile: null,
+    forks: [],
+    repos: [],
+    star_gains: [],
+    backfill: { done: 0, total: 0, truncated: 0, stars_complete: false },
   };
 }
 
@@ -230,5 +250,90 @@ describe("GithubPanel", () => {
     render(<GithubPanel cmd={parseGithubArg("")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
     await waitFor(() => screen.getByText("WDJB-MJHT"));
     expect(screen.getByText(/github\.com\/login\/device/)).toBeTruthy();
+  });
+
+  it("the profile card names the account age and per-year rates", async () => {
+    ipc.status = status();
+    const d = dash();
+    const created = new Date();
+    created.setFullYear(created.getFullYear() - 12, created.getMonth() - 4, 1);
+    d.profile = {
+      login: "octo", name: "Octo Cat", avatar_url: null, html_url: null, created_at_ms: created.getTime(),
+      bio: "Builds tools", company: "Northwind", location: "Lisbon", blog: null, hireable: null,
+      public_gists: 3, public_repos: 2, private_repos: 0, followers: 142, following: 71,
+    };
+    ipc.dash = d;
+    render(<GithubPanel cmd={parseGithubArg("")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    const card = await screen.findByTestId("gh-profile");
+    expect(screen.getByTestId("gh-account-age").textContent).toContain("12 yr 4 mo");
+    expect(card.textContent).toContain("Builds tools");
+    expect(card.textContent).toContain("Northwind");
+    // 384 stars over ~12.3 years ≈ 31/yr; 142/71 followers = 2.
+    expect(card.textContent).toMatch(/31\s*Stars\/year/);
+    expect(card.textContent).toMatch(/2\s*Followers\/following/);
+  });
+
+  it("a 30-day delta of 0 is neutral, not good news", async () => {
+    ipc.status = status();
+    const d = dash();
+    d.kpis[0].deltas = { ...none, d24h: 0, d7d: 0, d30d: 0 };
+    ipc.dash = d;
+    render(<GithubPanel cmd={parseGithubArg("")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    const kpi = (await screen.findAllByTestId("gh-kpi"))[0];
+    const head = kpi.querySelector(".text-xs.tabular-nums") as HTMLElement;
+    expect(head.textContent).toContain("±0");
+    expect(head.className).not.toContain("emerald");
+  });
+
+  it("the stars chart marks where reconstruction ends and real snapshots begin", async () => {
+    ipc.status = status();
+    const d = dash();
+    const now = Date.now();
+    d.stars = [[now - 400 * 86_400_000, 1], [now - 100 * 86_400_000, 50], [now - 10 * 86_400_000, 60], [now, 70]];
+    d.history_since_ms = now - 10 * 86_400_000;
+    d.backfill = { done: 2, total: 2, truncated: 0, stars_complete: true };
+    d.reconstructed_from_ms = now - 400 * 86_400_000;
+    ipc.dash = d;
+    render(<GithubPanel cmd={parseGithubArg("stars")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    await waitFor(() => expect(screen.getAllByTestId("gh-chart-mark").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("reconstructed").length).toBeGreaterThan(0);
+  });
+
+  it("insights: composition, concentration and repositories per year", async () => {
+    ipc.status = status();
+    const d = dash();
+    const now = Date.now();
+    d.rows[0].created_at_ms = now - 3 * 365 * 86_400_000;
+    d.rows[0].pushed_at_ms = now;
+    d.rows[1].created_at_ms = now - 365 * 86_400_000;
+    d.rows[0].topics = ["rust", "tauri"];
+    ipc.dash = d;
+    render(<GithubPanel cmd={parseGithubArg("insights")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    await screen.findByTestId("gh-insights");
+    expect(screen.getByTestId("gh-composition").textContent).toMatch(/originals\s*2/);
+    // 380 of 384 stars in one repository.
+    expect(screen.getByTestId("gh-concentration").textContent).toContain("99 %");
+    expect(screen.getByTestId("gh-created-years")).toBeTruthy();
+    expect(screen.getByTestId("gh-topics").textContent).toContain("tauri");
+  });
+
+  it("switching repositories never shows the previous one while the next loads", async () => {
+    ipc.status = status();
+    ipc.dash = dash();
+    const repo = (name: string) => ({
+      repo: { ...dash().rows[0], name, full_name: `octo/${name}`, created_at_ms: Date.now() - 400 * 86_400_000 },
+      stars: [], forks: [], watchers: [], open_issues: [],
+      star_deltas: none, fork_deltas: none, first_seen_ms: null,
+      stars_synced: null, forks_synced: null, star_gains: [],
+    });
+    ipc.repos = { first: repo("first") };
+    const { rerender } = render(
+      <GithubPanel cmd={parseGithubArg("repo first")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("gh-detail").textContent).toContain("octo/first"));
+    expect(await screen.findByTestId("gh-commits")).toBeTruthy();
+    rerender(<GithubPanel cmd={parseGithubArg("repo pending")} focused={false} runSignal={0} onExit={noop} onQuery={noop} />);
+    await waitFor(() => expect(screen.queryByTestId("gh-detail")).toBeNull());
+    expect(screen.getByText("Loading repository…")).toBeTruthy();
   });
 });

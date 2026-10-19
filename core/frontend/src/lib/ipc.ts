@@ -4898,6 +4898,11 @@ export interface GithubRepo {
   open_issues: number;
   updated_at_ms: number | null;
   pushed_at_ms: number | null;
+  created_at_ms: number | null;
+  size_kb: number | null;
+  topics: string[];
+  homepage: string | null;
+  default_branch: string | null;
 }
 
 export interface GithubRepoRow extends GithubRepo {
@@ -4910,6 +4915,7 @@ export interface GithubDeltas {
   d7d: number | null;
   d30d: number | null;
   d90d: number | null;
+  d1y: number | null;
 }
 
 export interface GithubKpi {
@@ -4918,26 +4924,87 @@ export interface GithubKpi {
   deltas: GithubDeltas;
 }
 
+export interface GithubProfile {
+  login: string;
+  name: string | null;
+  avatar_url: string | null;
+  html_url: string | null;
+  created_at_ms: number | null;
+  bio: string | null;
+  company: string | null;
+  location: string | null;
+  blog: string | null;
+  hireable: boolean | null;
+  public_gists: number;
+  public_repos: number;
+  private_repos: number;
+  followers: number;
+  following: number;
+}
+
+/** A month (UTC start, ms) and what it gained; null = before the history. */
+export type GithubMonthGain = [number, number | null];
+
+export interface GithubBackfillStatus {
+  done: number;
+  total: number;
+  truncated: number;
+  stars_complete: boolean;
+}
+
 export interface GithubDashboard {
   user_id: number;
+  profile: GithubProfile | null;
   kpis: GithubKpi[];
   followers: GithubPoint[];
   stars: GithubPoint[];
+  forks: GithubPoint[];
+  repos: GithubPoint[];
   rows: GithubRepoRow[];
   growth: { id: number; name: string; points: GithubPoint[] }[];
   history_since_ms: number | null;
+  reconstructed_from_ms: number | null;
   snapshot_count: number;
   private_count: number;
+  star_gains: GithubMonthGain[];
+  backfill: GithubBackfillStatus;
+}
+
+export interface GithubSynced {
+  synced_ms: number;
+  synced_value: number;
+  count: number;
+  truncated: boolean;
 }
 
 export interface GithubRepoDetail {
   repo: GithubRepo;
   stars: GithubPoint[];
   forks: GithubPoint[];
+  watchers: GithubPoint[];
   open_issues: GithubPoint[];
   star_deltas: GithubDeltas;
   fork_deltas: GithubDeltas;
   first_seen_ms: number | null;
+  stars_synced: GithubSynced | null;
+  forks_synced: GithubSynced | null;
+  star_gains: GithubMonthGain[];
+}
+
+export interface GithubTraffic {
+  count: number;
+  uniques: number;
+  days: GithubPoint[];
+}
+
+export interface GithubRepoExtras {
+  commits: GithubPoint[] | null;
+  commits_pending: boolean;
+  releases: { count: number; latest_tag: string | null; latest_ms: number | null; downloads: number; dates: number[] } | null;
+  languages: [string, number][] | null;
+  views: GithubTraffic | null;
+  clones: GithubTraffic | null;
+  fetched_ms: number | null;
 }
 
 export interface GithubRefreshResult {
@@ -4945,6 +5012,8 @@ export interface GithubRefreshResult {
   fetched: boolean;
   account_snapshot: boolean;
   repo_snapshots: number;
+  watchers_checked?: number;
+  backfill?: { lists: number; pages: number; stopped_by_rate: boolean };
 }
 
 export function githubStatus(): Promise<GithubStatus> {
@@ -4967,6 +5036,9 @@ export function githubDashboard(range: string, sort: GithubSortKey): Promise<Git
 }
 export function githubRepo(query: string, range: string): Promise<GithubRepoDetail> {
   return invoke("github_repo", { query, range });
+}
+export function githubRepoExtras(query: string): Promise<GithubRepoExtras> {
+  return invoke("github_repo_extras", { query });
 }
 export function githubExport(format: "json" | "csv", includePrivate: boolean): Promise<string> {
   return invoke("github_export", { format, includePrivate });

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.221.0] - 2026-10-20
+
+### Added
+- **All videos on a zdfheute article:** yt-dlp only sees the lead video; the preview now lists every player on the page (title, description, length, thumbnail) — download one or all of them, each file named after its title.
+
 ## [0.220.0] - 2026-10-20
 
 ### Added

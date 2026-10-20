@@ -7436,9 +7436,11 @@ pub async fn social_download(
     // Optional trim range in seconds. ⚠️ Absent = the download is byte-for-byte
     // what it was before the trim feature existed.
     section: Option<(f64, f64)>,
+    // Optional file name (the ZDF page videos). Absent = yt-dlp's metadata.
+    title: Option<String>,
 ) -> Result<String, String> {
     let dir = dirs::download_dir().ok_or("no Downloads folder")?;
-    let out = crate::social_dl::download(&url, mode, &dir, section)?;
+    let out = crate::social_dl::download(&url, mode, &dir, section, title.as_deref())?;
     if reveal.unwrap_or(true) {
         reveal_in_file_manager(&out);
     }
@@ -7461,6 +7463,15 @@ pub fn reveal_path(path: String) {
 /// ⚠️ Async + `spawn_blocking`: yt-dlp needs ~4 s per link (measured), and a
 /// sync command would run that on the main thread. The frontend caches the
 /// result per URL, debounces typing and caps how many run at once.
+/// Every video embedded on a zdfheute article (yt-dlp alone finds only the
+/// lead one). Empty for any other page. Async: a network fetch.
+#[tauri::command]
+pub async fn zdf_page_videos(url: String) -> Result<Vec<crate::social_dl::PageVideo>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::social_dl::page_videos(&url))
+        .await
+        .map_err(|e| format!("zdf page task: {e}"))?
+}
+
 #[tauri::command]
 pub async fn social_metadata(url: String) -> Result<crate::social_dl::SocialMeta, String> {
     tauri::async_runtime::spawn_blocking(move || crate::social_dl::metadata(&url))

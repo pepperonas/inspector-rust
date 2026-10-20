@@ -1196,6 +1196,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::social_download,
             commands::social_audio_proxy,
             commands::social_metadata,
+            commands::zdf_page_videos,
             commands::bench_plan,
             commands::bench_run,
             commands::bench_history,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectSocial, platformLabel } from "./social";
+import { detectSocial, isZdfheute, platformLabel } from "./social";
 
 describe("detectSocial", () => {
   it("classifies each platform", () => {
@@ -137,5 +137,14 @@ describe("zdf", () => {
     expect(platformLabel("zdf")).toBe("ZDF");
     expect(detectSocial("https://notzdf.de/x")).toBeNull();
     expect(detectSocial("https://zdf.de.example.org/x")).toBeNull();
+  });
+});
+
+describe("isZdfheute", () => {
+  it("only zdfheute articles get the page scan", () => {
+    expect(isZdfheute("https://www.zdfheute.de/wirtschaft/x-100.html")).toBe(true);
+    expect(isZdfheute("https://www.zdf.de/x")).toBe(false);
+    expect(isZdfheute("https://zdfheute.de.example.org/x")).toBe(false);
+    expect(isZdfheute("not a url")).toBe(false);
   });
 });

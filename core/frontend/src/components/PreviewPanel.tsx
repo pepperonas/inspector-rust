@@ -24,7 +24,7 @@ import { MetaCard, useMeta } from "./SocialMeta";
 import { ExportRow } from "./ExportRow";
 import { TrimBar } from "./TrimBar";
 import { fmtClock, fullRange, isFullRange, sectionFor, type Range } from "../lib/trim-range";
-import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
+import { detectSocial, isZdfheute, platformLabel, type SocialTarget } from "../lib/social";
 import { findRepoUrl } from "../lib/repo-url";
 import { needsFullText } from "../lib/clip-text";
 import { TotpSecondsLeft } from "./TotpSecondsLeft";
@@ -452,6 +452,7 @@ export function PreviewPanel({
           onModeChange={onSocialModeChange}
           runSignal={socialRunSignal}
         />
+        <ZdfPageVideosSlot url={entry.data.url} />
         <LinkGrabber seedUrl={entry.data.url} />
       </div>
     );
@@ -1432,6 +1433,7 @@ function ClipLinkActions({
   return (
     <>
       {social && <SocialDownloadBar target={social} />}
+      {social && <ZdfPageVideosSlot url={social.url} />}
       {gh && onAnalyzeRepo && (
         <button
           type="button"
@@ -2254,6 +2256,18 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
         </span>
       )}
     </div>
+  );
+}
+
+// Lazy: only a zdfheute link ever needs it, and PreviewPanel ships at start-up.
+const ZdfPageVideosLazy = lazy(() => import("./ZdfPageVideos").then((m) => ({ default: m.ZdfPageVideos })));
+
+function ZdfPageVideosSlot({ url }: { url: string }) {
+  if (!isZdfheute(url)) return null;
+  return (
+    <Suspense fallback={null}>
+      <ZdfPageVideosLazy url={url} />
+    </Suspense>
   );
 }
 

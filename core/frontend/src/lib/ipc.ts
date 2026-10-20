@@ -3964,8 +3964,24 @@ export function socialDownload(
   /** Optional trim range in seconds. ⚠️ Absent = the download is exactly what it
    *  was before the trim feature existed (pinned on the Rust side). */
   section?: [number, number],
+  /** File name to use instead of yt-dlp's metadata (ZDF page videos). */
+  title?: string,
 ): Promise<string> {
-  return invoke("social_download", { url, mode, reveal, section });
+  return invoke("social_download", { url, mode, reveal, section, title });
+}
+
+/** One video embedded on a zdfheute article. */
+export interface PageVideo {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+  thumbnail: string | null;
+}
+/** Every video on a zdfheute article — yt-dlp alone finds only the lead one.
+ *  Empty for any other page. */
+export function zdfPageVideos(url: string): Promise<PageVideo[]> {
+  return invoke("zdf_page_videos", { url });
 }
 
 export interface TrimFileInfo {

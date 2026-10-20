@@ -117,3 +117,16 @@ function trimUrlTail(raw: string): string {
 export function allYouTube(targets: readonly SocialTarget[]): boolean {
   return targets.length > 0 && targets.every((t) => t.platform === "youtube");
 }
+
+/**
+ * A zdfheute.de article — the one host whose pages can hold several videos
+ * that yt-dlp alone does not list (Rust `social_dl::is_zdfheute`).
+ */
+export function isZdfheute(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h === "zdfheute.de" || h.endsWith(".zdfheute.de");
+  } catch {
+    return false;
+  }
+}

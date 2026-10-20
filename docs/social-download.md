@@ -14,7 +14,7 @@ or extraction, and go to Downloads. X/Twitter support was added in v0.215.2.
 | TikTok | `tiktok.com`, including short-link subdomains | Video |
 | Facebook | `facebook.com`, `fb.com`, `fb.watch` and subdomains | Video |
 | Dailymotion | `dailymotion.com`, `dai.ly` and subdomains | Video |
-| ZDF | `zdf.de` (Mediathek), `zdfheute.de` (articles with an embedded player) and subdomains | Video |
+| ZDF | `zdf.de` (Mediathek), `zdfheute.de` (articles with an embedded player) and subdomains | Video — a zdfheute article with several players lists all of them (one download each, or all at once) |
 | X / Twitter | `x.com`, `twitter.com`, including `www` and mobile subdomains | Video |
 
 Links need an HTTP or HTTPS scheme. The original link, including status ID

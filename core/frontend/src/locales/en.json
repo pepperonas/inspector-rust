@@ -4007,5 +4007,12 @@
   "tsx.timesheet": "Timesheet",
   "tsx.total": "Total",
   "tsx.unknown": "(unknown)",
-  "tsx.window": "Window"
+  "tsx.window": "Window",
+  "zdf.scanning": "Looking for more videos on this page…",
+  "zdf.found.one": "{n} video on this page",
+  "zdf.found.other": "{n} videos on this page",
+  "zdf.download_all.one": "Download {n}",
+  "zdf.download_all.other": "Download all {n}",
+  "zdf.download_one": "Download this video",
+  "zdf.retry": "Failed — retry"
 }

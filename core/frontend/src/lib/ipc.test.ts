@@ -320,6 +320,18 @@ describe("social download — the trim section must actually reach Rust", () => 
     });
   });
 
+  it("forwards a file name for the ZDF page videos", async () => {
+    mockInvoke.mockResolvedValue("/p/x.mp4");
+    await ipc.socialDownload("https://www.zdfheute.de/api/video/a-100.m3u8", "video", false, undefined, "Nvidia-Chef Huang");
+    expect(mockInvoke).toHaveBeenCalledWith("social_download", {
+      url: "https://www.zdfheute.de/api/video/a-100.m3u8",
+      mode: "video",
+      reveal: false,
+      section: undefined,
+      title: "Nvidia-Chef Huang",
+    });
+  });
+
   it("asks Rust for the scrubbing proxy by url", async () => {
     mockInvoke.mockResolvedValue("/c/proxy-ab.m4a");
     await ipc.socialAudioProxy("https://youtu.be/x");

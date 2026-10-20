@@ -330,10 +330,17 @@ fn smart_rename(path: PathBuf, meta: Option<&crate::media_name::MediaMeta>) -> P
     let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
         return path;
     };
-    let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
     let target_stem = meta
         .and_then(crate::media_name::smart_stem)
         .unwrap_or_else(|| crate::media_name::strip_id_suffix(&stem));
+    rename_to_stem(path, &target_stem)
+}
+
+/// Rename `path` to `target_stem` + its extension, never overwriting
+/// (`stem (2)`, …). Best-effort: any failure keeps the original path.
+fn rename_to_stem(path: PathBuf, target_stem: &str) -> PathBuf {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
     if target_stem.is_empty() || target_stem == stem {
         return path;
     }
@@ -343,7 +350,7 @@ fn smart_rename(path: PathBuf, meta: Option<&crate::media_name::MediaMeta>) -> P
         None => dir.join(s),
     };
     // Collision-safe: never overwrite an existing file.
-    let mut target = with_ext(&target_stem);
+    let mut target = with_ext(target_stem);
     let mut n = 2;
     while target.exists() {
         target = with_ext(&format!("{target_stem} ({n})"));
@@ -468,7 +475,18 @@ pub fn download(
     mode: DlMode,
     dir: &Path,
     section: Option<(f64, f64)>,
+    title: Option<&str>,
 ) -> Result<PathBuf, String> {
+    // A caller-supplied title names the file instead of yt-dlp's metadata —
+    // needed for a bare stream URL (the ZDF page videos), whose "title" would
+    // only be the playlist's file name. Absent = unchanged behaviour.
+    let named = |p: PathBuf, meta: Option<crate::media_name::MediaMeta>| match title
+        .map(crate::media_name::sanitize_stem)
+        .filter(|t| !t.is_empty())
+    {
+        Some(t) => rename_to_stem(p, &t),
+        None => smart_rename(p, meta.as_ref()),
+    };
     let u = url.trim();
     let platform_name = match detect_platform(u) {
         Some(p) => p.display_name(),
@@ -482,14 +500,14 @@ pub fn download(
     let base = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy(), section);
 
     match run_ytdlp(&yt, &base) {
-        Ok((p, meta)) => Ok(smart_rename(p, meta.as_ref())),
+        Ok((p, meta)) => Ok(named(p, meta)),
         Err(stderr) if is_bot_block(&stderr) => {
             // Retry with each browser's cookies; first success wins.
             for br in COOKIE_BROWSERS {
                 let mut args = vec!["--cookies-from-browser".to_string(), (*br).to_string()];
                 args.extend(base.iter().cloned());
                 if let Ok((p, meta)) = run_ytdlp(&yt, &args) {
-                    return Ok(smart_rename(p, meta.as_ref()));
+                    return Ok(named(p, meta));
                 }
             }
             Err(format!(
@@ -513,6 +531,158 @@ pub fn download(
             }
         }
     }
+}
+
+// ── zdfheute: every video on an article page ────────────────────────────────
+//
+// yt-dlp's `zdf` extractor returns ONE video for a zdfheute article — the lead
+// player. Articles routinely embed several more (an interview, a live
+// segment, a teaser at the end). Each player sits in the page's server-render
+// payload as `"config":{"isPriority":…,"content":"<id>"`, and every id plays
+// from `https://www.zdfheute.de/api/video/<id>.m3u8` (verified: yt-dlp's
+// generic extractor takes it). The parse is pure and tested against a
+// captured page; the fetch is a plain GET.
+
+/// One video embedded on a zdfheute page.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct PageVideo {
+    pub id: String,
+    /// The stream to hand to `download`.
+    pub url: String,
+    pub title: String,
+    pub description: String,
+    pub thumbnail: Option<String>,
+}
+
+/// True for a zdfheute.de page (the only host this parser understands).
+pub fn is_zdfheute(url: &str) -> bool {
+    tauri::Url::parse(url.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h == "zdfheute.de" || h.ends_with(".zdfheute.de")))
+        .unwrap_or(false)
+}
+
+/// Read a JSON string body starting right after its opening quote; stops at
+/// the first quote not escaped by a backslash. Unescapes `\"`.
+fn read_json_str(s: &str) -> String {
+    let mut out = String::new();
+    let mut esc = false;
+    for c in s.chars() {
+        if esc {
+            out.push(c);
+            esc = false;
+        } else if c == '\\' {
+            esc = true;
+        } else if c == '"' {
+            break;
+        } else if c == '\u{2}' {
+            out.push('"');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The value of the first `"key":"…"` inside `window`, if any.
+fn field_in(window: &str, key: &str) -> Option<String> {
+    let pat = format!("\"{key}\":\"");
+    let at = window.find(&pat)?;
+    Some(read_json_str(&window[at + pat.len()..]))
+}
+
+/// Byte index at most `n` bytes before/after `i`, snapped to a char boundary.
+fn back(s: &str, i: usize, n: usize) -> usize {
+    let mut j = i.saturating_sub(n);
+    while !s.is_char_boundary(j) {
+        j += 1;
+    }
+    j
+}
+fn fwd(s: &str, i: usize, n: usize) -> usize {
+    let mut j = (i + n).min(s.len());
+    while !s.is_char_boundary(j) {
+        j -= 1;
+    }
+    j
+}
+
+/// Every embedded video on a zdfheute page, in page order, deduplicated. Pure.
+pub fn parse_page_videos(html: &str) -> Vec<PageVideo> {
+    // The payload is a JS string literal: its quotes arrive as `\"`.
+    // A quote INSIDE a payload string is doubly escaped (`\\\"`); park it as
+    // U+0002 first so it cannot end a string, `read_json_str` restores it.
+    let u = html.replace("\\\\\\\"", "\u{2}").replace("\\\"", "\"");
+    // JSON-LD names the lead video properly ("contentUrl" → ".../<id>.m3u8").
+    let mut ld_names: Vec<(String, String)> = Vec::new();
+    for (i, _) in u.match_indices("\"@type\":\"VideoObject\"") {
+        let w = &u[i..fwd(&u, i, 4000)];
+        if let (Some(name), Some(cu)) = (field_in(w, "name"), field_in(w, "contentUrl")) {
+            if let Some(id) = cu.rsplit('/').next().and_then(|f| f.strip_suffix(".m3u8")) {
+                ld_names.push((id.to_string(), name));
+            }
+        }
+    }
+    let mut out: Vec<PageVideo> = Vec::new();
+    let marker = "\"config\":{\"isPriority\":";
+    for (i, _) in u.match_indices(marker) {
+        let after = &u[i..fwd(&u, i, 200)];
+        let Some(id) = field_in(after, "content") else { continue };
+        // Ids are slugs; anything else is not a video id (and must never be
+        // pasted into a URL).
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+            continue;
+        }
+        if out.iter().any(|v| v.id == id) {
+            continue;
+        }
+        let before = &u[back(&u, i, 3000)..i];
+        let description = before
+            .rfind("\"aria-label\":\"")
+            .map(|a| read_json_str(&before[a + "\"aria-label\":\"".len()..]))
+            .unwrap_or_default();
+        let tail = &u[i..fwd(&u, i, 6000)];
+        let image_title = tail
+            .find("\"startImage\":{")
+            .and_then(|s| field_in(&tail[s..fwd(tail, s, 300)], "title"))
+            .unwrap_or_default();
+        let thumbnail = field_in(tail, "1280x720").filter(|t| t.starts_with("https://"));
+        let title = ld_names
+            .iter()
+            .find(|(lid, _)| *lid == id)
+            .map(|(_, n)| n.clone())
+            .or_else(|| (!image_title.is_empty()).then_some(image_title))
+            .unwrap_or_else(|| id.clone());
+        out.push(PageVideo {
+            url: format!("https://www.zdfheute.de/api/video/{id}.m3u8"),
+            id,
+            title,
+            description,
+            thumbnail,
+        });
+    }
+    out
+}
+
+/// Fetch a zdfheute page and list its videos. Non-zdfheute URLs return empty.
+pub fn page_videos(url: &str) -> Result<Vec<PageVideo>, String> {
+    if !is_zdfheute(url) {
+        return Ok(Vec::new());
+    }
+    let resp = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .get(url.trim())
+        .set("User-Agent", "Mozilla/5.0 (Macintosh) InspectorRust")
+        .call()
+        .map_err(|e| format!("page: {e}"))?;
+    let mut body = String::new();
+    use std::io::Read;
+    resp.into_reader()
+        .take(8 * 1024 * 1024)
+        .read_to_string(&mut body)
+        .map_err(|e| format!("page: {e}"))?;
+    Ok(parse_page_videos(&body))
 }
 
 #[cfg(test)]
@@ -635,6 +805,54 @@ mod tests {
         assert_eq!(Platform::Zdf.display_name(), "ZDF");
         assert_eq!(detect_platform("https://notzdf.de/x"), None);
         assert_eq!(detect_platform("https://zdf.de.example.org/x"), None);
+    }
+
+
+    #[test]
+    fn finds_every_video_on_a_zdfheute_article_in_page_order() {
+        // Real excerpts of an article with four players (2026-10-20).
+        let html = include_str!("fixtures/zdfheute-article.html");
+        let v = parse_page_videos(html);
+        let ids: Vec<&str> = v.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "roeckerath-merz-investitionsgipfel-100",
+                "investitionsgipfel-merz-huang-ki-video-100",
+                "investitionsgipfel-berlin-bundesregierung-einordnung-video-100",
+                "rente-linke-gutachten-100",
+            ]
+        );
+        // The lead video takes its name from the JSON-LD, the rest from the player image.
+        assert_eq!(v[0].title, "Bundesregierung verkündet KI-Pakt mit Nvidia");
+        assert_eq!(v[1].title, "Nvidia-Chef Huang");
+        assert_eq!(
+            v[0].url,
+            "https://www.zdfheute.de/api/video/roeckerath-merz-investitionsgipfel-100.m3u8"
+        );
+        assert!(v[1].description.starts_with("Merz empfängt Nvidia-Chef Huang"));
+        // A doubly-escaped quote inside the description must not cut it short.
+        assert!(v[3].description.contains("\"feuchten Traum der Aktionäre\""), "{}", v[3].description);
+        assert!(v.iter().all(|x| x.thumbnail.as_deref().is_some_and(|t| t.starts_with("https://"))));
+        // Every stream URL is one the downloader accepts.
+        assert!(v.iter().all(|x| detect_platform(&x.url) == Some(Platform::Zdf)));
+    }
+
+    #[test]
+    fn page_parse_rejects_non_slug_ids_and_dedupes() {
+        let one = r#"\"config\":{\"isPriority\":1,\"content\":\"a-100\"}"#;
+        let bad = r#"\"config\":{\"isPriority\":1,\"content\":\"../x?y\"}"#;
+        let v = parse_page_videos(&format!("{one} {one} {bad}"));
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].title, "a-100");
+        assert!(parse_page_videos("<html>nothing</html>").is_empty());
+    }
+
+    #[test]
+    fn only_zdfheute_pages_are_scanned() {
+        assert!(is_zdfheute("https://www.zdfheute.de/wirtschaft/x-100.html"));
+        assert!(!is_zdfheute("https://www.zdf.de/x"));
+        assert!(!is_zdfheute("https://zdfheute.de.example.org/x"));
     }
 
     #[test]
@@ -836,7 +1054,7 @@ mod tests {
 
     #[test]
     fn download_rejects_non_social_before_spawn() {
-        assert!(download("https://example.com/x", DlMode::Video, Path::new("/tmp"), None).is_err());
-        assert!(download("-x", DlMode::Audio, Path::new("/tmp"), None).is_err());
+        assert!(download("https://example.com/x", DlMode::Video, Path::new("/tmp"), None, None).is_err());
+        assert!(download("-x", DlMode::Audio, Path::new("/tmp"), None, None).is_err());
     }
 }

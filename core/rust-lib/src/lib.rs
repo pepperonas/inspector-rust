@@ -65,6 +65,7 @@ mod logging;
 mod mailcheck;
 mod md_to_pdf;
 mod transcribe;
+mod live_transcribe;
 mod media_name;
 mod media_trim;
 mod meme;
@@ -1197,6 +1198,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::social_audio_proxy,
             commands::social_metadata,
             commands::zdf_page_videos,
+            commands::transcribe_live_start,
+            commands::transcribe_live_stop,
+            commands::transcribe_live_status,
+            commands::transcribe_live_cancel,
             commands::bench_plan,
             commands::bench_run,
             commands::bench_history,

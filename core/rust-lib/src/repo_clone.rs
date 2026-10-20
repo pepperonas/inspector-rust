@@ -169,6 +169,9 @@ fn run_git(
         cmd.current_dir(c);
     }
     cmd.args(args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    // Progress phases and error classes are read from git's ENGLISH messages;
+    // a German system git says "Empfange Objekte" / "mehrdeutiges Argument".
+    cmd.env("LC_ALL", "C");
     for (k, v) in auth_env(token) {
         cmd.env(k, v);
     }

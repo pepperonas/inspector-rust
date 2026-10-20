@@ -14,6 +14,14 @@ const EXTENSIONS: &[&str] = &[
 pub struct Args {
     pub path: Option<String>,
     pub language: Option<String>,
+    /// `--start` / `--stop`: live dictation from the microphone instead of a file.
+    pub live: Option<LiveAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveAction {
+    Start,
+    Stop,
 }
 
 /// Preserve literal path spaces/backslashes. Only a quote at a token's start
@@ -82,6 +90,12 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
                 return Err(crate::i18n::t("trx.lang_invalid"));
             }
             result.language = (value != "auto").then_some(value);
+        } else if !quoted && !flags_done && (token == "--start" || token == "--stop") {
+            let action = if token == "--start" { LiveAction::Start } else { LiveAction::Stop };
+            if result.live.is_some_and(|a| a != action) {
+                return Err(crate::i18n::t("trx.live_both"));
+            }
+            result.live = Some(action);
         } else if !quoted && !flags_done && token.starts_with('-') {
             return Err(crate::i18n::tf("trx.unknown_param", &[("token", token)]));
         } else {
@@ -101,6 +115,12 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             return Err(crate::i18n::t("trx.empty_path"));
         }
         result.path = Some(path);
+    }
+    if result.live.is_some() && result.path.is_some() {
+        return Err(crate::i18n::t("trx.live_with_path"));
+    }
+    if result.live == Some(LiveAction::Stop) && result.language.is_some() {
+        return Err(crate::i18n::t("trx.live_stop_lang"));
     }
     Ok(result)
 }
@@ -146,7 +166,7 @@ pub fn environment_python() -> PathBuf {
         })
 }
 
-fn python() -> PathBuf {
+pub(crate) fn python() -> PathBuf {
     if let Some(path) = std::env::var_os("IR_WHISPER_PYTHON") {
         return PathBuf::from(path);
     }
@@ -701,7 +721,8 @@ mod tests {
             parse_args("--language DE").unwrap(),
             Args {
                 language: Some("de".into()),
-                path: None
+                path: None,
+                live: None,
             }
         );
         assert_eq!(parse_args("-l auto").unwrap(), Args::default());
@@ -732,6 +753,25 @@ mod tests {
             parse_args("-- -clip.mp4").unwrap().path.as_deref(),
             Some("-clip.mp4")
         );
+    }
+
+    #[test]
+    fn live_flags_start_and_stop_dictation() {
+        let a = parse_args("--start").unwrap();
+        assert_eq!((a.live, a.path, a.language), (Some(LiveAction::Start), None, None));
+        let a = parse_args("--start --language de").unwrap();
+        assert_eq!((a.live, a.language.as_deref()), (Some(LiveAction::Start), Some("de")));
+        let a = parse_args("-l en --start").unwrap();
+        assert_eq!((a.live, a.language.as_deref()), (Some(LiveAction::Start), Some("en")));
+        assert_eq!(parse_args("--stop").unwrap().live, Some(LiveAction::Stop));
+        // Repeating the same flag is harmless; the two together are not.
+        assert_eq!(parse_args("--start --start").unwrap().live, Some(LiveAction::Start));
+        assert!(parse_args("--start --stop").is_err());
+        // A file and the microphone at once makes no sense.
+        assert!(parse_args("--start ~/a.mp3").is_err());
+        assert!(parse_args("--stop --language de").is_err());
+        // A file run is unchanged.
+        assert_eq!(parse_args("a.mp3").unwrap().live, None);
     }
 
     #[test]

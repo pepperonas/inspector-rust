@@ -683,6 +683,9 @@ fn git_log(dir: &std::path::Path, rev: Option<&str>, env: &[(String, String)]) -
     let fmt = format!("{REC}%H{FLD}%aI{FLD}%aN{FLD}%aE{FLD}%s{FLD}%ct");
     let mut cmd = std::process::Command::new("git");
     cmd.current_dir(dir) // not `-C <dir>` — keeps an untrusted path out of argv
+        // The missing-ref check below reads git's ENGLISH message; a German
+        // system git says "mehrdeutiges Argument" and the check missed it.
+        .env("LC_ALL", "C")
         .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
         .arg(format!("--pretty=format:{fmt}"));
     if let Some(r) = rev {
@@ -712,6 +715,7 @@ fn git_log(dir: &std::path::Path, rev: Option<&str>, env: &[(String, String)]) -
                     let mut retry = std::process::Command::new("git");
                     retry
                         .current_dir(dir)
+                        .env("LC_ALL", "C")
                         .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
                         .arg(format!("--pretty=format:{fmt}"))
                         .arg(r);

@@ -1,7 +1,7 @@
 import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
-import { isJobActive } from "./lib/transcribe";
+import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel } from "./lib/transcribe";
 
 /** localStorage key of the argument-usage memory (Tab ranking). */
 const ARG_USAGE_KEY = "ir.arg-usage.v1";
@@ -60,6 +60,7 @@ const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ d
 const SpotifyPanel = lazy(() => import("./components/SpotifyPanel").then((m) => ({ default: m.SpotifyPanel })));
 const GithubPanel = lazy(() => import("./components/GithubPanel").then((m) => ({ default: m.GithubPanel })));
 const TranscribePanel = lazy(() => import("./components/TranscribePanel").then((m) => ({ default: m.TranscribePanel })));
+const TranscribeLivePanel = lazy(() => import("./components/TranscribeLivePanel").then((m) => ({ default: m.TranscribeLivePanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
 const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
 const ShazamPanel = lazy(() => import("./components/ShazamPanel").then((m) => ({ default: m.ShazamPanel })));
@@ -238,11 +239,17 @@ import {
   mdToPdfRun,
   transcribeRun,
   transcribeStatus,
+  transcribeLiveStart,
+  transcribeLiveStop,
+  transcribeLiveStatus,
+  transcribeLiveCancel,
   spotifyTopArtists,
   githubDashboard,
   TRANSCRIBE_BUSY,
   type TranscribeJob,
   type TranscribeDone,
+  type LiveJob,
+  type LiveDone,
   screenshotCapture,
   screenshotRepeatLast,
   listMemes,
@@ -585,6 +592,17 @@ function App() {
     transcribeModeRef.current = transcribeMode;
     transcribeJobRef.current = transcribeJob;
   }, [transcribeMode, transcribeJob]);
+  // Live dictation (`transcribe --start` / `--stop`) — a session in Rust like
+  // the file job; `transcribeLive` = its panel is in the preview column.
+  const [transcribeLive, setTranscribeLive] = useState(false);
+  const [liveJob, setLiveJob] = useState<LiveJob | null>(null);
+  const [liveStartError, setLiveStartError] = useState<string | null>(null);
+  const transcribeLiveRef = useRef(transcribeLive);
+  const liveJobRef = useRef(liveJob);
+  useEffect(() => {
+    transcribeLiveRef.current = transcribeLive;
+    liveJobRef.current = liveJob;
+  }, [transcribeLive, liveJob]);
   // Snitch mode — `snitch` (app blocker) / `snitch map` (world map). Enter
   // opens; the arg picks which view. macOS-only command.
   const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
@@ -1821,14 +1839,21 @@ function App() {
     if (!isGithubCmd) setGithubFocus(false);
   }, [isGithubCmd]);
   const isTranscribeCmd = parsedCommand?.spec.kind === "transcribe";
+  const transcribeLiveArg = isTranscribeCmd ? liveAction(parsedCommand?.arg ?? "") : null;
   useEffect(() => {
     if (!isTranscribeCmd) {
       setTranscribeMode(false);
       setTranscribeFocus(false);
-    } else if (isJobActive(transcribeJobRef.current)) {
-      setTranscribeMode(true);
+      setTranscribeLive(false);
+    } else if (transcribeLiveArg || isLiveActive(liveJobRef.current)) {
+      // `--start` / `--stop` typed, or a dictation running: its panel.
+      setTranscribeLive(true);
+      setTranscribeMode(false);
+    } else {
+      setTranscribeLive(false);
+      if (isJobActive(transcribeJobRef.current)) setTranscribeMode(true);
     }
-  }, [isTranscribeCmd]);
+  }, [isTranscribeCmd, transcribeLiveArg]);
   useEffect(() => {
     if (!isCleanCmd && cleanMode) {
       setCleanMode(false);
@@ -2185,6 +2210,14 @@ function App() {
         hint = commandDescription(spec);
         break;
       case "transcribe":
+        if (liveAction(arg) || isLiveActive(liveJob)) {
+          label = liveRowLabel(liveJob, arg);
+          hint = t("trx.live.title");
+          break;
+        }
+        label = t("cmd.finder_target", { cmd: spec.keyword, target: arg || t("cmd.finder_selection") });
+        hint = commandDescription(spec);
+        break;
       case "md2pdf":
         label = t("cmd.finder_target", { cmd: spec.keyword, target: arg || t("cmd.finder_selection") });
         hint = commandDescription(spec);
@@ -2482,7 +2515,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames, githubCmd, githubMod, t]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates, retroPresetNames, githubCmd, githubMod, liveJob, t]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -4012,6 +4045,46 @@ function App() {
   useTauriEvent<TranscribeJob>("transcribe-progress", (e) => {
     if (e.payload) setTranscribeJob(e.payload);
   });
+  useEffect(() => {
+    void transcribeLiveStatus()
+      .then((j) => {
+        if (j) setLiveJob((cur) => cur ?? j);
+      })
+      .catch(() => undefined);
+  }, []);
+  useTauriEvent<LiveJob>("transcribe-live", (e) => {
+    if (e.payload) setLiveJob(e.payload);
+  });
+  useTauriEvent<LiveDone>("transcribe-live-done", (e) => {
+    const d = e.payload;
+    if (!d || d.cancelled) return;
+    // After the stop, Enter starts the next dictation.
+    setQuery((q) => (/^transcribe\s+--stop\b/.test(q.trim()) ? "transcribe --start" : q));
+    if (transcribeLiveRef.current) return;
+    void showStatusToast(
+      "transcribe",
+      d.ok,
+      t("trx.live.toast"),
+      d.ok ? t("trx.live.toast_copied") : (d.error ?? ""),
+    );
+  });
+  // Start a dictation: the command flips to `transcribe --stop`, so the next
+  // Enter ends it. Errors (busy, bad flag, no Whisper) show in the panel.
+  const startDictation = useCallback(async (arg: string) => {
+    setLiveStartError(null);
+    try {
+      const j = await transcribeLiveStart(arg);
+      setLiveJob((cur) => (cur && cur.id === j.id ? cur : j));
+      setQuery("transcribe --stop");
+    } catch (e) {
+      const msg = String(e).replace(/^Error:\s*/, "");
+      setLiveStartError(msg === TRANSCRIBE_BUSY ? t("trx.live.busy") : msg);
+    }
+  }, []);
+  const stopDictation = useCallback(async () => {
+    const j = await transcribeLiveStop().catch(() => null);
+    if (j) setLiveJob(j);
+  }, []);
   useTauriEvent<TranscribeDone>("transcribe-done", (e) => {
     if (transcribeModeRef.current || !e.payload) return;
     void showStatusToast("transcribe", e.payload.ok, t("transcribe.toast"), e.payload.message);
@@ -4839,6 +4912,13 @@ function App() {
         // command's action (control / export) — reads need no Enter.
         setSpotifyFocus(true);
         setSpotifyRun((n) => n + 1);
+      } else if (commandKind === "transcribe" && (liveAction(arg) || isLiveActive(liveJobRef.current))) {
+        // Live dictation. While it records, Enter ALWAYS stops it — whatever
+        // the row says — so stopping never depends on what was typed.
+        setTranscribeLive(true);
+        setTranscribeMode(false);
+        if (isLiveRecording(liveJobRef.current)) await stopDictation();
+        else if (!isLiveActive(liveJobRef.current) && liveAction(arg) === "start") await startDictation(arg);
       } else if (commandKind === "transcribe") {
         // The overlay stays open with the per-file progress; Esc closes it and
         // the batch keeps running. A running job is shown, never restarted.
@@ -6335,6 +6415,19 @@ function App() {
                       }}
                     />
                   </div>
+                ) : transcribeLive ? (
+                  <div className="md3-pop-in h-full">
+                    <TranscribeLivePanel
+                      job={liveJob}
+                      startError={liveStartError}
+                      onStart={() => void startDictation(liveAction(parsedCommand?.arg ?? "") === "start" ? (parsedCommand?.arg ?? "--start") : "--start")}
+                      onStop={() => void stopDictation()}
+                      onCancel={() => void transcribeLiveCancel()}
+                      onCopy={(text) =>
+                        void import("@tauri-apps/plugin-clipboard-manager").then((m) => m.writeText(text))
+                      }
+                    />
+                  </div>
                 ) : transcribeMode ? (
                   <div className="md3-pop-in h-full">
                     <TranscribePanel
@@ -6511,6 +6604,7 @@ function App() {
           wakelockActive={wakelockActive}
           activeTimerCount={activeTimerCount}
           trackingActive={trackStatusState.active}
+          dictating={isLiveRecording(liveJob)}
           trackingPaused={trackStatusState.paused}
           sleepStatus={sleepStatus}
           freeSpace={freeSpace}

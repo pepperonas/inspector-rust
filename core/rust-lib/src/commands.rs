@@ -5421,11 +5421,17 @@ pub async fn transcribe_run(
     arg: String,
 ) -> Result<crate::transcribe::Job, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if crate::transcribe::status().is_some_and(|j| j.is_active()) {
+        if crate::transcribe::status().is_some_and(|j| j.is_active())
+            || crate::live_transcribe::is_active()
+        {
             return Err(crate::transcribe::ERR_BUSY.to_string());
         }
         let inputs = (|| {
             let args = crate::transcribe::parse_args(&arg)?;
+            if args.live.is_some() {
+                // `--start` / `--stop` go through `transcribe_live_*`.
+                return Err(crate::i18n::t("trx.live_route"));
+            }
             let path = args
                 .path
                 .as_deref()
@@ -5458,6 +5464,39 @@ pub async fn transcribe_run(
 #[tauri::command]
 pub fn transcribe_status() -> Option<crate::transcribe::Job> {
     crate::transcribe::status()
+}
+
+/// Start live dictation (`transcribe --start [--language xx]`). `arg` is the
+/// command argument; it is parsed here so the language rules stay in one place.
+#[tauri::command]
+pub async fn transcribe_live_start(
+    app: AppHandle,
+    arg: String,
+) -> Result<crate::live_transcribe::LiveJob, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let args = crate::transcribe::parse_args(&arg)?;
+        crate::live_transcribe::start(app, args.language)
+    })
+    .await
+    .map_err(|e| format!("transcribe live: {e}"))?
+}
+
+/// Stop recording; the session finalizes and copies the text.
+#[tauri::command]
+pub fn transcribe_live_stop() -> Option<crate::live_transcribe::LiveJob> {
+    crate::live_transcribe::stop()
+}
+
+/// The current (or last) dictation — for a panel that opens later.
+#[tauri::command]
+pub fn transcribe_live_status() -> Option<crate::live_transcribe::LiveJob> {
+    crate::live_transcribe::status()
+}
+
+/// Discard the dictation (nothing is copied).
+#[tauri::command]
+pub fn transcribe_live_cancel() -> bool {
+    crate::live_transcribe::cancel()
 }
 
 /// Cancel the running transcription. Finished transcripts stay on disk.

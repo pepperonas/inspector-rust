@@ -3,7 +3,7 @@
  * overall progress and a remaining-time estimate. The job itself lives in
  * the Rust backend (`transcribe.rs`) — these only read its snapshot.
  */
-import type { TranscribeFile, TranscribeJob } from "./ipc";
+import type { LiveJob, TranscribeFile, TranscribeJob } from "./ipc";
 import { t } from "./i18n";
 
 export function isJobActive(job: TranscribeJob | null | undefined): boolean {
@@ -111,4 +111,58 @@ export function phaseLabel(job: TranscribeJob): string {
     case "failed":
       return t("tr.failed");
   }
+}
+
+// ── Live dictation (`transcribe --start` / `--stop`) ─────────────────────────
+
+/** `--start` / `--stop` in the argument, or null for a file run. Mirrors the
+ *  Rust parser's flag words (`transcribe::parse_args`). */
+export function liveAction(arg: string): "start" | "stop" | null {
+  const words = arg.trim().split(/\s+/);
+  if (words.includes("--stop")) return "stop";
+  if (words.includes("--start")) return "start";
+  return null;
+}
+
+/** The language given with `--start`, if any (`--language de`, `-l de`, `--language=de`). */
+export function liveLanguage(arg: string): string | null {
+  const words = arg.trim().split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    if (w.startsWith("--language=")) return w.slice(11) || null;
+    if ((w === "--language" || w === "-l") && words[i + 1]) return words[i + 1];
+  }
+  return null;
+}
+
+export function isLiveActive(job: LiveJob | null | undefined): boolean {
+  return !!job && (job.state === "starting" || job.state === "recording" || job.state === "finalizing");
+}
+
+/** Still listening — Enter means "stop". */
+export function isLiveRecording(job: LiveJob | null | undefined): boolean {
+  return !!job && (job.state === "starting" || job.state === "recording");
+}
+
+/** `0:07`, `12:30`, `1:02:03` — the recording clock. */
+export function formatClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** What the command row says: Enter's meaning right now. */
+export function liveRowLabel(job: LiveJob | null | undefined, arg: string): string {
+  if (isLiveRecording(job)) return t("trx.live.row_stop");
+  if (job?.state === "finalizing") return t("trx.live.row_finalizing");
+  const lang = liveLanguage(arg);
+  return lang ? t("trx.live.row_start_lang", { lang }) : t("trx.live.row_start");
+}
+
+/** The text a finished dictation produced (what was copied). */
+export function liveResultText(job: LiveJob): string {
+  if (job.final_text && job.final_text.trim()) return job.final_text;
+  return [job.committed, job.partial].map((x) => x.trim()).filter(Boolean).join(" ");
 }

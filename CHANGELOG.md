@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.222.0] - 2026-10-20
+
+### Added
+- **Live dictation — `transcribe --start [--language de]`:** records the microphone and shows the text in the preview while you speak (finished sentences kept, the one being spoken greyed). The command then reads `transcribe --stop`, so Enter ends the recording; so does the stop button. Afterwards the accurate model reworks the whole recording and the text goes to the clipboard and history. Keeps running when the popup closes (red light in the footer); the bin icon discards it. Fast `base` model live, `small` for the final text, all local.
+
+### Fixed
+- **`repo` on a German system:** git answers in German there, and the check for a missing `origin/HEAD` (and the clone progress phases) read only git's English messages — empty or renamed-branch repositories failed instead of being repaired. git now runs with `LC_ALL=C` for these calls.
+- **Flaky snippet tests:** the snippet read cache did not know which database it came from, so parallel tests read each other's rows. It is now tied to the database.
+
 ## [0.221.0] - 2026-10-20
 
 ### Added

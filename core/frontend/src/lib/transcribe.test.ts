@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { TranscribeFile, TranscribeJob } from "./ipc";
+import type { LiveJob, TranscribeFile, TranscribeJob } from "./ipc";
 import {
   fileStatus,
   formatDuration,
@@ -8,6 +8,13 @@ import {
   overallProgress,
   phaseLabel,
   remainingMs,
+  liveAction,
+  liveLanguage,
+  isLiveActive,
+  isLiveRecording,
+  formatClock,
+  liveRowLabel,
+  liveResultText,
 } from "./transcribe";
 import de from "../locales/de.json";
 import en from "../locales/en.json";
@@ -102,5 +109,91 @@ describe("transcribe helpers", () => {
       "Abgebrochen — 1 von 2 fertig",
     );
     expect(jobCounts(job(files))).toEqual({ done: 1, failed: 0, cancelled: 0, total: 3 });
+  });
+});
+
+function live(over: Partial<LiveJob> = {}): LiveJob {
+  return {
+    id: 1, state: "recording", language: null, started_ms: 0, elapsed_ms: 0, level: 0,
+    committed: "", partial: "", final_text: null, loading_model: null, copied: false, error: null,
+    ...over,
+  };
+}
+
+describe("live dictation helpers", () => {
+  it("reads --start / --stop like the Rust parser", () => {
+    expect(liveAction("--start")).toBe("start");
+    expect(liveAction("--start --language de")).toBe("start");
+    expect(liveAction("  --stop ")).toBe("stop");
+    expect(liveAction("")).toBeNull();
+    expect(liveAction("~/a.mp3 --language de")).toBeNull();
+    // A word that merely contains the flag is a file name, not the flag.
+    expect(liveAction("my--start.mp3")).toBeNull();
+  });
+
+  it("finds the language in every spelling", () => {
+    expect(liveLanguage("--start --language de")).toBe("de");
+    expect(liveLanguage("-l en --start")).toBe("en");
+    expect(liveLanguage("--start --language=fr")).toBe("fr");
+    expect(liveLanguage("--start")).toBeNull();
+  });
+
+  it("Enter means stop while listening, not while finalizing", () => {
+    expect(isLiveRecording(live({ state: "starting" }))).toBe(true);
+    expect(isLiveRecording(live({ state: "recording" }))).toBe(true);
+    expect(isLiveRecording(live({ state: "finalizing" }))).toBe(false);
+    expect(isLiveActive(live({ state: "finalizing" }))).toBe(true);
+    expect(isLiveActive(live({ state: "done" }))).toBe(false);
+    expect(isLiveActive(null)).toBe(false);
+  });
+
+  it("the row names what Enter does", () => {
+    expect(liveRowLabel(null, "--start")).toBe("Diktat starten");
+    expect(liveRowLabel(null, "--start -l de")).toBe("Diktat starten (de)");
+    expect(liveRowLabel(live(), "--stop")).toBe("Diktat beenden");
+    // Even if the line still says --start, a running dictation is stopped.
+    expect(liveRowLabel(live(), "--start")).toBe("Diktat beenden");
+    expect(liveRowLabel(live({ state: "finalizing" }), "--stop")).toBe("Endfassung wird erstellt…");
+  });
+
+  it("formats the recording clock", () => {
+    expect(formatClock(0)).toBe("0:00");
+    expect(formatClock(7_900)).toBe("0:07");
+    expect(formatClock(750_000)).toBe("12:30");
+    expect(formatClock(3_723_000)).toBe("1:02:03");
+    expect(formatClock(-5)).toBe("0:00");
+  });
+
+  it("the accurate text wins, the live text is the fallback", () => {
+    expect(liveResultText(live({ committed: "a b", partial: "c", final_text: "A, b c." }))).toBe("A, b c.");
+    expect(liveResultText(live({ committed: "a b", partial: "c", final_text: "  " }))).toBe("a b c");
+    expect(liveResultText(live({ committed: "", partial: "" }))).toBe("");
+  });
+});
+
+describe("live dictation in App (source pins)", () => {
+  async function app(): Promise<string> {
+    const { readFileSync } = (await import("node:" + "fs")) as unknown as {
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const cwd = (globalThis as unknown as { process: { cwd(): string } }).process.cwd();
+    return readFileSync(cwd + "/src/App.tsx", "utf8").replace(/\/\/.*$/gm, "");
+  }
+
+  it("Enter on a running dictation stops it — before the argument is even read", async () => {
+    const code = await app();
+    const branch = code.indexOf('commandKind === "transcribe" && (liveAction(arg) || isLiveActive(liveJobRef.current))');
+    expect(branch).toBeGreaterThan(-1);
+    const body = code.slice(branch, code.indexOf("} else if", branch + 10));
+    const stop = body.indexOf("if (isLiveRecording(liveJobRef.current)) await stopDictation();");
+    const start = body.indexOf("startDictation(arg)");
+    expect(stop).toBeGreaterThan(-1);
+    expect(start).toBeGreaterThan(stop);
+  });
+
+  it("a started dictation turns the command into transcribe --stop", async () => {
+    const code = await app();
+    const fn = code.slice(code.indexOf("const startDictation = useCallback"));
+    expect(fn.slice(0, fn.indexOf("}, []);"))).toContain('setQuery("transcribe --stop")');
   });
 });

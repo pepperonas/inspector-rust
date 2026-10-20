@@ -844,9 +844,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "transcribe",
     keyword: "transcribe",
-    syntax: "transcribe [pfad] [--language de]",
-    description: "Audio/Video → TXT locally · Finder selection or path · --language de / auto",
-    description_de: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --language de / auto",
+    syntax: "transcribe [pfad | --start | --stop] [--language de]",
+    description: "Audio/Video → TXT locally · Finder selection or path · --start dictates from the microphone",
+    description_de: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --start diktiert vom Mikrofon",
     requiresArg: false,
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────

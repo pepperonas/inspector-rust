@@ -274,6 +274,54 @@ export function transcribeCancel(): Promise<boolean> {
   return invoke("transcribe_cancel");
 }
 
+/** A live dictation (`transcribe --start`). Mirrors `live_transcribe::LiveJob`. */
+export interface LiveJob {
+  id: number;
+  state: "starting" | "recording" | "finalizing" | "done" | "failed" | "cancelled";
+  language: string | null;
+  started_ms: number;
+  elapsed_ms: number;
+  /** 0..1 input level. */
+  level: number;
+  /** Text of finished sentences — kept. */
+  committed: string;
+  /** The sentence still being spoken — replaced on every update. */
+  partial: string;
+  /** The accurate pass over the whole recording. */
+  final_text: string | null;
+  /** A model being loaded (first use downloads it). */
+  loading_model: string | null;
+  copied: boolean;
+  error: string | null;
+}
+
+/** Payload of `transcribe-live-done`. */
+export interface LiveDone {
+  id: number;
+  ok: boolean;
+  cancelled: boolean;
+  text: string;
+  error: string | null;
+}
+
+/** Start dictating; `arg` is the command argument (`--start [--language xx]`).
+ *  Rejects with `TRANSCRIBE_BUSY` while a dictation or file job runs. */
+export function transcribeLiveStart(arg: string): Promise<LiveJob> {
+  return invoke("transcribe_live_start", { arg });
+}
+/** Stop recording; the text is finalized and copied. */
+export function transcribeLiveStop(): Promise<LiveJob | null> {
+  return invoke("transcribe_live_stop");
+}
+/** The current or last dictation (null = none since app start). */
+export function transcribeLiveStatus(): Promise<LiveJob | null> {
+  return invoke("transcribe_live_status");
+}
+/** Throw the dictation away — nothing is copied. */
+export function transcribeLiveCancel(): Promise<boolean> {
+  return invoke("transcribe_live_cancel");
+}
+
 /** Show an on-screen status toast (hide popup + animated flourish). Used for
  *  timer / alarm confirmations. Backend: `commands::show_status_toast`. */
 export function showStatusToast(

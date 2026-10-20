@@ -87,16 +87,16 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **5805 Unit-Tests (2199 Rust + 3606 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **5834 Unit-Tests (2215 Rust + 3619 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~242k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~244k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2199 Rust + 3606 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-5805%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2215 Rust + 3619 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-5834%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -118,22 +118,22 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](.github/badges/maintained-yes-brightgreen-f6453ee2.svg)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-5805%20(2199%20Rust%20%2B%203606%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-5834%20(2215%20Rust%20%2B%203619%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](.github/badges/prs-welcome-brightgreen-bf350bde.svg)](./CONTRIBUTING.md)
   [![Code Style](.github/badges/code-style-clippy-eslint-orange-216d70a2.svg)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-77-4f46e5?style=flat-square)](#commands)
   [![Docs](https://img.shields.io/badge/docs-39%20pages-0ea5e9?style=flat-square)](./docs)
-  [![Rust modules](https://img.shields.io/badge/rust%20modules-107-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust modules](https://img.shields.io/badge/rust%20modules-108-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-869-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-499-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
-  [![UI components](https://img.shields.io/badge/UI%20components-107-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
-  [![Test suites](https://img.shields.io/badge/test%20suites-325-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-503-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
+  [![UI components](https://img.shields.io/badge/UI%20components-108-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
+  [![Test suites](https://img.shields.io/badge/test%20suites-327-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-44-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
   [![Hidden triggers](https://img.shields.io/badge/hidden%20triggers-11-ff69b4?style=flat-square)](./core/frontend/src/lib/feature-extras.ts)
   [![Frontend modules](https://img.shields.io/badge/frontend%20modules-120-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
-  [![Releases](https://img.shields.io/badge/releases-585-8957e5?style=flat-square)](./CHANGELOG.md)
+  [![Releases](https://img.shields.io/badge/releases-586-8957e5?style=flat-square)](./CHANGELOG.md)
   [![License](.github/badges/license-mit-blue-d5dc0172.svg)](./LICENSE)
   [![Tauri](.github/badges/tauri-2-24c8db-31b76b30.svg)](https://tauri.app)
   [![Offline first](.github/badges/offline-first-334155-52fd5d0d.svg)](#privacy)
@@ -204,8 +204,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](.github/badges/eslint-flat-config-4b32c3-cc02ea79.svg)](https://eslint.org)
   [![Vitest](.github/badges/vitest-3-6e9f18-d14e6138.svg)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-2199%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-3606%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-2215%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-3619%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](.github/badges/cargo-clippy-d-warnings-success-0e95b602.svg)](#)
   [![tsc strict](.github/badges/tsc-strict-3178c6-8998462e.svg)](#)
   [![Prettier](.github/badges/code-style-prettier-f7b93e-52e0150f.svg)](https://prettier.io)
@@ -238,11 +238,11 @@
   [![exe size](.github/badges/exe-14-mb-blue-2fcaaf46.svg)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-5805%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-499-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-5834%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-503-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-77-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-64-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-107-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-108-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](.github/badges/ai-prompts-27-bundled-blueviolet-3f4859ed.svg)](./docs/ai-prompts.md)
   [![Media](.github/badges/media-record-download-trim-swap-ce422b-b9dff908.svg)](#)
   [![Motion](.github/badges/motion-material-3-expressive-blueviolet-8a8ecfba.svg)](#)
@@ -253,9 +253,9 @@
   [![Image formats](.github/badges/image-formats-5-blueviolet-73e0101a.svg)](#)
   [![Time tracking](.github/badges/timesheet-event-based-encrypted-ce422b-9f407ee0.svg)](./docs/timesheet.md)
   [![Privacy](.github/badges/privacy-offline-no-telemetry-success-1b1e254a.svg)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~126k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~127k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![TS LoC](https://img.shields.io/badge/TypeScript-~116k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-213-0ea5e9?style=flat-square)](./features.txt)
+  [![Features](https://img.shields.io/badge/features-214-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](.github/badges/xdr-up-to-1600-nits-ffb300-683a54d2.svg)](#)
   [![Audio presets](.github/badges/boom-20-eq-presets-1db954-38c8049c.svg)](#)
   [![Material colours](.github/badges/snippets-255-colours-blueviolet-b1f62fa5.svg)](#)
@@ -446,7 +446,7 @@
   [![Espresso-betrieben](.github/badges/angetrieben-von-espresso-6f4e37-265ae0ef.svg)](#)
   [![Zero Config](.github/badges/setup-zero-config-brightgreen-a0d242b5.svg)](#)
   [![Kein Account](.github/badges/account-nicht-no-tig-brightgreen-2069ea26.svg)](#)
-  [![100+ Features](https://img.shields.io/badge/features-213%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-214%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](.github/badges/versteckt-pong-snake-invaders-flappy-ff69b4-5d4c2958.svg)](#)
   [![Auf LinkedIn teilen](.github/badges/teilen-auf-linkedin-0a66c2-c957a7ef.svg)](https://www.linkedin.com/)
 
@@ -685,7 +685,7 @@ Englisch.)
 | `speedtest` | v0.199.0 | Download, Upload, Latenz und Jitter messen — mit lokalem Verlauf. |
 | `pulse` | v0.200.0 | Speicherdruck, Swap und SSD-Schreiblast — live und als Verlauf, mit Verursachern und Lebensdauer-Prognose (macOS). |
 | `echo` | v0.201.0 | Text in eine Datei schreiben, wie in der Shell — Formatierung bleibt exakt. |
-| `transcribe` | v0.205.0 | Audio/Video lokal → TXT mit Sprachwahl. |
+| `transcribe` | v0.205.0 | Audio/Video lokal → TXT, oder Live-Diktat vom Mikrofon. |
 | `spotify` | v0.206.0 | Spotify: läuft gerade, lokaler Verlauf, Export, Steuerung. |
 | `github` | v0.209.0 | GitHub-Statistik: Kontoalter, Follower, Sterne und Forks seit Erstellung, Repository-Insights. |
 
@@ -1027,8 +1027,8 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3606 Tests
-cargo test --workspace  # Rust-Unit-Tests — 2199 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3619 Tests
+cargo test --workspace  # Rust-Unit-Tests — 2215 Tests
 ```
 
 Ein einzelnes Modul während der Iteration:

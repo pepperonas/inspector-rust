@@ -19,7 +19,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ClipEntry, ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
-import { LinkGrabber } from "./LinkGrabber";
 import { MetaCard, useMeta } from "./SocialMeta";
 import { ExportRow } from "./ExportRow";
 import { TrimBar } from "./TrimBar";
@@ -453,7 +452,9 @@ export function PreviewPanel({
           runSignal={socialRunSignal}
         />
         <ZdfPageVideosSlot url={entry.data.url} />
-        <LinkGrabber seedUrl={entry.data.url} />
+        <Suspense fallback={null}>
+          <LinkGrabberLazy seedUrl={entry.data.url} />
+        </Suspense>
       </div>
     );
   }
@@ -2258,6 +2259,9 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
     </div>
   );
 }
+
+// Lazy: only the social-download preview shows it, and PreviewPanel ships at start-up.
+const LinkGrabberLazy = lazy(() => import("./LinkGrabber").then((m) => ({ default: m.LinkGrabber })));
 
 // Lazy: only a zdfheute link ever needs it, and PreviewPanel ships at start-up.
 const ZdfPageVideosLazy = lazy(() => import("./ZdfPageVideos").then((m) => ({ default: m.ZdfPageVideos })));

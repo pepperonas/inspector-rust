@@ -28,6 +28,9 @@ interface Props {
    *  surfaces (amber while idle-paused, green while recording). */
   trackingActive?: boolean;
   trackingPaused?: boolean;
+  /** A live dictation is recording (`transcribe --start`) — red mic light, so
+   *  the microphone never records unseen while the popup is closed. */
+  dictating?: boolean;
   /** System sleep status (macOS, v0.114.0) — is something OTHER than us
    *  holding the machine awake, and for how long? Distinct from
    *  `wakelockActive`, which is Inspector's OWN wakelock: with IR's wakelock
@@ -63,6 +66,7 @@ export function Footer({
   activeTimerCount,
   trackingActive,
   trackingPaused,
+  dictating,
   sleepStatus,
   darkWake,
   onDarkWakeToggle,
@@ -103,6 +107,7 @@ export function Footer({
           )}
           {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
           <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
+          {dictating && <DictationLed />}
           {trackingActive && <TrackingLed paused={!!trackingPaused} />}
           {activeTimerCount != null && activeTimerCount > 0 && (
             <TimerBadge count={activeTimerCount} />
@@ -201,6 +206,25 @@ function TimerBadge({ count }: { count: number }) {
       className="confirm-enter flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
     >
       ⏰ {count}
+    </span>
+  );
+}
+
+/** Live dictation is recording — red pulsing dot. */
+function DictationLed() {
+  const t = useT();
+  return (
+    <span title={t("trx.live.footer_title")} className="confirm-enter flex shrink-0 items-center gap-1" data-testid="dictation-led">
+      <span
+        aria-hidden
+        className="h-2 w-2 rounded-full"
+        style={{
+          backgroundColor: "rgb(244, 63, 94)",
+          boxShadow: "0 0 4px rgba(244, 63, 94, 0.85), 0 0 8px rgba(244, 63, 94, 0.45)",
+          animation: "wakelockPulse 1.6s ease-in-out infinite",
+        }}
+      />
+      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">{t("trx.live.footer")}</span>
     </span>
   );
 }

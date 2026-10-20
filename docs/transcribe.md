@@ -21,6 +21,46 @@ Supported extensions: MP4, MP3, M4A, WAV, AAC, FLAC, OGG, OPUS, WebM, MOV, MKV,
 AVI (case insensitive). Only supported files in a mixed Finder selection are
 processed. Finder selection requires macOS; Windows and Linux take a path.
 
+## Live dictation
+
+```text
+transcribe --start
+transcribe --start --language de
+transcribe --stop
+```
+
+`--start` records the microphone and shows the text in the preview while you
+speak. As soon as the recording runs, the search bar reads `transcribe --stop`,
+so the next Enter ends it — Enter stops a running dictation whatever the line
+says. The **Stop recording** button does the same; the bin icon discards the
+recording without copying anything.
+
+How it works:
+
+- The microphone is captured natively (the same path as `bpm` / `iris`), never
+  through the web view, so other apps' playback is not interrupted.
+- The stream is cut at pauses (≥ 0.6 s after 1.5 s of speech, any pause of
+  1.5 s, at the latest after 25 s). Each finished sentence is transcribed with
+  the fast `base` model and kept; the sentence still being spoken is shown
+  greyed and updated about every 1.5 s.
+- After the stop, the accurate `small` model runs once over the whole
+  recording (a few seconds) and replaces the live text. That final text is
+  copied to the clipboard and saved in the clipboard history. If the accurate
+  pass fails, the live text is copied instead — dictated words are never lost.
+- Esc or closing the popup does not stop the recording. A red **Dict** light
+  in the footer shows it is still listening; type `transcribe` to see it or
+  stop it. A dictation ends automatically after 60 minutes.
+- Nothing leaves the machine. The audio is kept in memory and in a private
+  cache folder only while the session runs.
+
+The first dictation downloads the `base` model (~140 MB). Override the models
+with `IR_WHISPER_LIVE_MODEL` (live, default `base`) and `IR_WHISPER_MODEL`
+(final pass, default `small`). A dictation and a file transcription cannot run
+at the same time.
+
+Measured on an M1 Pro: a 3-second sentence takes 0.6–0.9 s with `base`; the
+final pass over 6.6 s of speech took 8 s with `small`.
+
 ## Setup
 
 Install Python 3.10 or newer and ffmpeg, then run from the repository:

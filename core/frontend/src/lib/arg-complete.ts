@@ -196,6 +196,8 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
   ],
   kill: [{ value: "-9", hint: "arg.kill9" }],
   transcribe: [
+    { value: "--start", hint: "arg.trx_start", next: [{ value: "--language", hint: "arg.language", next: LANGUAGES }] },
+    { value: "--stop", hint: "arg.trx_stop" },
     { value: "--language", hint: "arg.language", next: LANGUAGES },
   ],
   settings: SETTINGS,

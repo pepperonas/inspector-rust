@@ -133,8 +133,14 @@ const SNIPPET_FROM: &str =
 // that raced a write simply isn't cached (its generation no longer matches).
 // Plaintext bodies live in memory only for the process lifetime; the at-rest
 // encryption (the DB file) is untouched.
+// The cache also remembers WHICH database it was filled from (a `Weak`, so the
+// allocation — and with it the address — cannot be reused while the entry
+// lives). The app has one database, but the test suite runs many in-memory
+// ones in parallel; keyed only by generation, one test read another's rows
+// (flaky `find_by_query_*` / `cache_serves_*`, varying per run).
+type CacheEntry = (u64, std::sync::Weak<parking_lot::Mutex<rusqlite::Connection>>, Arc<Vec<Snippet>>);
 static CACHE_GEN: AtomicU64 = AtomicU64::new(1);
-static CACHE: parking_lot::Mutex<Option<(u64, Arc<Vec<Snippet>>)>> = parking_lot::Mutex::new(None);
+static CACHE: parking_lot::Mutex<Option<CacheEntry>> = parking_lot::Mutex::new(None);
 
 /// Drop the read cache. Called by every write path in this module; external
 /// writers (backup restore, seed) call it too. Cheap (one atomic add).
@@ -145,8 +151,8 @@ pub fn invalidate_cache() {
 /// `list_all` through the process-wide cache. Same rows, same order.
 pub fn list_all_cached(db: &DbHandle) -> Result<Arc<Vec<Snippet>>> {
     let gen = CACHE_GEN.load(Ordering::SeqCst);
-    if let Some((g, v)) = CACHE.lock().as_ref() {
-        if *g == gen {
+    if let Some((g, owner, v)) = CACHE.lock().as_ref() {
+        if *g == gen && std::ptr::eq(owner.as_ptr(), Arc::as_ptr(db)) {
             return Ok(v.clone());
         }
     }
@@ -154,7 +160,7 @@ pub fn list_all_cached(db: &DbHandle) -> Result<Arc<Vec<Snippet>>> {
     // A write that landed during our read bumped the generation → do not
     // cache what may already be stale; the next reader refills.
     if CACHE_GEN.load(Ordering::SeqCst) == gen {
-        *CACHE.lock() = Some((gen, fresh.clone()));
+        *CACHE.lock() = Some((gen, Arc::downgrade(db), fresh.clone()));
     }
     Ok(fresh)
 }
@@ -1321,7 +1327,17 @@ mod tests {
         let first = list_all_cached(&db).unwrap();
         assert_eq!(first.len(), 1);
         // Same generation → the very same Arc (no re-read, no re-decrypt).
-        assert!(Arc::ptr_eq(&first, &list_all_cached(&db).unwrap()));
+        // Parallel tests bump the process-wide generation with their own
+        // writes, so one pair may straddle a bump; a working cache still
+        // serves the same Arc for most back-to-back reads.
+        let hits = (0..50)
+            .filter(|_| {
+                let a = list_all_cached(&db).unwrap();
+                Arc::ptr_eq(&a, &list_all_cached(&db).unwrap())
+            })
+            .count();
+        assert!(hits > 0, "the cache never served a cached copy");
+        assert_eq!(first.len(), 1);
 
         // update → visible
         update(&db, id, "ab", "Title 2", "hello body", None).unwrap();

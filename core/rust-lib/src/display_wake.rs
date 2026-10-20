@@ -68,6 +68,9 @@ fn reapply(app: &tauri::AppHandle, why: &str) {
         // capture, which re-registers with MultitouchSupport.
         crate::gestures::apply(app, &db, &state);
     }
+    // After sleep macOS often has dropped the OCR text model; reloading it
+    // now keeps the next OCR from waiting for it (cheap when still loaded).
+    crate::ocr::prewarm();
 }
 
 /// Register the observers once. Must run on the main thread (setup).

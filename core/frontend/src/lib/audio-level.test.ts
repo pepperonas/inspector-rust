@@ -82,3 +82,18 @@ describe("smoothStep", () => {
     expect(smoothStep(0.42, 0.42, 0.5, 0.1)).toBeCloseTo(0.42, 6);
   });
 });
+
+describe("every mic panel shows the same positive dB", () => {
+  async function source(file: string): Promise<string> {
+    const { readFileSync } = (await import("node:" + "fs")) as unknown as {
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const cwd = (globalThis as unknown as { process: { cwd(): string } }).process.cwd();
+    return readFileSync(`${cwd}/src/components/${file}`, "utf8");
+  }
+
+  // `db` shows dBFS + 90; bpm and equalizer showed raw dBFS (−40 …) beside it.
+  it.each(["BpmDetector.tsx", "EqualizerVisualizer.tsx", "DezibelPanel.tsx"])("%s converts with dbfsToDisplayDb", async (f) => {
+    expect(await source(f)).toMatch(/dbfsToDisplayDb\(/);
+  });
+});

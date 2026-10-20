@@ -4523,10 +4523,15 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
         return Err(ERR_NO_SCREEN_RECORDING.to_string());
     }
 
+    // Load the text model while the user still drags the region — a model
+    // macOS has dropped takes seconds to tens of seconds to come back.
+    ocr::prewarm();
+
     // Hide the popup so the screencapture overlay shows over the
     // *previously* focused window — same UX as Cmd+Shift+4.
     hotkey::hide_popup(app);
 
+    let t_capture = std::time::Instant::now();
     let png_bytes = match region_picker::capture() {
         Ok(b) => b,
         Err(e) => {
@@ -4542,7 +4547,14 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
         }
     };
 
+    let capture_ms = t_capture.elapsed().as_millis();
+    let t_ocr = std::time::Instant::now();
     let text = ocr::recognize(&png_bytes).map_err(|e| format!("ocr failed: {e:#}"))?;
+    tracing::info!(
+        "OCR: region {capture_ms} ms (incl. dragging), recognition {} ms, {} KB",
+        t_ocr.elapsed().as_millis(),
+        png_bytes.len() / 1024
+    );
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Ok(OcrResult {

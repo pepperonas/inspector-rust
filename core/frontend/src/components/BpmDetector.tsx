@@ -5,7 +5,7 @@ import { BpmAnalyzer } from "../lib/bpm";
 import { setSuppressHide } from "../lib/ipc";
 import { warmContext } from "../lib/warm-audio";
 import { startFedMic } from "../lib/mic-feed";
-import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "../lib/audio-level";
+import { rms, rmsToDbfs, dbfsToDisplayDb, dbfsToLevel, smoothStep } from "../lib/audio-level";
 import {
   clamp01,
   confidenceColor,
@@ -449,7 +449,7 @@ export function BpmDetector({ onExit }: Props) {
                   }}
                 >
                   <span className="text-[26px] font-semibold leading-none">
-                    {db === null ? "—" : db}
+                    {db === null ? "—" : dbfsToDisplayDb(db)}
                   </span>
                   <span className="text-[12px] font-medium opacity-70">dB</span>
                 </div>

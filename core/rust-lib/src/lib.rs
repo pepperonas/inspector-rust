@@ -521,6 +521,12 @@ pub fn run(context: tauri::Context<Wry>) {
             // Display wake / system wake / display changes: macOS resets the
             // gamma tables and can deafen the touchpad capture — re-apply both.
             display_wake::install(app.handle());
+            // OCR: load the text model once the launch has settled, so the
+            // first Ctrl+Shift+O doesn't pay for it.
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(20));
+                ocr::prewarm();
+            });
 
             // Window palette (opt-in; off by default). macOS-only hover monitor.
             {

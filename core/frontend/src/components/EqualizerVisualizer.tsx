@@ -5,7 +5,7 @@ import { setSuppressHide } from "../lib/ipc";
 import { warmContext } from "../lib/warm-audio";
 import { startFedMic } from "../lib/mic-feed";
 import { BpmAnalyzer } from "../lib/bpm";
-import { rms, rmsToDbfs, smoothStep } from "../lib/audio-level";
+import { dbfsToDisplayDb, rms, rmsToDbfs, smoothStep } from "../lib/audio-level";
 import {
   clamp01,
   confidenceColor,
@@ -327,7 +327,8 @@ export function EqualizerVisualizer({ onExit }: Props) {
           // (with a readable dwell) so the numbers flap like an airport board
           // instead of flickering every frame.
           const dtMs = dt * 1000;
-          updateFlap(v.dbFlap, v.db <= -90 ? NaN : Math.round(v.db), now, dtMs);
+          // Shown like `db`: estimated SPL (dBFS + 90), never negative.
+          updateFlap(v.dbFlap, v.db <= -90 ? NaN : dbfsToDisplayDb(v.db), now, dtMs);
           updateFlap(v.bpmFlap, v.bpm > 0 ? Math.round(v.bpm) : NaN, now, dtMs);
 
           if (now - startT >= WARMUP_MS) {

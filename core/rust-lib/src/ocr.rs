@@ -20,11 +20,56 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String> {
     if png_bytes.is_empty() {
         anyhow::bail!("empty image data");
     }
-    recognize_impl(png_bytes)
+    recognize_impl(png_bytes, Level::Accurate)
+}
+
+/// A tiny image with a few words. Recognising it makes the OS load the text
+/// model before the real request needs it.
+const WARMUP_PNG: &[u8] = include_bytes!("../assets/ocr_warmup.png");
+
+static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Load the recognition model in the background so the next [`recognize`] is
+/// fast. Measured 2026-10-20 on an M1 Pro: warm 0.1–0.3 s, a process start
+/// 0.3–0.4 s, and **69 s** once macOS had dropped the model — that is the
+/// "OCR often takes too long". Called when an OCR starts (the model then loads
+/// while the user still drags the region) and once after app start. A warm-up
+/// already running is not started twice; a failure only costs the head start.
+pub fn prewarm() {
+    use std::sync::atomic::Ordering;
+    // Only Vision keeps a model that the OS can drop; tesseract (Linux) is a
+    // fresh process per call and Windows OCR is cheap to create.
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    if WARMING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("ir-ocr-warmup".into())
+        .spawn(|| {
+            let t = std::time::Instant::now();
+            match recognize_impl(WARMUP_PNG, Level::Accurate) {
+                Ok(_) => tracing::info!("ocr: model warm-up {} ms", t.elapsed().as_millis()),
+                Err(e) => tracing::debug!("ocr: warm-up failed: {e:#}"),
+            }
+            WARMING.store(false, Ordering::SeqCst);
+        });
+    if spawned.is_err() {
+        WARMING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Vision's two recognition paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum Level {
+    Accurate,
+    Fast,
 }
 
 #[cfg(target_os = "macos")]
-fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+fn recognize_impl(png_bytes: &[u8], level: Level) -> Result<String> {
     use objc2::msg_send;
     use objc2::rc::autoreleasepool;
     use objc2::runtime::AnyObject;
@@ -42,7 +87,7 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
     autoreleasepool(|_| unsafe {
         let mut handler: *mut AnyObject = std::ptr::null_mut();
         let mut request: *mut AnyObject = std::ptr::null_mut();
-        let result = recognize_in_pool(png_bytes, &mut handler, &mut request);
+        let result = recognize_in_pool(png_bytes, level, &mut handler, &mut request);
         if !request.is_null() {
             let _: () = msg_send![request, release];
         }
@@ -59,6 +104,7 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
 #[cfg(target_os = "macos")]
 unsafe fn recognize_in_pool(
     png_bytes: &[u8],
+    level: Level,
     handler_out: &mut *mut objc2::runtime::AnyObject,
     request_out: &mut *mut objc2::runtime::AnyObject,
 ) -> Result<String> {
@@ -110,8 +156,9 @@ unsafe fn recognize_in_pool(
         *request_out = request;
         // Recognition level: 0 = Accurate (slower, much better), 1 = Fast.
         // For a one-shot user-triggered OCR the latency hit is fine.
-        let _: () = msg_send![request, setRecognitionLevel: 0i64];
-        let _: () = msg_send![request, setUsesLanguageCorrection: true];
+        let level_raw: i64 = if level == Level::Fast { 1 } else { 0 };
+        let _: () = msg_send![request, setRecognitionLevel: level_raw];
+        let _: () = msg_send![request, setUsesLanguageCorrection: level == Level::Accurate];
         // Languages default to the user's preferred languages (all
         // installed Vision languages on macOS 13+). Don't override —
         // setting an empty array would make recognition fail entirely.
@@ -183,7 +230,7 @@ unsafe fn nsstring_to_rust(s: *mut objc2::runtime::AnyObject) -> Option<String> 
 }
 
 #[cfg(target_os = "windows")]
-fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+fn recognize_impl(png_bytes: &[u8], _level: Level) -> Result<String> {
     use windows::Graphics::Imaging::BitmapDecoder;
     use windows::Media::Ocr::OcrEngine;
     use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
@@ -229,7 +276,7 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
 
 /// Linux: Tesseract CLI (`apt install tesseract-ocr`). Offline, no extra Rust deps.
 #[cfg(target_os = "linux")]
-fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+fn recognize_impl(png_bytes: &[u8], _level: Level) -> Result<String> {
     use anyhow::Context;
     use chrono::Utc;
     use std::process::Command;
@@ -343,6 +390,59 @@ mod linux_tesseract_tests {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn recognize_impl(_png_bytes: &[u8]) -> Result<String> {
+fn recognize_impl(_png_bytes: &[u8], _level: Level) -> Result<String> {
     anyhow::bail!("OCR is not implemented on this platform")
+}
+
+#[cfg(test)]
+mod wiring_tests {
+    /// The warm-up only helps if it starts BEFORE the user drags the region.
+    #[test]
+    fn the_pipeline_warms_the_model_before_the_capture() {
+        let src = include_str!("commands.rs");
+        let body = &src[src.find("pub fn run_ocr_pipeline").unwrap()..];
+        let warm = body.find("ocr::prewarm()").expect("prewarm call");
+        let capture = body.find("region_picker::capture()").unwrap();
+        assert!(warm < capture);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod bench {
+    use super::*;
+
+    #[test]
+    fn the_warm_up_image_is_read_as_text() {
+        let text = recognize_impl(WARMUP_PNG, Level::Accurate).unwrap();
+        assert!(text.to_lowercase().contains("warm"), "got {text:?}");
+    }
+
+    /// `IR_OCR_BENCH=<dir of .png> cargo test --release -p inspector-rust-core --lib ocr_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn ocr_bench() {
+        let dir = std::env::var("IR_OCR_BENCH").expect("IR_OCR_BENCH");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "png") {
+                continue;
+            }
+            let png = std::fs::read(&path).unwrap();
+            // A warm-up on another thread first: does it help the real call?
+            let t = std::time::Instant::now();
+            std::thread::spawn(|| recognize_impl(WARMUP_PNG, Level::Accurate).map(|_| ()).ok()).join().unwrap();
+            println!("warm-up (other thread): {} ms", t.elapsed().as_millis());
+            for level in [Level::Accurate, Level::Fast, Level::Accurate] {
+                let t = std::time::Instant::now();
+                let text = recognize_impl(&png, level).unwrap();
+                println!(
+                    "{:?} {:?}: {} ms, {} chars",
+                    path.file_name().unwrap(),
+                    level,
+                    t.elapsed().as_millis(),
+                    text.chars().count()
+                );
+            }
+        }
+    }
 }

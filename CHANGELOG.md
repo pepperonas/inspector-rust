@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.222.3] - 2026-10-20
+
+### Fixed
+- **OCR often took too long:** Apple's text model costs about 0.1–0.3 s once loaded, but **69–76 s** when macOS has to load it again (measured: the first run of a new build, and after the system drops it). The model is now loaded in the background 20 s after app start, after every wake / display change, and the moment OCR is triggered — while you are still dragging the region. The log now records the recognition time of every OCR.
+- **`bpm` and `equalizer` showed negative dB:** they displayed raw dBFS (−40 …) while `db` shows the estimated level (dBFS + 90). All three now show the same positive value.
+
 ## [0.222.2] - 2026-10-20
 
 ### Fixed

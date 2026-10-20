@@ -95,7 +95,7 @@ describe("dailymotion", () => {
   it("every platform has a label — a new one must not fall through", () => {
     // The list row used to hard-code its label chain, so an unlisted platform
     // was silently announced as "Facebook".
-    for (const p of ["youtube", "instagram", "tiktok", "facebook", "dailymotion", "x"] as const) {
+    for (const p of ["youtube", "instagram", "tiktok", "facebook", "dailymotion", "x", "zdf"] as const) {
       expect(platformLabel(p).length, p).toBeGreaterThan(0);
     }
   });
@@ -123,5 +123,19 @@ describe("X / Twitter", () => {
     "https://notyoutube.com/watch?v=1",
   ])("does not classify domain text outside a supported hostname: %s", (url) => {
     expect(detectSocial(url)).toBeNull();
+  });
+});
+
+describe("zdf", () => {
+  it("detects the Mediathek and zdfheute articles, not lookalikes", () => {
+    for (const url of [
+      "https://www.zdfheute.de/wirtschaft/investitionsgipfel-berlin-merz-nvidia-ki-100.html",
+      "https://www.zdf.de/nachrichten/heute-journal/x-100.html",
+    ]) {
+      expect(detectSocial(url), url).toEqual({ platform: "zdf", url });
+    }
+    expect(platformLabel("zdf")).toBe("ZDF");
+    expect(detectSocial("https://notzdf.de/x")).toBeNull();
+    expect(detectSocial("https://zdf.de.example.org/x")).toBeNull();
   });
 });

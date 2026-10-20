@@ -1,6 +1,6 @@
 /**
  * Detect a downloadable social-media URL (YouTube / Instagram / TikTok /
- * Facebook / Dailymotion / X) in a string — a clip's text or the search query. Pure; mirrors the
+ * Facebook / Dailymotion / X / ZDF) in a string — a clip's text or the search query. Pure; mirrors the
  * Rust `social_dl::detect_platform`. Used to surface a download suggestion in
  * the preview.
  */
@@ -11,7 +11,8 @@ export type SocialPlatform =
   | "tiktok"
   | "facebook"
   | "dailymotion"
-  | "x";
+  | "x"
+  | "zdf";
 
 export interface SocialTarget {
   platform: SocialPlatform;
@@ -25,6 +26,7 @@ const LABELS: Record<SocialPlatform, string> = {
   facebook: "Facebook",
   dailymotion: "Dailymotion",
   x: "X",
+  zdf: "ZDF",
 };
 
 export function platformLabel(p: SocialPlatform): string {
@@ -52,6 +54,8 @@ export function detectSocial(text: string): SocialTarget | null {
   if (matchesHost("dailymotion.com") || matchesHost("dai.ly"))
     return { platform: "dailymotion", url };
   if (matchesHost("x.com") || matchesHost("twitter.com")) return { platform: "x", url };
+  // ZDF Mediathek + zdfheute articles with an embedded player.
+  if (matchesHost("zdf.de") || matchesHost("zdfheute.de")) return { platform: "zdf", url };
   return null;
 }
 

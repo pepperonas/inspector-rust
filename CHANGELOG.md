@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.220.0] - 2026-10-20
+
+### Added
+- **ZDF downloads:** links to the ZDF Mediathek (`zdf.de`) and to zdfheute articles with an embedded video (`zdfheute.de`) get the same download row as YouTube — video via yt-dlp, also in the link grabber.
+
 ## [0.219.1] - 2026-10-19
 
 ### Changed

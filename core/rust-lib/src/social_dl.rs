@@ -1,4 +1,4 @@
-//! Download social-media content (YouTube / Instagram / TikTok / Facebook / Dailymotion / X) via
+//! Download social-media content (YouTube / Instagram / TikTok / Facebook / Dailymotion / X / ZDF) via
 //! `yt-dlp`. IR auto-detects a social URL (in a clip or the search bar) and the
 //! preview offers a download — **video or audio** for YouTube, **video** for the
 //! rest. Output lands in `~/Downloads` and is revealed in Finder.
@@ -20,6 +20,7 @@ pub enum Platform {
     Facebook,
     Dailymotion,
     X,
+    Zdf,
 }
 
 impl Platform {
@@ -31,6 +32,7 @@ impl Platform {
             Platform::Facebook => "Facebook",
             Platform::Dailymotion => "Dailymotion",
             Platform::X => "X",
+            Platform::Zdf => "ZDF",
         }
     }
 }
@@ -58,6 +60,10 @@ pub fn detect_platform(url: &str) -> Option<Platform> {
         Some(Platform::Dailymotion)
     } else if matches_host("x.com") || matches_host("twitter.com") {
         Some(Platform::X)
+    } else if matches_host("zdf.de") || matches_host("zdfheute.de") {
+        // ZDF Mediathek + zdfheute articles with an embedded player — yt-dlp's
+        // `zdf` extractor resolves both to the video.
+        Some(Platform::Zdf)
     } else {
         None
     }
@@ -615,6 +621,20 @@ mod tests {
         assert_eq!(detect_platform("https://www.tiktok.com/@u/video/123"), Some(Platform::TikTok));
         assert_eq!(detect_platform("https://www.facebook.com/watch/?v=1"), Some(Platform::Facebook));
         assert_eq!(detect_platform("https://fb.watch/abc/"), Some(Platform::Facebook));
+    }
+
+    #[test]
+    fn detects_zdf_mediathek_and_zdfheute_articles() {
+        for url in [
+            "https://www.zdfheute.de/wirtschaft/investitionsgipfel-berlin-merz-nvidia-ki-100.html",
+            "https://www.zdf.de/nachrichten/heute-journal/heute-journal-vom-1-oktober-2026-100.html",
+            "https://zdf.de/serien/x",
+        ] {
+            assert_eq!(detect_platform(url), Some(Platform::Zdf), "{url}");
+        }
+        assert_eq!(Platform::Zdf.display_name(), "ZDF");
+        assert_eq!(detect_platform("https://notzdf.de/x"), None);
+        assert_eq!(detect_platform("https://zdf.de.example.org/x"), None);
     }
 
     #[test]

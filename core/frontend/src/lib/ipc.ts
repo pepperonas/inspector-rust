@@ -293,6 +293,8 @@ export interface LiveJob {
   loading_model: string | null;
   copied: boolean;
   error: string | null;
+  /** Output volume before it was lowered for the recording (percent). */
+  ducked_from?: number | null;
 }
 
 /** Payload of `transcribe-live-done`. */

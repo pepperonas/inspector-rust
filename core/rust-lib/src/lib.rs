@@ -1254,6 +1254,7 @@ pub fn run(context: tauri::Context<Wry>) {
         // never left muted (muted tap = our IOProc is the only path).
         if matches!(event, tauri::RunEvent::Exit) {
             boom::shutdown();
+            live_transcribe::restore_output();
         }
     });
 }

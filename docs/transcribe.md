@@ -67,6 +67,16 @@ at the same time.
 Measured on an M1 Pro: a 3-second sentence takes 0.6–0.9 s with `base`; the
 final pass over 6.6 s of speech took 8 s with `small`.
 
+### Music playing on this Mac
+
+The microphone cannot separate a voice from loud music coming out of the same
+Mac's speakers — Whisper then hears only the music and returns nothing. While a
+dictation records, the system output volume is lowered to 10 % and restored
+when the recording stops (or the app quits). If you change the volume during
+the recording, your setting is kept. Turn it off with the setting
+`transcribe.duck_audio = false`. Music from another device (a stereo) is not
+affected — use headphones or turn it down by hand.
+
 ## Setup
 
 Install Python 3.10 or newer and ffmpeg, then run from the repository:

@@ -4032,6 +4032,7 @@
   "trx.live.again": "New recording",
   "trx.live.idle": "Press Enter to start recording. The text appears here while you speak; Enter again stops, and the final text goes to the clipboard.",
   "trx.live.start": "Start recording",
+  "trx.live.ducked": "Music turned down (was {from} %)",
   "trx.live.finalizing": "Creating the final text…",
   "trx.live.loading": "Loading model {model}…",
   "trx.live.row_stop": "Stop dictation",

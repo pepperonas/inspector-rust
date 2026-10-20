@@ -182,6 +182,11 @@ function StatusRow({ job }: { job: LiveJob }) {
           data-testid="live-level"
         />
       </div>
+      {job.ducked_from != null && (
+        <span className="text-[11px] text-[var(--color-muted)]" data-testid="live-ducked">
+          {t("trx.live.ducked", { from: job.ducked_from })}
+        </span>
+      )}
       {job.loading_model && (
         <span className="flex items-center gap-1 text-[11px] text-[var(--color-muted)]">
           <Loader2 size={11} className="animate-spin" /> {t("trx.live.loading", { model: job.loading_model })}

@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.222.4] - 2026-10-21
+
+### Fixed
+- **Dictation stayed empty while music played from this Mac:** with Spotify on the built-in speakers at 100 % the microphone heard the music louder than the voice and Whisper returned nothing usable. While recording, the system output is now turned down to 10 % and put back when the recording stops (not if you changed the volume meanwhile; also on app exit). The live view says so. Setting `transcribe.duck_audio = false` turns it off.
+
 ## [0.222.3] - 2026-10-20
 
 ### Fixed

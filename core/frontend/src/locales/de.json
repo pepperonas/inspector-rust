@@ -4032,6 +4032,7 @@
   "trx.live.again": "Neue Aufnahme",
   "trx.live.idle": "Enter startet die Aufnahme. Der Text erscheint hier, während du sprichst; Enter beendet sie, und der fertige Text kommt in die Zwischenablage.",
   "trx.live.start": "Aufnahme starten",
+  "trx.live.ducked": "Musik leiser gestellt (vorher {from} %)",
   "trx.live.finalizing": "Endfassung wird erstellt…",
   "trx.live.loading": "Lade Modell {model}…",
   "trx.live.row_stop": "Diktat beenden",

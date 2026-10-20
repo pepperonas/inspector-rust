@@ -252,6 +252,8 @@ pub struct LiveJob {
     pub loading_model: Option<String>,
     pub copied: bool,
     pub error: Option<String>,
+    /// Output volume before it was lowered for the recording (percent).
+    pub ducked_from: Option<i32>,
     #[serde(skip)]
     last_final_seq: u64,
     #[serde(skip)]
@@ -322,6 +324,7 @@ impl LiveJob {
             loading_model: None,
             copied: false,
             error: None,
+            ducked_from: None,
             last_final_seq: 0,
             partial_seq: 0,
         }
@@ -612,6 +615,82 @@ fn drain(worker: &Worker, busy: &mut bool) -> Result<(), ()> {
     }
 }
 
+// --- Lowering the music while dictating -------------------------------------
+//
+// Field case 2026-10-20: Spotify played through the built-in speakers at 100 %,
+// the microphone heard the music louder than the voice (chunk RMS 0.29) and
+// every decode came back empty — Whisper's confident segments were all
+// lyrics/instruments, the voice was masked. No filter can recover a voice the
+// microphone never separated, so while recording the system output is turned
+// down (what dedicated dictation tools do) and put back when recording stops.
+
+/// Settings key; on unless set to "false".
+pub const SETTING_DUCK: &str = "transcribe.duck_audio";
+/// Output volume while recording (percent).
+pub const DUCK_TO: i32 = 10;
+/// Read-back tolerance: a virtual output (boom Audio) reads a set volume back
+/// a few percent off.
+const DUCK_TOLERANCE: i32 = 3;
+
+/// The level to duck to, or `None` when the output is already quiet enough.
+pub fn duck_target(current: i32) -> Option<i32> {
+    (current > DUCK_TO).then_some(DUCK_TO)
+}
+
+/// Restore only if nobody changed the volume meanwhile — a level the user set
+/// during the recording is theirs and must not be overwritten.
+pub fn should_restore(now: Option<i32>, ducked_to: i32) -> bool {
+    match now {
+        Some(v) => (v - ducked_to).abs() <= DUCK_TOLERANCE,
+        None => true,
+    }
+}
+
+/// Active ducking: the level to go back to and the level we set.
+static DUCKED: parking_lot::Mutex<Option<(i32, i32)>> = parking_lot::Mutex::new(None);
+
+fn duck_enabled(app: &tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    let Some(db) = app.try_state::<crate::db::DbHandle>() else { return true };
+    !matches!(crate::settings::get(&db, SETTING_DUCK), Ok(Some(v)) if v.trim() == "false")
+}
+
+fn duck_output(app: &tauri::AppHandle) {
+    if !duck_enabled(app) {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use crate::system_commands::ca_volume;
+        let Some(current) = ca_volume::read_volume() else { return };
+        let Some(target) = duck_target(current) else { return };
+        if ca_volume::write_volume(target) {
+            *DUCKED.lock() = Some((current, target));
+            update(|j| j.ducked_from = Some(current));
+            tracing::info!("transcribe live: output lowered {current}% -> {target}%");
+        }
+    }
+}
+
+/// Put the output volume back (idempotent; also called on app exit).
+pub fn restore_output() {
+    let Some((before, target)) = DUCKED.lock().take() else { return };
+    update(|j| j.ducked_from = None);
+    #[cfg(target_os = "macos")]
+    {
+        use crate::system_commands::ca_volume;
+        let now = ca_volume::read_volume();
+        if should_restore(now, target) {
+            ca_volume::write_volume(before);
+            tracing::info!("transcribe live: output restored to {before}%");
+        } else {
+            tracing::info!("transcribe live: volume changed during dictation ({now:?}%) — left as is");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (before, target);
+}
+
 fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
     let dir = match private_dir(id) {
         Ok(d) => d,
@@ -624,6 +703,7 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
 
     let buffer: Arc<parking_lot::Mutex<Vec<i16>>> = Arc::default();
     let level = Arc::new(AtomicU32::new(0));
+    duck_output(&app);
     let mic = {
         let buffer = buffer.clone();
         let level = level.clone();
@@ -722,6 +802,7 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
     }
     mic.stop();
     drop(mic);
+    restore_output();
 
     if CANCEL.load(Ordering::SeqCst) {
         worker.close();
@@ -804,6 +885,7 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
 /// still copied — dictated words are never lost to a crash).
 fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
     tracing::info!("transcribe live: finish (error: {error:?})");
+    restore_output();
     if let Some(d) = dir {
         let _ = std::fs::remove_dir_all(d);
     }
@@ -839,6 +921,28 @@ fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
         LIVE_DONE_EVENT,
         LiveDone { id, ok: error.is_none() && !cancelled, cancelled, text, error },
     );
+}
+
+#[cfg(test)]
+mod duck_tests {
+    use super::*;
+
+    #[test]
+    fn loud_output_is_lowered_quiet_output_left_alone() {
+        assert_eq!(duck_target(100), Some(DUCK_TO));
+        assert_eq!(duck_target(DUCK_TO + 1), Some(DUCK_TO));
+        assert_eq!(duck_target(DUCK_TO), None);
+        assert_eq!(duck_target(0), None);
+    }
+
+    #[test]
+    fn restore_only_when_the_user_did_not_touch_the_volume() {
+        assert!(should_restore(Some(DUCK_TO), DUCK_TO));
+        assert!(should_restore(Some(DUCK_TO + 2), DUCK_TO), "read-back jitter");
+        assert!(!should_restore(Some(60), DUCK_TO), "user turned it up");
+        assert!(!should_restore(Some(0), DUCK_TO), "user turned it down");
+        assert!(should_restore(None, DUCK_TO));
+    }
 }
 
 #[cfg(test)]

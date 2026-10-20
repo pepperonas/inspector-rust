@@ -39,10 +39,16 @@ How it works:
 
 - The microphone is captured natively (the same path as `bpm` / `iris`), never
   through the web view, so other apps' playback is not interrupted.
-- The stream is cut at pauses (≥ 0.6 s after 1.5 s of speech, any pause of
-  1.5 s, at the latest after 25 s). Each finished sentence is transcribed with
-  the fast `base` model and kept; the sentence still being spoken is shown
-  greyed and updated about every 1.5 s.
+- The stream is cut into back-to-back pieces at pauses (≥ 0.6 s once a piece
+  is 3 s long, any 1.5 s pause after sound), or after 12 s at the quietest
+  moment. Nothing is thrown away except true silence — an energy rule cannot
+  tell a voice from music, so Whisper decides what is speech. Each finished
+  piece is transcribed with the fast `base` model and kept; the one still
+  being spoken is shown greyed and updated about every 1.5 s.
+- Background music works: Whisper's own confidence drops what it invents on
+  music (measured: speech scores −0.2…−0.5, inventions −3…−6, cut at −1).
+  Tested with a song under the dictation — complete up to music as loud as
+  the voice; louder than the voice a word or two can go wrong.
 - After the stop, the accurate `small` model runs once over the whole
   recording (a few seconds) and replaces the live text. That final text is
   copied to the clipboard and saved in the clipboard history. If the accurate

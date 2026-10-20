@@ -27,6 +27,24 @@ def emit(event, **fields):
     sys.stdout.flush()
 
 
+# Whisper's confidence per segment. Measured on dictation over music
+# (2026-10-20): real speech scores avg_logprob -0.2 … -0.5, its inventions on
+# music -3 … -6 ("Wir recommend those below…"). Anything under -1.0 is dropped;
+# so is a repetition loop (compression ratio > 2.4, Whisper's own limit).
+MIN_LOGPROB = -1.0
+MAX_COMPRESSION = 2.4
+
+
+def confident_text(result):
+    kept = [
+        seg["text"].strip()
+        for seg in result.get("segments", [])
+        if seg.get("avg_logprob", 0.0) >= MIN_LOGPROB
+        and seg.get("compression_ratio", 0.0) <= MAX_COMPRESSION
+    ]
+    return " ".join(t for t in kept if t)
+
+
 def load(path):
     import numpy as np
 
@@ -78,14 +96,14 @@ def main():
                     condition_on_previous_text=False,
                     initial_prompt=req.get("prompt") or None,
                 )
-                emit("text", seq=seq, kind=req.get("kind", "partial"), text=result["text"].strip())
+                emit("text", seq=seq, kind=req.get("kind", "partial"), text=confident_text(result))
             elif op == "finalize":
                 emit("finalizing", name=FINAL_MODEL)
                 final = live if FINAL_MODEL == LIVE_MODEL else whisper.load_model(FINAL_MODEL, device="cpu")
                 result = final.transcribe(
                     load(req["path"]), language=language, task="transcribe", verbose=None, fp16=False
                 )
-                emit("final", text=result["text"].strip())
+                emit("final", text=confident_text(result))
             else:
                 emit("error", seq=seq, error=f"unknown op: {op}")
         except Exception as error:  # one bad request must not end the session

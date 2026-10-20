@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.222.1] - 2026-10-20
+
+### Fixed
+- **Dictation with music playing:** an energy-based pause detector cannot tell a voice from music, and it discarded everything it did not count as speech — with music on, whole sentences were never transcribed. The recording is now cut into back-to-back pieces (only true silence is skipped) and Whisper decides what is speech; its low-confidence inventions on music are dropped. Measured with a song mixed under the dictation: complete text up to music as loud as the voice, two wrong words at twice that level (before: half the dictation missing).
+
 ## [0.222.0] - 2026-10-20
 
 ### Added

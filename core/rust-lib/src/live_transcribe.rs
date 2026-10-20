@@ -39,25 +39,38 @@ pub const RATE: usize = 16_000;
 pub const MAX_SECONDS: u64 = 3600;
 
 // ── Segmenter ───────────────────────────────────────────────────────────────
+//
+// ⚠️ The segmenter decides WHERE to cut, never WHAT to keep. Its first version
+// dropped everything between "speech" segments, and an energy threshold
+// cannot tell a voice from music: with music playing, whole sentences fell
+// into the gaps and were never transcribed (measured: a song at speech level
+// lost 3.5–10.7 s of a 13 s dictation). Now the segments tile the recording
+// without gaps; only true silence (nothing above MIN_THRESHOLD) is skipped,
+// and Whisper decides what is speech — it returns "" for music alone.
 
 /// 20 ms analysis frames.
 pub const FRAME: usize = RATE / 50;
-/// Audio kept before the first loud frame — word onsets are quiet.
+/// Silence kept before the first sound — word onsets are quiet.
 pub const PRE_ROLL: usize = RATE / 5;
-/// Audio kept after the last loud frame — word endings are quiet too.
-pub const TAIL: usize = RATE / 5;
-/// A pause this long closes a segment once enough speech is in it …
+/// A pause this long is a cut point once enough sound is in the segment …
 pub const PAUSE_SHORT: usize = RATE * 6 / 10;
-/// … and this much speech is "enough".
+/// … and this much sound is "enough".
 pub const SPEECH_FOR_SHORT_PAUSE: usize = RATE * 3 / 2;
-/// A pause this long always ends the segment.
+/// A pause this long is always a cut point.
 pub const PAUSE_LONG: usize = RATE * 3 / 2;
-/// Less speech than this is a cough or a click, not words — dropped.
+/// A short pause only cuts a segment at least this long. With loud music every
+/// beat gap looks like a pause; sub-second fragments leave Whisper without
+/// context and it invents words (measured), whole phrases it gets right.
+pub const MIN_CUT: usize = RATE * 3;
+/// Less sound than this is a cough or a click — not worth a decode.
 pub const MIN_SPEECH: usize = RATE * 3 / 10;
-/// Whisper's window is 30 s; cut before it.
-pub const MAX_SEGMENT: usize = RATE * 25;
-/// Speech = frame RMS above the larger of this and FLOOR_FACTOR × the noise floor.
+/// Without a pause (music, non-stop talking) cut after this long …
+pub const SOFT_SEGMENT: usize = RATE * 12;
+/// … at the quietest moment of its last stretch, so a word is rarely split.
+pub const CUT_SEARCH: usize = RATE * 4;
+/// Below this frame RMS (−40 dBFS) a frame is silence, whatever is playing.
 pub const MIN_THRESHOLD: f32 = 0.01;
+/// A frame is "quiet" (a pause) below FLOOR_FACTOR × the noise floor.
 pub const FLOOR_FACTOR: f32 = 3.0;
 
 /// A closed segment: absolute sample indices `[start, end)` of the recording.
@@ -67,22 +80,17 @@ pub struct Seg {
     pub end: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Open {
-    start: usize,
-    speech: usize,
-    silence: usize,
-    last_speech_end: usize,
-}
-
-/// Cuts a sample stream at pauses. Pure: feed samples, get closed segments.
+/// Cuts a sample stream into back-to-back segments. Pure: feed samples, get
+/// the segments that closed.
 #[derive(Debug)]
 pub struct Segmenter {
     /// Absolute index of the first sample in `pending`.
     pos: usize,
     pending: Vec<i16>,
-    open: Option<Open>,
-    last_end: usize,
+    /// Start of the segment being collected.
+    start: usize,
+    /// RMS of each frame since `start`.
+    frames: Vec<f32>,
     floor: f32,
 }
 
@@ -94,7 +102,7 @@ impl Default for Segmenter {
 
 impl Segmenter {
     pub fn new() -> Self {
-        Segmenter { pos: 0, pending: Vec::new(), open: None, last_end: 0, floor: 0.002 }
+        Segmenter { pos: 0, pending: Vec::new(), start: 0, frames: Vec::new(), floor: 0.002 }
     }
 
     /// Feed the next samples; returns the segments that closed.
@@ -103,78 +111,101 @@ impl Segmenter {
         let mut out = Vec::new();
         let mut used = 0;
         while self.pending.len() - used >= FRAME {
-            let start = self.pos + used;
             let rms = frame_rms(&self.pending[used..used + FRAME]);
-            if let Some(seg) = self.frame(rms, start) {
+            used += FRAME;
+            if let Some(seg) = self.frame(rms) {
                 out.push(seg);
             }
-            used += FRAME;
         }
         self.pending.drain(..used);
         self.pos += used;
         out
     }
 
-    /// The segment still being spoken: `(start, speech samples so far)`.
+    /// The segment still being collected: `(start, audible samples)` — None
+    /// while it is silence only.
     pub fn open(&self) -> Option<(usize, usize)> {
-        self.open.map(|o| (o.start, o.speech))
+        let loud = self.count(|r| r > MIN_THRESHOLD);
+        (loud > 0).then_some((self.start, loud))
     }
 
-    /// End of input: close the open segment if it holds real speech.
+    /// End of input: close what is left if it holds real sound.
     pub fn flush(&mut self) -> Option<Seg> {
-        let o = self.open.take()?;
-        let end = (o.last_speech_end + TAIL).min(self.pos + self.pending.len());
-        (o.speech >= MIN_SPEECH).then(|| self.close(o.start, end))
+        let end = self.start + self.frames.len() * FRAME;
+        let keep = self.count(|r| r > MIN_THRESHOLD) >= MIN_SPEECH;
+        let seg = Seg { start: self.start, end };
+        self.start = end;
+        self.frames.clear();
+        keep.then_some(seg)
     }
 
-    fn close(&mut self, start: usize, end: usize) -> Seg {
-        self.last_end = end;
-        Seg { start, end }
+    fn quiet_level(&self) -> f32 {
+        MIN_THRESHOLD.max(self.floor * FLOOR_FACTOR)
     }
 
-    fn frame(&mut self, rms: f32, start: usize) -> Option<Seg> {
-        let end = start + FRAME;
-        let speech = rms > MIN_THRESHOLD.max(self.floor * FLOOR_FACTOR);
+    /// Samples in frames matching `f`.
+    fn count(&self, f: impl Fn(f32) -> bool) -> usize {
+        self.frames.iter().filter(|&&r| f(r)).count() * FRAME
+    }
+
+    /// Close `[start, start + n frames)` and start the next segment there.
+    /// Silence-only (or click-only) stretches are skipped, never emitted.
+    fn cut(&mut self, n: usize) -> Option<Seg> {
+        let loud = self.frames[..n].iter().filter(|&&r| r > MIN_THRESHOLD).count() * FRAME;
+        let seg = Seg { start: self.start, end: self.start + n * FRAME };
+        self.frames.drain(..n);
+        self.start = seg.end;
+        (loud >= MIN_SPEECH).then_some(seg)
+    }
+
+    fn frame(&mut self, rms: f32) -> Option<Seg> {
         // Noise floor = a slow-rising, fast-falling minimum. Speech dips between
-        // syllables pull it down at once; a steady sound (a fan, traffic) lifts
-        // it within ~1 s, so the room never reads as one endless sentence.
+        // syllables pull it down at once; a steady sound (a fan, music) lifts it
+        // within ~1 s — so pauses are found relative to what is playing.
         if rms < self.floor {
             self.floor += (rms - self.floor) * 0.1;
         } else {
             self.floor += (rms - self.floor) * 0.01;
         }
-        let Some(mut o) = self.open else {
-            if speech {
-                self.open = Some(Open {
-                    start: start.saturating_sub(PRE_ROLL).max(self.last_end),
-                    speech: FRAME,
-                    silence: 0,
-                    last_speech_end: end,
-                });
-            }
+        self.frames.push(rms);
+        let quiet = self.quiet_level();
+        let quiet_run = self.frames.iter().rev().take_while(|&&r| r <= quiet).count() * FRAME;
+        let len = self.frames.len() * FRAME;
+        // How much is actually sound — the pauses inside a phrase don't count.
+        let sound = self.count(|r| r > quiet);
+        // Nothing but silence so far: slide the start along, but keep the last
+        // PRE_ROLL — a word's first sound is quieter than the threshold.
+        if self.frames.iter().all(|&r| r <= MIN_THRESHOLD) {
+            let drop = self.frames.len().saturating_sub(PRE_ROLL / FRAME);
+            self.start += drop * FRAME;
+            self.frames.drain(..drop);
             return None;
-        };
-        if speech {
-            o.speech += FRAME;
-            o.silence = 0;
-            o.last_speech_end = end;
-        } else {
-            o.silence += FRAME;
         }
-        let tail_end = (o.last_speech_end + TAIL).min(end);
-        if end - o.start >= MAX_SEGMENT {
-            self.open = None;
-            return Some(self.close(o.start, end));
+        // A pause only ends something that stood out from the background.
+        // Under steady loud music the floor sits at the music, EVERY frame
+        // reads as "quiet", and without this guard the long-pause rule cut
+        // the recording into 0.74 s scraps (measured) — the soft cap below
+        // handles that case instead, with whole phrases for Whisper.
+        if (quiet_run >= PAUSE_LONG && sound >= MIN_SPEECH)
+            || (quiet_run >= PAUSE_SHORT && sound >= SPEECH_FOR_SHORT_PAUSE && len >= MIN_CUT)
+        {
+            // Cut in the middle of the pause: both sides keep a little air.
+            let n = (len - quiet_run / 2) / FRAME;
+            return self.cut(n);
         }
-        if o.silence >= PAUSE_SHORT && o.speech >= SPEECH_FOR_SHORT_PAUSE {
-            self.open = None;
-            return Some(self.close(o.start, tail_end));
+        if len >= SOFT_SEGMENT {
+            // No pause found: cut at the quietest frame of the last stretch
+            // (the later one on a tie, so the segment stays as long as allowed).
+            let total = self.frames.len();
+            let from = total - CUT_SEARCH / FRAME;
+            let mut best = from;
+            for i in from..total {
+                if self.frames[i] <= self.frames[best] {
+                    best = i;
+                }
+            }
+            return self.cut(best + 1);
         }
-        if o.silence >= PAUSE_LONG {
-            self.open = None;
-            return (o.speech >= MIN_SPEECH).then(|| self.close(o.start, tail_end));
-        }
-        self.open = Some(o);
         None
     }
 }
@@ -809,16 +840,20 @@ mod tests {
         all.chunks(733).flat_map(|c| seg.push(c)).collect()
     }
 
+    /// Every sample in `[from, to)` lies inside some segment.
+    fn covered(segs: &[Seg], from: usize, to: usize) -> bool {
+        (from..to).step_by(FRAME).all(|i| segs.iter().any(|s| s.start <= i && i < s.end))
+    }
+
     #[test]
-    fn a_pause_after_enough_speech_closes_a_segment() {
+    fn a_pause_after_enough_speech_cuts_in_the_middle_of_it() {
         let mut s = Segmenter::new();
         let out = feed(&mut s, &[silence(500), tone(2000), silence(800)]);
         assert_eq!(out.len(), 1, "{out:?}");
-        let seg = out[0];
-        // Starts a pre-roll before the speech, ends a tail after it.
-        assert_eq!(seg.start, RATE / 2 - PRE_ROLL);
-        assert_eq!(seg.end, RATE / 2 + 2 * RATE + TAIL);
-        assert!(s.open().is_none());
+        // Leading silence is skipped except a short pre-roll before the first sound.
+        assert_eq!(out[0].start, RATE / 2 - PRE_ROLL);
+        // The cut sits inside the pause, after every word.
+        assert!(out[0].end >= RATE / 2 + 2 * RATE && out[0].end < RATE / 2 + 2 * RATE + RATE * 8 / 10);
     }
 
     #[test]
@@ -837,42 +872,104 @@ mod tests {
     }
 
     #[test]
-    fn a_long_pause_closes_even_a_short_phrase_and_drops_clicks() {
+    fn only_silence_may_fall_between_segments() {
         let mut s = Segmenter::new();
-        let out = feed(&mut s, &[tone(500), silence(1600)]);
-        assert_eq!(out.len(), 1, "half a second of speech is still words");
+        let input: Vec<i16> = [tone(2000), silence(650), tone(2000), silence(900), tone(1500)].concat();
+        let mut all: Vec<Seg> = input.chunks(733).flat_map(|c| s.push(c)).collect();
+        all.extend(s.flush());
+        assert!(all.len() >= 2, "{all:?}");
+        for (i, f) in input.chunks(FRAME).enumerate() {
+            if frame_rms(f) > MIN_THRESHOLD {
+                assert!(covered(&all, i * FRAME, i * FRAME + 1), "audible frame {i} dropped: {all:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn clicks_and_silence_produce_nothing() {
+        let mut s = Segmenter::new();
+        assert!(feed(&mut s, &[silence(5000)]).is_empty());
+        assert!(s.open().is_none());
+        assert!(s.flush().is_none());
         let mut s = Segmenter::new();
         let out = feed(&mut s, &[tone(100), silence(2000)]);
         assert!(out.is_empty(), "a click is not a segment: {out:?}");
-        assert!(s.open().is_none());
+        let mut s = Segmenter::new();
+        let out = feed(&mut s, &[tone(500), silence(1600)]);
+        assert_eq!(out.len(), 1, "half a second of speech is still words");
     }
 
     #[test]
-    fn silence_alone_produces_nothing() {
+    fn non_stop_sound_is_cut_regularly_at_its_quietest_moment() {
         let mut s = Segmenter::new();
-        assert!(feed(&mut s, &[silence(5000)]).is_empty());
-        assert!(s.flush().is_none());
-    }
-
-    #[test]
-    fn non_stop_speech_is_cut_before_whispers_window() {
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[tone(60_000)]);
-        assert!(out.len() >= 2, "{out:?}");
+        let out = feed(&mut s, &[tone(40_000)]);
+        assert!(out.len() >= 3, "{out:?}");
         for seg in &out {
-            assert!(seg.end - seg.start <= MAX_SEGMENT, "{seg:?}");
+            assert!(seg.end - seg.start <= SOFT_SEGMENT, "{seg:?}");
         }
-        // Back to back: nothing lost between two cuts.
-        assert_eq!(out[0].end, out[1].start);
+        for w in out.windows(2) {
+            assert_eq!(w[0].end, w[1].start);
+        }
+        // The cut lands in a gap between "syllables", not inside one.
+        let gap = |i: usize| (i % (RATE * 380 / 1000)) >= RATE * 300 / 1000;
+        assert!(out.iter().all(|seg| gap(seg.end - 1)), "{out:?}");
     }
 
+    /// The bug that prompted the rewrite: speech over music that is about as
+    /// loud as the voice. An energy rule cannot tell them apart, so nothing
+    /// in the speech may be left out of a segment — Whisper sorts it out.
     #[test]
-    fn segments_never_overlap_the_previous_one() {
+    fn speech_over_loud_music_is_never_dropped() {
+        let mut speech = silence(2000);
+        speech.extend(tone(3000));
+        speech.extend(silence(1200));
+        speech.extend(tone(4000));
+        speech.extend(silence(2000));
+        let bed = music(speech.len() * 1000 / RATE);
+        let mix: Vec<i16> = speech.iter().zip(&bed).map(|(&a, &b)| a.saturating_add(b)).collect();
         let mut s = Segmenter::new();
-        // The pre-roll of the second phrase must not reach into the first.
-        let out = feed(&mut s, &[tone(2000), silence(650), tone(2000), silence(900)]);
-        assert_eq!(out.len(), 2, "{out:?}");
-        assert!(out[1].start >= out[0].end);
+        let mut out: Vec<Seg> = mix.chunks(733).flat_map(|c| s.push(c)).collect();
+        out.extend(s.flush());
+        assert!(covered(&out, 2 * RATE, 2 * RATE + 3 * RATE), "first sentence lost: {out:?}");
+        assert!(covered(&out, 6 * RATE + RATE / 5, 6 * RATE + RATE / 5 + 4 * RATE), "second sentence lost: {out:?}");
+    }
+
+    fn music(ms: usize) -> Vec<i16> {
+        (0..RATE * ms / 1000)
+            .map(|i| {
+                let t = i as f32 / RATE as f32;
+                let beat = if (t * 2.0).fract() < 0.1 { 1.0 } else { 0.55 };
+                (((t * 220.0 * std::f32::consts::TAU).sin() + (t * 277.0 * std::f32::consts::TAU).sin())
+                    * 3500.0
+                    * beat) as i16
+            })
+            .collect()
+    }
+
+    /// Steady loud music is not a string of pauses: it is cut in whole
+    /// stretches, never into sub-second scraps Whisper cannot read.
+    #[test]
+    fn loud_music_alone_is_cut_in_long_pieces_not_scraps() {
+        let mut s = Segmenter::new();
+        let out = feed(&mut s, &[music(40_000)]);
+        assert!(!out.is_empty());
+        for seg in &out {
+            assert!(seg.end - seg.start >= MIN_CUT, "scrap: {out:?}");
+        }
+    }
+
+    /// A short pause after a short burst inside music does not cut either.
+    #[test]
+    fn a_beat_gap_does_not_cut_a_young_segment() {
+        let mut s = Segmenter::new();
+        // 1.5 s of sound in a 2.7 s stretch: enough speech for a short-pause
+        // cut, but too short a piece to give Whisper context.
+        let mut input = silence(300);
+        input.extend(tone(1900));
+        input.extend(silence(700));
+        input.extend(tone(1600));
+        let out = feed(&mut s, &[input]);
+        assert!(out.iter().all(|g| g.end - g.start >= MIN_CUT), "{out:?}");
     }
 
     #[test]
@@ -882,18 +979,6 @@ mod tests {
         let seg = s.flush().expect("speech at the stop is kept");
         assert_eq!(seg.start, 0);
         assert_eq!(seg.end, (RATE * 12 / 10 / FRAME) * FRAME);
-    }
-
-    #[test]
-    fn steady_background_noise_raises_the_bar() {
-        let mut s = Segmenter::new();
-        // A fan at ~-34 dBFS: above the absolute threshold, but it is the room.
-        let hum: Vec<i16> = (0..RATE * 6).map(|i| ((i as f32 * 0.05).sin() * 900.0) as i16).collect();
-        let out = feed(&mut s, std::slice::from_ref(&hum));
-        let flushed = s.flush();
-        // At most the first moments read as speech before the floor adapts.
-        let total: usize = out.iter().chain(flushed.iter()).map(|g| g.end - g.start).sum();
-        assert!(total < RATE * 2, "the room became one long sentence: {out:?} {flushed:?}");
     }
 
     fn text(seq: u64, kind: &str, t: &str) -> LiveEvent {
@@ -1033,6 +1118,46 @@ mod tests {
         assert!(job.final_text.as_deref().is_some_and(|t| t.to_lowercase().contains("pause")));
         worker.close();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+
+    /// Diagnosis: segments + decoded text for raw 16 kHz i16 files in
+    /// `IR_MIX_DIR` (speech mixed with music). Not an assertion test.
+    #[test]
+    #[ignore]
+    fn transcribe_live_mix_diag() {
+        let Ok(dir) = std::env::var("IR_MIX_DIR") else { return };
+        let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "pcm")).collect();
+        files.sort();
+        let decode = std::env::var("IR_MIX_DECODE").is_ok();
+        let mut worker = decode.then(|| Worker::spawn(Some("de")).expect("worker"));
+        if let Some(w) = worker.as_mut() {
+            loop { if matches!(w.lines.recv().unwrap(), LiveEvent::Ready) { break; } }
+        }
+        for f in files {
+            let bytes = std::fs::read(&f).unwrap();
+            let pcm: Vec<i16> = bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
+            let mut seg = Segmenter::new();
+            let mut segs: Vec<Seg> = pcm.chunks(640).flat_map(|c| seg.push(c)).collect();
+            let open = seg.open();
+            segs.extend(seg.flush());
+            println!("{}: {:?} (open at end: {open:?})", f.display(), segs.iter().map(|s| (s.start as f32 / 16000.0, s.end as f32 / 16000.0)).collect::<Vec<_>>());
+            if let Some(w) = worker.as_mut() {
+                for (i, sg) in segs.iter().enumerate() {
+                    let path = std::env::temp_dir().join(format!("ir-mix-{i}.pcm"));
+                    write_pcm(&path, &pcm[sg.start..sg.end]).unwrap();
+                    w.send(serde_json::json!({"op":"decode","seq":1,"kind":"final","path":path.to_string_lossy(),"prompt":""}));
+                    loop {
+                        match w.lines.recv().unwrap() {
+                            LiveEvent::Text { text, .. } => { println!("   [{i}] {text:?}"); break; }
+                            LiveEvent::Error { error, .. } => { println!("   [{i}] ERROR {error}"); break; }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

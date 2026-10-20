@@ -309,6 +309,12 @@ function rank<T extends { value: string }>(items: T[], usage: ArgUsage | undefin
     .map((x) => x.it);
 }
 
+/** Position in `prefer`, or after all of them. */
+function preferIndex(prefer: readonly string[], value: string): number {
+  const i = prefer.indexOf(value);
+  return i < 0 ? prefer.length : i;
+}
+
 // ── Completion ──────────────────────────────────────────────────────────────
 
 export interface ArgCandidate {
@@ -353,6 +359,10 @@ export interface CompleteContext {
   sources?: Partial<Record<string, readonly ArgOption[]>>;
   usage?: ArgUsage;
   now?: number;
+  /** Values that go first regardless of habit — for options whose right order
+   *  is a STATE, not a preference (`transcribe`: `--start` while nothing
+   *  records, `--stop` while a dictation runs). */
+  prefer?: readonly string[];
 }
 
 interface Walk {
@@ -449,7 +459,11 @@ export function completeArg(kind: CommandKind, line: string, ctx: CompleteContex
   if (matches.length === 0) return null;
   // A word typed out in full with nothing longer to offer: done.
   if (!fix && matches.length === 1 && spellings(matches[0]).some((s) => fold(s) === prefix)) return null;
-  const ranked = fix ? matches : rank(matches, ctx.usage, usageKey(kind, w.path), ctx.now ?? 0);
+  const habit = fix ? matches : rank(matches, ctx.usage, usageKey(kind, w.path), ctx.now ?? 0);
+  const prefer = ctx.prefer ?? [];
+  const ranked = prefer.length
+    ? [...habit].sort((a, b) => preferIndex(prefer, a.value) - preferIndex(prefer, b.value))
+    : habit;
   return {
     partial: w.partial,
     candidates: ranked.map((o) => {

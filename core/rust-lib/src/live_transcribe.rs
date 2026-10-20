@@ -512,7 +512,9 @@ struct Worker {
 
 impl Worker {
     fn spawn(language: Option<&str>) -> Result<Worker, String> {
-        let mut cmd = Command::new(crate::transcribe::python());
+        let python = crate::transcribe::python();
+        tracing::info!("transcribe live: worker {}", python.display());
+        let mut cmd = Command::new(python);
         cmd.args(["-c", WORKER])
             .env("PYTHONIOENCODING", "utf-8")
             .env("PYTHONUNBUFFERED", "1")
@@ -582,11 +584,22 @@ impl Worker {
     }
 }
 
+fn log_event(ev: &LiveEvent) {
+    match ev {
+        LiveEvent::Text { seq, kind, text } => {
+            tracing::info!("transcribe live: {kind} #{seq} → {} chars", text.chars().count())
+        }
+        LiveEvent::Final { text } => tracing::info!("transcribe live: final pass → {} chars", text.chars().count()),
+        other => tracing::info!("transcribe live: {other:?}"),
+    }
+}
+
 /// Pump every waiting worker line into the job. `Err` = the worker is gone.
 fn drain(worker: &Worker, busy: &mut bool) -> Result<(), ()> {
     loop {
         match worker.lines.try_recv() {
             Ok(ev) => {
+                log_event(&ev);
                 // Every reply to a request frees the worker; the model notices don't.
                 if !matches!(ev, LiveEvent::Model { .. } | LiveEvent::Ready | LiveEvent::Finalizing { .. }) {
                     *busy = false;
@@ -631,6 +644,8 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
     let mut last_partial = Instant::now();
     let mut last_partial_len = 0usize;
     let mut crashed: Option<String> = None;
+    let mut last_log = Instant::now();
+    let mut peak = 0f32;
 
     let send_decode = |worker: &mut Worker, seq: &mut u64, samples: &[i16], kind: &str| -> bool {
         *seq += 1;
@@ -664,6 +679,15 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
             processed
         };
         let elapsed = started.elapsed();
+        peak = peak.max(f32::from_bits(level.load(Ordering::Relaxed)));
+        if last_log.elapsed() >= Duration::from_secs(5) {
+            tracing::info!(
+                "transcribe live: {:.0}s, {} samples, peak rms {peak:.4}, {} queued, open {:?}, ready {ready}, busy {busy}",
+                elapsed.as_secs_f32(), total, finals.len(), seg.open()
+            );
+            last_log = Instant::now();
+            peak = 0.0;
+        }
         update(|j| {
             j.elapsed_ms = elapsed.as_millis() as u64;
             j.level = meter_level(f32::from_bits(level.load(Ordering::Relaxed)));
@@ -779,6 +803,7 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
 /// clean up, announce. `error` = the session failed (the text so far is
 /// still copied — dictated words are never lost to a crash).
 fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
+    tracing::info!("transcribe live: finish (error: {error:?})");
     if let Some(d) = dir {
         let _ = std::fs::remove_dir_all(d);
     }

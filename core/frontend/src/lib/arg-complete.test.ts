@@ -94,6 +94,16 @@ describe("completeArg", () => {
     expect(values("transcribe --language ")).toContain("de");
   });
 
+  it("puts the dictation action that fits the state first, over any habit", () => {
+    // Every dictation is a start AND a stop, so habit alone ranks them
+    // arbitrarily — `--stop` used to win while nothing recorded.
+    const habit: ArgUsage = { [usageKey("transcribe", [])]: { "--stop": { n: 9, last: 0 } } };
+    const idle = complete("transcribe ", { usage: habit, now: 0, prefer: ["--start", "--stop"] });
+    expect(idle?.candidates.map((c) => c.value).slice(0, 2)).toEqual(["--start", "--stop"]);
+    const live = complete("transcribe ", { usage: habit, now: 0, prefer: ["--stop", "--start"] });
+    expect(live?.candidates.map((c) => c.value).slice(0, 2)).toEqual(["--stop", "--start"]);
+  });
+
   it("has no tree for commands that complete through their own rows", () => {
     for (const kind of ["weather", "convert", "figlet"] as const) {
       expect(ARG_TREES[kind]).toBeUndefined();

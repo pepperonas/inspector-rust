@@ -3237,8 +3237,14 @@ function App() {
     if (argSpec && !argMod) void import("./lib/arg-complete").then(setArgMod);
   }, [argSpec, argMod]);
   const argCtx = useMemo(
-    () => ({ sources: argSources, usage: argUsage.usage, now: argUsage.now }),
-    [argSources, argUsage],
+    () => ({
+      sources: argSources,
+      usage: argUsage.usage,
+      now: argUsage.now,
+      // Dictation: offer what the next Enter should do first.
+      prefer: isLiveRecording(liveJob) ? ["--stop", "--start"] : ["--start", "--stop"],
+    }),
+    [argSources, argUsage, liveJob],
   );
   const argComplete = useMemo(
     () => (argMod && argSpec ? argMod.completeArg(argSpec.kind, query, argCtx) : null),

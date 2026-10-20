@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.222.2] - 2026-10-20
+
+### Fixed
+- **Dictation suggestions:** `--start` now always comes before `--stop` while nothing records (and `--stop` first while a dictation runs). The order used to follow usage habit, and since every dictation is one start AND one stop, `--stop` could win while idle.
+
+### Added
+- **Dictation diagnostics in the log:** worker path, model events, a 5-second line with sample count, input peak and segment state, every decoded piece (length only, never the text) and the end of the session — a dictation that shows nothing can now be traced.
+
 ## [0.222.1] - 2026-10-20
 
 ### Fixed

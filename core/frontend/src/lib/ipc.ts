@@ -295,6 +295,8 @@ export interface LiveJob {
   error: string | null;
   /** Output volume before it was lowered for the recording (percent). */
   ducked_from?: number | null;
+  /** `mic` = dictation, `system` = what this Mac plays (`--song`). */
+  source?: "mic" | "system";
 }
 
 /** Payload of `transcribe-live-done`. */

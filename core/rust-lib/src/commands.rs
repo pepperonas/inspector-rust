@@ -5487,7 +5487,12 @@ pub async fn transcribe_live_start(
 ) -> Result<crate::live_transcribe::LiveJob, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let args = crate::transcribe::parse_args(&arg)?;
-        crate::live_transcribe::start(app, args.language)
+        let source = if args.song {
+            crate::live_transcribe::LiveSource::System
+        } else {
+            crate::live_transcribe::LiveSource::Mic
+        };
+        crate::live_transcribe::start(app, args.language, source)
     })
     .await
     .map_err(|e| format!("transcribe live: {e}"))?

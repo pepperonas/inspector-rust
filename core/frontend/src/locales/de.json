@@ -4052,5 +4052,14 @@
   "shazam.lyrics_auto_copied": "Songtext in Zwischenablage und Verlauf kopiert",
   "shazam.lyrics_toast_copied": "Songtext kopiert",
   "shazam.lyrics_toast_none": "Kein Songtext gefunden",
-  "arg.shazam_lyrics": "erkennen + Songtext kopieren"
+  "arg.shazam_lyrics": "erkennen + Songtext kopieren",
+  "trx.song_no_display": "Kein Bildschirm gefunden, über den der Systemton aufgenommen werden kann.",
+  "trx.song_start_hangs": "Die Aufnahme des Systemtons startet nicht.",
+  "trx.song_no_permission": "Für den Systemton braucht die App die Freigabe „Bildschirmaufnahme“ (Systemeinstellungen → Datenschutz & Sicherheit).",
+  "trx.song_with_stop": "--song startet eine Aufnahme und passt nicht zu --stop.",
+  "trx.song_macos_only": "Den Systemton aufnehmen geht bisher nur unter macOS. Mit dem Mikrofon: transcribe --start.",
+  "arg.trx_song": "Liedtext aus dem, was dieser Mac abspielt",
+  "trx.live.source_system": "Systemton",
+  "trx.live.song": "Lied mitschreiben",
+  "trx.live.song_title": "Schreibt den Text dessen mit, was dieser Mac abspielt – direkt aus dem Systemton, nichts wird leiser gestellt"
 }

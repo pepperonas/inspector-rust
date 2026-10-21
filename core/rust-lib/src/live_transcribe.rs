@@ -233,6 +233,17 @@ pub enum LiveState {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveSource {
+    /// Dictation: the default microphone.
+    #[default]
+    Mic,
+    /// `--song`: everything this Mac plays, captured digitally — no speaker,
+    /// room or microphone in between, and nothing is turned down.
+    System,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LiveJob {
     pub id: u64,
@@ -254,6 +265,8 @@ pub struct LiveJob {
     pub error: Option<String>,
     /// Output volume before it was lowered for the recording (percent).
     pub ducked_from: Option<i32>,
+    /// Where the audio comes from: the microphone, or what this Mac plays.
+    pub source: LiveSource,
     #[serde(skip)]
     last_final_seq: u64,
     #[serde(skip)]
@@ -325,6 +338,7 @@ impl LiveJob {
             copied: false,
             error: None,
             ducked_from: None,
+            source: LiveSource::Mic,
             last_final_seq: 0,
             partial_seq: 0,
         }
@@ -443,7 +457,7 @@ fn update(f: impl FnOnce(&mut LiveJob)) {
 }
 
 /// Start dictating. Errors with [`ERR_BUSY`] while one (or a file job) runs.
-pub fn start(app: tauri::AppHandle, language: Option<String>) -> Result<LiveJob, String> {
+pub fn start(app: tauri::AppHandle, language: Option<String>, source: LiveSource) -> Result<LiveJob, String> {
     let job = {
         let mut guard = JOB.lock();
         if guard.as_ref().is_some_and(LiveJob::is_active)
@@ -451,7 +465,8 @@ pub fn start(app: tauri::AppHandle, language: Option<String>) -> Result<LiveJob,
         {
             return Err(ERR_BUSY.into());
         }
-        let job = LiveJob::new(NEXT_ID.fetch_add(1, Ordering::SeqCst), language.clone(), now_ms());
+        let mut job = LiveJob::new(NEXT_ID.fetch_add(1, Ordering::SeqCst), language.clone(), now_ms());
+        job.source = source;
         *guard = Some(job.clone());
         job
     };
@@ -461,7 +476,7 @@ pub fn start(app: tauri::AppHandle, language: Option<String>) -> Result<LiveJob,
     let id = job.id;
     std::thread::Builder::new()
         .name("ir-transcribe-live".into())
-        .spawn(move || run(app, id, language))
+        .spawn(move || run(app, id, language, source))
         .map_err(|e| format!("transcribe live: {e}"))?;
     Ok(job)
 }
@@ -624,7 +639,7 @@ fn drain(worker: &Worker, busy: &mut bool) -> Result<(), ()> {
 // microphone never separated, so while recording the system output is turned
 // down (what dedicated dictation tools do) and put back when recording stops.
 
-/// Settings key; on unless set to "false".
+/// Settings key; opt-in — the music is lowered only when set to "true" (v0.223.1).
 pub const SETTING_DUCK: &str = "transcribe.duck_audio";
 /// Output volume while recording (percent).
 pub const DUCK_TO: i32 = 10;
@@ -649,16 +664,47 @@ pub fn should_restore(now: Option<i32>, ducked_to: i32) -> bool {
 /// Active ducking: the level to go back to and the level we set.
 static DUCKED: parking_lot::Mutex<Option<(i32, i32)>> = parking_lot::Mutex::new(None);
 
-fn duck_enabled(app: &tauri::AppHandle) -> bool {
+fn duck_setting(app: &tauri::AppHandle) -> Option<String> {
     use tauri::Manager;
-    let Some(db) = app.try_state::<crate::db::DbHandle>() else { return true };
-    !matches!(crate::settings::get(&db, SETTING_DUCK), Ok(Some(v)) if v.trim() == "false")
+    let db = app.try_state::<crate::db::DbHandle>()?;
+    crate::settings::get(&db, SETTING_DUCK).ok().flatten()
 }
 
-fn duck_output(app: &tauri::AppHandle) {
-    if !duck_enabled(app) {
-        return;
+/// Lower the music while dictating? Only when asked for (`transcribe.duck_audio
+/// = true`) and only for the microphone — the music is never touched by
+/// default, and in song mode it IS what is being transcribed. Pure.
+pub fn duck_wanted(setting: Option<&str>, source: LiveSource) -> bool {
+    source == LiveSource::Mic && setting.is_some_and(|v| v.trim() == "true")
+}
+
+/// The running audio input of a session.
+enum Input {
+    Mic(crate::mic_capture::MicStream),
+    #[cfg(target_os = "macos")]
+    System(crate::system_audio::SystemAudio),
+}
+
+impl Input {
+    fn stop(&mut self) {
+        match self {
+            Input::Mic(m) => m.stop(),
+            #[cfg(target_os = "macos")]
+            Input::System(s) => s.stop(),
+        }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn start_system_audio(on_chunk: impl Fn(&[f32], u32) + Send + Sync + 'static) -> Result<Input, String> {
+    crate::system_audio::start(on_chunk).map(Input::System)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn start_system_audio(_on_chunk: impl Fn(&[f32], u32) + Send + Sync + 'static) -> Result<Input, String> {
+    Err(crate::i18n::t("trx.song_macos_only"))
+}
+
+fn duck_output(_app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         use crate::system_commands::ca_volume;
@@ -691,7 +737,7 @@ pub fn restore_output() {
     let _ = (before, target);
 }
 
-fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
+fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSource) {
     let dir = match private_dir(id) {
         Ok(d) => d,
         Err(e) => return finish(&app, Some(e), None),
@@ -703,16 +749,31 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
 
     let buffer: Arc<parking_lot::Mutex<Vec<i16>>> = Arc::default();
     let level = Arc::new(AtomicU32::new(0));
-    duck_output(&app);
-    let mic = {
+    let on_chunk = {
         let buffer = buffer.clone();
         let level = level.clone();
-        crate::mic_capture::start_chunks(app.clone(), move |chunk, rate| {
+        move |chunk: &[f32], rate: u32| {
             let pcm = crate::shazam::resample_to_16k_i16(chunk, rate);
             level.store(crate::mic_capture::chunk_rms(chunk).to_bits(), Ordering::Relaxed);
             buffer.lock().extend_from_slice(&pcm);
-        })
+        }
     };
+    let mut input = match source {
+        LiveSource::Mic => {
+            if duck_wanted(duck_setting(&app).as_deref(), source) {
+                duck_output(&app);
+            }
+            Input::Mic(crate::mic_capture::start_chunks(app.clone(), on_chunk))
+        }
+        LiveSource::System => match start_system_audio(on_chunk) {
+            Ok(input) => input,
+            Err(e) => {
+                worker.close();
+                return finish(&app, Some(e), Some(&dir));
+            }
+        },
+    };
+    tracing::info!("transcribe live: source {source:?}");
 
     let started = Instant::now();
     let mut seg = Segmenter::new();
@@ -772,7 +833,9 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
             j.elapsed_ms = elapsed.as_millis() as u64;
             j.level = meter_level(f32::from_bits(level.load(Ordering::Relaxed)));
         });
-        if total == 0 && elapsed > Duration::from_secs(5) {
+        // Nothing playing yet is fine for a song (press play after starting);
+        // a microphone that delivers nothing is broken.
+        if source == LiveSource::Mic && total == 0 && elapsed > Duration::from_secs(5) {
             crashed = Some(crate::i18n::t("trx.live_no_mic"));
             break;
         }
@@ -800,8 +863,8 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>) {
             break;
         }
     }
-    mic.stop();
-    drop(mic);
+    input.stop();
+    drop(input);
     restore_output();
 
     if CANCEL.load(Ordering::SeqCst) {
@@ -926,6 +989,14 @@ fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
 #[cfg(test)]
 mod duck_tests {
     use super::*;
+
+    #[test]
+    fn music_is_only_lowered_on_request_and_never_in_song_mode() {
+        assert!(!duck_wanted(None, LiveSource::Mic));
+        assert!(!duck_wanted(Some("false"), LiveSource::Mic));
+        assert!(duck_wanted(Some(" true "), LiveSource::Mic));
+        assert!(!duck_wanted(Some("true"), LiveSource::System));
+    }
 
     #[test]
     fn loud_output_is_lowered_quiet_output_left_alone() {
@@ -1260,7 +1331,8 @@ mod tests {
             .filter(|p| p.extension().is_some_and(|e| e == "pcm")).collect();
         files.sort();
         let decode = std::env::var("IR_MIX_DECODE").is_ok();
-        let mut worker = decode.then(|| Worker::spawn(Some("de")).expect("worker"));
+        let lang = std::env::var("IR_MIX_LANG").ok();
+        let mut worker = decode.then(|| Worker::spawn(lang.as_deref()).expect("worker"));
         if let Some(w) = worker.as_mut() {
             loop { if matches!(w.lines.recv().unwrap(), LiveEvent::Ready) { break; } }
         }
@@ -1287,6 +1359,40 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The worker's pure helpers, run with the system Python (stdlib only —
+    /// the module imports Whisper lazily). Skipped where python3 is missing.
+    #[test]
+    fn worker_drops_loops_and_settles_the_language() {
+        let dir = std::env::temp_dir().join(format!("ir-live-py-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("live.py"), WORKER).unwrap();
+        let check = r#"
+import live
+d = live.drop_loops
+assert d(["a", "a", "a", "a", "b"]) == ["b"], d(["a", "a", "a", "a", "b"])
+assert d(["a", "a", "b", "b", "c"]) == ["a", "a", "b", "b", "c"]
+assert d([]) == []
+r = {"segments": [{"text": " x ", "avg_logprob": -0.4, "compression_ratio": 1.0}] * 6
+                 + [{"text": " real line ", "avg_logprob": -0.5, "compression_ratio": 1.2},
+                    {"text": " noise ", "avg_logprob": -3.0, "compression_ratio": 1.0}]}
+assert live.confident_text(r) == "real line", live.confident_text(r)
+s = live.settled_language
+long = "x" * live.LOCK_CHARS
+assert s(None, False, {"language": "en"}, long) == "en"
+assert s(None, False, {"language": "sn"}, "short") is None
+assert s("en", False, {"language": "sn"}, long) == "en"
+assert s("de", True, {"language": "en"}, long) == "de"
+print("ok")
+"#;
+        let out = std::process::Command::new("python3")
+            .args(["-I", "-c", &format!("import sys; sys.path.insert(0, {:?})
+{check}", dir.to_string_lossy())])
+            .output();
+        let _ = std::fs::remove_dir_all(&dir);
+        let Ok(out) = out else { return };
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     }
 
     #[test]

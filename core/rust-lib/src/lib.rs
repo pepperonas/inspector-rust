@@ -114,6 +114,7 @@ mod stats_history;
 mod status_toast;
 mod sync;
 mod system_commands;
+mod system_audio;
 mod system_stats;
 mod text_field;
 mod timer;

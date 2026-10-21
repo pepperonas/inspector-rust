@@ -125,6 +125,9 @@ describe("live dictation helpers", () => {
     expect(liveAction("--start")).toBe("start");
     expect(liveAction("--start --language de")).toBe("start");
     expect(liveAction("  --stop ")).toBe("stop");
+    expect(liveAction("--song")).toBe("start");
+    expect(liveAction("--start --lyrics -l en")).toBe("start");
+    expect(liveAction("--stop --song")).toBe("stop");
     expect(liveAction("")).toBeNull();
     expect(liveAction("~/a.mp3 --language de")).toBeNull();
     // A word that merely contains the flag is a file name, not the flag.

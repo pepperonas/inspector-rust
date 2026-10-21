@@ -120,8 +120,13 @@ export function phaseLabel(job: TranscribeJob): string {
 export function liveAction(arg: string): "start" | "stop" | null {
   const words = arg.trim().split(/\s+/);
   if (words.includes("--stop")) return "stop";
-  if (words.includes("--start")) return "start";
+  if (words.includes("--start") || words.some(isSongFlag)) return "start";
   return null;
+}
+
+/** `--song` (`--lyrics`, `--system`): transcribe what this Mac plays. */
+export function isSongFlag(word: string): boolean {
+  return word === "--song" || word === "--lyrics" || word === "--system";
 }
 
 /** The language given with `--start`, if any (`--language de`, `-l de`, `--language=de`). */

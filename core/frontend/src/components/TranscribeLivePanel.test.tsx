@@ -21,6 +21,16 @@ describe("TranscribeLivePanel", () => {
     expect(onStart).toHaveBeenCalled();
   });
 
+  it("offers song mode next to dictation, and names the source while it runs", () => {
+    const onStart = vi.fn();
+    const { unmount } = render(<TranscribeLivePanel {...props} job={null} onStart={onStart} />);
+    fireEvent.click(screen.getByText("Transcribe song"));
+    expect(onStart).toHaveBeenCalledWith(true);
+    unmount();
+    render(<TranscribeLivePanel {...props} job={job({ source: "system" })} />);
+    expect(screen.getByTestId("live-source").textContent).toContain("System audio");
+  });
+
   it("while recording: clock, kept text, the open sentence greyed, stop button", () => {
     const onStop = vi.fn();
     render(

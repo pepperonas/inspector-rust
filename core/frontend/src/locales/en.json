@@ -4052,5 +4052,14 @@
   "shazam.lyrics_auto_copied": "Lyrics copied to the clipboard and history",
   "shazam.lyrics_toast_copied": "Lyrics copied",
   "shazam.lyrics_toast_none": "No lyrics found",
-  "arg.shazam_lyrics": "identify + copy lyrics"
+  "arg.shazam_lyrics": "identify + copy lyrics",
+  "trx.song_no_display": "No display found to capture the system audio from.",
+  "trx.song_start_hangs": "System audio capture did not start.",
+  "trx.song_no_permission": "System audio needs the Screen Recording permission (System Settings → Privacy & Security).",
+  "trx.song_with_stop": "--song starts a recording; it can't be combined with --stop.",
+  "trx.song_macos_only": "Recording the system audio is only available on macOS so far. Use the microphone: transcribe --start.",
+  "arg.trx_song": "lyrics from what this Mac plays",
+  "trx.live.source_system": "System audio",
+  "trx.live.song": "Transcribe song",
+  "trx.live.song_title": "Writes down the lyrics of what this Mac is playing — straight from the system audio, nothing is turned down"
 }

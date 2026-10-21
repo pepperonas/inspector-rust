@@ -16,6 +16,9 @@ pub struct Args {
     pub language: Option<String>,
     /// `--start` / `--stop`: live dictation from the microphone instead of a file.
     pub live: Option<LiveAction>,
+    /// `--song` (`--lyrics`, `--system`): listen to what this Mac plays
+    /// instead of the microphone — lyrics from a song. Implies `--start`.
+    pub song: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +99,8 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
                 return Err(crate::i18n::t("trx.live_both"));
             }
             result.live = Some(action);
+        } else if !quoted && !flags_done && matches!(token, "--song" | "--lyrics" | "--system") {
+            result.song = true;
         } else if !quoted && !flags_done && token.starts_with('-') {
             return Err(crate::i18n::tf("trx.unknown_param", &[("token", token)]));
         } else {
@@ -115,6 +120,12 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             return Err(crate::i18n::t("trx.empty_path"));
         }
         result.path = Some(path);
+    }
+    if result.song {
+        if result.live == Some(LiveAction::Stop) {
+            return Err(crate::i18n::t("trx.song_with_stop"));
+        }
+        result.live = Some(LiveAction::Start);
     }
     if result.live.is_some() && result.path.is_some() {
         return Err(crate::i18n::t("trx.live_with_path"));
@@ -723,6 +734,7 @@ mod tests {
                 language: Some("de".into()),
                 path: None,
                 live: None,
+                song: false,
             }
         );
         assert_eq!(parse_args("-l auto").unwrap(), Args::default());
@@ -770,6 +782,14 @@ mod tests {
         // A file and the microphone at once makes no sense.
         assert!(parse_args("--start ~/a.mp3").is_err());
         assert!(parse_args("--stop --language de").is_err());
+        let a = parse_args("--start --song").unwrap();
+        assert_eq!((a.live, a.song), (Some(LiveAction::Start), true));
+        let a = parse_args("--lyrics -l en").unwrap();
+        assert_eq!((a.live, a.song, a.language.as_deref()), (Some(LiveAction::Start), true, Some("en")));
+        assert!(parse_args("--system").unwrap().song);
+        assert!(!parse_args("--start").unwrap().song);
+        assert!(parse_args("--stop --song").is_err());
+        assert!(parse_args("--song ~/a.mp3").is_err());
         // A file run is unchanged.
         assert_eq!(parse_args("a.mp3").unwrap().live, None);
     }

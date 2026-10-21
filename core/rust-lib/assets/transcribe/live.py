@@ -35,6 +35,26 @@ MIN_LOGPROB = -1.0
 MAX_COMPRESSION = 2.4
 
 
+# A line repeated this often back to back is Whisper looping on music (an
+# instrumental intro came back as the same line six times, 2026-10-21); a
+# chorus line sung twice stays.
+MAX_REPEAT = 2
+# Confident text this long settles the language for the rest of the session.
+LOCK_CHARS = 20
+
+
+def drop_loops(texts):
+    out, i = [], 0
+    while i < len(texts):
+        j = i
+        while j + 1 < len(texts) and texts[j + 1] == texts[i]:
+            j += 1
+        if j - i + 1 <= MAX_REPEAT:
+            out.extend(texts[i : j + 1])
+        i = j + 1
+    return out
+
+
 def confident_text(result):
     kept = [
         seg["text"].strip()
@@ -42,7 +62,16 @@ def confident_text(result):
         if seg.get("avg_logprob", 0.0) >= MIN_LOGPROB
         and seg.get("compression_ratio", 0.0) <= MAX_COMPRESSION
     ]
-    return " ".join(t for t in kept if t)
+    return " ".join(t for t in drop_loops(kept) if t)
+
+
+def settled_language(current, forced, result, text):
+    """The language to use from now on: a forced one never changes; otherwise
+    the first decode with real confident text decides (short chunks of an
+    instrumental passage misdetect, e.g. an English song as Shona)."""
+    if forced or current:
+        return current
+    return result.get("language") if len(text) >= LOCK_CHARS else None
 
 
 def load(path):
@@ -71,6 +100,7 @@ def main():
         if language not in LANGUAGES:
             raise ValueError(f"Unbekannte Sprache: {language}. Beispiele: de, en, fr, auto.")
 
+    forced = bool(language)
     emit("model", name=LIVE_MODEL)
     live = whisper.load_model(LIVE_MODEL, device="cpu")
     emit("ready")
@@ -96,7 +126,10 @@ def main():
                     condition_on_previous_text=False,
                     initial_prompt=req.get("prompt") or None,
                 )
-                emit("text", seq=seq, kind=req.get("kind", "partial"), text=confident_text(result))
+                text = confident_text(result)
+                if req.get("kind") == "final":
+                    language = settled_language(language, forced, result, text)
+                emit("text", seq=seq, kind=req.get("kind", "partial"), text=text)
             elif op == "finalize":
                 emit("finalizing", name=FINAL_MODEL)
                 final = live if FINAL_MODEL == LIVE_MODEL else whisper.load_model(FINAL_MODEL, device="cpu")

@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.224.0] - 2026-10-21
+
+### Added
+- **Lyrics from a song as it plays:** `transcribe --song` (also `--lyrics`, `--system`, or "Transcribe song" in the panel) writes down what this Mac plays. It records the system audio directly instead of the microphone, so the music stays at full volume. Through the microphone a loud song came back as nothing; taken digitally Whisper reads the sung lyrics.
+
+### Changed
+- **Dictation no longer turns the music down.** 0.222.4 lowered the volume to 10 % while recording; that is now opt-in (`transcribe.duck_audio = true`) and never happens in song mode.
+
+### Fixed
+- **Invented repeated lines on music:** Whisper looped one line on instrumental passages and the filter let it through. Three or more identical lines in a row are now dropped (a line sung twice stays).
+- **Wrong language on short music chunks:** an English song was detected as Shona. The first chunk with confident text now settles the language for the rest of the session and the final pass.
+
 ## [0.223.0] - 2026-10-21
 
 ### Added

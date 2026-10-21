@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Loader2, Mic, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Check, Copy, Loader2, Mic, Music, RotateCcw, Square, Trash2 } from "lucide-react";
 import type { LiveJob } from "../lib/ipc";
 import { formatClock, isLiveRecording, liveResultText } from "../lib/transcribe";
 import { t, useT } from "../lib/i18n";
@@ -23,7 +23,8 @@ export function TranscribeLivePanel({
 }: {
   job: LiveJob | null;
   startError: string | null;
-  onStart: () => void;
+  /** `song`: transcribe what this Mac plays instead of the microphone. */
+  onStart: (song?: boolean) => void;
   onStop: () => void;
   onCancel: () => void;
   onCopy: (text: string) => void;
@@ -48,6 +49,11 @@ export function TranscribeLivePanel({
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
         <Mic size={12} className={recording ? "text-rose-500" : undefined} />
         <span>{t("trx.live.title")}</span>
+        {job?.source === "system" && (
+          <span className="normal-case tracking-normal" data-testid="live-source">
+            · {t("trx.live.source_system")}
+          </span>
+        )}
         {job?.language && <span className="normal-case tracking-normal">· {job.language}</span>}
       </div>
 
@@ -125,7 +131,7 @@ export function TranscribeLivePanel({
                   )}
                   <button
                     type="button"
-                    onClick={onStart}
+                    onClick={() => onStart(job.source === "system")}
                     className="md3-press flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
                   >
                     <RotateCcw size={12} /> {t("trx.live.again")}
@@ -140,18 +146,28 @@ export function TranscribeLivePanel({
   );
 }
 
-function Idle({ onStart }: { onStart: () => void }) {
+function Idle({ onStart }: { onStart: (song?: boolean) => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
       <Mic size={28} className="text-[var(--color-muted)]" />
       <p className="max-w-[280px] text-[12px] leading-5 text-[var(--color-muted)]">{t("trx.live.idle")}</p>
-      <button
-        type="button"
-        onClick={onStart}
-        className="md3-press flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-[12px] font-medium text-white"
-      >
-        <Mic size={12} /> {t("trx.live.start")}
-      </button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={() => onStart()}
+          className="md3-press flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-[12px] font-medium text-white"
+        >
+          <Mic size={12} /> {t("trx.live.start")}
+        </button>
+        <button
+          type="button"
+          onClick={() => onStart(true)}
+          title={t("trx.live.song_title")}
+          className="md3-press flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:border-[var(--color-accent)]"
+        >
+          <Music size={12} /> {t("trx.live.song")}
+        </button>
+      </div>
     </div>
   );
 }

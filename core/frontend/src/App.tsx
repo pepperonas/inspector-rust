@@ -4077,7 +4077,9 @@ function App() {
     const d = e.payload;
     if (!d || d.cancelled) return;
     // After the stop, Enter starts the next dictation.
-    setQuery((q) => (/^transcribe\s+--stop\b/.test(q.trim()) ? "transcribe --start" : q));
+    // Song mode stays song mode for the next start.
+    const next = liveJobRef.current?.source === "system" ? "transcribe --start --song" : "transcribe --start";
+    setQuery((q) => (/^transcribe\s+--stop\b/.test(q.trim()) ? next : q));
     if (transcribeLiveRef.current) return;
     void showStatusToast(
       "transcribe",
@@ -6440,7 +6442,15 @@ function App() {
                     <TranscribeLivePanel
                       job={liveJob}
                       startError={liveStartError}
-                      onStart={() => void startDictation(liveAction(parsedCommand?.arg ?? "") === "start" ? (parsedCommand?.arg ?? "--start") : "--start")}
+                      onStart={(song) =>
+                        void startDictation(
+                          song
+                            ? "--start --song"
+                            : liveAction(parsedCommand?.arg ?? "") === "start"
+                              ? (parsedCommand?.arg ?? "--start")
+                              : "--start",
+                        )
+                      }
                       onStop={() => void stopDictation()}
                       onCancel={() => void transcribeLiveCancel()}
                       onCopy={(text) =>

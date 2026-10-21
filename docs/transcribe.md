@@ -67,15 +67,41 @@ at the same time.
 Measured on an M1 Pro: a 3-second sentence takes 0.6–0.9 s with `base`; the
 final pass over 6.6 s of speech took 8 s with `small`.
 
-### Music playing on this Mac
+### Lyrics from a song: `transcribe --song`
 
-The microphone cannot separate a voice from loud music coming out of the same
-Mac's speakers — Whisper then hears only the music and returns nothing. While a
-dictation records, the system output volume is lowered to 10 % and restored
-when the recording stops (or the app quits). If you change the volume during
-the recording, your setting is kept. Turn it off with the setting
-`transcribe.duck_audio = false`. Music from another device (a stereo) is not
-affected — use headphones or turn it down by hand.
+`transcribe --song` (also `--lyrics`, `--system`) writes down what this Mac
+plays instead of what the microphone hears. The audio comes straight from the
+system (ScreenCaptureKit, our own app excluded) — no speaker, room or
+microphone in between, and the music stays at full volume. Needs the Screen
+Recording permission, the same as OCR and screenshots. Panel: "Transcribe
+song" next to "Start recording".
+
+Why a separate source: through the microphone, a song at full volume came
+back as nothing at all (every passage 0 characters, field log 2026-10-21).
+Taken digitally, Whisper reads sung lyrics with confidence −0.4 … −0.9 —
+inside the filter that keeps speech (−1.0). Measured on a 60-s song excerpt
+(base): the sung parts came through, the instrumental intro stayed empty.
+
+Two worker rules matter for songs (and help dictation too):
+
+- **Repetition loops are dropped.** On an instrumental passage Whisper repeats
+  one invented line; ≥ 3 identical lines in a row are discarded, a line sung
+  twice stays (`MAX_REPEAT`).
+- **The language is settled once.** Short chunks of music get misdetected
+  (an English song came out as Shona). The first chunk with ≥ 20 confident
+  characters fixes the language for the rest of the session and the final
+  pass; `--language` still overrides it.
+
+A song playing on another device can only be heard through the microphone
+(`--start`); at full volume that rarely works. For a song that is in the
+lyrics catalogue, `lyrics` (shazam) fetches the exact text instead.
+
+### Turning the music down while dictating (opt-in)
+
+With the setting `transcribe.duck_audio = true`, a dictation from the
+microphone lowers the system output to 10 % and restores it afterwards (not if
+you changed the volume meanwhile). Off by default since 0.224.0: the music is
+never touched unless you ask for it, and never in song mode.
 
 ## Setup
 

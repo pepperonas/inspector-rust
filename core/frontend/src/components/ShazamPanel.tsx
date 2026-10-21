@@ -20,6 +20,7 @@ import {
   Search,
   ArrowLeft,
   Languages,
+  Check,
 } from "lucide-react";
 import {
   shazamListen,
@@ -30,6 +31,8 @@ import {
   shazamHistoryDelete,
   shazamLyrics,
   shazamLyricsTranslated,
+  lyricsCapture,
+  type LyricsCapture,
   type ShazamMatch,
   type ShazamDone,
   type ShazamHistoryEntry,
@@ -131,9 +134,13 @@ export function ShazamPanel({
   focused,
   initialView = "recognize",
   viewSignal = 0,
+  captureLyrics = false,
   onExit,
 }: {
   focused: boolean;
+  /** `shazam lyrics`: after recognising, fetch the lyrics, copy them to the
+   *  clipboard + history (backend) and open the lyrics view. */
+  captureLyrics?: boolean;
   /** `history` opens straight into the history list (no mic). Default: recognize. */
   initialView?: "recognize" | "history";
   /** Bumped by App.tsx on every shazam dispatch (a click on the "Identify
@@ -165,6 +172,8 @@ export function ShazamPanel({
   const [match, setMatch] = useState<ShazamMatch | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  /** `shazam lyrics` put the text in the clipboard + history. */
+  const [autoCopied, setAutoCopied] = useState(false);
   const [history, setHistory] = useState<ShazamHistoryEntry[]>([]);
   const filteredHistory = filterShazamHistory(history, histQuery);
   const runIdRef = useRef(0);
@@ -206,6 +215,42 @@ export function ShazamPanel({
     [loadHistory],
   );
 
+  const captureLyricsRef = useRef(captureLyrics);
+  useEffect(() => {
+    captureLyricsRef.current = captureLyrics;
+  }, [captureLyrics]);
+
+  /** Apply a `shazam lyrics` outcome: the lyrics view with the fetched text
+   *  (already in the clipboard), or the usual no-match / error states. */
+  const applyLyrics = useCallback(
+    (r: LyricsCapture) => {
+      if (r.matched) {
+        const m = r.matched;
+        setMatch(m);
+        setPhase("result");
+        void loadHistory();
+        setLyricsBack("recognize");
+        setLyricsMeta({ title: m.title, artist: m.artist, cover: m.cover_url });
+        setLyricsMode("orig");
+        setTranslated({ status: "idle", data: null, error: "" });
+        setLyrics(
+          r.lyrics
+            ? { status: "ok", text: r.lyrics }
+            : r.error
+              ? { status: "error", text: r.error }
+              : { status: "none", text: "" },
+        );
+        setAutoCopied(r.copied);
+        setView("lyrics");
+      } else if (r.error) {
+        applyDone({ matched: null, error: r.error });
+      } else {
+        setPhase("nomatch");
+      }
+    },
+    [applyDone, loadHistory],
+  );
+
   const run = useCallback(async () => {
     const myRun = ++runIdRef.current;
     setView("recognize");
@@ -221,7 +266,14 @@ export function ShazamPanel({
       if (e.payload >= 0.999) setPhase("searching");
     });
     busyRef.current = true;
+    setAutoCopied(false);
     try {
+      if (captureLyricsRef.current) {
+        const r = await lyricsCapture(RECORD_SECONDS);
+        if (runIdRef.current !== myRun) return;
+        applyLyrics(r);
+        return;
+      }
       const m = await shazamListen(RECORD_SECONDS);
       if (runIdRef.current !== myRun) return;
       if (m) {
@@ -244,7 +296,7 @@ export function ShazamPanel({
       busyRef.current = false;
       unlisten();
     }
-  }, [loadHistory]);
+  }, [loadHistory, applyLyrics]);
 
   useEffect(() => {
     void loadHistory();
@@ -296,6 +348,24 @@ export function ShazamPanel({
       if (un) un();
     };
   }, [applyDone]);
+
+  // Reconnect for a background `shazam lyrics` run.
+  useEffect(() => {
+    let cancelled = false;
+    let un: (() => void) | null = null;
+    void listen<LyricsCapture>("lyrics-done", (e) => {
+      if (!reconnectedRef.current) return;
+      reconnectedRef.current = false;
+      applyLyrics(e.payload);
+    }).then((u) => {
+      if (cancelled) u();
+      else un = u;
+    });
+    return () => {
+      cancelled = true;
+      if (un) un();
+    };
+  }, [applyLyrics]);
 
   // Every later click on the "Identify song" / "shazam history" list row
   // bumps `viewSignal` (App.tsx) — apply it to the ALREADY-MOUNTED panel.
@@ -730,6 +800,15 @@ export function ShazamPanel({
               </button>
             </div>
           </div>
+
+          {autoCopied && (
+            <div
+              className="confirm-enter flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-400"
+              data-testid="lyrics-auto-copied"
+            >
+              <Check size={12} /> {t("shazam.lyrics_auto_copied")}
+            </div>
+          )}
 
           {/* ── Original lyrics ── */}
           {lyricsMode === "orig" && lyrics.status === "loading" && (

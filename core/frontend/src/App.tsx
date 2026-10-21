@@ -179,6 +179,7 @@ import {
   type ParsedCommand,
   commandDescription,
 } from "./lib/commands";
+import { SHAZAM_VIEWS, shazamView } from "./lib/shazam-view";
 import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { clownAll, parseClownArg } from "./lib/clown";
@@ -258,6 +259,7 @@ import {
   qrCopyPng,
   showStatusToast,
   type ShazamDone,
+  type LyricsCapture,
   type CleanDone,
   trackStart,
   trackStop,
@@ -609,7 +611,7 @@ function App() {
   const [snitchFocus, setSnitchFocus] = useState(false);
   // Shazam mode — `shazam` records ~10 s + identifies the song; `shazam
   // history` opens the recognized-songs history. null = closed.
-  const [shazamMode, setShazamMode] = useState<null | "listen" | "history">(null);
+  const [shazamMode, setShazamMode] = useState<null | "listen" | "history" | "lyrics">(null);
   const [shazamFocus, setShazamFocus] = useState(false);
   // Mirror of `shazamMode` for the global `shazam-done` listener (reads the
   // live value without re-subscribing). null = the Shazam panel is closed, so
@@ -2263,11 +2265,15 @@ function App() {
         break;
       }
       case "shazam": {
-        const histMode = /\b(hist|list)/i.test(arg ?? "");
-        label = histMode ? t("cmd.shazam.history") : t("cmd.shazam.identify");
-        hint = histMode
-          ? t("cmd.shazam.history_hint")
-          : t("cmd.shazam.identify_hint");
+        const view = shazamView(arg, parsedCommand?.spec.keyword);
+        label =
+          view === "history" ? t("cmd.shazam.history") : view === "lyrics" ? t("cmd.shazam.lyrics") : t("cmd.shazam.identify");
+        hint =
+          view === "history"
+            ? t("cmd.shazam.history_hint")
+            : view === "lyrics"
+              ? t("cmd.shazam.lyrics_hint")
+              : t("cmd.shazam.identify_hint");
         break;
       }
       case "brightness":
@@ -3170,28 +3176,20 @@ function App() {
   // `shazam` has two views (recognize + history). Surface the OTHER as a
   // visible sub-row so `shazam history` is discoverable without knowing the
   // keyword (same pattern as snitchSubEntry). Enter runs it; Tab autocompletes.
-  const shazamSubEntry: ListEntry | null = useMemo(() => {
-    if (!isShazamCmd) return null;
-    const histMode = /\b(hist|list)/i.test(parsedCommand?.arg ?? "");
-    return histMode
-      ? {
-          kind: "command-suggestion",
-          data: {
-            keyword: "shazam",
-            syntax: "shazam",
-            description: t("cmd.shazam.sub_identify"),
-            completion: "shazam",
-          },
-        }
-      : {
-          kind: "command-suggestion",
-          data: {
-            keyword: "shazam history",
-            syntax: "shazam history",
-            description: t("cmd.shazam.sub_history"),
-            completion: "shazam history",
-          },
-        };
+  const shazamSubEntries: ListEntry[] = useMemo(() => {
+    if (!isShazamCmd) return [];
+    const view = shazamView(parsedCommand?.arg, parsedCommand?.spec.keyword);
+    return SHAZAM_VIEWS.filter((v) => v.view !== view).map(
+      (v): ListEntry => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: v.completion,
+          syntax: v.completion,
+          description: t(v.descKey),
+          completion: v.completion,
+        },
+      }),
+    );
   }, [isShazamCmd, parsedCommand, t]);
 
   // Wrapped once per clip-list change, not on every `combined` rebuild
@@ -3341,7 +3339,7 @@ function App() {
       ...(convertParse.kind !== "partial" ? convertSuggestionEntries : []),
       ...(snitchSubEntry ? [snitchSubEntry] : []),
       ...adbSubEntries,
-      ...(shazamSubEntry ? [shazamSubEntry] : []),
+      ...shazamSubEntries,
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
       ...(repoUrlRow ? [repoUrlRow] : []),
@@ -3392,7 +3390,7 @@ function App() {
     commandEntry,
     snitchSubEntry,
     adbSubEntries,
-    shazamSubEntry,
+    shazamSubEntries,
     suggestionEntries,
     socialEntry,
     qrLinkRow,
@@ -4023,6 +4021,20 @@ function App() {
     const m = e.payload?.matched;
     if (!m) return; // background no-match / error: stay silent
     void showStatusToast("shazam", true, `🎵 ${m.title}`, m.artist);
+  });
+
+  // `shazam lyrics` finished in the background: the lyrics are already in the
+  // clipboard — say so (or that there were none) when the panel is closed.
+  useTauriEvent<LyricsCapture>("lyrics-done", (e) => {
+    if (shazamModeRef.current !== null) return; // panel open → it shows it
+    const m = e.payload?.matched;
+    if (!m) return;
+    void showStatusToast(
+      "shazam",
+      !!e.payload.copied,
+      e.payload.copied ? t("shazam.lyrics_toast_copied") : t("shazam.lyrics_toast_none"),
+      `${m.title} – ${m.artist}`,
+    );
   });
 
   // Clean scan/execute finished. Jobs run in the backend and survive Esc —
@@ -5185,9 +5197,11 @@ function App() {
         setSnitchMode(mapMode ? "map" : "apps");
         setSnitchFocus(true);
       } else if (commandKind === "shazam") {
-        // `shazam` → record + identify; `shazam history` → the history list.
-        const histMode = /\b(hist|list)/i.test(arg ?? "");
-        setShazamMode(histMode ? "history" : "listen");
+        // `shazam` → record + identify; `shazam history` → the history list;
+        // `shazam lyrics` (or the `lyrics` keyword) → identify + copy lyrics.
+        const view = shazamView(arg, keyword);
+        if (keyword === "lyrics") setQuery("shazam lyrics");
+        setShazamMode(view);
         setShazamSignal((n) => n + 1);
         setShazamFocus(true);
       } else {
@@ -6491,6 +6505,7 @@ function App() {
                     <ShazamPanel
                       focused={shazamFocus}
                       initialView={shazamMode === "history" ? "history" : "recognize"}
+                      captureLyrics={shazamMode === "lyrics"}
                       viewSignal={shazamSignal}
                       onExit={() => {
                         setShazamMode(null);

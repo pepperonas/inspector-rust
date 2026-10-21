@@ -1067,10 +1067,19 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "shazam",
     keyword: "shazam",
-    syntax: "shazam [history]",
+    syntax: "shazam [history|lyrics]",
     description:
-      "Identify the song playing (records ~10 s from the mic) · `shazam history` opens your recognized-songs history",
-    description_de: "Den laufenden Song erkennen (nimmt ~10 s vom Mikrofon auf) · `shazam history` öffnet den Verlauf erkannter Songs",
+      "Identify the song playing (records ~10 s from the mic) · `shazam lyrics` copies its lyrics · `shazam history` opens your recognized-songs history",
+    description_de: "Den laufenden Song erkennen (nimmt ~10 s vom Mikrofon auf) · `shazam lyrics` kopiert den Songtext · `shazam history` öffnet den Verlauf erkannter Songs",
+    requiresArg: false,
+  },
+  {
+    kind: "shazam",
+    keyword: "lyrics",
+    syntax: "lyrics",
+    description:
+      "Identify the song playing and copy its lyrics to the clipboard + history (same as `shazam lyrics`)",
+    description_de: "Den laufenden Song erkennen und den Songtext in Zwischenablage + Verlauf kopieren (wie `shazam lyrics`)",
     requiresArg: false,
   },
   {

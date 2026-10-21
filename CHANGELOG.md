@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.223.0] - 2026-10-21
+
+### Added
+- **Capture song lyrics:** `shazam lyrics` (or just `lyrics`) identifies the song playing from the microphone, fetches its lyrics from lrclib.net and puts them — headed by “Title – Artist” — into the clipboard and the clipboard history. The lyrics view opens with a confirmation. It runs in the background, so closing the popup doesn't stop it; a toast then says whether lyrics were copied. A song without a catalogue entry gets “No lyrics found” and the browser-search button.
+
 ## [0.222.4] - 2026-10-21
 
 ### Fixed

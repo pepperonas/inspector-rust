@@ -4045,5 +4045,12 @@
   "trx.live.footer": "Diktat",
   "arg.trx_start": "vom Mikrofon diktieren",
   "arg.trx_stop": "Diktat beenden",
-  "trx.live.busy": "Es läuft bereits ein Diktat oder eine Datei-Transkription."
+  "trx.live.busy": "Es läuft bereits ein Diktat oder eine Datei-Transkription.",
+  "cmd.shazam.lyrics": "Song erkennen und Songtext kopieren",
+  "cmd.shazam.lyrics_hint": "Nimmt ~10 s auf, holt den Songtext (lrclib.net) → Zwischenablage + Verlauf",
+  "cmd.shazam.sub_lyrics": "Song erkennen und Songtext kopieren",
+  "shazam.lyrics_auto_copied": "Songtext in Zwischenablage und Verlauf kopiert",
+  "shazam.lyrics_toast_copied": "Songtext kopiert",
+  "shazam.lyrics_toast_none": "Kein Songtext gefunden",
+  "arg.shazam_lyrics": "erkennen + Songtext kopieren"
 }

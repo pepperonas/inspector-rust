@@ -1726,6 +1726,18 @@ export interface ShazamDone {
   matched: ShazamMatch | null;
   error: string | null;
 }
+/** `shazam lyrics`: identify the song, fetch its lyrics and copy them to the
+ * clipboard + history — all in the backend (survives the panel closing).
+ * Emits `shazam-progress` while recording and `lyrics-done` at the end. */
+export interface LyricsCapture {
+  matched: ShazamMatch | null;
+  lyrics: string | null;
+  copied: boolean;
+  error: string | null;
+}
+export function lyricsCapture(seconds?: number): Promise<LyricsCapture> {
+  return invoke("lyrics_capture", { seconds });
+}
 /** Open the matched song in Spotify — desktop app if installed, else web player. */
 export function openSpotify(url: string, title: string, artist: string): Promise<void> {
   return invoke("open_spotify", { url, title, artist });

@@ -4045,5 +4045,12 @@
   "trx.live.footer": "Dict",
   "arg.trx_start": "dictate from the microphone",
   "arg.trx_stop": "end the dictation",
-  "trx.live.busy": "A dictation or file transcription is already running."
+  "trx.live.busy": "A dictation or file transcription is already running.",
+  "cmd.shazam.lyrics": "Identify the song and copy its lyrics",
+  "cmd.shazam.lyrics_hint": "Records ~10 s, fetches the lyrics (lrclib.net) → clipboard + history",
+  "cmd.shazam.sub_lyrics": "Identify the song and copy its lyrics",
+  "shazam.lyrics_auto_copied": "Lyrics copied to the clipboard and history",
+  "shazam.lyrics_toast_copied": "Lyrics copied",
+  "shazam.lyrics_toast_none": "No lyrics found",
+  "arg.shazam_lyrics": "identify + copy lyrics"
 }

@@ -411,7 +411,11 @@ mod wiring_tests {
 mod bench {
     use super::*;
 
+    /// Needs Apple's text model: a cold load takes ~70 s and can fail outright
+    /// in a test process (`CRImageReaderError 1`), so it runs on request only:
+    /// `cargo test -p inspector-rust-core --lib the_warm_up_image -- --ignored`
     #[test]
+    #[ignore]
     fn the_warm_up_image_is_read_as_text() {
         let text = recognize_impl(WARMUP_PNG, Level::Accurate).unwrap();
         assert!(text.to_lowercase().contains("warm"), "got {text:?}");

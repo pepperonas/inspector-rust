@@ -189,7 +189,10 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
     { value: "wifi", hint: "arg.adb_wifi" },
   ],
   snitch: [{ value: "map", hint: "arg.snitch_map" }],
-  shazam: [{ value: "history", hint: "arg.shazam_history" }],
+  shazam: [
+    { value: "lyrics", hint: "arg.shazam_lyrics" },
+    { value: "history", hint: "arg.shazam_history" },
+  ],
   resize: [
     { value: "px", hint: "arg.rz_px" },
     { value: "%", hint: "arg.rz_pct" },

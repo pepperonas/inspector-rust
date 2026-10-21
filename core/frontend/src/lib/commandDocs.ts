@@ -1090,19 +1090,23 @@ export const COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "shazam",
-    aliases: [],
+    aliases: ["lyrics"],
     category: CAT_MEDIA,
     version_added: "0.84.250",
     tagline: "Recognise the song playing from the mic.",
     tagline_de: "Den laufenden Song über das Mikro erkennen.",
-    synopsis: "shazam [history]",
+    synopsis: "shazam [history|lyrics] · lyrics",
     description:
-      "Records ~10 s from the microphone, generates a Shazam audio-signature, queries Shazam's public API, and shows the matched track (cover · title · artist · album · year) with Shazam/Spotify/YouTube links + lyrics. `shazam history` opens past recognitions. Native mic capture (no webview) so playback isn't disturbed. The recognition runs in the backend, so it keeps going even if you close the overlay — the match is saved to history and (if the panel is closed) pops a toast.",
-    arguments: [{ name: "history", required: false, description: "Open the recognition history instead of listening.", default: "(listen)" }],
+      "Records ~10 s from the microphone, generates a Shazam audio-signature, queries Shazam's public API, and shows the matched track (cover · title · artist · album · year) with Shazam/Spotify/YouTube links + lyrics. `shazam lyrics` (or just `lyrics`) identifies the song, fetches its lyrics from lrclib.net and puts them — headed by “Title – Artist” — into the clipboard and the clipboard history. `shazam history` opens past recognitions. Native mic capture (no webview) so playback isn't disturbed. The recognition runs in the backend, so it keeps going even if you close the overlay — the match is saved to history and (if the panel is closed) pops a toast.",
+    arguments: [
+      { name: "history", required: false, description: "Open the recognition history instead of listening.", default: "(listen)" },
+      { name: "lyrics", required: false, description: "Identify, then copy the song's lyrics to the clipboard + history. Also `songtext`, or the `lyrics` keyword." },
+    ],
     flags: [],
     examples: [
       { input: "shazam", result: "Listens ~10 s, then shows the matched song + links." },
       { input: "shazam history", result: "Your past recognitions with links + per-row delete." },
+      { input: "lyrics", result: "Listens ~10 s, then the lyrics are in the clipboard and the history." },
       { input: "shazam", result: "R re-records, Esc exits." },
     ],
     tips: [
@@ -1111,7 +1115,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Close the overlay mid-listen and the recognition keeps running in the backend — the match still lands in history and a toast shows the song.",
       "`shazam history` opens your recognized-songs list directly — with a search field over title · artist · album · genre.",
     ],
-    caveats: ["Needs a microphone + network (the recognition query). No match → a clear 'no match' state."],
+    caveats: [
+      "Needs a microphone + network (the recognition query). No match → a clear 'no match' state.",
+      "Lyrics come from the lrclib.net catalogue, not from the audio — a song that isn't in it gets “No lyrics found” and a browser-search button.",
+    ],
     related: [],
   },
   {

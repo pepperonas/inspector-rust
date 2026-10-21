@@ -319,6 +319,38 @@ pub struct ShazamDone {
     pub error: Option<String>,
 }
 
+/// Result of `lyrics_capture` (also the `lyrics-done` event payload).
+/// `matched: None` + no error = the song wasn't recognized; a match with
+/// `lyrics: None` = the catalogue has no lyrics for it.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LyricsCapture {
+    pub matched: Option<ShazamMatch>,
+    pub lyrics: Option<String>,
+    /// True when the lyrics were written to the clipboard + history.
+    pub copied: bool,
+    pub error: Option<String>,
+}
+
+impl LyricsCapture {
+    pub fn failed(error: String) -> Self {
+        Self { error: Some(error), ..Default::default() }
+    }
+}
+
+/// The clipboard/history text for captured lyrics: a "Title – Artist" header
+/// line, a blank line, then the lyrics (trimmed). The header makes the
+/// history entry findable by song name. Pure.
+pub fn lyrics_clip_text(title: &str, artist: &str, lyrics: &str) -> String {
+    let (title, artist, body) = (title.trim(), artist.trim(), lyrics.trim());
+    let head = match (title.is_empty(), artist.is_empty()) {
+        (false, false) => format!("{title} – {artist}"),
+        (false, true) => title.to_string(),
+        (true, false) => artist.to_string(),
+        (true, true) => return body.to_string(),
+    };
+    format!("{head}\n\n{body}")
+}
+
 /// Percent-encode a query for a URL (RFC-3986-ish: keep unreserved, encode the
 /// rest incl. space → %20). Pure.
 fn url_encode(s: &str) -> String {
@@ -1225,6 +1257,14 @@ mod tests {
             strip_synced_timestamps(synced),
             "Hello darkness\nmy old friend\ntagged"
         );
+    }
+
+    #[test]
+    fn lyrics_clip_text_puts_the_song_on_top() {
+        assert_eq!(lyrics_clip_text(" Song ", "Band", "\nline a\nline b\n"), "Song – Band\n\nline a\nline b");
+        assert_eq!(lyrics_clip_text("Song", "", "x"), "Song\n\nx");
+        assert_eq!(lyrics_clip_text("", "Band", "x"), "Band\n\nx");
+        assert_eq!(lyrics_clip_text(" ", "", " x "), "x");
     }
 
     #[test]

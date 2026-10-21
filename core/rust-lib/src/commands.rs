@@ -7950,6 +7950,24 @@ pub async fn shazam_listen(
     db: State<'_, DbHandle>,
     seconds: Option<u32>,
 ) -> Result<Option<crate::shazam::ShazamMatch>, String> {
+    let outcome = listen_and_recognize(&app, &db, seconds).await;
+    // Announce completion so a closed panel / App-level toast can react.
+    let done = crate::shazam::ShazamDone {
+        matched: outcome.as_ref().ok().and_then(|o| o.clone()),
+        error: outcome.as_ref().err().cloned(),
+    };
+    let _ = app.emit("shazam-done", &done);
+    outcome
+}
+
+/// Record from the mic, recognize, persist a match to the Shazam history.
+/// Shared by `shazam_listen` and `lyrics_capture`; the busy flag guards both
+/// (one cpal input stream at a time).
+async fn listen_and_recognize(
+    app: &AppHandle,
+    db: &DbHandle,
+    seconds: Option<u32>,
+) -> Result<Option<crate::shazam::ShazamMatch>, String> {
     // Reject a concurrent start (avoids a second cpal input stream).
     if SHAZAM_LISTENING.swap(true, Ordering::SeqCst) {
         return Err("shazam.busy".into());
@@ -7977,19 +7995,54 @@ pub async fn shazam_listen(
     let outcome: Result<Option<crate::shazam::ShazamMatch>, String> = match rec {
         Err(join) => Err(join.to_string()),
         Ok(Err(e)) => Err(e),
-        Ok(Ok(samples)) => crate::shazam::recognize(&samples),
+        Ok(Ok(samples)) => tauri::async_runtime::spawn_blocking(move || {
+            crate::shazam::recognize(&samples)
+        })
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r),
     };
 
     if let Ok(Some(m)) = &outcome {
-        let _ = crate::shazam::history_insert(&db, m);
+        let _ = crate::shazam::history_insert(db, m);
     }
-    // Announce completion so a closed panel / App-level toast can react.
-    let done = crate::shazam::ShazamDone {
-        matched: outcome.as_ref().ok().and_then(|o| o.clone()),
-        error: outcome.as_ref().err().cloned(),
-    };
-    let _ = app.emit("shazam-done", &done);
     outcome
+}
+
+/// `shazam lyrics`: identify the song playing, fetch its lyrics (lrclib.net)
+/// and put them in the clipboard + clipboard history. Runs entirely in the
+/// backend, so it finishes even if the overlay is closed; `lyrics-done`
+/// announces the outcome (the App shows a toast when the panel is closed).
+#[tauri::command]
+pub async fn lyrics_capture(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    seconds: Option<u32>,
+) -> Result<crate::shazam::LyricsCapture, String> {
+    let outcome = match listen_and_recognize(&app, &db, seconds).await {
+        Err(e) => crate::shazam::LyricsCapture::failed(e),
+        Ok(None) => crate::shazam::LyricsCapture::default(),
+        Ok(Some(m)) => {
+            let (artist, title) = (m.artist.clone(), m.title.clone());
+            let fetched = tauri::async_runtime::spawn_blocking(move || {
+                crate::shazam::fetch_lyrics(&artist, &title)
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+            match fetched {
+                Ok(Some(text)) => {
+                    let clip = crate::shazam::lyrics_clip_text(&m.title, &m.artist, &text);
+                    let copied = commit_transformed_text(app.clone(), clip, None, None).is_ok();
+                    crate::shazam::LyricsCapture { matched: Some(m), lyrics: Some(text), copied, error: None }
+                }
+                Ok(None) => crate::shazam::LyricsCapture { matched: Some(m), ..Default::default() },
+                Err(e) => crate::shazam::LyricsCapture { matched: Some(m), error: Some(e), ..Default::default() },
+            }
+        }
+    };
+    let _ = app.emit("lyrics-done", &outcome);
+    Ok(outcome)
 }
 
 /// Open the matched song in Spotify — the desktop app if installed, else the

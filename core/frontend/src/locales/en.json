@@ -4061,5 +4061,14 @@
   "arg.trx_song": "lyrics from what this Mac plays",
   "trx.live.source_system": "System audio",
   "trx.live.song": "Transcribe song",
-  "trx.live.song_title": "Writes down the lyrics of what this Mac is playing — straight from the system audio, nothing is turned down"
+  "trx.live.song_title": "Writes down the lyrics of what this Mac is playing — straight from the system audio, nothing is turned down",
+  "arg.trx_room": "a song on another device, through the microphone",
+  "trx.live.source_room": "Other device (microphone)",
+  "trx.live.room": "Song from another device",
+  "trx.live.room_title": "Listens through the microphone to a song playing elsewhere (stereo, phone, radio), recognises it and copies its lyrics",
+  "trx.live.song_searching": "Recognising the song…",
+  "trx.live.song_searching_n": "Recognising the song… (attempt {n})",
+  "trx.live.song_lyrics_found": "Lyrics found — copied when you stop",
+  "trx.live.song_lyrics_used": "Lyrics from the catalogue copied",
+  "trx.live.song_no_lyrics": "No lyrics in the catalogue — the transcript is copied"
 }

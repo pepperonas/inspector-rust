@@ -204,10 +204,12 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
       hint: "arg.trx_start",
       next: [
         { value: "--song", hint: "arg.trx_song", next: [{ value: "--language", hint: "arg.language", next: LANGUAGES }] },
+        { value: "--room", hint: "arg.trx_room", next: [{ value: "--language", hint: "arg.language", next: LANGUAGES }] },
         { value: "--language", hint: "arg.language", next: LANGUAGES },
       ],
     },
     { value: "--song", hint: "arg.trx_song", next: [{ value: "--language", hint: "arg.language", next: LANGUAGES }] },
+    { value: "--room", hint: "arg.trx_room", next: [{ value: "--language", hint: "arg.language", next: LANGUAGES }] },
     { value: "--stop", hint: "arg.trx_stop" },
     { value: "--language", hint: "arg.language", next: LANGUAGES },
   ],

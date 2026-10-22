@@ -19,6 +19,9 @@ pub struct Args {
     /// `--song` (`--lyrics`, `--system`): listen to what this Mac plays
     /// instead of the microphone — lyrics from a song. Implies `--start`.
     pub song: bool,
+    /// `--room` (`--raum`, or `--song --mic`): a song playing on ANOTHER
+    /// device, heard through the microphone. Implies `--song`.
+    pub room: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +70,7 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
     let mut path_tokens = Vec::new();
     let mut language_seen = false;
     let mut flags_done = false;
+    let mut mic = false;
     let mut i = 0;
     while i < tokens.len() {
         let (start, end, quoted) = tokens[i];
@@ -101,6 +105,11 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             result.live = Some(action);
         } else if !quoted && !flags_done && matches!(token, "--song" | "--lyrics" | "--system") {
             result.song = true;
+        } else if !quoted && !flags_done && matches!(token, "--room" | "--raum") {
+            result.song = true;
+            result.room = true;
+        } else if !quoted && !flags_done && token == "--mic" {
+            mic = true;
         } else if !quoted && !flags_done && token.starts_with('-') {
             return Err(crate::i18n::tf("trx.unknown_param", &[("token", token)]));
         } else {
@@ -120,6 +129,11 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             return Err(crate::i18n::t("trx.empty_path"));
         }
         result.path = Some(path);
+    }
+    // `--mic` only means something together with `--song`: the microphone is
+    // already the source of a plain dictation.
+    if result.song && mic {
+        result.room = true;
     }
     if result.song {
         if result.live == Some(LiveAction::Stop) {
@@ -735,6 +749,7 @@ mod tests {
                 path: None,
                 live: None,
                 song: false,
+                room: false,
             }
         );
         assert_eq!(parse_args("-l auto").unwrap(), Args::default());
@@ -790,6 +805,15 @@ mod tests {
         assert!(!parse_args("--start").unwrap().song);
         assert!(parse_args("--stop --song").is_err());
         assert!(parse_args("--song ~/a.mp3").is_err());
+        // Another device through the microphone.
+        for arg in ["--room", "--raum", "--song --mic", "--mic --song", "--start --room -l de"] {
+            let a = parse_args(arg).unwrap();
+            assert_eq!((a.live, a.song, a.room), (Some(LiveAction::Start), true, true), "{arg}");
+        }
+        assert!(!parse_args("--song").unwrap().room);
+        let plain = parse_args("--start --mic").unwrap();
+        assert_eq!((plain.song, plain.room), (false, false));
+        assert!(parse_args("--stop --room").is_err());
         // A file run is unchanged.
         assert_eq!(parse_args("a.mp3").unwrap().live, None);
     }

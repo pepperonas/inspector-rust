@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.225.0] - 2026-10-22
+
+### Added
+- **Lyrics of a song on another device:** `transcribe --room` (also `--raum`, `--song --mic`, or "Song from another device" in the panel) listens through the microphone to a song playing elsewhere — a stereo, a phone, the radio. Measured with a song from the speakers: 20-s pieces keep 60 % more text than the 12 s used for dictation, so the microphone song mode uses those.
+- **Song recognition while writing along:** in both song modes (`--room` and `--song`) Shazam tries to recognise the song every 8 s. When the lyrics catalogue has it, its exact lyrics are copied at the stop instead of what was heard, and the slow final pass is skipped. The panel shows the song with its cover.
+
 ## [0.224.0] - 2026-10-21
 
 ### Added

@@ -295,8 +295,25 @@ export interface LiveJob {
   error: string | null;
   /** Output volume before it was lowered for the recording (percent). */
   ducked_from?: number | null;
-  /** `mic` = dictation, `system` = what this Mac plays (`--song`). */
-  source?: "mic" | "system";
+  /** `mic` = dictation, `system` = what this Mac plays (`--song`),
+   *  `room` = a song on another device, through the microphone (`--room`). */
+  source?: LiveSource;
+  /** The song recognised during a song session (Shazam + lyrics catalogue). */
+  song?: LiveSong | null;
+  /** Shazam attempts so far (song sessions). */
+  recognize_tries?: number;
+  /** The text the session ended with (what was copied). */
+  result?: string | null;
+}
+
+export type LiveSource = "mic" | "system" | "room";
+
+export interface LiveSong {
+  title: string;
+  artist: string;
+  cover_url: string;
+  /** Catalogue lyrics; null = the catalogue has none for this song. */
+  lyrics: string | null;
 }
 
 /** Payload of `transcribe-live-done`. */

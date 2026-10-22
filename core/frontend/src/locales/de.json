@@ -4061,5 +4061,14 @@
   "arg.trx_song": "Liedtext aus dem, was dieser Mac abspielt",
   "trx.live.source_system": "Systemton",
   "trx.live.song": "Lied mitschreiben",
-  "trx.live.song_title": "Schreibt den Text dessen mit, was dieser Mac abspielt – direkt aus dem Systemton, nichts wird leiser gestellt"
+  "trx.live.song_title": "Schreibt den Text dessen mit, was dieser Mac abspielt – direkt aus dem Systemton, nichts wird leiser gestellt",
+  "arg.trx_room": "ein Lied von einem anderen Gerät, über das Mikrofon",
+  "trx.live.source_room": "Anderes Gerät (Mikrofon)",
+  "trx.live.room": "Lied von anderem Gerät",
+  "trx.live.room_title": "Hört über das Mikrofon ein Lied, das woanders läuft (Anlage, Handy, Radio), erkennt es und kopiert seinen Text",
+  "trx.live.song_searching": "Lied wird erkannt…",
+  "trx.live.song_searching_n": "Lied wird erkannt… (Versuch {n})",
+  "trx.live.song_lyrics_found": "Songtext gefunden – wird beim Stopp kopiert",
+  "trx.live.song_lyrics_used": "Songtext aus dem Katalog kopiert",
+  "trx.live.song_no_lyrics": "Kein Songtext im Katalog – die Mitschrift wird kopiert"
 }

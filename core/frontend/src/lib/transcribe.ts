@@ -3,7 +3,7 @@
  * overall progress and a remaining-time estimate. The job itself lives in
  * the Rust backend (`transcribe.rs`) — these only read its snapshot.
  */
-import type { LiveJob, TranscribeFile, TranscribeJob } from "./ipc";
+import type { LiveJob, LiveSource, TranscribeFile, TranscribeJob } from "./ipc";
 import { t } from "./i18n";
 
 export function isJobActive(job: TranscribeJob | null | undefined): boolean {
@@ -124,9 +124,24 @@ export function liveAction(arg: string): "start" | "stop" | null {
   return null;
 }
 
-/** `--song` (`--lyrics`, `--system`): transcribe what this Mac plays. */
+/** `--song` (`--lyrics`, `--system`): transcribe what this Mac plays;
+ *  `--room` (`--raum`): a song on another device, through the microphone. */
 export function isSongFlag(word: string): boolean {
-  return word === "--song" || word === "--lyrics" || word === "--system";
+  return ["--song", "--lyrics", "--system", "--room", "--raum"].includes(word);
+}
+
+/** How a session is started from the panel: dictation, this Mac's audio, or
+ *  another device through the microphone. */
+export type StartMode = "dictate" | "song" | "room";
+
+/** The command argument for a start mode. */
+export function startArg(mode: StartMode): string {
+  return mode === "song" ? "--start --song" : mode === "room" ? "--start --room" : "--start";
+}
+
+/** The start mode of a finished session — "again" keeps the same source. */
+export function modeOfSource(source: LiveSource | undefined): StartMode {
+  return source === "system" ? "song" : source === "room" ? "room" : "dictate";
 }
 
 /** The language given with `--start`, if any (`--language de`, `-l de`, `--language=de`). */
@@ -168,6 +183,8 @@ export function liveRowLabel(job: LiveJob | null | undefined, arg: string): stri
 
 /** The text a finished dictation produced (what was copied). */
 export function liveResultText(job: LiveJob): string {
+  // The session's own end text (catalogue lyrics for a recognised song).
+  if (job.result && job.result.trim()) return job.result;
   if (job.final_text && job.final_text.trim()) return job.final_text;
   return [job.committed, job.partial].map((x) => x.trim()).filter(Boolean).join(" ");
 }

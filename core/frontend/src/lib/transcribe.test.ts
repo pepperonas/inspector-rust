@@ -15,6 +15,8 @@ import {
   formatClock,
   liveRowLabel,
   liveResultText,
+  modeOfSource,
+  startArg,
 } from "./transcribe";
 import de from "../locales/de.json";
 import en from "../locales/en.json";
@@ -128,6 +130,8 @@ describe("live dictation helpers", () => {
     expect(liveAction("--song")).toBe("start");
     expect(liveAction("--start --lyrics -l en")).toBe("start");
     expect(liveAction("--stop --song")).toBe("stop");
+    expect(liveAction("--room")).toBe("start");
+    expect(liveAction("--raum -l de")).toBe("start");
     expect(liveAction("")).toBeNull();
     expect(liveAction("~/a.mp3 --language de")).toBeNull();
     // A word that merely contains the flag is a file name, not the flag.
@@ -171,6 +175,9 @@ describe("live dictation helpers", () => {
     expect(liveResultText(live({ committed: "a b", partial: "c", final_text: "A, b c." }))).toBe("A, b c.");
     expect(liveResultText(live({ committed: "a b", partial: "c", final_text: "  " }))).toBe("a b c");
     expect(liveResultText(live({ committed: "", partial: "" }))).toBe("");
+    // The session's end text (catalogue lyrics) wins over what was heard.
+    expect(liveResultText(live({ committed: "heard", final_text: "Heard.", result: "T – A\n\nlyrics" }))).toBe("T – A\n\nlyrics");
+    expect(liveResultText(live({ committed: "heard", result: "  " }))).toBe("heard");
   });
 });
 
@@ -198,5 +205,18 @@ describe("live dictation in App (source pins)", () => {
     const code = await app();
     const fn = code.slice(code.indexOf("const startDictation = useCallback"));
     expect(fn.slice(0, fn.indexOf("}, []);"))).toContain('setQuery("transcribe --stop")');
+  });
+});
+
+describe("start modes", () => {
+  it("maps each mode to its flags and back from the source", () => {
+    expect(startArg("dictate")).toBe("--start");
+    expect(startArg("song")).toBe("--start --song");
+    expect(startArg("room")).toBe("--start --room");
+    expect(modeOfSource("system")).toBe("song");
+    expect(modeOfSource("room")).toBe("room");
+    expect(modeOfSource("mic")).toBe("dictate");
+    expect(modeOfSource(undefined)).toBe("dictate");
+    for (const m of ["dictate", "song", "room"] as const) expect(modeOfSource(m === "song" ? "system" : m === "room" ? "room" : "mic")).toBe(m);
   });
 });

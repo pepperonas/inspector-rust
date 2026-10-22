@@ -1,7 +1,7 @@
 import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
-import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel } from "./lib/transcribe";
+import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg } from "./lib/transcribe";
 
 /** localStorage key of the argument-usage memory (Tab ranking). */
 const ARG_USAGE_KEY = "ir.arg-usage.v1";
@@ -4078,7 +4078,7 @@ function App() {
     if (!d || d.cancelled) return;
     // After the stop, Enter starts the next dictation.
     // Song mode stays song mode for the next start.
-    const next = liveJobRef.current?.source === "system" ? "transcribe --start --song" : "transcribe --start";
+    const next = `transcribe ${startArg(modeOfSource(liveJobRef.current?.source))}`;
     setQuery((q) => (/^transcribe\s+--stop\b/.test(q.trim()) ? next : q));
     if (transcribeLiveRef.current) return;
     void showStatusToast(
@@ -6442,10 +6442,10 @@ function App() {
                     <TranscribeLivePanel
                       job={liveJob}
                       startError={liveStartError}
-                      onStart={(song) =>
+                      onStart={(mode) =>
                         void startDictation(
-                          song
-                            ? "--start --song"
+                          mode && mode !== "dictate"
+                            ? startArg(mode)
                             : liveAction(parsedCommand?.arg ?? "") === "start"
                               ? (parsedCommand?.arg ?? "--start")
                               : "--start",

@@ -1458,3 +1458,28 @@ mod tests {
         assert_eq!(history_insert(&db, &m).unwrap(), got.id);
     }
 }
+
+#[cfg(test)]
+mod recognize_diag {
+    /// Does Shazam recognise a raw 16 kHz mono i16 recording (e.g. a song
+    /// taken through the microphone)? Prints only whether and after how many
+    /// seconds — never titles or lyrics.
+    /// `IR_SHAZAM_PCM=<file> cargo test … recognize_pcm_diag -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn recognize_pcm_diag() {
+        let Ok(path) = std::env::var("IR_SHAZAM_PCM") else { return };
+        let bytes = std::fs::read(path).unwrap();
+        let pcm: Vec<i16> = bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
+        for (from, len) in [(0, 6), (0, 10), (10, 10), (20, 12), (30, 12), (40, 12)] {
+            let (a, b) = (from * 16_000, ((from + len) * 16_000).min(pcm.len()));
+            if a >= b { continue; }
+            let r = super::recognize(&pcm[a..b]);
+            println!("@{from:2}s +{len:2}s: {}", match r {
+                Ok(Some(m)) => format!("match (title {} chars)", m.title.chars().count()),
+                Ok(None) => "no match".into(),
+                Err(e) => format!("error {e}"),
+            });
+        }
+    }
+}

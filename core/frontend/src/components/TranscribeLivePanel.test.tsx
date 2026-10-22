@@ -25,10 +25,49 @@ describe("TranscribeLivePanel", () => {
     const onStart = vi.fn();
     const { unmount } = render(<TranscribeLivePanel {...props} job={null} onStart={onStart} />);
     fireEvent.click(screen.getByText("Transcribe song"));
-    expect(onStart).toHaveBeenCalledWith(true);
+    expect(onStart).toHaveBeenCalledWith("song");
     unmount();
     render(<TranscribeLivePanel {...props} job={job({ source: "system" })} />);
     expect(screen.getByTestId("live-source").textContent).toContain("System audio");
+  });
+
+  it("offers a song from another device through the microphone", () => {
+    const onStart = vi.fn();
+    const { unmount } = render(<TranscribeLivePanel {...props} job={null} onStart={onStart} />);
+    fireEvent.click(screen.getByText("Song from another device"));
+    expect(onStart).toHaveBeenCalledWith("room");
+    unmount();
+    render(<TranscribeLivePanel {...props} job={job({ source: "room", recognize_tries: 2 })} />);
+    expect(screen.getByTestId("live-source").textContent).toContain("Other device");
+    expect(screen.getByTestId("live-song").textContent).toContain("attempt 2");
+  });
+
+  it("shows the recognised song and copies its catalogue lyrics", () => {
+    const song = { title: "Title", artist: "Artist", cover_url: "", lyrics: "la la" };
+    const { unmount } = render(<TranscribeLivePanel {...props} job={job({ source: "room", song })} />);
+    expect(screen.getByTestId("live-song").textContent).toContain("Lyrics found");
+    unmount();
+    render(
+      <TranscribeLivePanel
+        {...props}
+        job={job({ source: "room", song, state: "done", committed: "heard", result: "Title – Artist\n\nla la", copied: true })}
+      />,
+    );
+    expect(screen.getByTestId("live-song").textContent).toContain("Lyrics from the catalogue copied");
+    expect(screen.getByText(/la la/)).toBeTruthy();
+    expect(screen.queryByText("heard")).toBeNull();
+  });
+
+  it("dictation never shows a song row", () => {
+    render(<TranscribeLivePanel {...props} job={job({ source: "mic" })} />);
+    expect(screen.queryByTestId("live-song")).toBeNull();
+  });
+
+  it("'again' keeps the source of the finished session", () => {
+    const onStart = vi.fn();
+    render(<TranscribeLivePanel {...props} job={job({ source: "room", state: "done", committed: "x" })} onStart={onStart} />);
+    fireEvent.click(screen.getByText("New recording"));
+    expect(onStart).toHaveBeenCalledWith("room");
   });
 
   it("while recording: clock, kept text, the open sentence greyed, stop button", () => {

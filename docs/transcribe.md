@@ -57,7 +57,8 @@ How it works:
   in the footer shows it is still listening; type `transcribe` to see it or
   stop it. A dictation ends automatically after 60 minutes.
 - Nothing leaves the machine. The audio is kept in memory and in a private
-  cache folder only while the session runs.
+  cache folder only while the session runs. (Song modes send a short audio
+  fingerprint to Shazam — see below.)
 
 The first dictation downloads the `base` model (~140 MB). Override the models
 with `IR_WHISPER_LIVE_MODEL` (live, default `base`) and `IR_WHISPER_MODEL`
@@ -92,9 +93,35 @@ Two worker rules matter for songs (and help dictation too):
   characters fixes the language for the rest of the session and the final
   pass; `--language` still overrides it.
 
-A song playing on another device can only be heard through the microphone
-(`--start`); at full volume that rarely works. For a song that is in the
-lyrics catalogue, `lyrics` (shazam) fetches the exact text instead.
+### A song from another device: `transcribe --room`
+
+`transcribe --room` (also `--raum`, or `--song --mic`) listens through the
+microphone to a song playing elsewhere — a stereo, a phone, the radio. Panel:
+"Song from another device". Two things run side by side:
+
+- **Shazam recognises the song.** Every 8 s, the last 10 s of audio are sent
+  as a fingerprint (not the audio itself) until a match, at most 15 tries.
+  When the lyrics catalogue (lrclib) has the song, its **exact lyrics** are
+  copied at the stop instead of what Whisper heard, with a "Title – Artist"
+  line on top; the slow final pass is skipped then. The match also lands in
+  the Shazam history. `--song` (this Mac) does the same recognition.
+- **Whisper writes along** for songs the catalogue lacks. Through the
+  microphone the pieces are 20 s long instead of 12 s.
+
+Measured 2026-10-22 (a 60-s song from the MacBook speakers at 75 %, recorded
+by the built-in microphone):
+
+| | words found |
+|---|---|
+| live, 12-s pieces (base) | 169 characters kept |
+| live, 20-s pieces (base) | 269 characters kept |
+| final pass over the whole recording (small) | 76 % of the words, 83 % correct |
+| Shazam, 10-s windows | matched in 2 of 6 windows |
+
+Vocal separation (Demucs) before Whisper was tried and made it worse (recall
+0.76 → 0.60), so it is not used. Through the microphone the system audio
+(`--song`) stays more exact; use `--room` only when the song is not on this
+Mac. Very loud music close to the microphone can still come back empty.
 
 ### Turning the music down while dictating (opt-in)
 

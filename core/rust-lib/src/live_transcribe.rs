@@ -66,6 +66,11 @@ pub const MIN_CUT: usize = RATE * 3;
 pub const MIN_SPEECH: usize = RATE * 3 / 10;
 /// Without a pause (music, non-stop talking) cut after this long …
 pub const SOFT_SEGMENT: usize = RATE * 12;
+/// Soft cap for a song heard through the microphone. Measured 2026-10-22 (a
+/// song from the speakers, recorded by the built-in mic, word recall against
+/// the digital transcript): base 0.34 with 12-s pieces, 0.49 with 20 s; 30 s
+/// produced nothing at all. A sung line needs more context than a spoken one.
+pub const SONG_SEGMENT: usize = RATE * 20;
 /// … at the quietest moment of its last stretch, so a word is rarely split.
 pub const CUT_SEARCH: usize = RATE * 4;
 /// Below this frame RMS (−40 dBFS) a frame is silence, whatever is playing.
@@ -92,6 +97,8 @@ pub struct Segmenter {
     /// RMS of each frame since `start`.
     frames: Vec<f32>,
     floor: f32,
+    /// Longest segment before it is cut without a pause.
+    soft: usize,
 }
 
 impl Default for Segmenter {
@@ -102,7 +109,13 @@ impl Default for Segmenter {
 
 impl Segmenter {
     pub fn new() -> Self {
-        Segmenter { pos: 0, pending: Vec::new(), start: 0, frames: Vec::new(), floor: 0.002 }
+        Self::with_soft(SOFT_SEGMENT)
+    }
+
+    /// A segmenter that cuts non-stop sound after `soft` samples.
+    pub fn with_soft(soft: usize) -> Self {
+        let soft = soft.max(CUT_SEARCH + FRAME);
+        Segmenter { pos: 0, pending: Vec::new(), start: 0, frames: Vec::new(), floor: 0.002, soft }
     }
 
     /// Feed the next samples; returns the segments that closed.
@@ -193,7 +206,7 @@ impl Segmenter {
             let n = (len - quiet_run / 2) / FRAME;
             return self.cut(n);
         }
-        if len >= SOFT_SEGMENT {
+        if len >= self.soft {
             // No pause found: cut at the quietest frame of the last stretch
             // (the later one on a tie, so the segment stays as long as allowed).
             let total = self.frames.len();
@@ -242,6 +255,41 @@ pub enum LiveSource {
     /// `--song`: everything this Mac plays, captured digitally — no speaker,
     /// room or microphone in between, and nothing is turned down.
     System,
+    /// `--room` (`--song --mic`): a song playing on another device, heard
+    /// through the microphone.
+    Room,
+}
+
+impl LiveSource {
+    /// A song (not a dictation): longer pieces, recognised against Shazam.
+    pub fn is_song(self) -> bool {
+        matches!(self, LiveSource::System | LiveSource::Room)
+    }
+
+    /// Records the microphone (a dead microphone ends the session).
+    pub fn uses_mic(self) -> bool {
+        matches!(self, LiveSource::Mic | LiveSource::Room)
+    }
+
+    /// Soft cap for the segmenter. The digital capture keeps the 12 s the
+    /// dictation uses (longer pieces measured no gain there); through the
+    /// microphone 20 s is clearly better (see [`SONG_SEGMENT`]).
+    pub fn soft_segment(self) -> usize {
+        match self {
+            LiveSource::Room => SONG_SEGMENT,
+            LiveSource::Mic | LiveSource::System => SOFT_SEGMENT,
+        }
+    }
+}
+
+/// The song recognised in a song session, with its lyrics from the catalogue.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct SongInfo {
+    pub title: String,
+    pub artist: String,
+    pub cover_url: String,
+    /// The catalogue lyrics (lrclib); None = the song has none there.
+    pub lyrics: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -267,6 +315,13 @@ pub struct LiveJob {
     pub ducked_from: Option<i32>,
     /// Where the audio comes from: the microphone, or what this Mac plays.
     pub source: LiveSource,
+    /// The song recognised during a song session (Shazam + lyrics catalogue).
+    pub song: Option<SongInfo>,
+    /// How many recognition attempts were made (song sessions).
+    pub recognize_tries: u32,
+    /// The text the session ended with (what was copied) — set at the end, so
+    /// the panel shows exactly that without re-deriving it.
+    pub result: Option<String>,
     #[serde(skip)]
     last_final_seq: u64,
     #[serde(skip)]
@@ -339,6 +394,9 @@ impl LiveJob {
             error: None,
             ducked_from: None,
             source: LiveSource::Mic,
+            song: None,
+            recognize_tries: 0,
+            result: None,
             last_final_seq: 0,
             partial_seq: 0,
         }
@@ -385,13 +443,34 @@ impl LiveJob {
         }
     }
 
-    /// What ends up in the clipboard: the accurate pass, else the live text.
-    /// A failed accurate pass never loses the words already shown.
-    pub fn result_text(&self) -> String {
+    /// What was heard: the accurate pass, else the live text. A failed
+    /// accurate pass never loses the words already shown.
+    pub fn transcript_text(&self) -> String {
         match &self.final_text {
             Some(t) if !t.trim().is_empty() => t.clone(),
             _ => join(&self.committed, &self.partial),
         }
+    }
+
+    /// The catalogue lyrics of the recognised song, if any.
+    fn catalogue_lyrics(&self) -> Option<&str> {
+        self.song.as_ref()?.lyrics.as_deref().filter(|l| !l.trim().is_empty())
+    }
+
+    /// What ends up in the clipboard: a recognised song's catalogue lyrics
+    /// (exact, unlike anything Whisper hears through music), else the
+    /// transcript.
+    pub fn result_text(&self) -> String {
+        match (&self.song, self.catalogue_lyrics()) {
+            (Some(song), Some(lyrics)) => crate::shazam::lyrics_clip_text(&song.title, &song.artist, lyrics),
+            _ => self.transcript_text(),
+        }
+    }
+
+    /// The slow accurate pass is only worth it when its text is what gets
+    /// copied — not once the catalogue already has the exact lyrics.
+    pub fn needs_accurate_pass(&self) -> bool {
+        self.catalogue_lyrics().is_none() && !self.transcript_text().trim().is_empty()
     }
 }
 
@@ -402,6 +481,40 @@ pub struct LiveDone {
     pub cancelled: bool,
     pub text: String,
     pub error: Option<String>,
+}
+
+// ── Song recognition ────────────────────────────────────────────────────────
+
+/// Audio sent to Shazam per attempt.
+pub const RECOGNIZE_WINDOW: usize = RATE * 10;
+/// Pause between attempts. Through the microphone one window in three
+/// matched in the 2026-10-22 measurement, so a miss is normal — try again.
+pub const RECOGNIZE_EVERY_MS: u64 = 8_000;
+/// Give up after this many attempts (~2 minutes of trying).
+pub const RECOGNIZE_MAX_TRIES: u32 = 15;
+
+/// Whether to send the next window to Shazam now. Pure.
+pub fn recognize_due(
+    source: LiveSource,
+    recorded: usize,
+    since_last_ms: Option<u64>,
+    tries: u32,
+    in_flight: bool,
+    matched: bool,
+) -> bool {
+    source.is_song()
+        && !matched
+        && !in_flight
+        && tries < RECOGNIZE_MAX_TRIES
+        && recorded >= RECOGNIZE_WINDOW
+        && since_last_ms.is_none_or(|ms| ms >= RECOGNIZE_EVERY_MS)
+}
+
+/// A window worth sending: something is playing in it (silence never matches
+/// and only spends an attempt).
+pub fn window_has_sound(samples: &[i16]) -> bool {
+    let loud = samples.chunks(FRAME).filter(|f| frame_rms(f) > MIN_THRESHOLD).count();
+    loud * FRAME * 2 >= samples.len()
 }
 
 /// 0..1 meter value from a linear RMS (−60 dBFS … 0 dBFS).
@@ -737,6 +850,40 @@ pub fn restore_output() {
     let _ = (before, target);
 }
 
+/// One Shazam attempt on a window of the recording; on a match the lyrics are
+/// fetched and both land in the job (and the Shazam history).
+fn spawn_recognize(app: tauri::AppHandle, id: u64, window: Vec<i16>, flag: Arc<AtomicBool>) {
+    flag.store(true, Ordering::SeqCst);
+    let thread_flag = flag.clone();
+    let spawned = std::thread::Builder::new().name("ir-transcribe-song".into()).spawn(move || {
+        let flag = thread_flag;
+        let result = crate::shazam::recognize(&window);
+        match result {
+            Ok(Some(m)) => {
+                {
+                    use tauri::Manager;
+                    if let Some(db) = app.try_state::<crate::db::DbHandle>() {
+                        let _ = crate::shazam::history_insert(&db, &m);
+                    }
+                }
+                let lyrics = crate::shazam::fetch_lyrics(&m.artist, &m.title).ok().flatten();
+                tracing::info!("transcribe song: recognised (lyrics: {})", lyrics.is_some());
+                let info = SongInfo { title: m.title, artist: m.artist, cover_url: m.cover_url, lyrics };
+                if let Some(job) = JOB.lock().as_mut().filter(|j| j.id == id) {
+                    job.song = Some(info);
+                }
+                publish(&app);
+            }
+            Ok(None) => tracing::info!("transcribe song: no match yet"),
+            Err(e) => tracing::warn!("transcribe song: recognition failed: {e}"),
+        }
+        flag.store(false, Ordering::SeqCst);
+    });
+    if spawned.is_err() {
+        flag.store(false, Ordering::SeqCst);
+    }
+}
+
 fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSource) {
     let dir = match private_dir(id) {
         Ok(d) => d,
@@ -759,7 +906,7 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSou
         }
     };
     let mut input = match source {
-        LiveSource::Mic => {
+        LiveSource::Mic | LiveSource::Room => {
             if duck_wanted(duck_setting(&app).as_deref(), source) {
                 duck_output(&app);
             }
@@ -776,7 +923,11 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSou
     tracing::info!("transcribe live: source {source:?}");
 
     let started = Instant::now();
-    let mut seg = Segmenter::new();
+    let mut seg = Segmenter::with_soft(source.soft_segment());
+    // Song recognition runs on its own thread (network) — the loop only
+    // looks at whether one is in flight and when the last one started.
+    let recognizing = Arc::new(AtomicBool::new(false));
+    let mut last_recognize: Option<Instant> = None;
     let mut processed = 0usize;
     let mut finals: VecDeque<Seg> = VecDeque::new();
     let mut busy = false;
@@ -835,9 +986,25 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSou
         });
         // Nothing playing yet is fine for a song (press play after starting);
         // a microphone that delivers nothing is broken.
-        if source == LiveSource::Mic && total == 0 && elapsed > Duration::from_secs(5) {
+        if source.uses_mic() && total == 0 && elapsed > Duration::from_secs(5) {
             crashed = Some(crate::i18n::t("trx.live_no_mic"));
             break;
+        }
+        let (tries, matched) = status().map(|j| (j.recognize_tries, j.song.is_some())).unwrap_or((0, true));
+        if recognize_due(
+            source,
+            total,
+            last_recognize.map(|t| t.elapsed().as_millis() as u64),
+            tries,
+            recognizing.load(Ordering::SeqCst),
+            matched,
+        ) {
+            let window = buffer.lock()[total - RECOGNIZE_WINDOW..total].to_vec();
+            if window_has_sound(&window) {
+                last_recognize = Some(Instant::now());
+                update(|j| j.recognize_tries += 1);
+                spawn_recognize(app.clone(), id, window, recognizing.clone());
+            }
         }
         if ready && !busy {
             if let Some(s) = finals.pop_front() {
@@ -912,8 +1079,15 @@ fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSou
         update(|j| j.state = LiveState::Cancelled);
         return finish(&app, None, Some(&dir));
     }
-    // The accurate pass over everything — only if there was speech at all.
-    let spoke = status().is_some_and(|j| !j.result_text().trim().is_empty());
+    // A recognition still on the wire may bring the exact lyrics; give it a
+    // moment before deciding whether the slow pass is needed.
+    let wait = Instant::now() + Duration::from_secs(15);
+    while recognizing.load(Ordering::SeqCst) && Instant::now() < wait && !CANCEL.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // The accurate pass over everything — only if there was speech at all
+    // and the catalogue does not already have the exact text.
+    let spoke = status().is_some_and(|j| j.needs_accurate_pass());
     if spoke {
         let all = dir.join("all.pcm");
         if write_pcm(&all, &samples).is_ok()
@@ -967,11 +1141,13 @@ fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
         j.copied = copied;
         j.level = 0.0;
         j.loading_model = None;
-        // What is shown is exactly what was copied.
+        // The transcript shown stays what was heard (the catalogue lyrics,
+        // when copied instead, are shown with the song).
         if j.final_text.is_none() {
-            j.committed = text.clone();
+            j.committed = j.transcript_text();
         }
         j.partial.clear();
+        j.result = (!cancelled).then(|| text.clone());
         if !cancelled {
             j.state = if error.is_some() { LiveState::Failed } else { LiveState::Done };
             j.error = error.clone();
@@ -1158,6 +1334,78 @@ mod tests {
         }
     }
 
+    /// A song through the microphone is cut in 20-s pieces, a dictation in
+    /// 12-s pieces — the measured difference (see SONG_SEGMENT).
+    #[test]
+    fn a_song_from_another_device_gets_longer_pieces() {
+        let mut dict = Segmenter::with_soft(LiveSource::Mic.soft_segment());
+        let mut room = Segmenter::with_soft(LiveSource::Room.soft_segment());
+        let d = feed(&mut dict, &[music(45_000)]);
+        let r = feed(&mut room, &[music(45_000)]);
+        let longest = |v: &[Seg]| v.iter().map(|s| s.end - s.start).max().unwrap_or(0);
+        assert!(longest(&d) <= SOFT_SEGMENT, "{d:?}");
+        assert!(longest(&r) > SOFT_SEGMENT && longest(&r) <= SONG_SEGMENT, "{r:?}");
+        assert!(r.len() < d.len());
+        assert_eq!(LiveSource::System.soft_segment(), SOFT_SEGMENT);
+    }
+
+    #[test]
+    fn sources_know_what_they_are() {
+        assert!(!LiveSource::Mic.is_song() && LiveSource::Mic.uses_mic());
+        assert!(LiveSource::System.is_song() && !LiveSource::System.uses_mic());
+        assert!(LiveSource::Room.is_song() && LiveSource::Room.uses_mic());
+    }
+
+    #[test]
+    fn recognition_is_tried_for_songs_only_and_paced() {
+        let w = RECOGNIZE_WINDOW;
+        assert!(recognize_due(LiveSource::Room, w, None, 0, false, false));
+        assert!(recognize_due(LiveSource::System, w, None, 0, false, false));
+        // A dictation is never sent to Shazam.
+        assert!(!recognize_due(LiveSource::Mic, w * 10, None, 0, false, false));
+        // Not before a full window exists.
+        assert!(!recognize_due(LiveSource::Room, w - 1, None, 0, false, false));
+        // Paced, one at a time, stops once matched or out of tries.
+        assert!(!recognize_due(LiveSource::Room, w, Some(RECOGNIZE_EVERY_MS - 1), 1, false, false));
+        assert!(recognize_due(LiveSource::Room, w, Some(RECOGNIZE_EVERY_MS), 1, false, false));
+        assert!(!recognize_due(LiveSource::Room, w, None, 0, true, false));
+        assert!(!recognize_due(LiveSource::Room, w, None, 0, false, true));
+        assert!(!recognize_due(LiveSource::Room, w, None, RECOGNIZE_MAX_TRIES, false, false));
+    }
+
+    #[test]
+    fn silence_is_not_worth_an_attempt() {
+        assert!(!window_has_sound(&silence(10_000)));
+        assert!(window_has_sound(&music(10_000)));
+        // Mostly quiet with a little sound: not enough.
+        let mut half = silence(8_000);
+        half.extend(music(2_000));
+        assert!(!window_has_sound(&half));
+    }
+
+    #[test]
+    fn catalogue_lyrics_win_and_skip_the_slow_pass() {
+        let mut j = LiveJob::new(1, None, 0);
+        j.apply(text(1, "final", "something heard"));
+        assert!(j.needs_accurate_pass());
+        assert_eq!(j.result_text(), "something heard");
+        // Recognised, but the catalogue has no lyrics: the transcript stays.
+        j.song = Some(SongInfo { title: "T".into(), artist: "A".into(), lyrics: None, ..Default::default() });
+        assert_eq!(j.result_text(), "something heard");
+        assert!(j.needs_accurate_pass());
+        // With lyrics: those are copied, the heard text is still available.
+        j.song.as_mut().unwrap().lyrics = Some("line one\nline two".into());
+        assert_eq!(j.result_text(), crate::shazam::lyrics_clip_text("T", "A", "line one\nline two"));
+        assert_eq!(j.transcript_text(), "something heard");
+        assert!(!j.needs_accurate_pass());
+        // Blank lyrics count as none.
+        j.song.as_mut().unwrap().lyrics = Some("  ".into());
+        assert_eq!(j.result_text(), "something heard");
+        // Nothing heard: no slow pass either.
+        let empty = LiveJob::new(2, None, 0);
+        assert!(!empty.needs_accurate_pass());
+    }
+
     /// A short pause after a short burst inside music does not cut either.
     #[test]
     fn a_beat_gap_does_not_cut_a_young_segment() {
@@ -1339,7 +1587,10 @@ mod tests {
         for f in files {
             let bytes = std::fs::read(&f).unwrap();
             let pcm: Vec<i16> = bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
-            let mut seg = Segmenter::new();
+            // IR_MIX_SOFT=<seconds>: the soft cap (20 = a song through the mic).
+            let soft = std::env::var("IR_MIX_SOFT").ok().and_then(|v| v.parse::<usize>().ok())
+                .map_or(SOFT_SEGMENT, |secs| secs * RATE);
+            let mut seg = Segmenter::with_soft(soft);
             let mut segs: Vec<Seg> = pcm.chunks(640).flat_map(|c| seg.push(c)).collect();
             let open = seg.open();
             segs.extend(seg.flush());
@@ -1351,7 +1602,8 @@ mod tests {
                     w.send(serde_json::json!({"op":"decode","seq":1,"kind":"final","path":path.to_string_lossy(),"prompt":""}));
                     loop {
                         match w.lines.recv().unwrap() {
-                            LiveEvent::Text { text, .. } => { println!("   [{i}] {text:?}"); break; }
+                            // Counts only: the input may be a song, never print its lyrics.
+                            LiveEvent::Text { text, .. } => { println!("   [{i}] {} chars", text.trim().chars().count()); break; }
                             LiveEvent::Error { error, .. } => { println!("   [{i}] ERROR {error}"); break; }
                             _ => {}
                         }

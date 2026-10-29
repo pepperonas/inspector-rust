@@ -2983,7 +2983,7 @@ checksum = "36eee07d8e02bd95bf52b2e642cf13d33701b94c6e4b04fbf1d1fb07e9cb19e7"
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.225.0"
+version = "0.226.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3002,6 +3002,7 @@ dependencies = [
  "flate2",
  "image",
  "input",
+ "ir-ocr-helper",
  "keyring",
  "libc",
  "ndarray",
@@ -3048,7 +3049,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.225.0"
+version = "0.226.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3062,7 +3063,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.225.0"
+version = "0.226.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3076,7 +3077,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.225.0"
+version = "0.226.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3114,6 +3115,13 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+
+[[package]]
+name = "ir-ocr-helper"
+version = "1.0.0"
+dependencies = [
+ "objc2 0.6.4",
+]
 
 [[package]]
 name = "iri-string"

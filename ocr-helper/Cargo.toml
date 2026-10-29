@@ -1,0 +1,20 @@
+[package]
+name = "ir-ocr-helper"
+version = "1.0.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Apple Vision text recognition, as a library and as the stable `ir-ocr` helper process"
+
+# Keep this crate's dependencies minimal and its version fixed: the `ir-ocr`
+# binary must stay byte-identical across app releases. macOS caches the
+# compiled text model per binary, so every changed byte costs the user a
+# 70–110 s recompile on the next OCR (measured 2026-10-29, M1 Pro).
+
+[[bin]]
+name = "ir-ocr"
+path = "src/bin/ir-ocr.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"

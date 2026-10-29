@@ -46,7 +46,7 @@ Volume/Mute-HUD „Klangaura" — beim 3-Finger-Swipe/Tap (und Shift+↑/↓): S
 
 == Globale Hotkeys ==
 Popup — Ctrl+Space (+ zweiter Verlaufs-Hotkey Ctrl+Shift+V), beide konfigurierbar
-OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract); das Textmodell wird beim App-Start, nach dem Aufwachen und schon beim Auslösen vorgewärmt (sonst bis ~70 s Kaltstart)
+OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract); das Textmodell wird beim App-Start, nach dem Aufwachen und schon beim Auslösen vorgewärmt; die Erkennung läuft im mitgelieferten Helfer `ir-ocr` auf der CPU, dessen vorbereitetes Modell App-Updates übersteht (vorher ~70–110 s erste OCR nach jedem Update)
 Screenshot-Region — Ctrl+Shift+S: Bereich → Clipboard + schwebende Vorschau; auch Vollbild/Fenster/Timer (`shot`, `shotfull`, `shotwin`, `shotlast`)
 Screenshot-Editor — objektbasiert: Annotationen auswählen/verschieben/skalieren/umstylen/löschen mit echtem Undo/Redo, und in JEDEM Zeichen-Werkzeug ein bestehendes Objekt anklicken wählt es zum Bearbeiten aus (wie das Auswahl-Werkzeug); dynamische CleanShot-Pfeile (eine gefüllte Form, getaperter Schaft + kräftige Dreiecks-Spitze); Pfeil, Linie, Text, Rechteck, Ellipse, Markierung, Weichzeichnen, Schwärzen, Schritt-Badges, Freihand-Stift, Emoji, Spotlight; freie Farbe + Deckkraft + Textgröße, Schlagschatten, Zuschneiden, Hintergrund & Rand (Farbe/Verlauf, Padding, Ecken, Schatten); Pin-to-Screen-Fenster
 Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor

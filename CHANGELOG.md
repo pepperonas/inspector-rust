@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.226.0] - 2026-10-29
+
+### Fixed
+- **OCR no longer takes over a minute after every update.** macOS prepares Vision's text model once per program file, and the app's file changes with each release — so the first OCR after an update waited 64–112 s. Recognition now runs in a small bundled helper (`ir-ocr`) that stays identical across releases, so its prepared model survives updates (fresh helper process: 0.7 s, then 0.3 s per full page).
+- **OCR failing with "CRImageReaderError 1".** On this Mac the Neural Engine stopped loading freshly prepared models; recognition now runs on the CPU (same result, ~0.3 s per page). A failed helper is replaced by a fresh one, and the background warm-up retries up to three times.
+
 ## [0.225.0] - 2026-10-22
 
 ### Added

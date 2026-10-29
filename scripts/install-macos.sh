@@ -108,6 +108,7 @@ source_sha256() {
            core/frontend/src core/frontend/index.html \
            core/frontend/package.json core/frontend/tsconfig.json \
            core/frontend/vite.config.ts \
+           ocr-helper \
            macos/src-tauri/src macos/src-tauri/Cargo.toml \
            macos/src-tauri/tauri.conf.json macos/src-tauri/entitlements.plist \
            macos/src-tauri/build.rs macos/src-tauri/capabilities \
@@ -463,6 +464,19 @@ if [[ -d "${DRIVER_SRC}" ]]; then
   echo "▸ Bundled boom Audio driver into Resources"
 else
   echo "  ⚠ boom driver not built (${DRIVER_SRC}) — in-app boom install unavailable"
+fi
+
+# Bundle the `ir-ocr` helper next to the app binary, before signing so the
+# signature covers it. OCR runs in this separate process because macOS caches
+# the compiled Vision model per binary: the app binary changes every release
+# (70–110 s first OCR after each update), this one only when ocr-helper/
+# changes. Without it the app falls back to in-process OCR.
+if env -u CARGO_TARGET_DIR cargo build --release -p ir-ocr-helper --bin ir-ocr --manifest-path "${REPO_ROOT}/Cargo.toml"; then
+  cp "${REPO_ROOT}/target/release/ir-ocr" "${INSTALL_PATH}/Contents/MacOS/ir-ocr"
+  xattr -c "${INSTALL_PATH}/Contents/MacOS/ir-ocr" 2>/dev/null || true
+  echo "▸ Bundled the ir-ocr helper"
+else
+  echo "  ⚠ ir-ocr helper build failed — OCR runs in-process (slow first OCR after updates)"
 fi
 
 # Stamp the source hash *before* signing so the file is covered by the

@@ -27,6 +27,9 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String> {
 /// model before the real request needs it.
 const WARMUP_PNG: &[u8] = include_bytes!("../assets/ocr_warmup.png");
 
+/// Background warm-up attempts before giving up until the next trigger.
+const WARMUP_ATTEMPTS: u32 = 3;
+
 static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Load the recognition model in the background so the next [`recognize`] is
@@ -48,10 +51,22 @@ pub fn prewarm() {
     let spawned = std::thread::Builder::new()
         .name("ir-ocr-warmup".into())
         .spawn(|| {
-            let t = std::time::Instant::now();
-            match recognize_impl(WARMUP_PNG, Level::Accurate) {
-                Ok(_) => tracing::info!("ocr: model warm-up {} ms", t.elapsed().as_millis()),
-                Err(e) => tracing::debug!("ocr: warm-up failed: {e:#}"),
+            // A first load after the model cache was lost can fail outright
+            // (`CRImageReaderError 1`, 2026-10-29); a later attempt continues
+            // from what the failed one cached. Try a few times here, in the
+            // background, so the user's OCR does not pay for it.
+            for attempt in 1..=WARMUP_ATTEMPTS {
+                let t = std::time::Instant::now();
+                match recognize_impl(WARMUP_PNG, Level::Accurate) {
+                    Ok(_) => {
+                        tracing::info!("ocr: model warm-up {} ms (attempt {attempt})", t.elapsed().as_millis());
+                        break;
+                    }
+                    Err(e) => tracing::warn!(
+                        "ocr: warm-up attempt {attempt} failed after {} ms: {e:#}",
+                        t.elapsed().as_millis()
+                    ),
+                }
             }
             WARMING.store(false, Ordering::SeqCst);
         });
@@ -68,165 +83,103 @@ pub enum Level {
     Fast,
 }
 
+/// macOS: Vision, run in the bundled `ir-ocr` helper process when it is
+/// there, in-process otherwise (dev runs, tests, DMG builds without it).
+///
+/// Why a helper: macOS compiles Vision's text model per **binary** and caches
+/// it keyed by the binary's content. The app's own binary changes with every
+/// release, so in-process OCR paid 70–110 s on the first recognition after
+/// each update (measured 2026-10-29, M1 Pro; the warm path is 0.1–0.3 s).
+/// `ir-ocr` is built from a crate that rarely changes, so its cache survives
+/// app updates. A helper that fails is replaced by a fresh one once — a
+/// long-running process could get stuck in `CRImageReaderError 1` after macOS
+/// purged the cache under it (log 2026-10-28); only a new process recovered.
 #[cfg(target_os = "macos")]
 fn recognize_impl(png_bytes: &[u8], level: Level) -> Result<String> {
-    use objc2::msg_send;
-    use objc2::rc::autoreleasepool;
-    use objc2::runtime::AnyObject;
-
-    // Autorelease pool + explicit releases (fixed 2026-08-16). This runs on a
-    // bare `std::thread::spawn` worker with NO pool, so every autoreleased
-    // object — the NSData holding a full copy of the PNG, the results NSArray,
-    // every recognised NSString — accumulated in a pool page that was never
-    // drained; and the alloc/init'd handler + request (+1 owned, and the
-    // handler retains the image data) were never released at all. Each OCR
-    // therefore leaked the handler plus a copy of the source image: a day of
-    // region-OCRs grew RSS by hundreds of MB with no way to reclaim it short
-    // of quitting. The owned objects are tracked outside the fallible closure
-    // so every early bail-out still releases them.
-    autoreleasepool(|_| unsafe {
-        let mut handler: *mut AnyObject = std::ptr::null_mut();
-        let mut request: *mut AnyObject = std::ptr::null_mut();
-        let result = recognize_in_pool(png_bytes, level, &mut handler, &mut request);
-        if !request.is_null() {
-            let _: () = msg_send![request, release];
+    let lvl = match level {
+        Level::Accurate => ir_ocr_helper::Level::Accurate,
+        Level::Fast => ir_ocr_helper::Level::Fast,
+    };
+    let Some(path) = helper::path() else {
+        return ir_ocr_helper::recognize(png_bytes, lvl).map_err(anyhow::Error::msg);
+    };
+    match helper::recognize(&path, png_bytes, lvl) {
+        Ok(text) => Ok(text),
+        Err(first) => {
+            tracing::warn!("ocr: helper failed ({first}) — retrying with a fresh helper");
+            helper::recognize(&path, png_bytes, lvl).map_err(anyhow::Error::msg)
         }
-        if !handler.is_null() {
-            let _: () = msg_send![handler, release];
+    }
+}
+
+/// The client side of the `ir-ocr` helper: one process, started on first use
+/// and kept for the app's lifetime (its warm model is the whole point).
+#[cfg(target_os = "macos")]
+mod helper {
+    use std::io::BufReader;
+    use std::path::{Path, PathBuf};
+    use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+    use std::sync::Mutex;
+
+    /// File name inside `Contents/MacOS`, next to the app binary.
+    pub const NAME: &str = "ir-ocr";
+
+    struct Running {
+        child: Child,
+        stdin: ChildStdin,
+        stdout: BufReader<ChildStdout>,
+    }
+
+    static HELPER: Mutex<Option<Running>> = Mutex::new(None);
+
+    pub fn path() -> Option<PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let p = exe.parent()?.join(NAME);
+        p.is_file().then_some(p)
+    }
+
+    fn spawn(path: &Path) -> Result<Running, String> {
+        let mut child = Command::new(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("start {}: {e}", path.display()))?;
+        let stdin = child.stdin.take().ok_or("no stdin")?;
+        let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
+        Ok(Running { child, stdin, stdout })
+    }
+
+    /// Send one image. Any failure — I/O or an error reply — drops the
+    /// helper, so the next call (the caller's retry) starts a fresh one.
+    pub fn recognize(path: &Path, png: &[u8], level: ir_ocr_helper::Level) -> Result<String, String> {
+        let mut guard = HELPER.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_none() {
+            *guard = Some(spawn(path)?);
+        }
+        let run = guard.as_mut().expect("just set");
+        let tag = match level {
+            ir_ocr_helper::Level::Accurate => ir_ocr_helper::REQ_ACCURATE,
+            ir_ocr_helper::Level::Fast => ir_ocr_helper::REQ_FAST,
+        };
+        let reply = ir_ocr_helper::write_frame(&mut run.stdin, tag, png)
+            .and_then(|_| ir_ocr_helper::read_frame(&mut run.stdout));
+        let result = match reply {
+            Ok(Some((ir_ocr_helper::REPLY_TEXT, body))) => {
+                String::from_utf8(body).map_err(|_| "helper sent invalid UTF-8".to_string())
+            }
+            Ok(Some((_, body))) => Err(String::from_utf8_lossy(&body).into_owned()),
+            Ok(None) => Err("helper exited".to_string()),
+            Err(e) => Err(format!("helper I/O: {e}")),
+        };
+        if result.is_err() {
+            if let Some(mut dead) = guard.take() {
+                let _ = dead.child.kill();
+                let _ = dead.child.wait();
+            }
         }
         result
-    })
-}
-
-/// The fallible middle of [`recognize_impl`]. `handler`/`request` are handed
-/// back to the caller AS SOON as they are created, so the caller can release
-/// them no matter where this returns.
-#[cfg(target_os = "macos")]
-unsafe fn recognize_in_pool(
-    png_bytes: &[u8],
-    level: Level,
-    handler_out: &mut *mut objc2::runtime::AnyObject,
-    request_out: &mut *mut objc2::runtime::AnyObject,
-) -> Result<String> {
-    use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject};
-    use std::ffi::c_void;
-
-    {
-        // ── 1. Wrap the PNG bytes in an NSData ───────────────────────
-        // dataWithBytes:length: copies the buffer, so `png_bytes` can
-        // safely go out of scope after this call. Autoreleased — the
-        // pool in `recognize_impl` drains it.
-        let nsdata_cls = AnyClass::get(c"NSData")
-            .ok_or_else(|| anyhow::anyhow!("NSData class not available"))?;
-        let nsdata: *mut AnyObject = msg_send![
-            nsdata_cls,
-            dataWithBytes: png_bytes.as_ptr() as *const c_void,
-            length: png_bytes.len()
-        ];
-        if nsdata.is_null() {
-            anyhow::bail!("NSData allocation failed");
-        }
-
-        // ── 2. Build the VNImageRequestHandler ───────────────────────
-        let handler_cls = AnyClass::get(c"VNImageRequestHandler").ok_or_else(|| {
-            anyhow::anyhow!("VNImageRequestHandler not available — Vision framework not linked?")
-        })?;
-        let handler: *mut AnyObject = msg_send![handler_cls, alloc];
-        let handler: *mut AnyObject = msg_send![
-            handler,
-            initWithData: nsdata,
-            options: std::ptr::null::<AnyObject>()
-        ];
-        if handler.is_null() {
-            anyhow::bail!("VNImageRequestHandler init failed");
-        }
-        *handler_out = handler;
-
-        // ── 3. Build the VNRecognizeTextRequest ──────────────────────
-        let request_cls = AnyClass::get(c"VNRecognizeTextRequest")
-            .ok_or_else(|| anyhow::anyhow!("VNRecognizeTextRequest not available"))?;
-        let request: *mut AnyObject = msg_send![request_cls, alloc];
-        // `init` (no completion handler) is the synchronous variant —
-        // `perform` below will block until results are populated.
-        let request: *mut AnyObject = msg_send![request, init];
-        if request.is_null() {
-            anyhow::bail!("VNRecognizeTextRequest init failed");
-        }
-        *request_out = request;
-        // Recognition level: 0 = Accurate (slower, much better), 1 = Fast.
-        // For a one-shot user-triggered OCR the latency hit is fine.
-        let level_raw: i64 = if level == Level::Fast { 1 } else { 0 };
-        let _: () = msg_send![request, setRecognitionLevel: level_raw];
-        let _: () = msg_send![request, setUsesLanguageCorrection: level == Level::Accurate];
-        // Languages default to the user's preferred languages (all
-        // installed Vision languages on macOS 13+). Don't override —
-        // setting an empty array would make recognition fail entirely.
-
-        // ── 4. Perform synchronously ─────────────────────────────────
-        let array_cls = AnyClass::get(c"NSArray")
-            .ok_or_else(|| anyhow::anyhow!("NSArray class not available"))?;
-        let requests: *mut AnyObject = msg_send![array_cls, arrayWithObject: request];
-        let mut error: *mut AnyObject = std::ptr::null_mut();
-        let ok: bool = msg_send![
-            handler,
-            performRequests: requests,
-            error: &mut error
-        ];
-        if !ok {
-            // Try to extract a descriptive error string.
-            let msg = if !error.is_null() {
-                let desc: *mut AnyObject = msg_send![error, localizedDescription];
-                nsstring_to_rust(desc).unwrap_or_else(|| "unknown Vision error".to_string())
-            } else {
-                "Vision performRequests returned false without an error".to_string()
-            };
-            anyhow::bail!("OCR failed: {msg}");
-        }
-
-        // ── 5. Drain results ─────────────────────────────────────────
-        let results: *mut AnyObject = msg_send![request, results];
-        if results.is_null() {
-            return Ok(String::new());
-        }
-        let count: usize = msg_send![results, count];
-        let mut lines: Vec<String> = Vec::with_capacity(count);
-        for i in 0..count {
-            let observation: *mut AnyObject = msg_send![results, objectAtIndex: i];
-            let candidates: *mut AnyObject = msg_send![observation, topCandidates: 1usize];
-            if candidates.is_null() {
-                continue;
-            }
-            let cand_count: usize = msg_send![candidates, count];
-            if cand_count == 0 {
-                continue;
-            }
-            let candidate: *mut AnyObject = msg_send![candidates, objectAtIndex: 0usize];
-            let text_ns: *mut AnyObject = msg_send![candidate, string];
-            if let Some(s) = nsstring_to_rust(text_ns) {
-                lines.push(s);
-            }
-        }
-        Ok(lines.join("\n"))
     }
-}
-
-/// Copy the UTF-8 contents of an `NSString *` into an owned Rust
-/// `String`. Returns `None` if the pointer is null or the string isn't
-/// representable as UTF-8 (Vision text is always valid UTF-8 in
-/// practice, but we bail safely instead of unwrapping).
-#[cfg(target_os = "macos")]
-unsafe fn nsstring_to_rust(s: *mut objc2::runtime::AnyObject) -> Option<String> {
-    use objc2::msg_send;
-    use std::ffi::CStr;
-    if s.is_null() {
-        return None;
-    }
-    let utf8: *const i8 = msg_send![s, UTF8String];
-    if utf8.is_null() {
-        return None;
-    }
-    CStr::from_ptr(utf8).to_str().ok().map(str::to_owned)
 }
 
 #[cfg(target_os = "windows")]
@@ -404,6 +357,59 @@ mod wiring_tests {
         let warm = body.find("ocr::prewarm()").expect("prewarm call");
         let capture = body.find("region_picker::capture()").unwrap();
         assert!(warm < capture);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod helper_tests {
+    use super::helper;
+    use std::path::PathBuf;
+
+    /// A stand-in helper: answers exactly ONE request (a 3-byte body) with
+    /// the given reply, then exits — like a helper that dies after a request.
+    fn one_shot(dir: &std::path::Path, name: &str, reply: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join(name);
+        let script = format!("#!/bin/sh\nhead -c 8 >/dev/null\nprintf '{reply}'\n");
+        std::fs::write(&p, script).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p
+    }
+
+    // One test, because the helper is one process-wide slot.
+    #[test]
+    fn a_dead_or_failing_helper_is_replaced_on_the_next_call() {
+        let dir = std::env::temp_dir().join(format!("ir-ocr-helper-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ok = one_shot(&dir, "ok", r"T\005\000\000\000hello");
+        let err = one_shot(&dir, "err", r"E\004\000\000\000boom");
+        let lvl = ir_ocr_helper::Level::Accurate;
+
+        assert_eq!(helper::recognize(&ok, b"png", lvl).unwrap(), "hello");
+        // Same slot, process has exited: this call fails and clears the slot …
+        assert!(helper::recognize(&ok, b"png", lvl).is_err());
+        // … so the next one starts a fresh helper and works again.
+        assert_eq!(helper::recognize(&ok, b"png", lvl).unwrap(), "hello");
+        // A replaced helper that answers with an error drops the slot as well.
+        let _ = helper::recognize(&ok, b"png", lvl); // retire the exited one
+        assert_eq!(helper::recognize(&err, b"png", lvl).unwrap_err(), "boom");
+        assert_eq!(helper::recognize(&ok, b"png", lvl).unwrap(), "hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// End to end with the real helper binary:
+    /// `cargo build --release -p ir-ocr-helper && cargo test --release -p inspector-rust-core --lib real_helper -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn the_real_helper_reads_the_warm_up_image() {
+        let exe = std::env::current_exe().unwrap();
+        let bin = exe.parent().unwrap().parent().unwrap().join(helper::NAME);
+        for i in 0..2 {
+            let t = std::time::Instant::now();
+            let text = helper::recognize(&bin, super::WARMUP_PNG, ir_ocr_helper::Level::Accurate).unwrap();
+            println!("run {i}: {} ms", t.elapsed().as_millis());
+            assert!(text.to_lowercase().contains("warm"), "got {text:?}");
+        }
     }
 }
 

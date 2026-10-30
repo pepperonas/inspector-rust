@@ -51,6 +51,14 @@ if [[ ! -d "${APP}" ]]; then
   exit 1
 fi
 
+# Build for the DMG's architecture (including the cross-compiled Intel leg).
+# Keep the helper next to the main executable, as ocr::helper::path expects,
+# and copy it before signing so the bundle's signature covers it.
+echo "▸ Building and bundling the ir-ocr helper (${TRIPLE})…"
+env -u CARGO_TARGET_DIR cargo build --release --target "${TRIPLE}" \
+  -p ir-ocr-helper --bin ir-ocr --manifest-path "${REPO_ROOT}/Cargo.toml"
+cp "${REPO_ROOT}/target/${TRIPLE}/release/ir-ocr" "${APP}/Contents/MacOS/ir-ocr"
+
 echo "▸ Sealing ${APP} (ad-hoc deep sign)…"
 
 # Same Info.plist keys install-macos.sh injects — needed for Automation /

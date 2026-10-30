@@ -26,6 +26,11 @@ gh run watch
 
 The workflow builds Windows + macOS bundles and attaches them to the GitHub Release.
 
+The macOS packaging script builds `ir-ocr` for each DMG's target architecture
+and copies it into `Contents/MacOS` before signing. Do not omit this step:
+without the helper, downloaded builds fall back to in-process OCR and prepare
+Vision's text model again after each app update.
+
 ## Versioning policy
 
 Inspector Rust follows [Semantic Versioning](https://semver.org). Until 1.0.0:

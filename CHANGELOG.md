@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [0.227.0] - 2026-10-30
 
+### Fixed
+- **The macOS download includes the OCR helper.** Both Apple Silicon and Intel DMGs now bundle `ir-ocr` before signing, so downloaded builds also keep Vision's prepared text model across app updates.
+
 ### Added
 - **The changelog in Settings.** Settings → Info → Changelog lists every release with what changed in it, newest first: ten at a time with "Older releases", a search over versions, dates and text, and the installed version marked. The text loads only when the section scrolls into view, so opening Settings stays fast.
 

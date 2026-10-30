@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "ocr-helper", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.226.0"
+version = "0.227.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"

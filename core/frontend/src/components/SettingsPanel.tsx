@@ -9,6 +9,7 @@ import {
   Activity,
   AlertTriangle,
   Archive,
+  ScrollText,
   Cloud,
   HardDrive,
   Camera,
@@ -48,6 +49,7 @@ import {
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AboutContent } from "./AboutContent";
+import { ChangelogView } from "./ChangelogView";
 import { LanguageSection } from "./LanguageSection";
 import { InlineMd } from "./InlineMd";
 import { locale, useT, tn, tSplit, type MessageKey } from "../lib/i18n";
@@ -3036,6 +3038,18 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             subtitle={t("set.about.subtitle")}
           >
             <AboutContent version={appVersion} />
+          </Section>
+        </div>
+    ),
+    "changelog": (
+        <div className="mb-6">
+          <Section
+            id="changelog"
+            icon={<ScrollText size={16} className="text-[var(--color-accent)]" />}
+            title={t("settings.section.changelog")}
+            subtitle={t("set.changelog.subtitle")}
+          >
+            <ChangelogView currentVersion={appVersion} />
           </Section>
         </div>
     ),

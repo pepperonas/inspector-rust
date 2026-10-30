@@ -98,7 +98,7 @@ The surfaces, and what each is for:
 | **README matrix** | `README.md` / `README.de.md` (`<!-- COMMANDS:START/END -->`) | the command table, both languages — **generated, never hand-edited** | `node scripts/gen-docs.mjs --check` in `scripts/check.sh` |
 | **README prose + badges** | `README.md` / `README.de.md` | headline pitch + LOC/test badges | `scripts/update-badges.mjs` (posttest hook) |
 | **CLAUDE.md** | this file | architecture + per-module design notes + gotchas | none (discipline) |
-| **CHANGELOG.md** | repo root | user-facing Added/Changed/Fixed per version | none (discipline) |
+| **CHANGELOG.md** | repo root | user-facing Added/Changed/Fixed per version — **English only, no secrets**: also shown in Settings → Info → Changelog (`ChangelogView`, lazy chunk) and on the product page | `changelog.test.ts` (newest release == package version; no keys/tokens/passwords, no IPv4 outside RFC 5737 doc ranges, no e-mails but `git@github.com`, no `/Users/<name>`, no German prose or „quotes“) |
 | **Locale catalogues** | `core/frontend/src/locales/en.json` + `de.json` | EVERY user-visible string of the app (frontend AND Rust: tray, toasts, notifications, dialogs, reports) in English and German — command keywords/syntax stay untranslated | `i18n.test.ts` + Rust `i18n::tests` (same keys, no empty value, same placeholders, every `t("key")` in the code exists) |
 | **`docs/*.md`** | `docs/` | deep reference for substantial features (link from CLAUDE.md + README) | `gen-docs --check` verifies every `see_also` file exists |
 

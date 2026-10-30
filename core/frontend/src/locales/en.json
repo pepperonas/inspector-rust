@@ -4070,5 +4070,13 @@
   "trx.live.song_searching_n": "Recognising the song… (attempt {n})",
   "trx.live.song_lyrics_found": "Lyrics found — copied when you stop",
   "trx.live.song_lyrics_used": "Lyrics from the catalogue copied",
-  "trx.live.song_no_lyrics": "No lyrics in the catalogue — the transcript is copied"
+  "trx.live.song_no_lyrics": "No lyrics in the catalogue — the transcript is copied",
+  "settings.section.changelog": "Changelog",
+  "set.changelog.subtitle": "Every release and what changed in it (English).",
+  "set.changelog.loading": "Loading changelog…",
+  "set.changelog.failed": "The changelog could not be loaded.",
+  "set.changelog.search": "Search the changelog",
+  "set.changelog.count": "{shown} of {total} releases",
+  "set.changelog.older": "Older releases",
+  "set.changelog.installed": "installed"
 }

@@ -87,6 +87,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   sec("spotify", ["spotify", "musik", "music", "verlauf", "history", "scrobble"]),
   sec("github", ["github", "github token", "integrations", "integration", "oauth", "followers", "stars", "sterne"]),
   sec("language", ["language", "sprache", "english", "englisch", "deutsch", "german", "locale"]),
+  sec("changelog", ["changelog", "änderungen", "versionshinweise", "release notes", "what's new", "neuigkeiten", "history of changes"]),
 ];
 
 export interface SettingsCategory {
@@ -112,7 +113,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"]),
   cat("services", ["ai", "weather", "spotify", "pagespeed", "github", "repos"]),
   cat("sync", ["cloud-sync", "device-sync", "auto-backup", "backup"]),
-  cat("about", ["about"]),
+  cat("about", ["about", "changelog"]),
 ];
 
 /** The category a section is filed under (for the search row's hint). */

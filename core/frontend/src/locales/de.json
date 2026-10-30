@@ -4070,5 +4070,13 @@
   "trx.live.song_searching_n": "Lied wird erkannt… (Versuch {n})",
   "trx.live.song_lyrics_found": "Songtext gefunden – wird beim Stopp kopiert",
   "trx.live.song_lyrics_used": "Songtext aus dem Katalog kopiert",
-  "trx.live.song_no_lyrics": "Kein Songtext im Katalog – die Mitschrift wird kopiert"
+  "trx.live.song_no_lyrics": "Kein Songtext im Katalog – die Mitschrift wird kopiert",
+  "settings.section.changelog": "Changelog",
+  "set.changelog.subtitle": "Alle Versionen und was sich geändert hat (auf Englisch).",
+  "set.changelog.loading": "Changelog wird geladen…",
+  "set.changelog.failed": "Der Changelog konnte nicht geladen werden.",
+  "set.changelog.search": "Changelog durchsuchen",
+  "set.changelog.count": "{shown} von {total} Versionen",
+  "set.changelog.older": "Ältere Versionen",
+  "set.changelog.installed": "installiert"
 }

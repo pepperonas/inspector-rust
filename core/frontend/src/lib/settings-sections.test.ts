@@ -148,9 +148,9 @@ describe("SETTINGS_CATEGORIES", () => {
     for (const c of SETTINGS_CATEGORIES) expect(c.sections.length).toBeGreaterThan(0);
   });
 
-  it("puts the basics first and About last", () => {
+  it("puts the basics first and About, then the changelog, last", () => {
     expect(SETTINGS_CATEGORIES[0].sections[0]).toBe("behavior");
-    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].sections).toEqual(["about"]);
+    expect(SETTINGS_CATEGORIES[SETTINGS_CATEGORIES.length - 1].sections).toEqual(["about", "changelog"]);
   });
 
   it("names the category of a section", () => {

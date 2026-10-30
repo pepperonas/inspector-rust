@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.227.0] - 2026-10-30
+
+### Added
+- **The changelog in Settings.** Settings → Info → Changelog lists every release with what changed in it, newest first: ten at a time with "Older releases", a search over versions, dates and text, and the installed version marked. The text loads only when the section scrolls into view, so opening Settings stays fast.
+
+### Changed
+- **The changelog is English throughout.** Entries from 0.143 to 0.161 that had been written in German, and German UI labels quoted in English entries, are now English. Three internal details were removed: a server address with a database name, a home-folder path with a user name, and a private network address in an example (now a documentation address). Tests keep it that way: they fail on keys, tokens, passwords, private or server addresses, e-mail addresses, home-folder paths and German text.
+
 ## [0.226.0] - 2026-10-29
 
 ### Fixed
@@ -33,7 +41,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.223.0] - 2026-10-21
 
 ### Added
-- **Capture song lyrics:** `shazam lyrics` (or just `lyrics`) identifies the song playing from the microphone, fetches its lyrics from lrclib.net and puts them — headed by “Title – Artist” — into the clipboard and the clipboard history. The lyrics view opens with a confirmation. It runs in the background, so closing the popup doesn't stop it; a toast then says whether lyrics were copied. A song without a catalogue entry gets “No lyrics found” and the browser-search button.
+- **Capture song lyrics:** `shazam lyrics` (or just `lyrics`) identifies the song playing from the microphone, fetches its lyrics from lrclib.net and puts them — headed by "Title – Artist" — into the clipboard and the clipboard history. The lyrics view opens with a confirmation. It runs in the background, so closing the popup doesn't stop it; a toast then says whether lyrics were copied. A song without a catalogue entry gets "No lyrics found" and the browser-search button.
 
 ## [0.222.4] - 2026-10-21
 
@@ -186,7 +194,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.210.2] - 2026-10-11
 
 ### Fixed
-- **Paused tracks no longer show as playing in the Spotify history.** An open entry that is paused now reads "pausiert" with two still pause bars instead of the animated "läuft" bars.
+- **Paused tracks no longer show as playing in the Spotify history.** An open entry that is paused now reads "pausiert" with two still pause bars instead of the animated "running" bars.
 - **Silent playback is not counted as listening.** Time only counts while it can be heard: a muted Mac, a system volume of 0 % or a Spotify volume of 0 no longer adds to the heard time. A track that played entirely in silence does not appear in the history; a partly silent one counts only the audible part.
 
 ## [0.210.1] - 2026-10-11
@@ -221,13 +229,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - **Tab suggests values, not just words.** Typical values where a command takes a number — `spotify volume` 25/50/75/100, `timer` 5min/10min/25min/1h, `shot` 3/5/10 s, `pwgen` 16/24/32, `uuid`, `rnd`, `iris` thresholds — and the artists of your own Spotify history for `spotify history artist`, most played first (names with spaces complete as one value).
 - **Habits first.** The argument words of the commands you run are remembered per position; next time the ones you use most come first, and old habits fade (half weight after 14 days). Nothing is hidden, only the order changes. Stored per device.
-- **Typo correction.** When nothing matches by prefix, a word one slip away (`histroy`, `pasue`, `dakr`) is offered as `histroy → history`; Tab replaces it. Short words and numbers are never „corrected“.
+- **Typo correction.** When nothing matches by prefix, a word one slip away (`histroy`, `pasue`, `dakr`) is offered as `histroy → history`; Tab replaces it. Short words and numbers are never "corrected".
 - **New README badges**, computed like the others and checked in CI: Settings sections, commands with Tab completion, rebindable hotkeys, hidden triggers, frontend modules, releases — plus feature badges for Spotify, transcription, Tab completion, pulse, speedtest, AI tasks and more.
 - `docs/tab-completion.md`.
 
 ### Changed
 - The grey suggestion also shows when the case differs (`artist kr` → `aftwerk`); Tab writes the proper spelling.
-- `spotify history artist` without a name no longer searches for the word „artist“.
+- `spotify history artist` without a name no longer searches for the word "artist".
 - The completer loads with the first recognised command word instead of with every popup start.
 
 ## [0.207.0] - 2026-10-11
@@ -236,7 +244,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Tab completes command arguments.** While you type a command's argument — `spotify hi`, `wakelock o`, `settings spo`, `8bit` palettes, `transcribe --language` — the rest of the word appears in grey right in the search field, and a small hint underneath names the word, what it does and how many alternatives there are. Tab takes it, further Tabs cycle through the alternatives (Shift+Tab goes back), → at the end of the line takes the grey text. A space opens the next level (`spotify history ` → `heute`, `woche`, `export` …).
 
 ### Changed
-- `spotify` no longer reports „Unbekannt“ while you are still typing a known word.
+- `spotify` no longer reports "Unknown" while you are still typing a known word.
 - The weather city list now loads on the first `weather` instead of with every popup start (keeps the start-up bundle under its budget).
 
 ## [0.206.0] - 2026-10-11
@@ -344,24 +352,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.196.1] - 2026-10-05
 
 ### Fixed
-- **The overlay no longer moves after using the colour picker.** Picking from the colour modal's „pick from screen" button used to re-show the overlay somewhere else: before the pick it was moved to the screen under the cursor, a leftover from the old system sampler that the current loupe no longer needs.
+- **The overlay no longer moves after using the colour picker.** Picking from the colour modal's "pick from screen" button used to re-show the overlay somewhere else: before the pick it was moved to the screen under the cursor, a leftover from the old system sampler that the current loupe no longer needs.
 ### Changed
 - **A picked colour now ends the job**, the same way as the eyedropper hotkey (Ctrl+Shift+C): the hex goes to the clipboard and history, and the overlay is hidden instead of coming back. Cancelling the pick (Esc) brings the overlay back where it was, with the modal still open.
 
 ## [0.196.0] - 2026-10-05
 
 ### Added
-- **`limits`: pace and projection for every limit.** Each bar now answers „am I on plan?" and „when does it run out?": a thin tick marks the even line through the window, a hatched stretch shows where you'll be at the reset (with a red cap past 100 %), and a line underneath says „7 Punkte Reserve · voraussichtlich 78 % · Reset So 01:00", „leer Do ~14:20 (Mi 22 Uhr – Fr 9 Uhr)" or, for the session, „leer in ~1:40 h". When the Token Tracker runs and delivers a forecast (≥ 0.8.0), its calibrated projection is used and weekly limits get a fold-out chart of the window — plan, actual, measured points, projection with band, the 100 % crossing, previous weeks and nights shaded; which charts are open is remembered. Without it, each limit gets a linear estimate from the current rate, marked „grobe Schätzung". Codex limits get the same; Antigravity reports no percentages and stays without.
+- **`limits`: pace and projection for every limit.** Each bar now answers "am I on plan?" and "when does it run out?": a thin tick marks the even line through the window, a hatched stretch shows where you'll be at the reset (with a red cap past 100 %), and a line underneath says "7 points of headroom · expected 78 % · resets Sun 01:00", "empty Thu ~14:20 (Wed 10 pm – Fri 9 am)" or, for the session, "empty in ~1:40 h". When the Token Tracker runs and delivers a forecast (≥ 0.8.0), its calibrated projection is used and weekly limits get a fold-out chart of the window — plan, actual, measured points, projection with band, the 100 % crossing, previous weeks and nights shaded; which charts are open is remembered. Without it, each limit gets a linear estimate from the current rate, marked "rough estimate". Codex limits get the same; Antigravity reports no percentages and stays without.
 
 ## [0.195.0] - 2026-10-05
 
 ### Added
-- **Free disk space in the footer.** The popup footer now always shows how much space is left on the disk that holds your home folder (e.g. „8,3 GB frei"), read live from the operating system. On macOS it is the same figure System Settings shows under Storage — it includes space macOS can free on demand, so it is larger than `df`'s free column — and the tooltip uses the same wording („Macintosh HD — 8,3 GB verfügbar von 494,38 GB"). The number turns amber under 20 GB or 10 % of the disk, and red under 5 GB or 2 %. It refreshes every time the popup opens and every 30 seconds while it stays open; nothing is read while the popup is hidden.
+- **Free disk space in the footer.** The popup footer now always shows how much space is left on the disk that holds your home folder (e.g. "8.3 GB free"), read live from the operating system. On macOS it is the same figure System Settings shows under Storage — it includes space macOS can free on demand, so it is larger than `df`'s free column — and the tooltip uses the same wording ("Macintosh HD — 8.3 GB available of 494.38 GB"). The number turns amber under 20 GB or 10 % of the disk, and red under 5 GB or 2 %. It refreshes every time the popup opens and every 30 seconds while it stays open; nothing is read while the popup is hidden.
 
 ## [0.194.0] - 2026-10-05
 
 ### Changed
-- **Settings sorted into categories.** The 40 settings sections had grown in the order they were added, so related settings were scattered. They are now grouped into eight categories in a fixed order, basics first: Allgemein · Tastatur & Kurzbefehle · Zwischenablage & Aufnahme · Snippets & Textersetzung · Trackpad & Fenster · Befehle · Dienste & Zugänge · Sync & Sicherung, with „Info" at the end. Each category has a heading, and a bar of chips at the top of the Settings tab stays visible while you scroll, shows where you are and jumps to a category. Every section keeps its content; `settings <section>` deep links still work and now also find the clipboard-history hotkey, paste, capture, keyboard shortcuts, auto-expansion, direct snippet hotkeys and About.
+- **Settings sorted into categories.** The 40 settings sections had grown in the order they were added, so related settings were scattered. They are now grouped into eight categories in a fixed order, basics first: Allgemein · Tastatur & Kurzbefehle · Zwischenablage & Aufnahme · Snippets & Textersetzung · Trackpad & Windows · Commands · Services & Access · Sync & Backup, with "About" at the end. Each category has a heading, and a bar of chips at the top of the Settings tab stays visible while you scroll, shows where you are and jumps to a category. Every section keeps its content; `settings <section>` deep links still work and now also find the clipboard-history hotkey, paste, capture, keyboard shortcuts, auto-expansion, direct snippet hotkeys and About.
 
 ### Fixed
 - **`settings <section>` landed in the wrong place for sections further down.** The jump ran while the sections above were still loading their values; they grew afterwards and pushed the target away (`settings sync` stopped in the window palette). The target now stays pinned while the page settles, until you scroll yourself.
@@ -369,7 +377,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.193.0] - 2026-10-04
 
 ### Added
-- **Bind trackpad gestures yourself.** Settings → Touchpad gestures now has a table of gesture → action that you can add to, edit, switch off and delete any time. Gestures: swipe up, down, left or right and tap with 3, 4 or 5 fingers, plus tip-tap left/right. Actions: volume up/down, mute, next/previous tab, any key shortcut (recorded like the hotkey fields), an Inspector Rust action such as OCR or a screenshot, opening a URL or a file/app by absolute path, or running an approved AI task. Each binding can apply everywhere or only while one app is in front (that one wins over the global binding), and the typing guard can be switched per binding. „Geste vormachen" takes the gesture and finger count straight from the trackpad without firing it. Two active bindings on the same gesture are refused, changes take effect with the next gesture, and „Standard wiederherstellen" brings back the starting set. Existing setups keep working unchanged: until you save, the bindings are derived from the old volume/mute/tip-tap switches, which the table replaces. See docs/gestures.md.
+- **Bind trackpad gestures yourself.** Settings → Touchpad gestures now has a table of gesture → action that you can add to, edit, switch off and delete any time. Gestures: swipe up, down, left or right and tap with 3, 4 or 5 fingers, plus tip-tap left/right. Actions: volume up/down, mute, next/previous tab, any key shortcut (recorded like the hotkey fields), an Inspector Rust action such as OCR or a screenshot, opening a URL or a file/app by absolute path, or running an approved AI task. Each binding can apply everywhere or only while one app is in front (that one wins over the global binding), and the typing guard can be switched per binding. "Perform the gesture" takes the gesture and finger count straight from the trackpad without firing it. Two active bindings on the same gesture are refused, changes take effect with the next gesture, and "Restore defaults" brings back the starting set. Existing setups keep working unchanged: until you save, the bindings are derived from the old volume/mute/tip-tap switches, which the table replaces. See docs/gestures.md.
 
 ### Changed
 - **`usage` opens the usage limits.** `usage` now shows the Claude/Codex/Antigravity limits (the `limits` panel) and is offered by autocomplete while you type (`us`, `usa` …). It replaces the alias `quota`. The token tracker keeps its own command `tokens`; `usage` no longer opens it.
@@ -377,7 +385,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.192.0] - 2026-10-04
 
 ### Fixed
-- **`8bit` / `16bit` keep the computer usable.** The overlay replaced the whole screen — menu bar, Dock, menus, dialogs and the window you were working in — with a delayed, pixelated copy: text was unreadable, clicks missed, and menus appeared a frame late. Now the overlay sits below the menu bar, Dock, menus, dialogs and notifications (and keeps them out of the capture, so no stale copy shows through); the active window stays real by default — the overlay is transparent there, with a thin frame around it, and follows an app switch within a tenth of a second; and the whole overlay fades out the moment you type, scroll or drag, coming back softly after a short pause (Settings row „Beim Tippen/Scrollen ausblenden"). The cursor lens in „Original" also shows the real screen instead of a copy. Because neither needs fine pixels any more, the capture runs at cell resolution instead of full Retina resolution in the default setups. Pixelating the active window finely is still an option. Saved settings from 0.190/0.191 switch to the real active window once on first load. On Windows the active window and the lens are real too; fading out while typing and freeing the taskbar are not there yet.
+- **`8bit` / `16bit` keep the computer usable.** The overlay replaced the whole screen — menu bar, Dock, menus, dialogs and the window you were working in — with a delayed, pixelated copy: text was unreadable, clicks missed, and menus appeared a frame late. Now the overlay sits below the menu bar, Dock, menus, dialogs and notifications (and keeps them out of the capture, so no stale copy shows through); the active window stays real by default — the overlay is transparent there, with a thin frame around it, and follows an app switch within a tenth of a second; and the whole overlay fades out the moment you type, scroll or drag, coming back softly after a short pause (Settings row "Hide while typing/scrolling"). The cursor lens in "Original" also shows the real screen instead of a copy. Because neither needs fine pixels any more, the capture runs at cell resolution instead of full Retina resolution in the default setups. Pixelating the active window finely is still an option. Saved settings from 0.190/0.191 switch to the real active window once on first load. On Windows the active window and the lens are real too; fading out while typing and freeing the taskbar are not there yet.
 
 ## [0.191.0] - 2026-10-04
 
@@ -477,7 +485,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.185.0] - 2026-09-25
 
 ### Added
-- **What happened in the last 24 hours and 7 days — at the top of the `repo` panel.** A new **Aktivität 24 h / 7 Tage** card shows commits, lines added / removed, files changed, active contributors and new tags, each with the change vs the equally long period before (↑ / ↓ / ±0, deliberately neutral colours — fewer isn't automatically worse). Windows are rolling from now and half-open, so a commit exactly 24 h old counts to the previous day, never twice; the time used is the **commit** time, so a commit rewritten today (rebase, cherry-pick) counts today.
+- **What happened in the last 24 hours and 7 days — at the top of the `repo` panel.** A new **Activity 24 h / 7 days** card shows commits, lines added / removed, files changed, active contributors and new tags, each with the change vs the equally long period before (↑ / ↓ / ±0, deliberately neutral colours — fewer isn't automatically worse). Windows are rolling from now and half-open, so a commit exactly 24 h old counts to the previous day, never twice; the time used is the **commit** time, so a commit rewritten today (rebase, cherry-pick) counts today.
 - **GitHub numbers for GitHub repos:** pushes (Events API — since 2025 a push event no longer carries its commit count, so pushes are counted), pull requests opened / merged and issues opened / closed (pull requests filtered out of the issues list). Loaded separately after the analysis, with the saved token or `gh` login; rate limits, missing access and network errors show a hint while the git numbers stay. The Events API returns at most 300 events — when that cap is reached the count reads **≥ n**. Pull requests and issues are fetched newest-update-first; when any kind hits the 3-page limit inside the 14-day horizon, only the windows it no longer fully covers read **≥ n**, and a comparison is shown only when both periods are complete (— otherwise), so a truncated previous week can never produce a false ↑. GitHub also delivers events with a delay of up to several hours; the card says so.
 - The HTML/PDF export leads with the same table (GitHub rows when they were loaded).
 - **Six more computed README badges:** IPC commands, UI components, test suites, SQLite tables, events and Rust modules — all counted from the source by `scripts/update-badges.mjs` and pinned by `readme-badges.test.ts`.
@@ -491,10 +499,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.184.0] - 2026-09-25
 
 ### Added
-- **Code changes at a glance in the `repo` panel.** Right under the range chips a **Code-Änderungen** card shows lines added, removed and net for the selected range, with a bar chart per time step (added up in green, removed down in red, one common scale) and the cumulative net line. The HTML/PDF export leads with the same section.
+- **Code changes at a glance in the `repo` panel.** Right under the range chips a **Code changes** card shows lines added, removed and net for the selected range, with a bar chart per time step (added up in green, removed down in red, one common scale) and the cumulative net line. The HTML/PDF export leads with the same section.
 
 ### Fixed
-- **The 30-day view no longer says "2 Monate".** The activity heading counted the calendar months a 30-day window touches. Every range now has its own gapless timeline — **days** for 30 T, **Monday-weeks** for 90/180 T, **months** for 1 J / Gesamt — and the heading names the range ("Aktivität · letzte 30 Tage"); the export's activity section follows the same buckets.
+- **The 30-day view no longer says "2 Monate".** The activity heading counted the calendar months a 30-day window touches. Every range now has its own gapless timeline — **days** for 30 T, **Monday-weeks** for 90/180 T, **months** for 1 J / Gesamt — and the heading names the range ("Activity · last 30 days"); the export's activity section follows the same buckets.
 
 ## [0.183.0] - 2026-09-25
 
@@ -569,7 +577,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.174.0] - 2026-09-16
 
 ### Added
-- **`disk` / `daisy` now offers to open Full Disk Access when a folder is unreadable.** A protected folder (e.g. `~/Library/Mail`) used to look deceptively "empty" — its scan walks to zero entries just like a truly empty one. Inspector Rust now detects a permission-denied scan root and shows a clear "Kein Zugriff" card with a one-click **"Full Disk Access öffnen"** button (jumps straight to the System Settings pane) plus a re-scan. On macOS that's the permission the scan actually needs.
+- **`disk` / `daisy` now offers to open Full Disk Access when a folder is unreadable.** A protected folder (e.g. `~/Library/Mail`) used to look deceptively "empty" — its scan walks to zero entries just like a truly empty one. Inspector Rust now detects a permission-denied scan root and shows a clear "Kein Zugriff" card with a one-click **"Open Full Disk Access"** button (jumps straight to the System Settings pane) plus a re-scan. On macOS that's the permission the scan actually needs.
 
 ### Changed
 - **`disk` / `daisy` on `/home` now just opens your real home folder.** On macOS `/home` is an empty `autofs` mount, so scanning it was a dead-end — and the earlier "open home" button was still one click too many. Inspector Rust now detects the empty `/home` mount and **automatically** scans your home folder (`~`) instead (a brief transitional card, then the home sunburst with a note explaining why). Any other genuinely empty folder still shows a clear "Dieser Ordner ist leer" state.
@@ -577,7 +585,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.173.2] - 2026-09-16
 
 ### Changed
-- **The `disk` / `daisy` empty-folder state is now actionable, not a dead-end.** An empty `/home` (the macOS autofs mount) shows a one-click **"Persönlichen Ordner öffnen"** button that jumps straight to your home folder, instead of a dangling "/Users/…" note you couldn't act on. The card was refreshed (open-folder icon in a soft disc, clearer copy) and the footer + scan hints are trimmed to what actually applies when there is nothing to collect, right-click or trash.
+- **The `disk` / `daisy` empty-folder state is now actionable, not a dead-end.** An empty `/home` (the macOS autofs mount) shows a one-click **"Open home folder"** button that jumps straight to your home folder, instead of a dangling "/Users/…" note you couldn't act on. The card was refreshed (open-folder icon in a soft disc, clearer copy) and the footer + scan hints are trimmed to what actually applies when there is nothing to collect, right-click or trash.
 
 ## [0.173.1] - 2026-09-16
 
@@ -670,7 +678,7 @@ Deliberate tip-taps are unaffected: the guards block travel, not the user, and a
 - Verified-no-change (documented in the plan): timesheet heartbeat was already gated to ~6 s; `track_events` queries already use their indexes; `clipboard-changed` emitters already fire once per operation; the `combined` list memo depends only on query-derived state.
 
 ### Fixed
-- **boom routed the EQ into a virtual loopback** (field: "ich höre nichts" — the log said `restoring remembered output 'BlackHole 2ch'`): a screen recording had made BlackHole the system default, the adoption watcher remembered it as "the device the user was on", and every later bridge start played into a device without speakers. One rule now governs all five real-output decisions: a virtual-transport device (BlackHole/loopback/boom Audio) is never a playback target; aggregate/Multi-Output devices stay allowed.
+- **boom routed the EQ into a virtual loopback** (field: "I can't hear anything" — the log said `restoring remembered output 'BlackHole 2ch'`): a screen recording had made BlackHole the system default, the adoption watcher remembered it as "the device the user was on", and every later bridge start played into a device without speakers. One rule now governs all five real-output decisions: a virtual-transport device (BlackHole/loopback/boom Audio) is never a playback target; aggregate/Multi-Output devices stay allowed.
 
 ## [0.165.0] - 2026-09-04
 
@@ -685,7 +693,7 @@ Deliberate tip-taps are unaffected: the guards block travel, not the user, and a
 ## [0.164.0] - 2026-09-03
 
 ### Added
-- **Settings search in the main list** (macOS/Android-style): from 3 typed characters, matching Settings sections surface as jump rows (max 2, right after the app-launcher hit — navigation class, below every command row) — Enter opens the Settings tab scrolled to the section with the familiar highlight. Matching is deliberately stricter than the `settings <arg>` command: exact / name-prefix / word-start only, never the fuzzy subsequence, so ordinary clipboard queries stay noise-free. Same DE+EN synonym registry as the `settings` command (enriched: „animationen"/„bewegung" → Appearance, „datenschutz" → Clipboard privacy). The new `settings-section` rows are neutral (not command-rose); the selection indicator stays accent-coloured over them.
+- **Settings search in the main list** (macOS/Android-style): from 3 typed characters, matching Settings sections surface as jump rows (max 2, right after the app-launcher hit — navigation class, below every command row) — Enter opens the Settings tab scrolled to the section with the familiar highlight. Matching is deliberately stricter than the `settings <arg>` command: exact / name-prefix / word-start only, never the fuzzy subsequence, so ordinary clipboard queries stay noise-free. Same DE+EN synonym registry as the `settings` command (enriched: `animationen` (animations)/`bewegung` (motion) → Appearance, `datenschutz` (privacy) → Clipboard privacy). The new `settings-section` rows are neutral (not command-rose); the selection indicator stays accent-coloured over them.
 
 ## [0.163.0] - 2026-09-03
 
@@ -707,383 +715,383 @@ Deliberate tip-taps are unaffected: the guards block travel, not the user, and a
 
 ### Changed
 
-- **Markenzeichen jetzt auch auf den `otp`/`2fa <issuer>`-Zeilen der Hauptliste und in der TOTP-Vorschau** (Nutzerwunsch — dort stand noch der generische Schlüssel). Alle drei Flächen rendern über **EINE geteilte, selbstladende Komponente `TotpBrandIcon`**: Mounten stößt den memoisierten Lazy-Load an, der 4,5-MB-Chunk bleibt also weiter aus dem Startpfad (lädt erst, wenn eine TOTP-Fläche wirklich rendert); `peekIconIndex` liefert bereits geladene Daten synchron, damit ein Remount nie das Monogramm aufblitzen lässt. Der v0.161.0-Satz „Hauptliste bewusst ohne Icon" ist damit Geschichte.
+- **Brand icon now also on the `otp`/`2fa <issuer>` rows of the main list and in the TOTP preview** (user request — those still showed the generic key). All three surfaces render through **ONE shared, self-loading component `TotpBrandIcon`**: mounting triggers the memoised lazy load, so the 4.5 MB chunk stays out of the startup path (it only loads when a TOTP surface actually renders); `peekIconIndex` returns already loaded data synchronously so a remount never flashes the monogram. The v0.161.0 sentence "main list deliberately without icon" is now history.
 
 ## [0.161.0] - 2026-09-01
 
 ### Added
 
-- **2FA-Einträge tragen ihr Markenzeichen**: jede Zeile im `2fa`-Overlay zeigt das Icon ihres Issuers (GitHub, Google, PayPal, …) — Markenfarbe auf hellem Chip, in beiden Themes. Quelle ist das **volle Simple-Icons-Set 16.29.0** (3457 Zeichen, generiert via `scripts/gen-totp-icons.mjs`, gepinnt), als **lazy geladener 4,5-MB-Chunk** — er lädt erst beim ersten Öffnen des Overlays, kuratieren würde den nächsten Issuer still verfehlen. Matching (`lib/totp-icons.ts`, pur + getestet): ganzer Issuer → Domain-Labels **von rechts nach links** (bei „x.github.com" ist „github" die Marke, nicht die Subdomain) → erstes Wort („Google (privat)"); Aliasse aus dem Datenpaket.
+- **2FA entries carry their brand icon**: every row in the `2fa` overlay shows the icon of its issuer (GitHub, Google, PayPal, …) — brand colour on a light chip, in both themes. The source is the **full Simple Icons set 16.29.0** (3457 icons, generated via `scripts/gen-totp-icons.mjs`, pinned), shipped as a **lazily loaded 4.5 MB chunk** — it only loads the first time the overlay is opened; curating a subset would silently miss the next issuer. Matching (`lib/totp-icons.ts`, pure + tested): whole issuer → domain labels **from right to left** (for "x.github.com" "github" is the brand, not the subdomain) → first word ("Google (private)"); aliases from the data package.
 
 ### Notes
 
-- ⚠️ **Kein Icon wird je erfunden**: ein Issuer ohne Treffer bekommt ein deterministisches Monogramm (Initiale + stabiler FNV-Farbton), nie eine ähnlich aussehende Marke — dieselbe Ehrlichkeits-Regel wie im Icon-Katalog (Amazon/AWS/Slack u. a. fehlen in Simple Icons bewusst).
-- ⚠️ **Der Chip ist in BEIDEN Themes hell** (Katalog-Lehre: GitHub #181717 ist auf dunklem Grund unsichtbar); nur fast-weiße Marken kippen per `chipNeedsDark` (Luminanz-Schwelle) auf einen dunklen Chip. `fill` sitzt als **Präsentationsattribut** auf `<svg>` UND `<path>` (überlebt Stylesheet-/CSP-Verlust).
-- ⚠️ **Drift-Pin**: ein Test vergleicht die Version im generierten JSON mit der gepinnten devDependency — ein Paket-Bump ohne Generator-Lauf wird rot. Slug schlägt kollidierenden Titel im Lookup (mutationsgeprüft), ebenso die Rechts-nach-links-Domain-Reihenfolge.
-- Die `otp <issuer>`-Zeilen in der Hauptliste bleiben bewusst ohne Markenzeichen (v1-Umfang: das Overlay; die Hauptliste bräuchte den Chunk im Startpfad).
+- ⚠️ **No icon is ever invented**: an issuer without a match gets a deterministic monogram (initial + stable FNV hue), never a similar-looking brand — the same honesty rule as in the icon catalogue (Amazon/AWS/Slack etc. are deliberately missing from Simple Icons).
+- ⚠️ **The chip is light in BOTH themes** (catalogue lesson: GitHub #181717 is invisible on a dark background); only near-white brands flip to a dark chip via `chipNeedsDark` (luminance threshold). `fill` is set as a **presentation attribute** on `<svg>` AND `<path>` (survives loss of the stylesheet/CSP).
+- ⚠️ **Drift pin**: a test compares the version in the generated JSON with the pinned devDependency — a package bump without running the generator turns red. In the lookup, a slug beats a colliding title (mutation-checked), as does the right-to-left domain order.
+- The `otp <issuer>` rows in the main list deliberately stay without a brand icon (v1 scope: the overlay; the main list would need the chunk in the startup path).
 
 ## [0.160.0] - 2026-09-01
 
 ### Fixed
 
-- **boom: „boom Audio" von Hand als Ausgabegerät wählen spielte keine Musik** (Feldbefund). Ursache: die Brücke (Loopback → echtes Gerät) läuft nur bei eingeschaltetem boom, und der Default-Output-Wächter existierte NUR, solange die Brücke lief — bei ausgeschaltetem boom war die manuelle Wahl im Ton-Menü also reine Stille, die niemand beobachtete. Der Wächter ist jetzt **permanent** (beim App-Start scharf, nie entfernt), und die manuelle Wahl von „boom Audio" ist die **Einschalt-Geste**: boom aktiviert sich, persistiert das, startet die Brücke und routet zum Gerät, auf dem der Nutzer **gerade eben** gehört hat (präziser als die persistierte Zuletzt-UID, die nur während gebrückter Sessions aktualisiert). Ein passiver Toast benennt das Zielgerät.
+- **boom: manually choosing "boom Audio" as the output device played no music** (field report). Cause: the bridge (loopback → real device) only runs while boom is enabled, and the default-output watcher ONLY existed while the bridge was running — so with boom off, choosing it manually in the sound menu was pure silence that nobody observed. The watcher is now **permanent** (armed at app start, never removed), and manually choosing "boom Audio" is the **enable gesture**: boom activates, persists that, starts the bridge and routes to the device the user was **just now** listening on (more precise than the persisted last UID, which is only updated during bridged sessions). A passive toast names the target device.
 
 ### Notes
 
-- ⚠️ **Ein ECHTES Gerät wählen, während boom aus ist, bleibt ein reiner No-op** — boom darf sich niemals selbst einschalten, wenn man nur seine BT-Box wählt. Genau diese Mutation pinnt `should_adopt_selection` (mutationsgeprüft); ebenso, dass eine laufende Brücke nie den Adoptions-Pfad nimmt (sie besitzt ihren eigenen Re-Bridge-Pfad).
-- ⚠️ **Kein Selbst-Einschalt-Loop:** `start_locked` speichert als „vorheriges Gerät" immer das aufgelöste ECHTE Gerät (nie boom Audio) — Ausschalten stellt also ein echtes Gerät wieder her, und der Wächter sieht dann kein boom Audio. Der Adoptions-Pfad nutzt bewusst `set_active`, nicht `apply`: dessen `reset_stale_default` hätte die gerade getroffene Wahl sofort wieder weggerissen.
-- ⚠️ Ein beim **App-Start** bereits auf boom Audio festhängender Default gilt weiterhin als Crash-Artefakt und wird zurückgesetzt (kein Auto-Enable) — nur eine beobachtete ÄNDERUNG auf boom Audio ist eine Geste.
-- Live verifiziert: `SwitchAudioSource -s "boom Audio"` bei ausgeschaltetem boom → Log „treating it as the enable gesture" + „boom: enabled — routing …", Brücke läuft, Rückbau geprüft.
+- ⚠️ **Choosing a REAL device while boom is off remains a pure no-op** — boom must never switch itself on when you just pick your BT speaker. This exact mutation is pinned by `should_adopt_selection` (mutation-checked); likewise that a running bridge never takes the adoption path (it owns its own re-bridge path).
+- ⚠️ **No self-enable loop:** `start_locked` always stores the resolved REAL device (never boom Audio) as the "previous device" — so switching off restores a real device, and the watcher then sees no boom Audio. The adoption path deliberately uses `set_active`, not `apply`: its `reset_stale_default` would have immediately torn away the choice just made.
+- ⚠️ A default that is already stuck on boom Audio **at app start** still counts as a crash artefact and is reset (no auto-enable) — only an observed CHANGE to boom Audio is a gesture.
+- Verified live: `SwitchAudioSource -s "boom Audio"` with boom off → log "treating it as the enable gesture" + "boom: enabled — routing …", bridge running, teardown checked.
 
 ## [0.159.0] - 2026-09-01
 
 ### Added
 
-- **`bluetooth` / `bt` — Bluetooth-Geräte verwalten** (macOS): gekoppelte Geräte mit Live-Verbindungsstatus, **Trennen/Verbinden** je Zeile, **Entkoppeln** hinter einer zweistufigen Inline-Bestätigung (Entkoppeln löscht die Kopplung — Neu-Koppeln braucht wieder den Pairing-Modus des Geräts). Zeigt sich beim Tippen (`sound`-Muster), Enter übergibt die Pfeiltasten (↑↓ · ⏎ verbinden/trennen · ⌫⌫ entkoppeln). Direkt über **IOBluetooth per FFI** — kein `blueutil`, kein Zusatztool.
+- **`bluetooth` / `bt` — manage Bluetooth devices** (macOS): paired devices with live connection status, **disconnect/connect** per row, and **unpair** behind a two-step inline confirmation (unpairing deletes the pairing — pairing again needs the device's pairing mode once more). Shows while you type (`sound` pattern), Enter hands over the arrow keys (↑↓ · ⏎ connect/disconnect · ⌫⌫ unpair). Directly via **IOBluetooth over FFI** — no `blueutil`, no extra tool.
 
 ### Notes
 
-- ⚠️ **Entkoppeln hat keine öffentliche API** — der private `remove`-Selektor (derselbe, den `blueutil` nutzt), per `respondsToSelector` abgesichert: fällt er in einem künftigen macOS weg, sagt das Panel es und verweist auf die Systemeinstellungen, statt zu stürzen.
-- ⚠️ **Ein Gerät kann ZWEIMAL gekoppelt sein** (Classic + LE — live gemessen: der Referenz-Lautsprecher hält zwei MAC-Adressen). Die Adresse ist deshalb Teil der Oberfläche; ohne sie wären die Zwillinge ununterscheidbar. Sortierung verbunden-zuerst, Zwillinge adress-stabil (kein Flackern zwischen Polls).
-- ⚠️ **LE-Geräte senden keine Geräteklasse** (gemessen: eine MX Master meldet major 0) — die Kategorie bleibt dann ehrlich „Gerät", nie geraten. Batterie wird bewusst **nicht** angezeigt (IOBluetooth liefert sie nicht zuverlässig).
-- ⚠️ `openConnection` **blockiert** bis zum macOS-Timeout (~10 s bei ausgeschaltetem Gerät) — `spawn_blocking` ist hier tragend, und der Busy-Zustand sperrt nur die eine Zeile, nie das Panel.
-- Live verifiziert: `bluetooth::list` in-process gegen `system_profiler` — 5 Geräte deckungsgleich, inklusive des doppelt gekoppelten Lautsprechers.
+- ⚠️ **Unpairing has no public API** — the private `remove` selector (the same one `blueutil` uses), guarded with `respondsToSelector`: if it disappears in a future macOS, the panel says so and points to System Settings instead of crashing.
+- ⚠️ **A device can be paired TWICE** (Classic + LE — measured live: the reference speaker holds two MAC addresses). The address is therefore part of the interface; without it the twins would be indistinguishable. Sorted connected-first, twins address-stable (no flicker between polls).
+- ⚠️ **LE devices send no device class** (measured: an MX Master reports major 0) — the category then honestly stays "Device", never guessed. Battery is deliberately **not** shown (IOBluetooth does not deliver it reliably).
+- ⚠️ `openConnection` **blocks** until the macOS timeout (~10 s for a switched-off device) — `spawn_blocking` is load-bearing here, and the busy state locks only that one row, never the panel.
+- Verified live: `bluetooth::list` in-process against `system_profiler` — 5 devices matching, including the doubly paired speaker.
 
 ## [0.158.1] - 2026-08-30
 
 ### Fixed
 
-- **Die Fenster-Palette reagierte nicht mehr auf den Hover über dem grünen Knopf** (Nutzerbefund). Das war die v0.151.0-Entscheidung selbst: der Standard-Auslöser war auf „Titelleiste + ⌃⌥" gewandert, um dem macOS-Kachelmenü auszuweichen — und ist am echten Nutzer gescheitert. **Feldbeleg aus dem Log: Monitor einen ganzen Tag bewaffnet, null Treffer.** Einen Akkord-Hover entdeckt niemand, und die Geste, die jeder tatsächlich versucht, tat still nichts — eine stille Nicht-Reaktion auf die erwartete Geste ist schlimmer als die Kollision.
-- **Standard-Auslöser zurück auf den Hover, Kollision jetzt RÄUMLICH gelöst:** im Hover-Modus stellt sich die Palette **neben** die Zone des System-Popovers (250 pt rechts vom Knopf, weiter unter der Titelleiste) statt zentriert darauf. Der Weg des Cursors zur Palette verlässt den Knopf — genau das schließt das System-Menü; die beiden stapeln sich nie. Der Kurzbefehl-Pfad zentriert weiter (dort ist kein Popover offen).
+- **The window palette no longer reacted to hovering over the green button** (user report). This was the v0.151.0 decision itself: the default trigger had moved to "title bar + ⌃⌥" to avoid the macOS tiling menu — and it failed with real users. **Field evidence from the log: monitor armed for a whole day, zero hits.** Nobody discovers a chorded hover, and the gesture everyone actually tries did nothing silently — a silent non-reaction to the expected gesture is worse than the collision.
+- **Default trigger back to the hover, collision now solved SPATIALLY:** in hover mode the palette places itself **next to** the system popover's zone (250 pt to the right of the button, further below the title bar) instead of centered on it. The cursor's path to the palette leaves the button — which is exactly what closes the system menu; the two never stack. The shortcut path still centers (no popover is open there).
 
 ### Notes
 
-- ⚠️ **Lehre über die v0.151.0-Abwägung:** „falsch in Richtung neu raten kostet nur Bequemlichkeit" hat die Entdeckbarkeit unterschlagen — ein Auslöser, den niemand findet, ist funktional identisch mit einem abgeschalteten Feature. Der Default-Test ist ehrlich umgeschrieben (mit dem Feldbeleg im Kommentar), die beiden Alternativ-Auslöser bleiben wählbar, die Settings-Empfehlung ist zurückgedreht.
-- Verifiziert mit **synthetischen Mausbewegungen** (nur Maus — kein Klick, keine Tastatur, kein Fokuswechsel) über dem echten Zoom-Knopf eines TextEdit-Fensters, inklusive Log- und Bild-Nachweis der versetzten Platzierung.
+- ⚠️ **Lesson about the v0.151.0 trade-off:** "guessing wrong in the new direction only costs convenience" overlooked discoverability — a trigger nobody finds is functionally identical to a disabled feature. The default test has been honestly rewritten (with the field evidence in a comment), the two alternative triggers remain selectable, the Settings recommendation has been reverted.
+- Verified with **synthetic mouse movements** (mouse only — no click, no keyboard, no focus change) over the real zoom button of a TextEdit window, including log and image evidence of the offset placement.
 
 ## [0.158.0] - 2026-08-30
 
 ### Changed
 
-- **Doku-Generalpass.** README-Featureliste um die vier neuesten Fähigkeiten ergänzt (Ausschnitt-Download, CPU-Benchmark, `dezibel`/`db`, signierte Reports) — in **beiden** Sprachen; Bruno-Bullet nennt Tab-Umschalter und Report-Export.
-- **Zwei unehrliche Badges beseitigt, drei neue berechnete ergänzt.** Die LoC-Split-Badges (Rust/TypeScript) waren **handgetippt und ~Faktor 2 daneben** (~44k/~38k behauptet, ~83k/~81k real — Relikte der Nur-Quelltext-Politik vor v0.126.1); sie laufen jetzt durch `update-badges.mjs`. Das `source-~81k`-Badge (Begriff seit der Politik-Änderung falsch) ist durch ein **berechnetes `features`-Badge** (Zeilen in features.txt) ersetzt; dazu ein `last-commit`-Badge (dynamisch via shields).
-- ⚠️ **Die deutsche README war bei den berechneten Badges wochenlang gedriftet** (`docs-22`/`modules-84` neben englisch 24/87) — ihr Ersetzungsblock im Badge-Script kannte diese Regeln schlicht nicht. Eine Regel, die nur in einer Sprache existiert, IST die Drift, die sie verhindern soll; der DE-Block trägt jetzt alle Regeln.
+- **General documentation pass.** README feature list extended with the four newest capabilities (section download, CPU benchmark, `dezibel`/`db`, signed reports) — in **both** languages; the Bruno bullet mentions the tab switch and report export.
+- **Two dishonest badges removed, three new computed ones added.** The LoC split badges (Rust/TypeScript) were **hand-typed and off by about a factor of 2** (~44k/~38k claimed, ~83k/~81k real — relics of the source-only policy before v0.126.1); they now run through `update-badges.mjs`. The `source-~81k` badge (a term that has been wrong since the policy change) is replaced by a **computed `features` badge** (lines in features.txt); plus a `last-commit` badge (dynamic via shields).
+- ⚠️ **The German README had drifted for weeks on the computed badges** (`docs-22`/`modules-84` next to English 24/87) — its replacement block in the badge script simply did not know these rules. A rule that exists in only one language IS the drift it is meant to prevent; the DE block now carries all rules.
 
 ### Added
 
-- **Vier neue Doku-Integritäts-Tests** (`readme-badges.test.ts`, laufen in CI): das features-Badge == Zeilen in features.txt (beide Sprachen); **jedes berechnete Badge zeigt in EN und DE denselben Wert** (mutationsgeprüft — genau die passierte Drift macht ihn rot); **alle neun Versions-Manifeste tragen EINE Version** (ein vergessener Bump im Release-Ritual fällt jetzt in CI); die **CHANGELOG-Spitze ist die aktuelle Version** (Doku darf dem Artefakt nicht hinterherlaufen).
+- **Four new documentation integrity tests** (`readme-badges.test.ts`, run in CI): the features badge == lines in features.txt (both languages); **every computed badge shows the same value in EN and DE** (mutation-checked — exactly the drift that happened turns it red); **all nine version manifests carry ONE version** (a forgotten bump in the release ritual now fails in CI); the **top of the CHANGELOG is the current version** (docs must not lag behind the artifact).
 
 ## [0.157.1] - 2026-08-30
 
 ### Changed
 
-- **Doku nachgezogen:** die Bruno-CommandDoc nennt jetzt den Tab-Modus-Wechsel und den HTML/PDF-Export (speist `?`-Hilfe, README-Matrix und Features-Tab); der „Ausschnitt" steht als In-Popup-Aktion im Features-Tab (`feature-extras.ts`); die Report-Signatur hat ihre `features.txt`-Zeile.
-- **11 neue Tests:** `TrimBar.test.tsx` (6 — Proxy genau einmal + über das Asset-Protokoll, ehrliche Fehlertexte inkl. `yt-dlp fehlt`, „Ganzes Video", getippte Zeiten inkl. der Regel, dass Müll-Eingaben den Griff NICHT bewegen [mutationsgeprüft], Pfeiltasten grob/fein) und 5 weitere `buildBrunoExport`-Pins (Kirchensteuer nur wenn fällig, Bundesland ausgeschrieben statt Kürzel, sichtbarer Fallback bei unbekanntem Kürzel, PKV ohne Pflege-Zeile, Freiberufler ohne GewSt-Zeilen).
-- **Signatur-Einbau mutationsgeprüft:** unbedingtes Signieren (auch leerer Dokumente) → 1 roter Test; Einbau entfernt → 2 rote Tests.
+- **Docs brought up to date:** the Bruno CommandDoc now mentions the tab mode switch and the HTML/PDF export (feeds the `?` help, README matrix and Features tab); the "section" appears as an in-popup action in the Features tab (`feature-extras.ts`); the report signature has its `features.txt` line.
+- **11 new tests:** `TrimBar.test.tsx` (6 — proxy exactly once and via the asset protocol, honest error texts including `yt-dlp missing`, "Whole video", typed times including the rule that garbage input does NOT move the handle [mutation-checked], arrow keys coarse/fine) and 5 more `buildBrunoExport` pins (church tax only when due, federal state spelled out instead of abbreviation, visible fallback for an unknown abbreviation, private health insurance without a care row, freelancers without trade-tax rows).
+- **Signature integration mutation-checked:** unconditional signing (even empty documents) → 1 red test; integration removed → 2 red tests.
 
 ## [0.157.0] - 2026-08-30
 
 ### Added
 
-- **Alle Report-Exporte tragen Unterschrift und Stempel** — LoC, PageSpeed, Repo, Benchmark (Einzel + Vergleich), Bruno und die Zeiterfassung, in HTML wie PDF. Vorlage ist 1:1 das Portal (`celox-portal/server/certificate.js`): dieselbe `signature.png` (vendort, als data-URI eingebettet — die Reports sind auf „selbstenthalten" gepinnt), der Stempel als **getreue SVG-Portierung** von `drawSeal` (Doppelring, Perlring mit 52 Perlen, Umlaufschrift, Guillochenband mit 22 Bögen, Schild mit Haken und Tressur, Jahr, −8° Handaufdruck), dasselbe Layout aus `drawSignatures` (Datum links, Unterschrift rechts, **Siegel auf der Tinte**, Name + Aussteller darunter).
+- **All report exports carry signature and seal** — LoC, PageSpeed, Repo, Benchmark (single + comparison), Bruno and the timesheet, in HTML as well as PDF. The template is 1:1 the portal (`celox-portal/server/certificate.js`): the same `signature.png` (vendored, embedded as a data URI — the reports are pinned to "self-contained"), the seal as a **faithful SVG port** of `drawSeal` (double ring, bead ring with 52 beads, circular text, guilloche band with 22 arcs, shield with checkmark and braid, year, −8° hand stamp), the same layout from `drawSignatures` (date left, signature right, **seal on the ink**, name + issuer below).
 
 ### Notes
 
-- ⚠️ **Ein Einbau, keine sechs Kopien:** der Block hängt in `report_style::shell()` — jeder heutige UND künftige Report ist automatisch signiert. Ein leerer Fuß (der „Nichts zu vergleichen"-Benchmark-Sonderfall) bleibt unsigniert: ein leeres Dokument zu unterschreiben wäre falsch (gepinnt).
-- ⚠️ **Ring-Wortlaut nach der Ehrlichkeits-Regel des Portals** („der Stempel darf dem Blatt nicht widersprechen"): ein Scan ist weder Abschluss noch Assessment, der untere Bogen sagt **DURCHGEFÜHRTE ANALYSE**; `ABSCHLUSS`/`ASSESSMENT` sind per Test verboten. Ebenso bewusst **kein „digital signiert"** — die PDFs tragen keine kryptografische Signatur (per Test verboten).
-- ⚠️ **Base64 kann JEDES Buchstabentripel enthalten — auch „NaN".** Die Inhalts-Pins (kein NaN, kein externes `src=`) liefen nach dem Einbetten über den 115-KB-Blob und schlugen falsch an; sie streifen jetzt data-URIs ab, bevor sie prüfen. Und ein Klassenname im Stylesheet ist kein Markup: der Signatur-Pin prüft `<div class="rp-sign">`, nicht das bloße Wort (die erste Fassung matchte die CSS).
-- Verifiziert: alle 8 Sicht-Dumps tragen genau 1× Unterschrift + 1× Stempel, je ein PDF erzeugt (310–420 KB); der Block im Bild abgenommen (Stempel liegt auf dem Namenszug, Ring lässt ihn lesbar).
+- ⚠️ **One integration, not six copies:** the block hangs in `report_style::shell()` — every present AND future report is automatically signed. An empty footer (the "Nothing to compare" benchmark special case) stays unsigned: signing an empty document would be wrong (pinned).
+- ⚠️ **Ring wording follows the portal's honesty rule** ("the seal must not contradict the sheet"): a scan is neither a completion nor an assessment, the lower arc says **`DURCHGEFÜHRTE ANALYSE`**; `ABSCHLUSS`/`ASSESSMENT` are forbidden by test. Likewise deliberately **no "digitally signed"** — the PDFs carry no cryptographic signature (forbidden by test).
+- ⚠️ **Base64 can contain ANY letter triple — even "NaN".** The content pins (no NaN, no external `src=`) ran over the 115 KB blob after embedding and fired falsely; they now strip data URIs before checking. And a class name in the stylesheet is not markup: the signature pin checks `<div class="rp-sign">`, not the bare word (the first version matched the CSS).
+- Verified: all 8 visual dumps carry exactly 1× signature + 1× seal, one PDF each generated (310–420 KB); the block approved in the image (seal lies on the signature, ring leaves it readable).
 
 ## [0.156.0] - 2026-08-30
 
 ### Added
 
-- **Schnitt-Funktion im Social-Download (YouTube u. a.).** Unter den Download-Buttons sitzt ein aufklappbarer Abschnitt „Ausschnitt" im QuickTime-Modell: gelbe Griffe über einer Leiste, alles außerhalb wird verworfen, Bereich als Ganzes verschiebbar, Playhead per Klick/Ziehen, Zeitfelder zum Tippen (YouTube-Studio-Muster), Knöpfe Anfang · Bereich · Ende zum Prüfen, Pfeiltasten (⇧ = fein). Beim Download (Video ODER Audio) lädt yt-dlp per `--download-sections` + `--force-keyframes-at-cuts` NUR die aktive Sequenz — gemessen: 20 s aus einem 83-Minuten-Set in 21 s als 1,24 MiB statt 175–330 MiB.
-- **Anhören zum Prüfen über einen Audio-Proxy.** Gemessen am Referenzvideo hat YouTube KEIN progressives Format (alle 13 Varianten sind video-only oder audio-only) — ein Medienelement kann die Quelle nicht abspielen. Die Leiste scrubbt deshalb ein kleines m4a (Format 139, 48,8 kbit/s; 30 MB für 83 min, ~5 s Ladezeit) aus dem App-Cache, der bereits im Asset-Scope liegt. Beim Video-Download bleibt das Bild in der Vorschau bewusst aus — der ehrliche Preis dafür, nicht erst 300 MB zu laden.
+- **Trim feature in the social download (YouTube and others).** Below the download buttons sits a collapsible "Clip" section in the QuickTime model: yellow handles above a bar, everything outside is discarded, the range can be moved as a whole, playhead by click/drag, time fields for typing (YouTube Studio pattern), buttons Start · Range · End for checking, arrow keys (⇧ = fine). On download (video OR audio) yt-dlp fetches ONLY the active sequence via `--download-sections` + `--force-keyframes-at-cuts` — measured: 20 s from an 83-minute set in 21 s as 1.24 MiB instead of 175–330 MiB.
+- **Listening to check, via an audio proxy.** Measured on the reference video, YouTube has NO progressive format (all 13 variants are video-only or audio-only) — a media element cannot play the source. The bar therefore scrubs a small m4a (format 139, 48.8 kbit/s; 30 MB for 83 min, ~5 s load time) from the app cache, which is already inside the asset scope. For a video download the picture in the preview is deliberately left off — the honest price for not loading 300 MB first.
 
 ### Notes
 
-- ⚠️ **Der Schnitt ist ADDITIV**: ohne aufgeklappten, verengten Bereich ist die yt-dlp-argv byte-identisch zu vorher — gepinnt für Video und Audio; `sectionFor` gibt dann `undefined` (mutationsgeprüft).
-- ⚠️ **Das führende `*` in `--download-sections` ist tragend** — ohne es liest yt-dlp den Wert als Kapitel-Regex und lädt still das ganze Video. Eigener Pin; ebenso, dass die Schnitt-Argumente VOR dem `--`-Terminator stehen.
-- ⚠️ **Der Proxy ist auf ein progressives m4a gepinnt, nicht `worstaudio`** — das wählt gemessen eine HLS-Variante mit unbekannter Bitrate.
-- ⚠️ **Regressions-Pin: der `section`-Parameter war im ersten Entwurf deklariert, aber nicht an `invoke` weitergereicht** — ein stiller No-op, die UI hätte einen Bereich gezeigt und das ganze Video geladen.
-- Die Griffe SCHIEBEN sich gegenseitig statt zu tauschen (ein Tausch mitten im Ziehen fühlt sich an, als wehre sich die Leiste); halbfertige Zeiteingaben lassen den Griff in Ruhe (`parseClock` → null statt 0).
+- ⚠️ **The trim is ADDITIVE**: without an expanded, narrowed range the yt-dlp argv is byte-identical to before — pinned for video and audio; `sectionFor` then returns `undefined` (mutation-checked).
+- ⚠️ **The leading `*` in `--download-sections` is load-bearing** — without it yt-dlp reads the value as a chapter regex and silently downloads the whole video. Its own pin; likewise that the trim arguments come BEFORE the `--` terminator.
+- ⚠️ **The proxy is pinned to a progressive m4a, not `worstaudio`** — which, as measured, picks an HLS variant with unknown bitrate.
+- ⚠️ **Regression pin: the `section` parameter was declared in the first draft but not passed on to `invoke`** — a silent no-op, the UI would have shown a range and downloaded the whole video.
+- The handles PUSH each other instead of swapping (a swap in the middle of dragging feels as if the bar resists); half-finished time input leaves the handle alone (`parseClock` → null instead of 0).
 
 ### Added (Bruno)
 
-- **Modus-Umschalter Angestellter <-> Unternehmer per Tab.** Bisher war der einzige Weg, den Modus zu wechseln, das Neutippen des Betrags mit oder ohne `f`-Suffix; jetzt schaltet Tab auf der Bruno-Zeile um (reine `toggleSelfMode`, das Suffix bleibt die einzige Wahrheit). Die `einnahmen-ausgaben`-Form wird beim Wechsel zu Angestellt aufgeloest (der Parser weist sie dort ab) - der Betrag behaelt seine Bedeutung als der GEWINN, der auf dem Schirm stand. Katalogtext und Ergebnis-Zeile benennen den Modus und den Weg zum anderen.
-- **Bruno-Export als HTML und PDF** im geteilten `report_style`-Design (wie `loc`, `pagespeed`, `bench`): Kennzahlen-Leiste, Zusammensetzungs-Balken (hell = Netto, gesaettigt = Abzuege), Steuern-/Sozialabgaben-Tabellen mit Farbchip + Anteils-Spur, Ergebnis-Block. Export-Chips in beiden Vorschau-Zweigen (eine Komponente). Der Export RENDERT nur - gerechnet wird weiter im Frontend, die Zeilen kommen aus der puren `buildBrunoExport` (dieselbe Abbildung fuer Vorschau und PDF; Summenprobe Basis - Abzuege = Netto gepinnt).
+- **Mode switch employee <-> entrepreneur via Tab.** Previously the only way to change the mode was retyping the amount with or without the `f` suffix; now Tab on the Bruno row switches (pure `toggleSelfMode`, the suffix remains the single truth). The `einnahmen-ausgaben` (income-expenses) form is resolved when switching to employee (the parser rejects it there) - the amount keeps its meaning as the PROFIT that was on screen. Catalogue text and result row name the mode and the way to the other one.
+- **Bruno export as HTML and PDF** in the shared `report_style` design (like `loc`, `pagespeed`, `bench`): key-figure strip, composition bar (light = net, saturated = deductions), tax/social-contribution tables with colour chip + share track, result block. Export chips in both preview branches (one component). The export only RENDERS - calculation stays in the frontend, the rows come from the pure `buildBrunoExport` (same mapping for preview and PDF; sum check base - deductions = net pinned).
 
 ### Notes (Bruno)
 
-- Drei Befunde aus der SICHTPRUEFUNG, die kein Test sehen konnte: (a) `name_cell` liefert ein <span>, das in ein <td> gehoert - ohne Zelle hebt der Browser es aus der Tabelle (Labels standen UEBER der Tabelle, Betraege namenlos); (b) die Dump-Fixture ohne RV/AV ergab ein Dokument, dessen eigene Summen nicht aufgingen (Balken-Luecke, 63,0 % + 26,4 %); (c) Netto und Lohnsteuer waren zwei fast identische Blaus nebeneinander - Netto ist jetzt bewusst hell und NICHT aus der Serien-Palette (gepinnt).
-- Soli 0 Euro bleibt als Zeile stehen: unter dem 2025er-Tarif ist die Null eine AUSSAGE, keine Rauschzeile.
-- Die Paragraf-35-Anrechnung steht als NEGATIVE Zeile in den Steuern, sonst ginge die Summenprobe nicht auf.
+- Three findings from the VISUAL CHECK that no test could see: (a) `name_cell` returns a <span> that belongs inside a <td> - without a cell the browser lifts it out of the table (labels stood ABOVE the table, amounts nameless); (b) the dump fixture without RV/AV (pension/unemployment insurance) produced a document whose own totals did not add up (bar gap, 63.0 % + 26.4 %); (c) net and income tax were two almost identical blues side by side - net is now deliberately light and NOT from the series palette (pinned).
+- Solidarity surcharge 0 euro stays as a row: under the 2025 tariff the zero is a STATEMENT, not a noise row.
+- The section 35 credit appears as a NEGATIVE row in the taxes, otherwise the sum check would not add up.
 
 ## [0.155.0] - 2026-08-30
 
 ### Fixed
 
-- **Der Dark-Wake-Umschalter im Footer war praktisch unsichtbar geworden — eine Regression aus v0.152.0.** Nutzerbefund: „ich sehe den button zum umschalten im footer auch nicht mehr". Drei Ursachen, die zusammenwirkten: (1) das Zusammenlegen der beiden Sleep-Anzeigen setzte ein **immer sichtbares, beschriftetes, farbiges** Abzeichen vor den Knopf — bis dahin stand die Anzeige dahinter, und bei ausgeschaltetem Wakelock war der ☾ das **erste** Element im Footer; (2) er trug im Ruhezustand **keine Beschriftung** (`srv` erschien nur im aktiven Zustand), während jedes andere Footer-Element Glyph + Versal-Label ist; (3) dazu `opacity-60` auf einer ohnehin gedämpften Farbe bei 11 px Glyphgröße.
-- **Behoben an allen drei Stellen:** der Umschalter steht wieder **vor** der Sleep-Anzeige, trägt in **beiden** Zuständen ein Label (`dark` / `srv`) und verliert die Ruhe-Deckkraft-Absenkung zugunsten eines Hover-Kontrasts.
+- **The dark-wake toggle in the footer had become practically invisible — a regression from v0.152.0.** User report: "I can't see the toggle button in the footer anymore either". Three causes working together: (1) merging the two sleep indicators put an **always-visible, labeled, colored** badge in front of the button — until then the indicator sat behind it, and with the wakelock off the ☾ was the **first** element in the footer; (2) at rest it carried **no label** (`srv` only appeared in the active state), while every other footer element is glyph + uppercase label; (3) on top of that, `opacity-60` on an already muted color at 11 px glyph size.
+- **Fixed in all three places:** the toggle is back **before** the sleep indicator, carries a label in **both** states (`dark` / `srv`), and loses the resting opacity reduction in favor of a hover contrast.
 
 ### Notes
 
-- ⚠️ **Ein Bedienelement darf nicht leiser gestaltet sein als die Anzeigen daneben.** Der Knopf war die ganze Zeit gerendert und anklickbar — er war nur nicht mehr zu finden. Gestaltungsänderungen an einem Element können ein *anderes* unbenutzbar machen; hier hat das Lauterwerden der Nachbarschaft gereicht.
-- Drei Regressions-Pins in `Footer.test.tsx`: Beschriftung in beiden Zuständen, kein `opacity-60` im Ruhezustand, und DOM-Reihenfolge vor der Sleep-Anzeige. Der Reihenfolge-Pin ist mutationsgeprüft (Zurücktauschen macht ihn rot).
+- ⚠️ **A control must not be styled quieter than the indicators next to it.** The button was rendered and clickable the whole time — it just could no longer be found. Design changes to one element can make *another* unusable; here, the neighborhood getting louder was enough.
+- Three regression pins in `Footer.test.tsx`: label in both states, no `opacity-60` at rest, and DOM order before the sleep indicator. The order pin is mutation-checked (swapping back turns it red).
 
 ## [0.154.0] - 2026-08-30
 
 ### Added
 
-- **`dezibel` / `db` — Live-Lautstärke in der Vorschau.** Ein Befehl unter zwei Namen (`db` ist die Kurzform, gleiches `kind`, keine eigene Logik). Enter öffnet das Mikrofon; die Vorschau zeigt den Pegel in **dBFS** als große Monospace-Zahl, deren Leuchten, Skalierung und Deckkraft dem Pegel folgen, darunter ein Pegelbalken.
+- **`dezibel` / `db` — live loudness in the preview.** One command under two names (`db` is the short form, same `kind`, no logic of its own). Enter opens the microphone; the preview shows the level in **dBFS** as a large monospace number whose glow, scale and opacity follow the level, with a level bar below.
 
 ### Notes
 
-- **Die Animation ist die des `bpm`-Detektors, gehoben statt neu erfunden**: dieselbe Glättung `smoothStep(aktuell, rmsToDbfs(rms(puffer)), 0.5, 0.12)` (Attack schnell, Release langsam), dieselbe Skalenabbildung `dbfsToLevel(db, −60, −6)`, dasselbe ~7-Hz-Ableseintervall und dieselbe Formsprache (Zahl + Leuchten + dünner Balken). Fundstelle: `BpmDetector.tsx` — die `dbRef`-Zeile in seiner rAF-Schleife und sein Anzeige-Intervall.
-- ⚠️ **Der Wert wird jeden Frame gelesen, aber nur ~7×/s an React gegeben.** Diese Trennung ist der Punkt: ein Messgerät darf den Baum nicht mit Bildrate neu rendern, und eine 60×/s wechselnde Zahl ist ohnehin unlesbar.
-- ⚠️ **Enter-aktiviert, nicht beim Tippen** — Hausregel für Panels, die das Mikrofon öffnen (wie `shazam` und blankes `iris`). Zusätzlich wird der Modus beim Verstecken des Popups ausdrücklich zurückgesetzt: ein Mikrofon-Panel, das ein Wegklicken überlebt, nähme unsichtbar weiter auf (die `bpm`/`equalizer`-Lehre aus v0.105.0).
-- ⚠️ **Das `kind` heißt `dezibel`, weil die Panel-Kanonisierung die Eingabe auf den KIND-String setzt.** Ein Kind, das kein gültiges Schlüsselwort ist, ließe das Panel aufblitzen und im selben Takt wieder schließen (v0.84.247). `db` + Enter schreibt die Zeile deshalb auf `dezibel` um — dasselbe Verhalten wie `performance` → `benchmark`.
-- **Aufnahme ist die geteilte native cpal-Erfassung** (`startFedMic`, referenzgezählt); gleichzeitiges `bpm` oder `disco` öffnet keinen zweiten Strom. Der geteilte warme AudioContext wird nie geschlossen.
-- ⚠️ **Kein Plattform-Gate.** `mic_capture.rs` trägt kein `cfg(target_os)`, cpal ist plattformübergreifend — eine macOS-Beschränkung zu behaupten wäre erfunden gewesen (ein erster Entwurf hatte sie und wurde nach Prüfung entfernt).
-- **dBFS ist relativ zur Vollaussteuerung, kein kalibrierter Schalldruck** — das ist kein SPL-Messgerät, und die Oberfläche sagt das.
+- **The animation is that of the `bpm` detector, lifted rather than reinvented**: the same smoothing `smoothStep(current, rmsToDbfs(rms(buffer)), 0.5, 0.12)` (fast attack, slow release), the same scale mapping `dbfsToLevel(db, −60, −6)`, the same ~7 Hz readout interval and the same visual language (number + glow + thin bar). Where to find it: `BpmDetector.tsx` — the `dbRef` line in its rAF loop and its display interval.
+- ⚠️ **The value is read every frame, but handed to React only ~7×/s.** This separation is the point: a meter must not re-render the tree at frame rate, and a number changing 60×/s is unreadable anyway.
+- ⚠️ **Enter-activated, not while typing** — house rule for panels that open the microphone (like `shazam` and bare `iris`). In addition the mode is explicitly reset when the popup is hidden: a microphone panel that survives a click-away would keep recording invisibly (the `bpm`/`equalizer` lesson from v0.105.0).
+- ⚠️ **The `kind` is called `dezibel` because the panel canonicalisation sets the input to the KIND string.** A kind that is not a valid keyword would make the panel flash up and close again on the same tick (v0.84.247). `db` + Enter therefore rewrites the line to `dezibel` — the same behaviour as `performance` → `benchmark`.
+- **Capture is the shared native cpal capture** (`startFedMic`, reference-counted); running `bpm` or `disco` at the same time opens no second stream. The shared warm AudioContext is never closed.
+- ⚠️ **No platform gate.** `mic_capture.rs` carries no `cfg(target_os)`, cpal is cross-platform — claiming a macOS restriction would have been invented (a first draft had it and was removed after review).
+- **dBFS is relative to full scale, not a calibrated sound pressure** — this is not an SPL meter, and the UI says so.
 
 ## [0.153.0] - 2026-08-30
 
 ### Added
 
-- **`rz` kann prozentual skalieren, nicht nur in Pixeln.** **Eine Zahl ist Prozent** (`rz 50` bringt jedes Bild auf die halbe Größe), **zwei Zahlen bleiben Pixel** (`rz 1200x800`). Ein genannter Modus gewinnt immer: `px`/`pixel`/`pixels` und `%`/`pc`/`pct`/`percent`/`prozent`, letzteres auch als Nachsilbe (`rz 50%`, `rz 50x25%`). Achsen lassen sich einzeln skalieren (`rz % 150x100`).
-- **Vorschau beim Tippen von `rz`**: die verfügbaren Modi mit Beispielen und — für die aktuelle Finder-Auswahl — wie viele Bilder betroffen sind und was aus jedem wird (`3024×4032 → 1512×2016 (JPEG)`), inklusive Warnung je Bild, wenn ein Ziel die 16-MP-Grenze reißen würde.
+- **`rz` can scale by percentage, not just in pixels.** **One number is percent** (`rz 50` brings every image to half its size), **two numbers stay pixels** (`rz 1200x800`). A named mode always wins: `px`/`pixel`/`pixels` and `%`/`pc`/`pct`/`percent`/`prozent`, the latter also as a suffix (`rz 50%`, `rz 50x25%`). Axes can be scaled individually (`rz % 150x100`).
+- **Preview while typing `rz`**: the available modes with examples and — for the current Finder selection — how many images are affected and what each becomes (`3024×4032 → 1512×2016 (JPEG)`), including a per-image warning if a target would exceed the 16 MP limit.
 
 ### Notes
 
-- ⚠️ **Die Modus-Regel hat zwei Fälle, und zwar aus Rückwärtskompatibilität.** `rz 1200x800` bedeutet seit v0.84.72 Pixel; das still in „1200 % × 800 %" zu drehen hätte eine eingespielte Eingabe umgedeutet — sie wäre in den 16-MP-Deckel gelaufen statt zu skalieren. Ein Test führt die drei Beispiele der eigenen Befehlsdokumentation als Pin mit; die Mutationsprobe (zwei Zahlen doch prozentual) lässt ihn fallen.
-- ⚠️ **Die Vorschau hängt an der EINGABE, nicht am geparsten Befehl.** `rz` hat ein Pflichtargument, ist allein also kein vollständiger Befehl — an `parsedCommand` gehängt erschien beim bloßen `rz` die generische Vorschlagskarte statt der Modi-Liste, also ausgerechnet im einzigen Fall, für den die Vorschau existiert. Gefunden hat das erst die Sichtprüfung im laufenden Programm; ein Test hätte es nicht sehen können.
-- ⚠️ **Prozent ist pro Bild, nicht pro Stapel.** Jede Quelle hat ihre eigene Größe, ein Stapel kann sich also kein gemeinsames Ziel teilen. Die Zielgrößen kommen aus derselben reinen `targetSize`, die auch die Vorschau benutzt — die Vorschau darf keine Größe versprechen, die der Lauf nicht liefert.
-- ⚠️ **Die Vorschau misst header-only und entprellt.** `image_dimensions` liest den Header und dekodiert nicht; bei jedem Tastendruck eine Auswahl von 40-MP-JPEGs zu dekodieren wäre das Einzige hier, was die Oberfläche einfrieren lässt. Die Finder-Auswahl selbst (osascript, ~300 ms) wird einmal beim Betreten des Befehls geholt, nicht pro Zeichen.
-- ⚠️ **Eine nicht lesbare Auswahl wird benannt, nicht als „0 Bilder" gezeigt** — „Freigabe fehlt" und „nichts ausgewählt" sind zwei verschiedene Tatsachen.
-- **`parseResizeArg` ist entfernt** (von `parseResizeCommand` abgelöst); seine Zusicherungen sind in die neue Suite übernommen, inklusive der einen bewusst geänderten (`rz 200` war früher ungültig und ist jetzt 200 %).
+- ⚠️ **The mode rule has two cases, for backward compatibility.** `rz 1200x800` has meant pixels since v0.84.72; silently turning that into "1200 % × 800 %" would have reinterpreted an established input — it would have hit the 16 MP cap instead of scaling. A test carries the three examples from the command's own documentation as a pin; the mutation probe (two numbers as percent after all) makes it fail.
+- ⚠️ **The preview hangs on the INPUT, not on the parsed command.** `rz` has a required argument, so on its own it is not a complete command — attached to `parsedCommand`, a bare `rz` showed the generic suggestion card instead of the mode list, i.e. in exactly the one case the preview exists for. Only a visual check in the running program found this; a test could not have seen it.
+- ⚠️ **Percent is per image, not per batch.** Every source has its own size, so a batch cannot share one common target. The target sizes come from the same pure `targetSize` that the preview uses — the preview must not promise a size the run does not deliver.
+- ⚠️ **The preview measures header-only and is debounced.** `image_dimensions` reads the header and does not decode; decoding a selection of 40 MP JPEGs on every keystroke would be the one thing here that freezes the UI. The Finder selection itself (osascript, ~300 ms) is fetched once when entering the command, not per character.
+- ⚠️ **An unreadable selection is named, not shown as "0 images"** — "permission missing" and "nothing selected" are two different facts.
+- **`parseResizeArg` is removed** (replaced by `parseResizeCommand`); its guarantees are carried over into the new suite, including the one deliberately changed (`rz 200` used to be invalid and is now 200 %).
 
 ## [0.152.0] - 2026-08-30
 
 ### Fixed
 
-- **Der Sleep-Indikator im Footer war unstimmig — vier Ursachen, alle gemessen.** (1) Das amber „no-sleep" konnte dem Wakelock **gar nicht** folgen: es hängt am gespeicherten pmset-Profil, und bei `sleep 0` stieg der Zweig aus, bevor die Assertions überhaupt angesehen wurden — `wakelock on`/`off` änderte auf so einer Maschine sichtbar nichts. (2) **„Aus" war unsichtbar**: die rote LED wurde nur bei *an* gerendert, „aus" war damit nicht von „Anzeige kaputt" unterscheidbar. (3) Der Status hing nach einem Umschalten **bis zu 10 Sekunden nach** (kein Lauschen auf `wakelock-changed`), sodass LED und Abzeichen sich zeitweise widersprachen. (4) `nosleep_set` sendete **gar kein Ereignis**, obwohl genau dieser Befehl der Grund für das amber ist.
-- **Ein Indikator statt zweier.** Zwei Abzeichen, die dieselbe Frage beantworten („schläft der Mac gleich?"), waren die Wurzel der Unstimmigkeit. Jetzt eine Anzeige, immer sichtbar, nach **Ursache** priorisiert: `wake` (Inspector) > `no-sleep` (Profil) > `wach ∞` > `wach 4:12` > `sleep`. Die Entscheidung ist die reine, getestete `sleepIndicator`; die Komponente malt nur noch.
-- **Der Hook holt beim Mounten**, nicht nur bei `window-shown` — `listen()` löst asynchron auf, ein vorher gesendetes `window-shown` ging verloren und ließ den Indikator leer, bis das Popup einmal geschlossen und neu geöffnet wurde.
+- **The sleep indicator in the footer was inconsistent — four causes, all measured.** (1) The amber "no-sleep" could **not** follow the wakelock at all: it hangs on the stored pmset profile, and with `sleep 0` the branch bailed out before the assertions were even looked at — `wakelock on`/`off` visibly changed nothing on such a machine. (2) **"Off" was invisible**: the red LED was only rendered when *on*, so "off" could not be told apart from "indicator broken". (3) After a toggle the status lagged **by up to 10 seconds** (no listening for `wakelock-changed`), so the LED and the badge temporarily contradicted each other. (4) `nosleep_set` sent **no event at all**, even though exactly this command is the reason for the amber.
+- **One indicator instead of two.** Two badges answering the same question ("is the Mac about to sleep?") were the root of the inconsistency. Now a single display, always visible, prioritized by **cause**: `wake` (Inspector) > `no-sleep` (profile) > `awake ∞` > `awake 4:12` > `sleep`. The decision is the pure, tested `sleepIndicator`; the component only paints.
+- **The hook fetches on mount**, not just on `window-shown` — `listen()` resolves asynchronously, a `window-shown` sent earlier was lost and left the indicator empty until the popup was closed and reopened once.
 
 ### Notes
 
-- **Der Wakelock steht bewusst ÜBER dem Profil.** Er ist die eine Ursache, die der Nutzer gerade selbst ausgelöst hat; ihn zu zeigen ist der Zweck der Anzeige. Das Profil bleibt erreichbar — Wakelock aus, und die Anzeige fällt darauf zurück. Mutationsgeprüft.
-- **Die Tooltips nennen die Ursache.** „no-sleep" sagt jetzt ausdrücklich, dass es vom Profil kommt und **nicht vom Wakelock**, und verweist auf `nosleep off` — genau die Verwechslung, die den Befund ausgelöst hat.
-- ⚠️ Bewusste Verhaltensänderung gegenüber v0.114.0, das beide Anzeigen nebeneinander zeigte; der alte Koexistenz-Test wurde entsprechend umgeschrieben statt gelöscht.
+- **The wakelock deliberately ranks ABOVE the profile.** It is the one cause the user has just triggered themselves; showing it is the point of the display. The profile remains reachable — turn the wakelock off and the display falls back to it. Mutation-checked.
+- **The tooltips name the cause.** "no-sleep" now says explicitly that it comes from the profile and **not from the wakelock**, and points to `nosleep off` — exactly the mix-up that triggered the report.
+- ⚠️ Deliberate behavior change compared to v0.114.0, which showed both indicators side by side; the old coexistence test was rewritten accordingly instead of deleted.
 
 ## [0.151.0] - 2026-08-30
 
 ### Fixed
 
-- **Die Fenster-Palette kollidierte auf macOS 15+ mit dem System.** Ihr Auslöser war das Hovern über dem grünen Zoom-Knopf — und genau den beansprucht macOS seit Sequoia für sein eigenes Kachel-Menü ("Bewegen & Anpassen" / "Füllen & Anordnen"). Beide Popover erschienen übereinander.
-- **Nachgemessen statt geglaubt:** die WindowManager-Binary auf macOS 26.6.2 kennt exakt drei Kachel-Schalter (`enableTilingByEdgeDrag`, `enableTopTilingByEdgeDrag`, `enableTilingOptionAccelerator`) — **keiner** davon betrifft das Hover-Menü, und die Systemeinstellungen bieten dafür nichts an. Es gibt also **keinen** `defaults`-Schlüssel dagegen; wer einen anbietet, erfindet ihn. Der Konflikt ist auf Apples Seite nicht lösbar.
+- **The window palette collided with the system on macOS 15+.** Its trigger was hovering over the green zoom button — and macOS has claimed exactly that since Sequoia for its own tiling menu ("Move & Resize" / "Fill & Arrange"). Both popovers appeared on top of each other.
+- **Measured instead of believed:** the WindowManager binary on macOS 26.6.2 knows exactly three tiling switches (`enableTilingByEdgeDrag`, `enableTopTilingByEdgeDrag`, `enableTilingOptionAccelerator`) — **none** of them affects the hover menu, and System Settings offers nothing for it. So there is **no** `defaults` key against it; anyone offering one is inventing it. The conflict cannot be solved on Apple's side.
 
 ### Added
 
-- **Auslöser der Fenster-Palette ist wählbar** (`windowpalette.trigger`): **Titelleiste + ⌃⌥** (neuer Standard), **grüner Knopf per Hover** (das alte Verhalten, bis macOS 14 konfliktfrei) oder **nur Kurzbefehl**.
-- **Globaler Kurzbefehl `Ctrl+Shift+Alt+W`** (belegbar) öffnet die Palette am **fokussierten** Fenster und schließt sie wieder. Er wirkt in **jedem** Auslöser-Modus, ist also kein Ersatz, sondern ein zusätzlicher Weg.
+- **The window palette trigger is selectable** (`windowpalette.trigger`): **title bar + ⌃⌥** (new default), **green button via hover** (the old behaviour, conflict-free up to macOS 14) or **hotkey only**.
+- **Global hotkey `Ctrl+Shift+Alt+W`** (rebindable) opens the palette on the **focused** window and closes it again. It works in **every** trigger mode, so it is not a replacement but an additional way.
 
 ### Notes
 
-- **Kein Migrationsschlüssel nötig — „nichts gespeichert" IST die Migration.** Ein bestehender Stand ohne explizit gewählten Auslöser bekommt den betriebssystem-abhängigen Standard und verlässt den Konflikt, ohne dass jemand etwas umstellen muss; eine bewusste Wahl bleibt erhalten.
-- **Eine unlesbare macOS-Version führt zum konfliktfreien Auslöser, nicht zum alten.** Sich in Richtung „altes macOS" zu irren kostet zwei kämpfende Popover auf jedem Fenster; sich in Richtung „neues macOS" zu irren kostet nur etwas Bequemlichkeit.
-- **Der Titelleisten-Auslöser verlangt bewusst ZWEI Modifier.** Control allein ist auf macOS der Rechtsklick-Ersatz, und Option-Klick auf eine Titelleiste hat in mehreren Programmen eine Bedeutung — je einzeln würde die Palette im Alltag losgehen.
-- ⚠️ **Der Maus-Tap läuft in jedem Modus weiter**, auch bei „nur Kurzbefehl": die Palette ist ein nicht-aktivierendes schwebendes Fenster, dessen WKWebView-Hover unzuverlässig ist — der Tap ist es, der ihr den Zeiger weiterreicht. Nur die Trefferprüfung hängt am Auslöser.
+- **No migration key needed — "nothing stored" IS the migration.** An existing setup without an explicitly chosen trigger gets the operating-system-dependent default and leaves the conflict without anyone having to change anything; a deliberate choice is kept.
+- **An unreadable macOS version leads to the conflict-free trigger, not the old one.** Erring toward "old macOS" costs two fighting popovers on every window; erring toward "new macOS" costs only a bit of convenience.
+- **The title-bar trigger deliberately requires TWO modifiers.** Control alone is the right-click substitute on macOS, and Option-click on a title bar has a meaning in several programs — with either alone the palette would go off in everyday use.
+- ⚠️ **The mouse tap keeps running in every mode**, even with "hotkey only": the palette is a non-activating floating window whose WKWebView hover is unreliable — the tap is what passes the pointer on to it. Only the hit test depends on the trigger.
 
 ## [0.150.0] - 2026-08-30
 
 ### Added
 
-- **`benchmark` / `performance` - CPU-Benchmark nach Geekbench-Vorbild.** Sieben Disziplinen (Integer-Sortierung, SHA-256, Matrixmultiplikation, N-Koerper, Primzahlsieb, Deflate, Textauswertung), erst einkernig, dann ueber alle Threads. Beide Namen sind derselbe Befehl.
-- **Vorschau vor der Messung.** Tippen zeigt nur, was geschehen WUERDE - Disziplinen, geschaetzte Dauer, Threads, diese Maschine. Gemessen wird nichts, bis der Startknopf gedrueckt ist; der Lauf lastet ~9 s alle Kerne aus, das beginnt man nicht versehentlich.
-- **Systemangaben werden ausgelesen, nicht geschaetzt** - Geraet, OS+Version, Kernel, Architektur, CPU, Kerne, RAM. Was nicht lesbar ist, erscheint als "nicht verfuegbar"; ein Test laesst eine Platzhalterzahl durchfallen.
-- **Vergleich ueber Geraete und Betriebssysteme hinweg.** Jeder Lauf liegt als JSON unter `<Daten>/InspectorRust/benchmarks/` - das ist zugleich das Austauschformat. Verknuepft wird ueber die **Disziplin-ID, nie ueber die Position**: ein Lauf aus einer anderen Fassung kann einen anderen Satz tragen, und nach Position ausgerichtet vergliche man SHA-256 mit einem Primzahlsieb.
-- **HTML- und PDF-Export** im Haus-Report-Design (`report_style`), also dieselbe Form wie `loc`, `repo` und `pagespeed`.
+- **`benchmark` / `performance` - CPU benchmark in the style of Geekbench.** Seven disciplines (integer sorting, SHA-256, matrix multiplication, N-body, prime sieve, Deflate, text processing), first single-core, then across all threads. Both names are the same command.
+- **Preview before the measurement.** Typing only shows what WOULD happen - disciplines, estimated duration, threads, this machine. Nothing is measured until the start button is pressed; the run loads all cores for ~9 s, which one does not start by accident.
+- **System details are read out, not estimated** - device, OS + version, kernel, architecture, CPU, cores, RAM. Whatever cannot be read shows as "not available"; a test fails on a placeholder number.
+- **Comparison across devices and operating systems.** Every run is stored as JSON under `<Daten>/InspectorRust/benchmarks/` - which is also the exchange format. Matching is done by **discipline ID, never by position**: a run from another version may carry a different set, and aligned by position one would compare SHA-256 with a prime sieve.
+- **HTML and PDF export** in the house report design (`report_style`), i.e. the same form as `loc`, `repo` and `pagespeed`.
 
 ### Notes
 
-- **Die Referenzwerte mussten im Release-Profil gemessen werden.** Unter dem Debug-Profil von `cargo test` liefen dieselben Disziplinen 30-50x langsamer (SHA-256 mit 17 statt 241 MB/s); gegen Debug-Referenzen haette der ausgelieferte Release-Build Werte um 10 000 erzeugt. Gemessen auf einem Apple M1 Pro; der Lauf dort ergibt Single **1031** / Multi **5098**, also die beabsichtigten ~1000.
-- **Gemessen, nicht angenommen: zwei aufeinanderfolgende Laeufe streuen um bis zu 5 %** (Primzahlsieb 1284 -> 1212 Mkand/s). Der Vergleich kennzeichnet alles darunter als Rauschen, statt es als Befund auszugeben.
+- **The reference values had to be measured in the release profile.** Under the debug profile of `cargo test`, the same disciplines ran 30-50x slower (SHA-256 at 17 instead of 241 MB/s); against debug references the shipped release build would have produced values around 10,000. Measured on an Apple M1 Pro; the run there gives single **1031** / multi **5098**, i.e. the intended ~1000.
+- **Measured, not assumed: two consecutive runs vary by up to 5 %** (prime sieve 1284 -> 1212 Mcand/s). The comparison marks anything below that as noise instead of presenting it as a finding.
 
 ## [0.149.1] — 2026-08-28
 
 ### Changed
 
-- **Das Menüleisten-Icon ist neu gezeichnet.** Der alte Hut hatte eine 22 px hohe Krone auf einer 2 px flachen Krempe — ein Verhältnis von 11:1, das sich als Eimer las, nicht als Hut — dazu eine feine Tropfen-Aussparung, die bei @1x zu einem Schmutzfleck verlief, und keinen Rand: 21 von 22 pt Breite. Jetzt eine Fedora mit Kneifdelle und aufgeschwungener Krempe, **18 pt breit** (2 pt Luft je Seite), Krone zu Krempe rund 2:1, ohne Innendetail.
-- ⚠️ **Die Größe war nie das Problem.** 44 × 44 px ist exakt 22 pt @2x — gemessen, nicht geschätzt: `NSStatusBar.system.thickness` liefert auf dieser Maschine 22,0 pt. Falsch war allein die Zeichnung.
-- Die Geometrie wird in `scripts/gen-tray-icon.py` **gerechnet**, nicht als Pfad getippt, damit die Form beim Nachjustieren einer Proportion ausgewogen bleibt.
-- Drei neue Tests pinnen, was ein Template-Icon ausmacht: 44 × 44, **jedes sichtbare Pixel dieselbe Farbe** (macOS rendert nur den Alphakanal), und Luft zum Rand. Ein farbiges Icon lässt den mittleren Test rot werden — mutationsgeprüft.
+- **The menu bar icon has been redrawn.** The old hat had a 22 px tall crown on a 2 px flat brim — a ratio of 11:1 that read as a bucket, not a hat — plus a fine droplet cut-out that blurred into a smudge at @1x, and no margin: 21 of 22 pt width. Now a fedora with a pinched dent and an upturned brim, **18 pt wide** (2 pt of air on each side), crown to brim roughly 2:1, without inner detail.
+- ⚠️ **The size was never the problem.** 44 × 44 px is exactly 22 pt @2x — measured, not estimated: `NSStatusBar.system.thickness` returns 22.0 pt on this machine. Only the drawing was wrong.
+- The geometry is **computed** in `scripts/gen-tray-icon.py`, not typed as a path, so the shape stays balanced when a proportion is adjusted.
+- Three new tests pin what makes a template icon: 44 × 44, **every visible pixel the same colour** (macOS renders only the alpha channel), and air to the edge. A coloured icon turns the middle test red — mutation-checked.
 
 ## [0.149.0] — 2026-08-28
 
 ### Added
 
-- **Die Download-Vorschau zeigt jetzt, was da eigentlich kommt:** Titel, Kanal, Dauer, ein kleines Vorschaubild und die Beschreibung — vor dem Laden. Bei mehreren Links dieselbe Liste, Zeile für Zeile mit Bildchen und Titel; sie ist damit auch schon **vor** dem Start sichtbar und sagt einem, was man gleich herunterlädt.
-- ⚠️ **Gemessen ~4 s je Link — daraus folgt der ganze Entwurf:** Zwischenspeicher je URL (der Grabber rendert bei jedem Tastendruck neu), Entdopplung laufender Abfragen, 600-ms-Entprellung (sonst würden Links geholt, die noch getippt werden) und ein Deckel von **3** gleichzeitigen Abfragen — eine eingefügte Dreißiger-Liste startete sonst dreißig yt-dlp-Prozesse auf einmal.
-- ⚠️ **`--no-playlist` ist zwingend:** ein `watch?v=X&list=Y` zöge sonst JEDEN Eintrag der Liste.
-- ⚠️ **Das Vorschaubild ist das kleinste ab 160 px**, nicht das oberste `thumbnail`-Feld — das ist das größte, das yt-dlp kennt (YouTube: 1280 px), also ein unnötiges Megabyte je 64-px-Zeile.
+- **The download preview now shows what is actually coming:** title, channel, duration, a small thumbnail and the description — before downloading. For several links, the same list, row by row with thumbnail and title; it is therefore visible **before** the start and tells you what you are about to download.
+- ⚠️ **Measured ~4 s per link — the whole design follows from that:** a per-URL cache (the grabber re-renders on every keystroke), de-duplication of in-flight requests, a 600 ms debounce (otherwise links that are still being typed would be fetched) and a cap of **3** concurrent requests — a pasted list of thirty would otherwise start thirty yt-dlp processes at once.
+- ⚠️ **`--no-playlist` is mandatory:** a `watch?v=X&list=Y` would otherwise pull EVERY entry of the list.
+- ⚠️ **The thumbnail is the smallest one from 160 px up**, not the top-level `thumbnail` field — that is the largest one yt-dlp knows (YouTube: 1280 px), i.e. an unnecessary megabyte per 64 px row.
 
 ## [0.148.1] — 2026-08-28
 
 ### Fixed
 
-- **Eine Lautstärke-Geste, die nichts bewirken kann, sagt das jetzt.** Feldbericht: „volume change funktioniert nicht mehr, habe macOS geupdated". Das Update war unschuldig — die Standardausgabe stand auf einem **Multi-Output-Gerät**, und macOS-Aggregatgeräte haben prinzipbedingt **keine Master-Lautstärke**. Belegt: die Geste wurde erkannt und ausgelöst (`gesture dispatch: SwipeDown → VolumeDown` im Log), keine Unterdrückung, kein Fehler — aber `osascript` meldete `output volume: missing value`, während Eingang und Warnton normal antworteten.
-- ⚠️ **Der eigentliche Mangel war das Schweigen.** `nudge_volume` gibt `None` für zwei sehr verschiedene Lagen zurück: „gestellt, aber kein Rückgabewert" und „es gibt gar nichts zu stellen". Beide zeigten denselben Richtungspfeil — der No-Op sah aus, als hätte er gewirkt. Neu entscheidet die pure `volume_failure_reason(level, has_control)`, und ohne Regler nennt der Toast den Grund. Die Erkennung dafür stand längst im Code (`volume_elements`: „Empty = no volume control (HDMI)"), sie wurde nur nie nach außen gereicht.
+- **A volume gesture that cannot have any effect now says so.** Field report: "volume change no longer works, I updated macOS". The update was innocent — the default output was set to a **multi-output device**, and macOS aggregate devices by design have **no master volume**. Proven: the gesture was recognized and fired (`gesture dispatch: SwipeDown → VolumeDown` in the log), no suppression, no error — but `osascript` reported `output volume: missing value`, while input and alert sound responded normally.
+- ⚠️ **The actual flaw was the silence.** `nudge_volume` returns `None` for two very different situations: "set, but no return value" and "there is nothing to set". Both showed the same direction arrow — the no-op looked as if it had worked. Now the pure `volume_failure_reason(level, has_control)` decides, and without a control the toast names the reason. The detection for this had long been in the code (`volume_elements`: "Empty = no volume control (HDMI)"), it was just never passed outward.
 
 ## [0.148.0] — 2026-08-28
 
 ### Changed
 
-- **`alias` schreibt jetzt eine FUNKTION, wo eine nötig ist — und sagt warum.** Bisher entstand immer ein Alias, auch dort, wo er das Falsche tut.
-  - **`cd` mit nachfolgendem Befehl → Subshell-Funktion.** Als Alias bliebe **deine** Shell danach im Zielordner stehen; jeder weitere Befehl in dem Terminal liefe woanders. Man geht dorthin, um *eine* Sache zu tun.
-  - **Befehl liest `$1`/`$@` → Funktion.** Ein Alias kann Argumente gar nicht empfangen: die Shell expandiert ihn und hängt das Getippte **hinten** an, `$1` bleibt leer.
-  - ⚠️ **`cd` ALLEIN bleibt ein Alias.** `work='cd ~/projekte'` existiert, um dich dorthin zu bringen — eine Subshell machte es wirkungslos. Das ist die tragende Unterscheidung, entsprechend als erstes gepinnt und mutationsgeprüft.
-  - ⚠️ **`"$@"` wird im cd-Fall angehängt**, weil ein Alias nachgestellte Argumente gratis weiterreicht und eine Funktion nicht — ohne das nähme die Umstellung still Verhalten weg.
-  - Funktionen werden **wie Aliasse aufgelistet, bearbeitet und gelöscht**; der Editor zeigt den getippten Befehl, nicht die Hülle. **Bearbeiten entscheidet die Form neu** — aus `cd x` wird durch ein angehängtes `&& run` eine Funktion und beim Zurücknehmen wieder ein Alias.
-  - Windows nutzt für den cd-Fall `Push-Location`/`Pop-Location`: eine PowerShell-Funktion läuft im **Aufrufer-Scope**, ein nacktes `cd` darin strandet den Prompt genauso.
-  - Die Oberfläche begründet die Wahl in einem Satz. Stillschweigend andere Syntax zu schreiben, als jemand getippt hat, wäre die Sorte Cleverness, der man zu Recht misstraut.
+- **`alias` now writes a FUNCTION where one is needed — and says why.** Until now it always produced an alias, even where an alias does the wrong thing.
+  - **`cd` followed by a command → subshell function.** As an alias, **your** shell would stay in the target folder afterwards; every further command in that terminal would run elsewhere. You go there to do *one* thing.
+  - **Command reads `$1`/`$@` → function.** An alias cannot receive arguments at all: the shell expands it and appends what you typed at the **end**, `$1` stays empty.
+  - ⚠️ **`cd` ALONE stays an alias.** `work='cd ~/projekte'` exists to take you there — a subshell would make it ineffective. This is the load-bearing distinction, pinned first accordingly and mutation-checked.
+  - ⚠️ **`"$@"` is appended in the cd case**, because an alias passes trailing arguments through for free and a function does not — without it the switch would silently take behavior away.
+  - Functions are **listed, edited and deleted like aliases**; the editor shows the typed command, not the wrapper. **Editing decides the form anew** — `cd x` becomes a function when `&& run` is appended and an alias again when it is removed.
+  - For the cd case, Windows uses `Push-Location`/`Pop-Location`: a PowerShell function runs in the **caller's scope**, a bare `cd` inside it strands the prompt just the same.
+  - The interface justifies the choice in one sentence. Silently writing different syntax than someone typed would be the kind of cleverness one rightly distrusts.
 
 ## [0.147.0] — 2026-08-28
 
 ### Added
 
-- **Link-Grabber: beliebig viele Links auf einmal.** Unter der Download-/Status-Leiste sitzt jetzt ein Einfügefeld — hinein kommt, was man hat: eine Liste, ein Chatverlauf, eine E-Mail. Jeder enthaltene YouTube-/Instagram-/TikTok-/Facebook-/Dailymotion-Link wird herausgelesen, entdoppelt und der Reihe nach geladen, mit Zustand je Zeile.
-  - ⚠️ **Die eigentliche Schwierigkeit ist, wo ein Link ENDET.** Fließtext setzt einen Punkt dahinter, Klammern darum und ein Komma dazwischen; eine URL, die das mitnimmt, ist ein 404. Schließende Klammern fallen nur, wenn sie **unbalanciert** sind — eine URL darf `(`…`)` enthalten. Beide Hälften mutationsgeprüft.
-  - **Ein Fehlschlag stoppt die Schlange nicht** — ein toter Link unter zwölf ist normal, er wird in seiner Zeile vermerkt; „Retry" wiederholt nur die Fehlgeschlagenen.
-  - **Sequenziell, nicht parallel:** yt-dlp lastet eine Leitung allein aus, und der Cookies-aus-dem-Browser-Wiederholversuch hätte mehrere Prozesse um denselben Schlüsselbund-Dialog konkurrieren lassen.
-  - **Das Popup bleibt für den Lauf angeheftet.** Es versteckt sich bei Fokusverlust — und das würde die Komponente abräumen, die den Lauf steuert. Deshalb lädt der Stapel mit `reveal: false` und öffnet den Finder **einmal am Ende** statt nach jeder Datei.
-  - Audio wird angeboten, wenn **alle** Links YouTube sind: yt-dlp könnte es auch anderswo, aber die Einzel-Leiste verspricht YouTube — zwei verschiedene Antworten auf dieselbe Frage sind schlechter als eine fehlende Option.
+- **Link grabber: any number of links at once.** Under the download/status bar there is now a paste field — put in whatever you have: a list, a chat log, an e-mail. Every contained YouTube/Instagram/TikTok/Facebook/Dailymotion link is extracted, de-duplicated and downloaded in order, with a state per row.
+  - ⚠️ **The real difficulty is where a link ENDS.** Running text puts a period after it, parentheses around it and a comma between; a URL that takes those along is a 404. Closing parentheses are only dropped when they are **unbalanced** — a URL may contain `(`…`)`. Both halves mutation-checked.
+  - **A failure does not stop the queue** — one dead link among twelve is normal, it is noted in its row; "Retry" repeats only the failed ones.
+  - **Sequential, not parallel:** yt-dlp saturates a line on its own, and the retry with cookies from the browser would have let several processes compete for the same keychain dialog.
+  - **The popup stays pinned for the run.** It hides on focus loss — and that would tear down the component driving the run. That is why the batch downloads with `reveal: false` and opens Finder **once at the end** instead of after every file.
+  - Audio is offered when **all** links are YouTube: yt-dlp could do it elsewhere too, but the single bar promises YouTube — two different answers to the same question are worse than a missing option.
 
 ### Fixed
 
-- **Die Balken-Diagramme im `repo`-Panel waren leer** — „Wochentag" und „Uhrzeit" zeigten nur die Beschriftungen. Der Zeilen-Container trug `items-end`, wodurch jede Spalte auf ihre Inhaltshöhe schrumpfte; damit hatte die Prozenthöhe des Balkens keinen definiten Bezug mehr und fiel auf 0. Ausgerichtet wird jetzt **innerhalb** der Spalte, die Spalte füllt die Zeilenhöhe. ⚠️ Der Defekt stand seit mindestens v0.138.0 im Programm **und im veröffentlichten Galerie-Screenshot** — gefunden erst, als das Panel für eine andere Prüfung angesehen wurde.
+- **The bar charts in the `repo` panel were empty** — "Weekday" and "Hour" showed only the labels. The row container carried `items-end`, which shrank every column to its content height; the bar's percentage height then had no definite reference and fell to 0. Alignment now happens **inside** the column, and the column fills the row height. ⚠️ The defect had been in the program since at least v0.138.0 **and in the published gallery screenshot** — found only when the panel was looked at for a different check.
 
 ### Changed
 
-- **Die Export-Kurzbefehle des `repo`-Panels sind jetzt Akkorde: ⌘E (HTML) und ⌘P (PDF).** ⚠️ Das nackte `E` war **unerreichbar** und trotzdem im Knopf-Tooltip beworben: das Panel übernimmt nie den DOM-Fokus (kein `tabIndex`, kein `.focus()`), das Suchfeld behält ihn — womit der `typing`-Wächter dauerhaft zutraf. Nackte Buchstaben stattdessen freizuschalten hätte den Wetter-Fehler wiederholt: bei `repo` bleibt das Argument editierbar, ein `p` im Pfad hätte still einen Export gestartet. Ein Akkord kann nicht versehentlich getippt werden.
-- `social_download` nimmt ein optionales `reveal` (fehlt = wahr, der Einzel-Pfad bleibt unverändert); neues `reveal_path`-IPC zeigt eine Datei im Finder.
+- **The export shortcuts of the `repo` panel are now chords: ⌘E (HTML) and ⌘P (PDF).** ⚠️ The bare `E` was **unreachable** and nevertheless advertised in the button tooltip: the panel never takes the DOM focus (no `tabIndex`, no `.focus()`), the search field keeps it — so the `typing` guard always applied. Unlocking bare letters instead would have repeated the weather bug: with `repo` the argument stays editable, a `p` in the path would have silently started an export. A chord cannot be typed by accident.
+- `social_download` takes an optional `reveal` (absent = true, the single path stays unchanged); a new `reveal_path` IPC shows a file in Finder.
 
 ## [0.146.0] — 2026-08-28
 
 ### Added
 
-- **`repo` und die Zeiterfassung exportieren jetzt auch als PDF.** Seit v0.145.0 teilen alle fünf Dokumente ein Design — die Formate taten es nicht: `loc` konnte HTML/PDF/PNG, `repo` und das Timesheet nur HTML. Regel dahinter: **PDF überall, PNG nur, wo das Dokument auf einen Blick passt** (ein `loc`-Report ist eine Karte, ein Wochen-Timesheet ist mehrseitig — davon ein Bild zu machen hieße, es unlesbar zu falten).
+- **`repo` and time tracking now also export as PDF.** Since v0.145.0 all five documents share one design — the formats did not: `loc` could do HTML/PDF/PNG, `repo` and the timesheet only HTML. The rule behind it: **PDF everywhere, PNG only where the document fits at a glance** (a `loc` report is one card, a weekly timesheet is multi-page — turning that into an image would mean folding it into illegibility).
 
 ### Changed
 
-- **Ein Schreiber statt vier** (`commands::write_report`): HTML/CSV direkt, PDF/PNG durch WebKit auf dem Hauptthread. Dieselben ~15 Zeilen standen bereits zweimal da und wären mit `repo` und Timesheet auf vier gewachsen. ⚠️ Jeder Aufrufer muss `async` sein — ein synchroner `#[tauri::command]` läuft selbst auf dem Hauptthread und wartete auf sich selbst; `track_export` wurde dafür umgestellt.
-- **`ExportRow` ist eine geteilte Komponente** und **generisch über die angebotenen Formate**, damit `onExport` genau die zurückgibt, die eine Tafel anzeigt — sonst müsste jede ein Format wegnarrowen, das sie nie eingeblendet hat.
-- **`track_export` weist ein unbekanntes Format jetzt ab**, statt still auf CSV zu fallen.
-- Tote `repo_stats::export_html` entfernt — der gemeinsame Pfad hat sie ersetzt.
+- **One writer instead of four** (`commands::write_report`): HTML/CSV directly, PDF/PNG through WebKit on the main thread. The same ~15 lines already stood twice and would have grown to four with `repo` and the timesheet. ⚠️ Every caller must be `async` — a synchronous `#[tauri::command]` itself runs on the main thread and waited for itself; `track_export` was converted for that.
+- **`ExportRow` is a shared component** and **generic over the offered formats**, so that `onExport` returns exactly those a panel shows — otherwise each one would have to narrow away a format it never displayed.
+- **`track_export` now rejects an unknown format** instead of silently falling back to CSV.
+- Removed the dead `repo_stats::export_html` — the shared path replaced it.
 
 ## [0.145.0] — 2026-08-28
 
 ### Fixed
 
-- **Die Zeiterfassungs-Exporte waren nie wirklich auf das gemeinsame Design umgestellt.** v0.143.0 hat ihnen die *Werte* gegeben (hell, A4, Druckregeln, derselbe Akzent) — als **Kopie** in zwei handgeschriebene Stylesheets. Sie behielten gerahmte Karten, eine eigene Pastellpalette und englische Beschriftung, während die Doku „ein Design für alle" behauptete. Aufgefallen beim ersten **Rendern und Ansehen**; der Struktur-Pin war grün, weil er die Schreibweise der Kopie prüfte statt der Verdrahtung. Beide Dokumente laufen jetzt über `report_style` und sind von `loc` und `repo` nicht mehr zu unterscheiden.
-- **Spalten stießen aneinander.** Zwischen einer rechtsbündigen Zahlen- und der nächsten linksbündigen Textspalte fehlte jede Rinne — gemessen `2.5010:00:00–12:30:00`. Bei `loc`/`repo` fällt das nie auf, weil dort die Zahlen am Ende stehen.
-- **Ein Test war grün-blind, und zwar vollständig.** `an_empty_report_renders_rather_than_dividing_by_zero` räumte mit `languages.clear()` genau die Daten weg, die die Division auslösen — er blieb grün, selbst wenn man den Nenner-Schutz **ersatzlos entfernte** (nachgemessen). Jetzt zwei Tests: einer mit stehenden Sprachen und Nenner 0 (mutationsgeprüft rot ohne den Schutz), einer für das leere Dokument. Seine `inf`-Suche lief zudem über das ganze Dokument und zerbrach am Wort „bernste**inf**arbene" in einem CSS-Kommentar — sie prüft jetzt den Inhalt, nicht das Stylesheet.
+- **The time-tracking exports had never really been switched to the shared design.** v0.143.0 gave them the *values* (light, A4, print rules, same accent) — as a **copy** in two hand-written stylesheets. They kept framed cards, their own pastel palette and English labels, while the docs claimed "one design for all". Noticed on the first **render and look**; the structure pin was green because it checked the spelling of the copy instead of the wiring. Both documents now run through `report_style` and can no longer be told apart from `loc` and `repo`.
+- **Columns bumped into each other.** Between a right-aligned number column and the next left-aligned text column there was no gutter at all — measured `2.5010:00:00–12:30:00`. In `loc`/`repo` this never shows because the numbers are at the end there.
+- **One test was green-blind, and completely so.** `an_empty_report_renders_rather_than_dividing_by_zero` cleared exactly the data that triggers the division with `languages.clear()` — it stayed green even when the divisor guard was **removed entirely** (verified). Now two tests: one with languages present and a divisor of 0 (mutation-checked red without the guard), one for the empty document. Its `inf` search also ran over the whole document and broke on the word "bernste**inf**arbene" (German for amber-colored) in a CSS comment — it now checks the content, not the stylesheet.
 
 ### Changed
 
-- **Drei Lücken im geteilten Vokabular geschlossen**, alle nur im Bild sichtbar: `.rp-text` (linksbündige Textspalte — von Haus aus war nur die erste links), die Spaltenrinne, und `.rp-lede` für einen neutralen Erklärsatz (`.rp-note` ist der bernsteinfarbene **Warn**kasten und las sich als Vorbehalt).
-- **`report_style::pct` ist die einzige Prozent-Formatierung.** Dieselbe Formel stand an drei Stellen — mit dem Ergebnis, dass die Legende „11,8 %" neben einer Tabellenspalte mit „11.8 %" stand.
-- **Zeiterfassungs-Dokumente auf Deutsch**, wie jeder andere Report; die Projekt-Tabelle bekommt Farbchip und Anteils-Spur beim Namen wie `loc`.
+- **Three gaps in the shared vocabulary closed**, all visible only in the rendered image: `.rp-text` (left-aligned text column — by default only the first one was left), the column gutter, and `.rp-lede` for a neutral explanatory sentence (`.rp-note` is the amber **warning** box and read as a caveat).
+- **`report_style::pct` is the single percent formatter.** The same formula stood in three places — with the result that the legend showed "11,8 %" next to a table column with "11.8 %".
+- **Time-tracking documents in German**, like every other report; the project table gets a color chip and share track next to the name, as in `loc`.
 
 ### Added
 
-- **Sicht-Ablage-Tests** (`#[ignore] dump_…`) für `loc`, `repo` und beide Timesheet-Dokumente: sie schreiben das HTML nach `$IR_DUMP_DIR`, damit man es ansehen kann. Test-grün und sieht-richtig-aus sind verschiedene Aussagen — genau diese Lücke hat den Befund oben verursacht.
+- **Visual-dump tests** (`#[ignore] dump_…`) for `loc`, `repo` and both timesheet documents: they write the HTML to `$IR_DUMP_DIR` so it can be looked at. Test-green and looks-right are different statements — exactly this gap caused the finding above.
 
 ## [0.144.1] — 2026-08-28
 
 ### Fixed
 
-- **Zwei Quelldateien waren für jede Suche unsichtbar.** `SettingsPanel.tsx` und `clown.ts` enthielten **rohe NUL-Bytes** als Trennzeichen in Template-Literalen. Ein NUL macht die Datei für `file` zu `data` und lässt grep/ugrep sie **stumm überspringen** — kein Fehler, keine Ausgabe, kein Exit-Code. Eine 219-KB-Datei lieferte auf jede Suche null Treffer, was zweimal zu der überzeugten Fehlaussage führte, in ihr liegender Code existiere nicht. Der **Wert** war richtig gewählt (ein NUL kann in keinem Hotkey vorkommen) — falsch war die Schreibweise: jetzt die Unicode-Escape `\u0000`, zur Laufzeit derselbe String, auf der Platte reines ASCII.
+- **Two source files were invisible to every search.** `SettingsPanel.tsx` and `clown.ts` contained **raw NUL bytes** as separators in template literals. A NUL turns the file into `data` for `file` and makes grep/ugrep **silently skip** it — no error, no output, no exit code. A 219 KB file returned zero hits for every search, which twice led to the confident wrong claim that code located in it did not exist. The **value** was well chosen (a NUL can occur in no hotkey) — the notation was wrong: now the Unicode escape `\u0000`, the same string at runtime, plain ASCII on disk.
 
 ### Added
 
-- **Wächter gegen unsichtbare Steuerzeichen** (`source-hygiene.test.ts`): scannt beide Quellbäume (256 TS/TSX + 117 Rust-Dateien) auf NUL und jedes andere C0-Steuerzeichen außer Tab, Zeilenumbruch und Wagenrücklauf, und benennt Datei, Zeile, Spalte und Byte. Mit eigenem Wächter dagegen, dass der Glob überhaupt etwas findet — ein leerer Glob machte die Prüfungen wahr-durch-Leere. Alle drei mutationsgeprüft.
+- **Guard against invisible control characters** (`source-hygiene.test.ts`): scans both source trees (256 TS/TSX + 117 Rust files) for NUL and every other C0 control character except tab, line feed and carriage return, and names file, line, column and byte. With its own guard that the glob finds anything at all — an empty glob made the checks true-by-emptiness. All three mutation-checked.
 
 ### Changed
 
-- **CLAUDE.md widersprach sich beim Geräte-Sync.** Der Abschnitt „geplant, NICHT implementiert" stand 23 Zeilen über der Beschreibung des seit v0.139.0 ausgelieferten Moduls; er ist entfernt. Dafür steht jetzt dort, was Anforderung 1 verlangt und der Text nicht sagte: Standard **aus**, `should_run` ist ein Dreifach-Tor (Schalter **und** Passwort **und** Ordner), der Worker-Thread existiert auch im Aus-Zustand und steigt vor jedem Datei- und Krypto-Zugriff aus, 2FA-Geheimnisse sind separat opt-in.
+- **CLAUDE.md contradicted itself on the device sync.** The section "planned, NOT implemented" stood 23 lines above the description of the module shipped since v0.139.0; it is removed. In its place it now says what requirement 1 demands and the text did not: default **off**, `should_run` is a triple gate (switch **and** password **and** folder), the worker thread exists even in the off state and exits before any file and crypto access, 2FA secrets are a separate opt-in.
 
 ## [0.144.0] — 2026-08-27
 
 ### Added
 
-- **Referenz-Index in beiden READMEs.** Die 24 Seiten unter `docs/` waren praktisch unsichtbar — es gab keinen Verweis auf sie. Jetzt eine Tabelle mit einer Zeile je Seite.
-- **Zwei neue Referenzseiten:** `docs/reports.md` (das gemeinsame Design hinter allen HTML-/PDF-/PNG-Exporten samt Druck-Fallstricken) und `docs/pagespeed.md` (Schlüssel, IP-Beschränkung, Grenzen).
-- **Acht neue Abzeichen**, davon vier aus dem Repo **berechnet** und vom `posttest`-Hook erzwungen: Befehle, Doku-Seiten, Rust-Module, Crates im Abhängigkeitsbaum. Dazu Lizenz, Tauri, „offline first", „keine Telemetrie".
+- **Reference index in both READMEs.** The 24 pages under `docs/` were practically invisible — nothing linked to them. Now a table with one row per page.
+- **Two new reference pages:** `docs/reports.md` (the shared design behind all HTML/PDF/PNG exports including print pitfalls) and `docs/pagespeed.md` (key, IP restriction, limits).
+- **Eight new badges**, four of them **computed** from the repo and enforced by the `posttest` hook: commands, doc pages, Rust modules, crates in the dependency tree. Plus license, Tauri, "offline first", "no telemetry".
 
 ### Changed
 
-- **Abzeichen können nicht mehr veralten, auch ohne den Hook.** Neue Tests prüfen in CI, dass der Befehls-Zähler der Registry entspricht, die Testsumme aufgeht, jede Datei unter `docs/` verlinkt ist und der Index auf keine tote Seite zeigt.
+- **Badges can no longer go stale, even without the hook.** New tests check in CI that the command counter matches the registry, the test total adds up, every file under `docs/` is linked and the index points to no dead page.
 
 ## [0.143.1] — 2026-08-27
 
 ### Added
 
-- **`countdown` ist ein Alias von `timer`** — gleiche Argumente, gleicher Alarm, gleicher Ablauf. Der Alias trägt keine eigene Logik: er zeigt auf dieselbe `kind`, deshalb bleibt alles dahinter unverändert.
+- **`countdown` is an alias of `timer`** — same arguments, same alarm, same flow. The alias carries no logic of its own: it points to the same `kind`, so everything behind it stays unchanged.
 
 ## [0.143.0] — 2026-08-27
 
 ### Changed
 
-- **Alle Exporte teilen jetzt EIN Design.** Fünf Dokumente trugen vier handgeschriebene Stylesheets — zwei davon **dunkel** (`repo`, Timesheet). Das gemeinsame `report_style` gibt allen dieselbe Typografie, dieselbe Tabellen- und Kennzahlen-Form und dasselbe Papier.
-- **Hell und druckorientiert**, überall: ein dunkler Report ist beim Drucken und beim Weitergeben das falsche Erzeugnis.
-- **A4 statt US-Letter** — die Leser sind hier. Letter ließ auf jeder gedruckten Seite einen Streifen stehen.
-- **Handwerk statt Kästen:** Zahlen durchgängig `tabular-nums` und rechtsbündig (Ziffer unter Ziffer), Haarlinien und Weißraum statt Rahmen, Anteilsbalken direkt in der Tabellenzeile, Kopf mit Herkunft und Fuß mit Methode.
-- **PageSpeed: Desktop und Mobil stehen nebeneinander** — in einem festen Vierer-Raster, damit die Werte Kategorie für Kategorie auf einer Höhe liegen. Vorher brach SEO in eine zweite Zeile um und der Vergleich zerfiel.
+- **All exports now share ONE design.** Five documents carried four handwritten stylesheets — two of them **dark** (`repo`, timesheet). The shared `report_style` gives all of them the same typography, the same table and key-figure shape and the same paper.
+- **Light and print-oriented**, everywhere: a dark report is the wrong product when printing and passing on.
+- **A4 instead of US Letter** — the readers are here. Letter left a strip on every printed page.
+- **Craft instead of boxes:** numbers consistently `tabular-nums` and right-aligned (digit under digit), hairlines and white space instead of frames, share bars directly in the table row, header with provenance and footer with method.
+- **PageSpeed: desktop and mobile sit side by side** — in a fixed four-column grid, so the values line up category by category. Previously SEO wrapped into a second row and the comparison fell apart.
 
 ### Fixed
 
-- **Sprachfarben sind wieder unterscheidbar.** Ein Hash direkt auf 0–360° gab zwar Beständigkeit, aber keine Trennung — zwei Sprachen kamen als fast identische Türkistöne heraus. Jetzt eine kuratierte Zwölfer-Palette, weiterhin deterministisch je Name.
-- **`Node.js` heißt wieder `Node.js`.** In der Legende ersetzte ein `.replace('.', ",")` jeden Punkt der Zeile — auch den im Sprachnamen.
-- **Der PDF-Export verliert keine Farbflächen mehr:** ohne `print-color-adjust: exact` verwirft WebKit beim Rendern jeden Hintergrund, also genau die Balken, Chips und Ringe, die die Aussage tragen.
+- **Language colours are distinguishable again.** A hash straight onto 0–360° gave consistency but no separation — two languages came out as almost identical teals. Now a curated palette of twelve, still deterministic per name.
+- **`Node.js` is `Node.js` again.** In the legend a `.replace('.', ",")` replaced every dot in the line — including the one in the language name.
+- **The PDF export no longer loses colour areas:** without `print-color-adjust: exact` WebKit discards every background when rendering, i.e. exactly the bars, chips and rings that carry the message.
 
 ## [0.142.0] — 2026-08-27
 
 ### Added
 
-- **`pagespeed <url>` — Google PageSpeed Insights in der Vorschau.** Die vier Lighthouse-Kategorien (Performance, Barrierefreiheit, Best Practices, SEO) plus die Kernmetriken, **Desktop und Mobil nebeneinander**: beide Läufe werden parallel geholt und zusammen gezeigt, weil eine Seite regelmäßig auf dem Desktop gut und mobil schlecht ist. Export als **HTML oder PDF — ebenfalls beide Ansichten in EINEM Dokument** (derselbe Renderer-Aufbau wie beim `loc`-Export).
-- **Einstellungen → PageSpeed** für den API-Key. Ohne eigenen Key teilen sich alle Nutzer ein kleines Tageskontingent von Google; der Key bleibt auf dem Rechner.
+- **`pagespeed <url>` — Google PageSpeed Insights in the preview.** The four Lighthouse categories (Performance, Accessibility, Best Practices, SEO) plus the core metrics, **desktop and mobile side by side**: both runs are fetched in parallel and shown together, because a page is regularly good on desktop and bad on mobile. Export as **HTML or PDF — also both views in ONE document** (same renderer structure as the `loc` export).
+- **Settings → PageSpeed** for the API key. Without your own key, all users share a small daily quota from Google; the key stays on the machine.
 
-### Hinweis
+### Note
 
-- Fehlschläge werden **benannt statt verschluckt**: ein erschöpftes Kontingent und ein **IP-beschränkter** Key bekommen je eine eigene, handlungsfähige Meldung — Letzteres ist der Fall, in dem ein Key nur von einer freigegebenen Adresse aus gilt.
+- Failures are **named instead of swallowed**: an exhausted quota and an **IP-restricted** key each get their own actionable message — the latter is the case where a key is only valid from an allowed address.
 
 ## [0.141.0] — 2026-08-27
 
 ### Added
 
-- **`loc`-Report exportieren — HTML, PDF und PNG.** Drei Knöpfe über der Statistik; die Datei landet in `~/Downloads` und wird im Finder gezeigt. **Ein einziger Renderer in Rust** erzeugt alle drei Formate (die HTML geht unverändert raus, durch WebKit als PDF und als Ganzseiten-Schnappschuss als PNG) — so können sie nicht auseinanderlaufen. Das Dokument ist eigenständig: eingebettetes CSS, kein Skript, keine Netz-Anfrage.
+- **Export the `loc` report — HTML, PDF and PNG.** Three buttons above the statistics; the file lands in `~/Downloads` and is shown in the Finder. **A single renderer in Rust** produces all three formats (the HTML goes out unchanged, through WebKit as a PDF and as a full-page snapshot as a PNG) — so they cannot drift apart. The document is self-contained: embedded CSS, no script, no network request.
 
 ## [0.140.0] — 2026-08-27
 
 ### Added
 
-- **`disk`: eine Liste unter dem Diagramm — der Weg in kleine Ordner.** Das Sunburst ist flächentreu, und genau das machte Quellcode-Verzeichnisse unerreichbar: ein 2-MB-`src` neben einem 20-GB-`target` ist ein Haarstrich von 0,01 % des Kreises, den man nicht treffen kann. Die Liste kennt keinen Mindestwinkel und führt **jedes** Kind auf, mit Größe und Anteil. `↑↓` wählen, Enter öffnet.
-- **`loc` navigiert jetzt.** Pfadleiste über der Statistik (jedes Segment anklickbar) plus eine Reihe der Unterordner, die einen Ordner tiefer zählt; `⌫` geht wieder hoch. Versteckte Ordner folgen dem Ignore-Schalter, damit die Liste zeigt, was auch gezählt wurde.
+- **`disk`: a list below the chart — the way into small folders.** The sunburst is area-true, and that is exactly what made source directories unreachable: a 2 MB `src` next to a 20 GB `target` is a hairline of 0.01 % of the circle that cannot be hit. The list has no minimum angle and shows **every** child, with size and share. `↑↓` select, Enter opens.
+- **`loc` now navigates.** A path bar above the statistics (every segment clickable) plus a row of the subfolders that counts one folder deeper; `⌫` goes back up. Hidden folders follow the ignore toggle, so the list shows what was also counted.
 
 ## [0.139.0] — 2026-08-27
 
 ### Added
 
-- **Geräte-Sync (opt-in, Standard AUS).** Mehrere Macs halten denselben Datenstand über einen **gemeinsamen Ordner** (Standard: iCloud Drive) — kein Server, keine Ports, kein Konto. Jedes Gerät legt EINE verschlüsselte Datei ab und liest die der anderen. Einstellungen → **Geräte-Sync**: Schalter, Ordner, Passwort (liegt im Schlüsselbund, wird nie mitsynchronisiert), 2FA-Opt-in, „Jetzt abgleichen".
-- Synchronisiert werden Verlauf, Snippets samt Gruppen, Notizen und — nur auf Wunsch — 2FA-Konten. **Einstellungen und Zeiterfassung bewusst nicht**: Hotkeys, Monitor-Helligkeit und die Sync-Konfiguration selbst sind gerätegebunden.
+- **Device sync (opt-in, default OFF).** Several Macs keep the same data state through a **shared folder** (default: iCloud Drive) — no server, no ports, no account. Each device drops ONE encrypted file and reads those of the others. Settings → **Device sync**: switch, folder, password (lives in the keychain, is never synced along), 2FA opt-in, "Sync now".
+- Synchronised are history, snippets including groups, notes and — only on request — 2FA accounts. **Settings and time tracking deliberately not**: hotkeys, monitor brightness and the sync configuration itself are device-bound.
 
-### Sicherheit
+### Security
 
-- **Ein leerer Stand kann einen gefüllten nie überschreiben.** Vier voneinander unabhängige Mechanismen: die Anwendung ist strukturell nur additiv (es gibt keinen Lösch-Pfad), das Veröffentlichen prüft den vorherigen Stand und verweigert leer-über-gefüllt, geschrieben wird atomar (tmp + rename, plus `.bak`), und eine unlesbare Datei wird ganz übersprungen statt halb angewandt.
-- **Löschungen wandern deshalb nicht mit** — die Geräte vereinigen ihre Daten. Bewusster Preis für die obige Garantie.
+- **An empty state can never overwrite a filled one.** Four mechanisms independent of each other: applying is structurally additive only (there is no delete path), publishing checks the previous state and refuses empty-over-filled, writing is atomic (tmp + rename, plus `.bak`), and an unreadable file is skipped entirely instead of being half applied.
+- **Deletions therefore do not travel along** — the devices merge their data. A deliberate price for the guarantee above.
 
 ## [0.138.2] — 2026-08-27
 
@@ -1156,7 +1164,7 @@ Deliberate tip-taps are unaffected: the guards block travel, not the user, and a
 
 ### Added
 
-- **`x!` — a full-screen spectacle.** A hidden trigger that takes over the entire display (menu bar and Dock included) for ~15 seconds: six acts — Zündung, Raster, Slop, Brand, Nova, Leere — of ember light, a technocrat horizon rushing the viewer, a corrupted glyph flood with screen tearing, everything catching fire, a supernova into warp space, and the stars going out. One canvas, one rAF loop, pre-allocated particle pools, deterministic noise instead of `Math.random`. Enter starts it (never a stray keystroke), any key aborts. ⚠️ Full-screen luminance jumps are gated below the WCAG 2.3.1 three-per-second threshold — violent to look at, but not a photosensitivity hazard.
+- **`x!` — a full-screen spectacle.** A hidden trigger that takes over the entire display (menu bar and Dock included) for ~15 seconds: six acts — ignition, grid, slop, burn, nova, void — of ember light, a technocrat horizon rushing the viewer, a corrupted glyph flood with screen tearing, everything catching fire, a supernova into warp space, and the stars going out. One canvas, one rAF loop, pre-allocated particle pools, deterministic noise instead of `Math.random`. Enter starts it (never a stray keystroke), any key aborts. ⚠️ Full-screen luminance jumps are gated below the WCAG 2.3.1 three-per-second threshold — violent to look at, but not a photosensitivity hazard.
 
 ## [0.132.0] — 2026-08-26
 
@@ -1881,7 +1889,7 @@ Performance + bug audit (4 parallel review passes over the whole codebase, every
 
 ### Added
 
-- **Settings → Popup behavior (topmost section): “Click outside closes the popup” toggle.** Off → the main overlay stays open when focus moves elsewhere (the `Focused(false)` auto-hide is skipped on every platform path); it then closes via **Esc** — with the existing semantics that an open inline panel (brightness, stats, clean, …) consumes the first Esc as “back”, so it can take two — or via the popup hotkey. On (default) = the historical behaviour. Persisted (`popup.close_on_blur`), applies live without restart; deep-linkable via `settings overlay`.
+- **Settings → Popup behavior (topmost section): "Click outside closes the popup" toggle.** Off → the main overlay stays open when focus moves elsewhere (the `Focused(false)` auto-hide is skipped on every platform path); it then closes via **Esc** — with the existing semantics that an open inline panel (brightness, stats, clean, …) consumes the first Esc as "back", so it can take two — or via the popup hotkey. On (default) = the historical behaviour. Persisted (`popup.close_on_blur`), applies live without restart; deep-linkable via `settings overlay`.
 
 ## [0.87.3] — 2026-07-19
 
@@ -1900,19 +1908,19 @@ Performance + bug audit (4 parallel review passes over the whole codebase, every
 ### Added
 
 - **`settings` command — open the Settings tab by typing** (alias `config`). Bare `settings` opens the tab; with an argument it **deep-links to a section**, fuzzy-matched against German AND English names — `settings cue`, `settings sync`, `settings hotkeys`, `settings gesten`, `settings aufräumen` all resolve. The target section scrolls into view and flashes a brief accent highlight ring (`prefers-reduced-motion`-safe). 20 sections are anchored (`settings-<id>`) via a pure, unit-tested registry (`lib/settings-sections.ts`); `settings?` inline help documents it.
-- **Cloud-Sync (cue) settings are now interactive — live ✓/✗ status chips.** Three chips show the real state at a glance: **Server erreichbar** · **Token gültig** · **Letzter Sync** (with timestamp). A new async `sync_test_connection` IPC probes the pull endpoint and classifies the outcome (2xx = ok · 401/403 = token rejected · other = reachable-but-broken · network error = unreachable — pure, unit-tested `classify_probe`); the probe runs automatically when the section opens and after every URL/token change, plus a manual **“Verbindung testen”** button. The sync worker now emits `sync-status-changed` after **every** cycle (success or failure), so the chips and the “last sync” line update live — the old blind 4-second poll after “Jetzt synchronisieren” is gone.
+- **Cloud-Sync (cue) settings are now interactive — live ✓/✗ status chips.** Three chips show the real state at a glance: **Server reachable** · **Token valid** · **Last sync** (with timestamp). A new async `sync_test_connection` IPC probes the pull endpoint and classifies the outcome (2xx = ok · 401/403 = token rejected · other = reachable-but-broken · network error = unreachable — pure, unit-tested `classify_probe`); the probe runs automatically when the section opens and after every URL/token change, plus a manual **"Test connection"** button. The sync worker now emits `sync-status-changed` after **every** cycle (success or failure), so the chips and the "last sync" line update live — the old blind 4-second poll after "Sync now" is gone.
 
 ## [0.87.0] — 2026-07-19
 
 ### Added
 
-- **Cloud-Sync mit cue (`sync.rs`) — automatischer bidirektionaler Snippet-Sync.** Ein Hintergrund-Worker pollt cue (`cue.celox.io`, konfigurierbar) alle 60 s **und** unmittelbar nach jeder Snippet-Änderung (debounced): Pull → deterministischer Merge → Push. Merge-Regel (identisch auf beiden Seiten, baut auf `merge_version` v0.84.267 auf): höhere Version gewinnt den Inhalt; gleiche Version + gleicher Inhalt = No-op; gleiche Version + anderer Inhalt → cue gewinnt; die **Gruppenzuordnung folgt immer cue** (dort lebt auch die Scope-Konfiguration — welche Gruppen synchronisieren, wird in cue am ☁️-Symbol im Gruppen-Header umgeschaltet, IR speichert keinen Scope). **Löschungen wandern als Tombstones** (`snippet_tombstones`, 90-Tage-TTL): Löschen **und Umbenennen** hinterlassen `{abbreviation, version}`; die Gegenseite löscht nur, wenn ihre Kopie nicht neuer ist (eine spätere Bearbeitung schlägt das Löschen), und eine Neuanlage über einem Tombstone startet bei `version + 1` — sonst würde der nächste Zyklus sie wieder löschen (`resurrect_floor` in create/update/upsert). Nach angewendeten Remote-Änderungen wird die Auto-Expansion-Tabelle neu aufgebaut und die UI per `snippets-synced`-Event aktualisiert. **Settings → „Cloud-Sync (cue)"**: Aktivieren, Server-URL, Sync-Token (in cue unter Settings → Snippet-Sync generieren), „Jetzt synchronisieren" + Status/Fehlerzeile. 13 neue Unit-Tests (Merge-Matrix, Tombstone-Regeln, Scope-Filter, Zwei-Zyklen-Konvergenz, Config-Roundtrip) + ein ignorierter Live-E2E-Test gegen ein lokal laufendes cue (`CUE_SYNC_URL`/`CUE_SYNC_TOKEN`) — real verifiziert: Zyklus 1 konvergiert beide Seiten, Zyklus 2 ist ein No-op. Kein neues Dependency (ureq/TLS vorhanden).
+- **Cloud sync with cue (`sync.rs`) — automatic bidirectional snippet sync.** A background worker polls cue (`cue.celox.io`, configurable) every 60 s **and** immediately after every snippet change (debounced): pull → deterministic merge → push. Merge rule (identical on both sides, builds on `merge_version` v0.84.267): the higher version wins the content; same version + same content = no-op; same version + different content → cue wins; the **group assignment always follows cue** (the scope configuration lives there too — which groups sync is toggled in cue at the ☁️ icon in the group header, IR stores no scope). **Deletions travel as tombstones** (`snippet_tombstones`, 90-day TTL): deleting **and renaming** leave `{abbreviation, version}`; the other side deletes only if its copy is not newer (a later edit beats the deletion), and a re-creation over a tombstone starts at `version + 1` — otherwise the next cycle would delete it again (`resurrect_floor` in create/update/upsert). After applied remote changes the auto-expansion table is rebuilt and the UI is refreshed via the `snippets-synced` event. **Settings → "Cloud sync (cue)"**: enable, server URL, sync token (generate in cue under Settings → Snippet sync), "Sync now" + status/error line. 13 new unit tests (merge matrix, tombstone rules, scope filter, two-cycle convergence, config roundtrip) + an ignored live E2E test against a locally running cue (`CUE_SYNC_URL`/`CUE_SYNC_TOKEN`) — verified for real: cycle 1 converges both sides, cycle 2 is a no-op. No new dependency (ureq/TLS present).
 
 ## [0.86.0] — 2026-07-19
 
 ### Added
 
-- **bruno: Freelancer-/Unternehmer-Kalkulation (`f`-Suffix).** `bruno 80000f` rechnet den Jahres**gewinn** eines Selbständigen aufs Netto — auch `bruno 7000mf` (Monatsgewinn) und `bruno 90000-15000f` (Einnahmen − Betriebsausgaben). Modell (Steuerjahr 2025, vereinfacht): **freiwillige GKV** (14,0 % ermäßigt / 14,6 % mit Krankengeldanspruch + Zusatzbeitrag, auf den Gewinn zwischen Mindestbemessungsgrundlage und Beitragsbemessungsgrenze) **oder PKV-Fixbeitrag**; **volle Pflegeversicherung** (4,2 % kinderlos / 3,6 % mit Kind, Abschläge Kind 2–5); **keine RV/AV-Pflicht**; ESt nach **Grund- oder Splittingtarif**; **Gewerbesteuer** für Gewerbebetriebe (Freibetrag 24.500 €, Messzahl 3,5 % × Gemeinde-Hebesatz) inkl. **§ 35-EStG-Anrechnung** — Freiberufler bleiben GewSt-frei. USt ist durchlaufender Posten (§ 19-Hinweis). Die Vorschau zeigt die volle Selbständigen-Aufstellung mit Annahmen-Zeile (Rechtsform · KV · Tarif · Hebesatz); Enter fügt das perioden-passende Netto ein, **Shift+Enter kopiert die komplette Aufstellung** — beides wie im Angestellten-Modus. Neue Einstellungen unter **Settings → Bruno → „Selbständig“**: Rechtsform (Freiberufler/Gewerbe), GewSt-Hebesatz, GKV/PKV, Krankengeldanspruch, PKV-Beitrag, Zusammenveranlagung. Alle bisherigen `bruno`-Eingaben verhalten sich unverändert. +30 Tests (Parser-Formen, GKV-Klammern, PKV, PV-Staffel, GewSt/§35-Deckel, Splitting, Null-Gewinn, Formatter); Rust-Defaults um 6 Felder erweitert (Whitelist + Clamps, Alt-Installationen fallen sauber auf Defaults zurück). Keine neuen Dependencies. Wie immer: vereinfacht, keine Steuerberatung.
+- **bruno: freelancer/entrepreneur calculation (`f` suffix).** `bruno 80000f` calculates the annual **profit** of a self-employed person down to net — also `bruno 7000mf` (monthly profit) and `bruno 90000-15000f` (income − business expenses). Model (tax year 2025, simplified): **voluntary statutory health insurance** (14.0 % reduced / 14.6 % with sick-pay entitlement + additional contribution, on the profit between the minimum assessment basis and the contribution ceiling) **or a fixed private-insurance contribution**; **full long-term care insurance** (4.2 % childless / 3.6 % with a child, reductions for children 2–5); **no pension/unemployment insurance obligation**; income tax by **basic or splitting tariff**; **trade tax** for commercial businesses (allowance €24,500, base rate 3.5 % × municipal multiplier) including **section 35 EStG credit** — freelancers remain trade-tax-free. VAT is a pass-through item (section 19 note). The preview shows the full self-employed breakdown with an assumptions line (legal form · health insurance · tariff · multiplier); Enter inserts the period-appropriate net, **Shift+Enter copies the complete breakdown** — both as in employee mode. New settings under **Settings → Bruno → "Self-employed"**: legal form (freelancer/trade), trade-tax multiplier, statutory/private insurance, sick-pay entitlement, private contribution, joint assessment. All previous `bruno` inputs behave unchanged. +30 tests (parser forms, health-insurance clamps, private insurance, care-insurance tiers, trade tax/section 35 cap, splitting, zero profit, formatter); Rust defaults extended by 6 fields (whitelist + clamps, existing installs fall back cleanly to defaults). No new dependencies. As always: simplified, not tax advice.
 
 ## [0.85.12] — 2026-07-19
 
@@ -1936,13 +1944,13 @@ Performance + bug audit (4 parallel review passes over the whole codebase, every
 
 ### Changed
 
-- **figlet ⌘⇧⏎ is now the transparent do-both variant.** Cmd/Ctrl+Shift+Enter renders the banner PNG with a **transparent background** (only the glyphs, in the current theme's text colour) and performs **both** outputs in one keystroke: **saved to `~/Downloads`** (`figlet-<slug>-<ts>.png`, revealed in Finder/Explorer) **and copied to the clipboard** (+ history) — the copy runs first so the focus-stealing reveal is the last visible action; the alpha channel survives the canonical clipboard re-encode. Shift+Enter keeps the opaque theme-look copy. Preview hint now reads **“Enter copies · ⇧⏎ PNG · ⌘⇧⏎ transparent”**; `figlet?` help and docs updated. (`bannerPngBase64` accepts `bg: null` = skip the background fill on the naturally-transparent canvas.)
+- **figlet ⌘⇧⏎ is now the transparent do-both variant.** Cmd/Ctrl+Shift+Enter renders the banner PNG with a **transparent background** (only the glyphs, in the current theme's text colour) and performs **both** outputs in one keystroke: **saved to `~/Downloads`** (`figlet-<slug>-<ts>.png`, revealed in Finder/Explorer) **and copied to the clipboard** (+ history) — the copy runs first so the focus-stealing reveal is the last visible action; the alpha channel survives the canonical clipboard re-encode. Shift+Enter keeps the opaque theme-look copy. Preview hint now reads **"Enter copies · ⇧⏎ PNG · ⌘⇧⏎ transparent"**; `figlet?` help and docs updated. (`bannerPngBase64` accepts `bg: null` = skip the background fill on the naturally-transparent canvas.)
 
 ## [0.85.9] — 2026-07-18
 
 ### Added
 
-- **figlet: Cmd/Ctrl+Shift+Enter saves the banner PNG straight to Downloads.** Alongside Shift+Enter (copy the cropped, theme-coloured PNG to the clipboard), ⌘⇧⏎ now writes it directly to `~/Downloads/figlet-<text-slug>-<timestamp>.png` and reveals it in Finder/Explorer — create → file on disk in one keystroke, no clipboard detour. New `figlet_save_png` IPC; `useKeyboardNav`'s Enter handler passes Cmd/Ctrl through to `activate`. The preview-header hint reads **“Enter copies · ⇧⏎ PNG · ⌘⇧⏎ save”**, and the `figlet?` inline help documents both.
+- **figlet: Cmd/Ctrl+Shift+Enter saves the banner PNG straight to Downloads.** Alongside Shift+Enter (copy the cropped, theme-coloured PNG to the clipboard), ⌘⇧⏎ now writes it directly to `~/Downloads/figlet-<text-slug>-<timestamp>.png` and reveals it in Finder/Explorer — create → file on disk in one keystroke, no clipboard detour. New `figlet_save_png` IPC; `useKeyboardNav`'s Enter handler passes Cmd/Ctrl through to `activate`. The preview-header hint reads **"Enter copies · ⇧⏎ PNG · ⌘⇧⏎ save"**, and the `figlet?` inline help documents both.
 
 ### Changed
 
@@ -1952,7 +1960,7 @@ Performance + bug audit (4 parallel review passes over the whole codebase, every
 
 ### Added
 
-- **figlet: Shift+Enter copies the banner as a PNG image.** Enter still pastes the banner as text; **Shift+Enter** now renders it to a bitmap **tightly cropped to the glyphs** (blank edge lines, the common leading indent and trailing whitespace stripped — the pure, unit-tested `lib/figlet-png.ts::cropBanner`) and copies it to the clipboard + history (`[figlet · <text>]` image clip) — for chats/mails that mangle monospace text. The image is rendered in the **current theme's colours** (opaque background, 2× scale for crispness), so it looks exactly like the preview and stays readable on light *and* dark targets. Backend: new `figlet_copy_png` IPC sharing a `copy_png_to_clipboard_and_history` helper extracted from `qr_copy_png` (canonical clipboard re-encode + watcher self-write fuse — no duplicate image row); history labels are char-boundary-truncated (pure `png_history_summary`, unit-tested). The preview header hint now reads **“Enter copies · ⇧⏎ PNG”**, and the `figlet?` inline help documents the shortcut.
+- **figlet: Shift+Enter copies the banner as a PNG image.** Enter still pastes the banner as text; **Shift+Enter** now renders it to a bitmap **tightly cropped to the glyphs** (blank edge lines, the common leading indent and trailing whitespace stripped — the pure, unit-tested `lib/figlet-png.ts::cropBanner`) and copies it to the clipboard + history (`[figlet · <text>]` image clip) — for chats/mails that mangle monospace text. The image is rendered in the **current theme's colours** (opaque background, 2× scale for crispness), so it looks exactly like the preview and stays readable on light *and* dark targets. Backend: new `figlet_copy_png` IPC sharing a `copy_png_to_clipboard_and_history` helper extracted from `qr_copy_png` (canonical clipboard re-encode + watcher self-write fuse — no duplicate image row); history labels are char-boundary-truncated (pure `png_history_summary`, unit-tested). The preview header hint now reads **"Enter copies · ⇧⏎ PNG"**, and the `figlet?` inline help documents the shortcut.
 
 ## [0.85.7] — 2026-07-18
 
@@ -2036,7 +2044,7 @@ Performance + bug audit (4 parallel review passes over the whole codebase, every
 
 ### Added
 
-- **`sec` — guided pentest-command builders.** Assemble syntactically correct command lines for **nmap · sqlmap · feroxbuster · John the Ripper** from presets, with a plain-English cheat-sheet for every flag. `sec` lists the four tools; `nmap` (or `sec nmap`) lists its presets; `nmap service 10.0.0.5` builds `nmap -sV -sC 10.0.0.5` and explains each flag in the preview. **Enter** copies the command + pastes it (the surprise-free default — it never runs anything); **⌘/Ctrl+Enter** hands it off to your terminal (macOS iTerm2 → Terminal.app) with the command *inserted but not submitted* by default. Argument order is irrelevant, a bare tool keyword followed by prose (`nmap output parsen`) yields to history search, and **every user value is shell-quoted** so a target like `a; rm -rf /` can never break the command. Conservative presets first; sharp ones (nmap full-tcp, sqlmap dump, `-T5`, john incremental) always confirm before the hand-off. `sec john prepare` lists the `*2john` hash-extraction helpers. Settings → Security (scope note, default wordlist/output, timing/threads/rate, John Core/Jumbo line, terminal + auto-enter [off], save-to-history). Authorized targets only.
+- **`sec` — guided pentest-command builders.** Assemble syntactically correct command lines for **nmap · sqlmap · feroxbuster · John the Ripper** from presets, with a plain-English cheat-sheet for every flag. `sec` lists the four tools; `nmap` (or `sec nmap`) lists its presets; `nmap service 192.0.2.5` builds `nmap -sV -sC 192.0.2.5` and explains each flag in the preview. **Enter** copies the command + pastes it (the surprise-free default — it never runs anything); **⌘/Ctrl+Enter** hands it off to your terminal (macOS iTerm2 → Terminal.app) with the command *inserted but not submitted* by default. Argument order is irrelevant, a bare tool keyword followed by prose (`nmap output parsen`) yields to history search, and **every user value is shell-quoted** so a target like `a; rm -rf /` can never break the command. Conservative presets first; sharp ones (nmap full-tcp, sqlmap dump, `-T5`, john incremental) always confirm before the hand-off. `sec john prepare` lists the `*2john` hash-extraction helpers. Settings → Security (scope note, default wordlist/output, timing/threads/rate, John Core/Jumbo line, terminal + auto-enter [off], save-to-history). Authorized targets only.
 
 ### Notes
 
@@ -4759,8 +4767,9 @@ Was `Ctrl+Shift+R`. The extra Alt keeps it clearly distinct from `Ctrl+Shift+S`
 
 ### Fixed — `meme` command found nothing on Windows; meme folder now configurable
 
-The meme library path was a hard-coded macOS path (`/Users/martin/My
-Drive/media/memes`), so on Windows the `meme` command scanned a non-existent
+The meme library path was a hard-coded macOS path (`~/My
+Drive/media/memes` under one
+fixed user name), so on Windows the `meme` command scanned a non-existent
 folder and found nothing.
 
 - The default is now **home-relative** (`~/My Drive/media/memes`) so it resolves
@@ -6210,7 +6219,7 @@ User-visible behaviour change (expansions can now be blocked, with reasons). Plu
 
 Type **`bruno 60000`** (yearly gross) or **`bruno 5000m`** (monthly gross) in the search bar and get a full German income-tax + social-contributions breakdown for Steuerjahr 2025 (§32a EStG, simplified). Inline row shows net/month + net/year + Abgabenquote; preview-pane shows the full split (KV / PV / RV / AV + ESt / Soli / Kirche + Grenzsteuersatz). Enter copies the net amount to the clipboard (period-matched: `bruno 5000m` → monthly net, `bruno 60000` → yearly net).
 
-- **Smart defaults**: Steuerklasse I, NRW, 0 children, no church, 2.45 % KV-Zusatz (TK 2025). Override per user in **Settings → Bruno** (Steuerklasse selector, all 16 Bundesländer, kids spinner, church toggle, KV-Zusatz numeric). Persisted via SQLite `settings` table; `bruno-defaults-changed` event refreshes the popup without restart.
+- **Smart defaults**: Steuerklasse I, NRW, 0 children, no church, 2.45 % health-insurance surcharge (TK 2025). Override per user in **Settings → Bruno** (tax-class selector, all 16 federal states, kids spinner, church toggle, health-insurance surcharge numeric). Persisted via SQLite `settings` table; `bruno-defaults-changed` event refreshes the popup without restart.
 - **Pure-TS compute** (`core/frontend/src/lib/bruno.ts`) — no IPC round-trip per keystroke. Ported from the maintainer's [steuerschleuder](https://steuerschleuder.celox.io/) web app. Number-format-tolerant parser (`bruno 60.000` ↔ `bruno 60,000` ↔ `bruno 60000`).
 - **32 new frontend tests** (parser + compute + edge cases) + **4 new Rust tests** (settings round-trip).
 - Backend: new `core/rust-lib/src/bruno.rs` owns only the persisted defaults (compute lives in TS for instant feedback). New IPCs `bruno_get_defaults` / `bruno_set_defaults`.
@@ -6679,7 +6688,7 @@ UX refinement of the v0.26.0 easter egg — no new feature surface, backwards-co
 
 A third hidden trigger, alongside `getshaky` (Pong) and `rockthebox`/`rockthabox` (Snake). Typing **`opener`** in the popup search bar surfaces a random German pickup-line at the top of the list. Press Enter to paste it into the focused app.
 
-- **Curated source** — 100 openers exported from the maintainer's `nicetobenice_db` PostgreSQL DB on the VPS (`69.62.121.168`), ranked by their personal ratings + favourites (DESC), tie-broken on the global `avg_rating`. Embedded as `core/frontend/src/lib/openers-data.ts` (no live DB call at runtime).
+- **Curated source** — 100 openers exported from the maintainer's own pickup-line database, ranked by their personal ratings + favourites (DESC), tie-broken on the global `avg_rating`. Embedded as `core/frontend/src/lib/openers-data.ts` (no live DB call at runtime).
 - **Re-roll on every keystroke** — the picker is a pure FNV-1a-style hash of the full query string. Identical query → identical pick (React render loop is stable, no flicker), and each extra keystroke (`opener `, `opener a`, `opener xy`, …) re-seeds → new pick.
 - **Trigger** — `^opener\b` (case-insensitive, whitespace-tolerant): matches `opener`, `Opener`, `opener foo`, but NOT `openers` / `bopener`. Deliberately **not** in the `COMMANDS` catalogue → never appears in autocomplete; you have to know the word.
 - **Integration** — new `kind: "opener"` in the `ListEntry` union; `HistoryItem` renders it with a `Sparkles` icon + an italic line; `PreviewPanel` shows the full text with a "type any key to re-roll" hint. Enter triggers `pasteText(opener)`.
@@ -7694,7 +7703,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
   - **History** — upsert by SHA-256 hash; duplicates just bump `last_used_at`, new rows respect the existing 1 000-entry cap.
   - **Notes** — appended verbatim with original timestamps preserved (no natural dedup key, so re-importing the same backup creates duplicates — use Clear All first if you want a clean replace).
 - **`Clear All` for notes**, with a `window.confirm` guard.
-- **Tray menu entry “Manage Notes”** — opens the popup directly on the Notes tab via a new `open-notes-tab` event.
+- **Tray menu entry "Manage Notes"** — opens the popup directly on the Notes tab via a new `open-notes-tab` event.
 - **15 new Rust unit tests** for the notes module (CRUD, categories, save_from_clip, image-note read-only update) and the backup module (roundtrip into empty db, merge into populated db, version-rejection guard, replace-all). `cargo test --workspace` is now **48 → was 33**.
 
 ### Changed

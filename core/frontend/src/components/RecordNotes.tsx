@@ -12,17 +12,30 @@ export function RecordNotes() {
 
   useEffect(() => {
     void getRecordNotes()
-      .then((n) => setNotes(n))
-      .catch(() => undefined)
-      .finally(() => setLoaded(true));
+      .then((n) => {
+        setNotes(n);
+        setLoaded(true);
+      })
+      .catch(() => undefined);
   }, []);
 
-  // Persist (debounced) once the stored value has been read.
+  // Persist (debounced) once the stored value has been read; a pending save
+  // is flushed on unmount / close instead of dropped.
+  const pending = useRef<Notes | null>(null);
+  const flush = () => {
+    if (pending.current) {
+      void setRecordNotes(pending.current).catch(() => undefined);
+      pending.current = null;
+    }
+  };
   useEffect(() => {
     if (!loaded) return;
-    const id = window.setTimeout(() => void setRecordNotes(notes).catch(() => undefined), 400);
+    pending.current = notes;
+    const id = window.setTimeout(flush, 400);
     return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, loaded]);
+  useEffect(() => flush, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-scroll: speed 1–100 → 4–120 px/s.
   useEffect(() => {
@@ -43,7 +56,10 @@ export function RecordNotes() {
     return () => window.clearInterval(id);
   }, [notes.speed]);
 
-  const close = () => void recordCloseNotes().catch(() => undefined);
+  const close = () => {
+    flush();
+    void recordCloseNotes().catch(() => undefined);
+  };
 
   return (
     <div

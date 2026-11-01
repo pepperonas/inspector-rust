@@ -4112,7 +4112,6 @@
   "rec2.hud.display": "Screen",
   "rec2.hud.window": "Window",
   "rec2.hud.source": "Source",
-  "rec2.hud.change": "Change",
   "rec2.hud.system_audio": "System audio",
   "rec2.hud.mic": "Microphone",
   "rec2.hud.cursor": "Edit cursor later",

@@ -7343,8 +7343,6 @@ pub async fn record_open_hud(app: AppHandle) -> Result<(), String> {
     crate::record::session::open_hud(&app)
 }
 
-/// Present Apple's content-sharing picker; the answer arrives as
-/// `record-source-picked` / `record-pick-cancelled`.
 /// Teleprompter notes window (built on a worker thread).
 #[cfg(target_os = "macos")]
 #[tauri::command]
@@ -7390,6 +7388,8 @@ pub fn set_record_notes(db: State<'_, DbHandle>, notes: RecordNotes) -> Result<(
     Ok(())
 }
 
+/// Present Apple's content-sharing picker; the answer arrives as
+/// `record-source-picked` / `record-pick-cancelled`.
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn record_pick_source(app: AppHandle, kind: crate::record::project::SourceKind) -> Result<(), String> {

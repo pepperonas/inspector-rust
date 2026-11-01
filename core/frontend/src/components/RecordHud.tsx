@@ -90,7 +90,13 @@ export function RecordHud() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") close();
-      else if (e.key === "Enter" && !e.isComposing) start();
+      else if (e.key === "Enter" && !e.isComposing) {
+        const el = e.target as HTMLElement | null;
+        const tag = el?.tagName;
+        if (tag === "BUTTON" || tag === "SELECT" || tag === "TEXTAREA") return;
+        if (tag === "INPUT" && (el as HTMLInputElement).type === "checkbox") return;
+        start();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

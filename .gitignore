@@ -55,3 +55,6 @@ coverage/
 
 # Stray root-level screenshots (session working files — real screenshots live in docs/screenshots/)
 /*.png
+
+# record compositor: ffmpeg built from source by scripts/build-ffmpeg-macos.sh (never committed)
+third_party/ffmpeg/

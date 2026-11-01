@@ -1,0 +1,1399 @@
+//! Contrat de scène côté Rust — miroir exact de `SceneDescription` (TS, `src/native/sceneDescription.ts`).
+//! L'app sérialise le document en JSON ; le natif le parse ici puis calcule la composition par frame,
+//! ce qui **remplace le `timeline()` fixture** (placements A↔B + zoom codés en dur). Le natif possède
+//! toute la maths par-frame (géométrie du layout, easing du zoom, application des effets) ; ce module
+//! ne fait que le modèle de données + le parse. La conversion JS (camelCase) est gérée par serde.
+
+use serde::Deserialize;
+
+/// Un clip de la timeline (fichiers screen+webcam + fenêtre source). = `CompositorClipInput` (TS).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneClip {
+    pub screen_path: String,
+    pub webcam_path: String,
+    pub source_start_sec: f64,
+    pub source_end_sec: f64,
+    /// temps source webcam = temps source screen − ceci.
+    pub webcam_offset_sec: f64,
+    /// Une source sans piste audio décodable garde sa durée via du silence natif.
+    #[serde(default)]
+    pub has_audio: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebcamPosition {
+    pub cx: f32,
+    pub cy: f32,
+}
+
+/// Placement de la webcam (preset + réglages).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneLayout {
+    /// "picture-in-picture" | "dual-frame" | "vertical-stack" | "no-webcam".
+    pub preset: String,
+    /// échelle taille webcam (1 = défaut PiP du compositeur).
+    pub webcam_size: f32,
+    /// "rectangle" | "circle" | "square" | "rounded" — la forme RÉSOLUE par le layout, pas le
+    /// réglage brut de l'utilisateur : seul le PiP honore le sélecteur de forme, les layouts en
+    /// bloc découpent toujours un rectangle (côté app, cf. `computeCompositeLayout`).
+    pub webcam_shape: String,
+    pub webcam_mirror: bool,
+    /// position normalisée (0..1) du centre webcam, ou None → défaut du preset.
+    pub webcam_position: Option<WebcamPosition>,
+    /// la webcam rétrécit pendant un zoom actif.
+    pub webcam_reactive_zoom: bool,
+    /// Picture-in-picture : le coin ou le milieu de bord où la caméra est ancrée, à marge
+    /// constante du bord (`WEBCAM_ANCHORS`, TS : "top-left", "top", …, "bottom-right"). Le
+    /// rétrécissement du zoom réactif se fait vers lui (`anchor_fractions`). Absent : le centre.
+    #[serde(default)]
+    pub webcam_anchor: Option<String>,
+    /// User-authored source crop for the camera. Absent keeps the full frame.
+    #[serde(default)]
+    pub webcam_crop: Option<SceneCrop>,
+    /// Rect webcam résolu côté app (0..1 fractions du cadre de sortie), en PARITÉ EXACTE avec
+    /// `computeCompositeLayout` (TS). Permet à TS et Rust de partager la même source de vérité :
+    /// le natif ne dérive PLUS ses propres placements pour PiP/dual-frame/vertical-stack — il
+    /// consomme ce rect directement et applique par-dessus les ajustements purement par-frame
+    /// (`webcam_size_scale`, `reactive_scale`, Full Camera).
+    ///
+    /// `#[serde(default)]` : champ ajouté après coup ; les anciens JSON (et les tests) omettent
+    /// ce champ, ce qui active le fallback `preset_placements` Rust historique (PiP codé en dur).
+    #[serde(default)]
+    pub webcam_rect: Option<SceneRect>,
+    /// Rect ÉCRAN résolu côté app (mêmes fractions 0..1 du cadre de sortie que `webcam_rect`).
+    /// Déjà paddé et déjà au ratio du crop — le natif le consomme TEL QUEL, sans `padding_scale`
+    /// ni `fit_dst_to_aspect`. Sans lui, le natif gardait sa boîte écran codée en dur
+    /// (`preset_placements`) tout en respectant la boîte caméra de l'app : les deux ne
+    /// s'accordaient plus et la caméra du preset side-by-side sortait du cadre.
+    ///
+    /// `#[serde(default)]` : ancien payload / tests → None → fallback `preset_placements`.
+    #[serde(default)]
+    pub screen_rect: Option<SceneRect>,
+    /// Rayon des coins de l'écran, en FRACTION du petit côté de sa propre boîte, quand le preset
+    /// en impose un (les layouts en bloc encadrent écran et caméra à l'identique). None → slider
+    /// Roundness. Une fraction, pas des px : cf. `SceneEffects::roundness_frac`.
+    #[serde(default)]
+    pub screen_radius_frac: Option<f32>,
+    /// L'écran doit-il REMPLIR sa boîte quitte à être rogné (`object-fit: cover`) plutôt que d'y
+    /// tenir en entier ? Vrai pour les layouts en bloc, dont la boîte écran est un slot au ratio
+    /// arbitraire : c'est ce que `computeCompositeLayout` renvoie sous `screenCover` et que
+    /// `frameRenderer` applique déjà côté web. Sans ce drapeau le natif étirait la source pour
+    /// remplir le slot — d'autant plus visible sur un clip recadré, le crop éloignant encore le
+    /// ratio de la source de celui du slot.
+    ///
+    /// Le slot MASQUE aussi l'écran : zoom et 3D y restent, rognés au lieu de déborder sur la
+    /// caméra (`frame_geometry::ScreenMask`).
+    ///
+    /// `#[serde(default)]` : absent → `false` → comportement "contain" historique.
+    #[serde(default)]
+    pub screen_cover: bool,
+    /// Remplissage du format : la boîte écran est la zone paddée entière, et la fenêtre que le
+    /// `cover` y découpe SUIT le curseur lissé au lieu de rester centrée
+    /// (`frame_geometry::follow_cover`). Sans effet si `screen_cover` est faux.
+    ///
+    /// `#[serde(default)]` : absent → `false` → fenêtre centrée, comme avant.
+    #[serde(default)]
+    pub screen_follow: bool,
+    /// Un layout résolu PAR CLIP visible, aligné par index sur `Scene::clips` / `crop_by_clip`.
+    /// Les champs scalaires ci-dessus sont ceux du PREMIER clip (repli pour un payload sans ce
+    /// tableau, et valeur de départ tant qu'aucun clip n'est actif).
+    ///
+    /// Par clip parce que la FORME de la source écran l'est : un clip est un enregistrement
+    /// d'écran + une caméra et un son optionnels, et rien n'impose à deux clips d'avoir été
+    /// enregistrés à la même taille ni au même ratio. Le crop n'est qu'une manière de plus de
+    /// faire varier cette forme — un 16:9 recadré en 9:16 doit se disposer exactement comme un
+    /// enregistrement nativement en 9:16. À ne pas confondre avec le ratio de la SCÈNE, global.
+    ///
+    /// `for_clip_window` recopie l'entrée du clip composé dans les champs scalaires, si bien que
+    /// `compose_frame` continue de lire un seul `layout` sans branche supplémentaire.
+    #[serde(default)]
+    pub layout_by_clip: Vec<Option<ResolvedClipLayout>>,
+    /// Rayon des coins de la CAMÉRA, en fraction du petit côté de SA boîte — même règle que
+    /// `screen_radius_frac`, issu du même appel `computeCompositeLayout`. C'est la seule façon
+    /// que « le bloc encadre écran et caméra à l'identique » soit vrai : sans lui l'écran prenait
+    /// le rayon de l'app pendant que la caméra gardait la table Rust indépendante
+    /// (`min * 0.5 | 0.3 | 0.12`, non bornée), donc deux moitiés d'un même bloc arrondies par
+    /// deux formules différentes.
+    ///
+    /// `#[serde(default)]` : ancien payload / tests → None → table Rust historique.
+    #[serde(default)]
+    pub webcam_radius_frac: Option<f32>,
+}
+
+impl SceneLayout {
+    /// L'ancre de la caméra en fractions de sa boîte, par axe : 0, 0,5 ou 1, la part de la place
+    /// libre qu'elle laisse d'un côté (`webcamAnchorFractions`, TS). Le centre sans ancre.
+    pub fn webcam_anchor_fractions(&self) -> [f32; 2] {
+        let Some(anchor) = self.webcam_anchor.as_deref() else { return [0.5, 0.5] };
+        let side = |low: bool, high: bool| if low { 0.0 } else if high { 1.0 } else { 0.5 };
+        [
+            side(anchor.ends_with("left"), anchor.ends_with("right")),
+            side(anchor.starts_with("top"), anchor.starts_with("bottom")),
+        ]
+    }
+}
+
+/// La moitié du layout qui dépend de la FORME de la source, résolue pour un clip.
+/// Voir `SceneLayout::layout_by_clip`.
+///
+/// Les rayons sont des fractions du petit côté de LEUR boîte, exactement comme les champs
+/// scalaires `screen_radius_frac`/`webcam_radius_frac` — aucune longueur ne traverse ce
+/// contrat en pixels, par clip ou non.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedClipLayout {
+    pub screen_rect: SceneRect,
+    #[serde(default)]
+    pub webcam_rect: Option<SceneRect>,
+    #[serde(default)]
+    pub screen_radius_frac: Option<f32>,
+    #[serde(default)]
+    pub webcam_radius_frac: Option<f32>,
+    #[serde(default)]
+    pub webcam_shape: Option<String>,
+    #[serde(default)]
+    pub screen_cover: bool,
+}
+
+/// One source-time fragment of the layout partition, resolved by the same TS geometry as
+/// the default per-clip layout. Boundaries survive trims without restarting transitions.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneLayoutRegion {
+    pub clip_index: usize,
+    pub start_sec: f32,
+    pub end_sec: f32,
+    pub preset: String,
+    pub layout: ResolvedClipLayout,
+    pub webcam_reactive_zoom: bool,
+    #[serde(default)]
+    pub from_layout: Option<ResolvedClipLayout>,
+    #[serde(default)]
+    pub from_preset: Option<String>,
+    #[serde(default)]
+    pub from_webcam_reactive_zoom: Option<bool>,
+    /// Last contained-layout exit in source time. A zoom crossing it keeps its viewport.
+    #[serde(default)]
+    pub keep_screen_clip_from_sec: Option<f32>,
+    pub transition_start_sec: f32,
+    pub transition_sec: f32,
+}
+
+pub struct SampledLayout<'a> {
+    pub preset: &'a str,
+    pub layout: ResolvedClipLayout,
+    pub from_layout: Option<&'a ResolvedClipLayout>,
+    pub hard_cut: bool,
+    pub progress: f32,
+    pub screen_cover_mix: f32,
+    pub webcam_reactive_zoom: f32,
+    pub webcam_shadow: f32,
+    pub keep_screen_clip_from_sec: Option<f32>,
+}
+
+impl SceneLayoutRegion {
+    pub fn sample(&self, t: f32) -> SampledLayout<'_> {
+        let linear = if self.from_layout.is_some() && self.transition_sec > 0.0 {
+            ((t - self.transition_start_sec) / self.transition_sec).clamp(0.0, 1.0)
+        } else { 1.0 };
+        let progress = linear * linear * (3.0 - 2.0 * linear);
+        let mix = |a: f32, b: f32| if progress <= 0.0 { a } else if progress >= 1.0 { b }
+            else { a + (b - a) * progress };
+        let enabled = |on: bool| on as u8 as f32;
+        let shadow = |preset: &str| if preset == "picture-in-picture" { 1.0 } else { 0.0 };
+        let mut layout = self.layout.clone();
+        let mut screen_cover_mix = enabled(layout.screen_cover);
+        let mut reactive = enabled(self.webcam_reactive_zoom);
+        let mut webcam_shadow = shadow(&self.preset);
+        if let Some(from) = self.from_layout.as_ref() {
+            screen_cover_mix = mix(enabled(from.screen_cover), screen_cover_mix);
+            reactive = mix(enabled(self.from_webcam_reactive_zoom.unwrap_or(self.webcam_reactive_zoom)), reactive);
+            webcam_shadow = mix(shadow(self.from_preset.as_deref().unwrap_or(&self.preset)), webcam_shadow);
+            if linear < 1.0 {
+                let rect = |a: SceneRect, b: SceneRect| SceneRect {
+                    x: mix(a.x, b.x), y: mix(a.y, b.y),
+                    width: mix(a.width, b.width), height: mix(a.height, b.height),
+                };
+                let collapsed = |r: SceneRect| SceneRect { x: r.x + r.width / 2.0,
+                    y: r.y + r.height / 2.0, width: 0.0, height: 0.0 };
+                layout.screen_rect = rect(from.screen_rect, layout.screen_rect);
+                layout.webcam_rect = match (from.webcam_rect, layout.webcam_rect) {
+                    (Some(a), Some(b)) => Some(rect(a, b)),
+                    (None, Some(b)) => Some(rect(collapsed(b), b)),
+                    (Some(a), None) => Some(rect(a, collapsed(a))),
+                    _ => None,
+                };
+                // Keep the crop policy through the morph. Its mask is blended separately;
+                // switching the flag at the boundary exposes the entire zoomed footage.
+                layout.screen_cover = from.screen_cover || layout.screen_cover;
+                // A missing camera is a scaled-down endpoint of the visible one, not a
+                // square mask. Keep its relative roundness while its rectangle collapses.
+                layout.webcam_radius_frac = match (from.webcam_rect, self.layout.webcam_rect) {
+                    (Some(_), None) => from.webcam_radius_frac,
+                    (None, Some(_)) => self.layout.webcam_radius_frac,
+                    _ => Some(mix(from.webcam_radius_frac.unwrap_or(0.0),
+                        layout.webcam_radius_frac.unwrap_or(0.0))),
+                };
+                layout.webcam_shape = Some("rectangle".to_owned());
+            }
+        }
+        SampledLayout { preset: &self.preset, layout, from_layout: self.from_layout.as_ref(),
+            hard_cut: self.from_layout.is_none() || self.transition_sec <= 0.0,
+            keep_screen_clip_from_sec: self.keep_screen_clip_from_sec,
+            progress, screen_cover_mix, webcam_reactive_zoom: reactive, webcam_shadow }
+    }
+}
+
+/// Rect normalisé 0..1 du cadre de sortie : x, y en haut-gauche ; width, height.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+fn blur_amount<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Blur {
+        Switch(bool),
+        Amount(f32),
+    }
+    Ok(match Blur::deserialize(d)? {
+        Blur::Switch(on) => if on { 0.5 } else { 0.0 },
+        Blur::Amount(a) => a.clamp(0.0, 1.0),
+    })
+}
+
+/// Effets de cadre (padding, blur, ombre, coins, motion blur).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneEffects {
+    /// 0..1 inset supplémentaire de l'écran.
+    pub padding: f32,
+    /// 0..1 force du flou du fond, 0 = net (`background_blur_steps`). Un booléen se lit encore :
+    /// `true` était l'unique force de l'ancien interrupteur, 0,5 aujourd'hui.
+    #[serde(deserialize_with = "blur_amount")]
+    pub blur: f32,
+    /// 0..1 force de l'ombre.
+    pub shadow: f32,
+    /// Slider Roundness, en FRACTION du petit côté du cadre de sortie.
+    ///
+    /// Toute longueur qui traverse ce contrat est une fraction, jamais un nombre de pixels, et
+    /// c'est porteur : le compositeur rastérise la preview dans un cadre contain-fitté petit et
+    /// l'export à la pleine résolution, donc « un pixel » ne désigne pas la même chose des deux
+    /// côtés de la frontière. Des valeurs absolues la traversaient et signifiaient en silence
+    /// « px du render target » — d'où le cercle PiP dégénéré en preview alors que l'export était
+    /// juste, et l'ombre proportionnellement plus faible en 4K qu'en 1080p. Une fraction n'a
+    /// pas d'unité à confondre : le natif multiplie par ce que sa référence mesure ici et
+    /// maintenant.
+    pub roundness_frac: f32,
+    /// 0..1 flou de mouvement.
+    pub motion_blur: f32,
+    /// Cadre dessiné autour de l'enregistrement. `#[serde(default)]` : l'app omet la clé quand
+    /// il n'y en a pas, et tout payload d'avant le cadre se lit « sans cadre ».
+    #[serde(default)]
+    pub frame: SceneFrame,
+    /// Thème du cadre, clair ou sombre, pour TOUS les cadres — chrome de fenêtre comme appareils
+    /// modelés. `#[serde(default)]` = clair. Les anciennes valeurs `window-light` /
+    /// `window-dark` portaient le thème dans le cadre lui-même et continuent de le faire :
+    /// `SceneFrame::theme_override` les résout, ce champ est ignoré pour elles.
+    #[serde(default)]
+    pub frame_theme: SceneFrameTheme,
+    /// Réglage « Depth of field » : défocalise l'écran incliné selon sa profondeur (mode 8),
+    /// net au focus du zoom. Sans effet hors tilt. Allumé par défaut, clé absente comprise : il
+    /// ne s'applique qu'aux zooms inclinés, où il suit l'angle réel.
+    #[serde(default = "default_true")]
+    pub depth_of_field: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Le cadre autour de l'écran (`effects.frame` côté TS). Une valeur inconnue — un cadre ajouté
+/// par une version plus récente de l'app — retombe sur `None` au lieu de faire échouer toute la
+/// scène : l'enregistrement reste rendu, sans cadre.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SceneFrame {
+    /// Chrome de fenêtre : barre de titre, trois pastilles, filet. Dessiné à plat dans le plan de
+    /// l'écran (mode 14). Son thème vient de `SceneEffects::frame_theme`, comme celui des
+    /// appareils.
+    Window,
+    /// Les trois appareils, modelés en vraie 3D (mode 17) : un corps avec épaisseur, un
+    /// micro-chanfrein et une lunette, la face écran exactement sur le plan du métrage.
+    Laptop,
+    Phone,
+    /// Le moniteur de bureau (« Screen » dans le panneau).
+    Monitor,
+    /// Anciennes valeurs : le thème était dans le cadre. Un projet qui les porte encore doit
+    /// rendre exactement ce qu'il rendait, sans migration côté document — `theme_override` les
+    /// ramène au chrome de fenêtre plus le thème qu'elles nomment.
+    WindowLight,
+    WindowDark,
+    /// Dernier : serde n'accepte `other` que sur la dernière variante.
+    #[default]
+    #[serde(other)]
+    None,
+}
+
+/// Thème d'un cadre : la matière de la coque et du chrome. S'applique à TOUS les cadres.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SceneFrameTheme {
+    /// Argent / blanc, chrome clair.
+    #[default]
+    Light,
+    /// Graphite, chrome sombre. Dernier : `other` n'est accepté que sur la dernière variante.
+    #[serde(other)]
+    Dark,
+}
+
+impl SceneFrame {
+    /// Le cadre est-il un appareil modelé (mode 17) plutôt que le chrome plat (mode 14) ?
+    pub fn is_device(self) -> bool {
+        matches!(self, Self::Laptop | Self::Phone | Self::Monitor)
+    }
+
+    /// Le cadre effectivement dessiné : les anciennes valeurs se ramènent au chrome de fenêtre.
+    pub fn resolved(self) -> SceneFrame {
+        match self {
+            Self::WindowLight | Self::WindowDark => Self::Window,
+            other => other,
+        }
+    }
+
+    /// Le thème que le cadre impose de lui-même, `None` s'il suit `SceneEffects::frame_theme`.
+    pub fn theme_override(self) -> Option<SceneFrameTheme> {
+        match self {
+            Self::WindowLight => Some(SceneFrameTheme::Light),
+            Self::WindowDark => Some(SceneFrameTheme::Dark),
+            _ => None,
+        }
+    }
+}
+
+/// Fond derrière l'écran (parsé depuis `settings.wallpaper`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum SceneBackground {
+    Color { color: String },
+    Gradient {
+        #[serde(rename = "angleDeg")]
+        angle_deg: f32,
+        stops: Vec<String>,
+        /// Position 0..1 de chaque stop le long du dégradé, telle que CSS la résout. Absente d'une
+        /// scène plus ancienne : les stops se répartissent alors à égale distance, comme en CSS.
+        #[serde(default)]
+        offsets: Vec<f32>,
+        /// Absent pour un fond immobile : l'app n'émet la clé que si un mouvement est choisi,
+        /// donc la scène d'un projet sans animation ne bouge pas d'un octet.
+        #[serde(default)]
+        motion: WallpaperMotion,
+    },
+    Image {
+        path: String,
+        /// Comme pour le dégradé : absent pour un fond immobile.
+        #[serde(default)]
+        motion: WallpaperMotion,
+    },
+}
+
+/// Mouvement du fond d'écran (`settings.wallpaperMotion`), lu dans `fx.w` par le mode 5 (dégradé)
+/// et le mode 6 (image). Une couleur unie n'en porte pas : rien n'y bougerait.
+///
+/// Une valeur inconnue (projet ouvert par une version plus ancienne que celle qui l'a écrit)
+/// retombe sur `None` au lieu de faire échouer le parse de toute la scène.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WallpaperMotion {
+    Drift,
+    Aurora,
+    Waves,
+    // Dernier : serde n'accepte `other` que sur la dernière variante.
+    #[default]
+    #[serde(other)]
+    None,
+}
+
+/// Une annotation de la timeline (temps en secondes, source du clip).
+///
+/// Espace de coordonnées — à respecter au rendu : `x`/`y`/`w`/`h` sont des fractions du **rect
+/// écran**, pas du cadre de sortie (le calque web reçoit `layout.screenRect` comme conteneur), et
+/// elles ne subissent **pas** le crop de zoom : l'overlay est frère de l'élément qui porte la
+/// transform, donc les annotations restent en place pendant que le contenu zoome dessous.
+///
+/// Exception : `kind: "blur"`. Un masque de confidentialité qui resterait en place laisserait
+/// sortir de dessous ce qu'il cache ; il suit donc le contenu sous le zoom et l'inclinaison 3D
+/// (`FrameGeometry::privacy_mask`). Les mêmes `x`/`y`/`w`/`h` désignent alors le contenu couvert
+/// au repos.
+///
+/// `space: "frame"` change cette boîte de référence pour le **cadre de sortie**. Seuls les
+/// sous-titres l'envoient : une annotation est posée sur la vidéo visible et doit donc suivre le
+/// rect écran, alors qu'un sous-titre appartient au cadre que le spectateur voit et doit rester
+/// immobile quand le padding rétrécit l'image dessous (issue #396). La clé est absente pour les
+/// annotations, dont la charge utile ne bouge pas d'un octet.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAnnotation {
+    #[serde(default)]
+    pub id: String,
+    /// Voir `SceneZoomRegion::clip_index`.
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    /// "text" | "image" | "figure" | "blur".
+    pub kind: String,
+    /// `Some("frame")` = coordonnées rapportées au cadre de sortie ; absent ou toute autre
+    /// valeur = rect écran, le comportement historique.
+    ///
+    /// Volontairement `Option<String>` et non une enum : serde refuse une variante inconnue
+    /// d'une enum unitaire sans `#[serde(other)]`, donc un futur `"space":"safe-area"` ferait
+    /// échouer `Scene::from_json` **en entier** sur un binaire plus ancien. En chaîne, l'inconnu
+    /// retombe simplement sur le rect écran.
+    #[serde(default)]
+    pub space: Option<String>,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    /// Ordre de peinture ; l'app envoie déjà la liste triée croissante.
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(default)]
+    pub text: Option<SceneAnnotationText>,
+    #[serde(default)]
+    pub image_path: Option<String>,
+    #[serde(default)]
+    pub figure: Option<SceneAnnotationFigure>,
+    #[serde(default)]
+    pub blur: Option<SceneAnnotationBlur>,
+}
+
+impl SceneAnnotation {
+    /// La boîte que `x`/`y`/`w`/`h` — **et** `text.font_size_rel` — mesurent, en fractions de
+    /// sortie. Le cadre de sortie est la cible de rendu, donc `[0, 0, 1, 1]` par construction.
+    ///
+    /// Un seul point de décision, partagé par les trois backends : le rect ET le dénominateur de
+    /// la police doivent basculer ensemble. Mesurer le rect sur le cadre en dimensionnant le texte
+    /// sur le rect écran immobiliserait le sous-titre tout en continuant de rétrécir ses lettres
+    /// avec le curseur de padding.
+    pub fn anchor_rect(&self, screen_dst: [f32; 4]) -> [f32; 4] {
+        if self.in_frame_space() { [0.0, 0.0, 1.0, 1.0] } else { screen_dst }
+    }
+
+    /// `true` pour une entrée mesurée sur le cadre de sortie (`space: "frame"`, les sous-titres).
+    pub fn in_frame_space(&self) -> bool {
+        self.space.as_deref() == Some("frame")
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAnnotationText {
+    pub content: String,
+    /// Chaînes CSS, parsées ici comme la couleur de fond (`parse_hex`) ; "transparent" = pas de
+    /// remplissage.
+    pub color: String,
+    pub background_color: String,
+    /// Taille de police en **fraction de la hauteur du rect écran**, comme tout le reste de ce
+    /// contrat : à multiplier par la hauteur du rect en pixels de sortie. La preview applique le
+    /// même produit contre sa propre boîte (`annotationScale.ts`), donc preview et rendu
+    /// s'accordent à n'importe quelle résolution.
+    pub font_size_rel: f32,
+    pub font_family: String,
+    pub font_weight: String,
+    pub font_style: String,
+    pub text_decoration: String,
+    pub text_align: String,
+    /// Quelle arête du bloc de texte est épinglée à sa boîte : `"top"` / `"center"`
+    /// / `"bottom"`. Absent = `"center"`, le comportement historique — les
+    /// annotations n'émettent jamais la clé et ne bougent donc pas d'un pixel.
+    /// Les sous-titres l'émettent pour que l'arête ancrée tienne quand le texte
+    /// gagne une ligne (un bloc centré voit ses deux arêtes se déplacer).
+    ///
+    /// `Option<String>` et pas une enum, pour la même raison que `space` : serde
+    /// rejette une variante d'unité inconnue, donc une valeur future ferait
+    /// échouer `Scene::from_json` *en entier* sur un binaire plus ancien, au lieu
+    /// de coûter un seul sous-titre mal placé.
+    #[serde(default)]
+    pub vertical_align: Option<String>,
+    #[serde(default)]
+    pub animation: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAnnotationFigure {
+    /// "up" | "down" | "left" | "right" | "up-right" | "up-left" | "down-right" | "down-left".
+    pub direction: String,
+    pub color: String,
+    pub stroke_width: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAnnotationBlur {
+    /// "blur" | "mosaic".
+    pub style: String,
+    /// "rectangle" | "oval" | "freehand".
+    pub shape: String,
+    /// "white" | "black".
+    pub color: String,
+    pub intensity: f32,
+    pub block_size: f32,
+    /// Fractions du rect écran, même espace que le rect.
+    #[serde(default)]
+    pub freehand_points: Option<Vec<SceneAnnotationPoint>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SceneAnnotationPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// Une zone de zoom de la timeline (temps en secondes).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneZoomRegion {
+    /// Identifiant stable — nécessaire pour apparier les régions adjacentes (connected pan).
+    /// `#[serde(default)]` : champ ajouté après coup.
+    #[serde(default)]
+    pub id: String,
+    /// Index du clip dont les temps source portent cette région. `None` garde la compatibilité
+    /// avec les payloads antérieurs et déclenche le repli par chevauchement de fenêtre source.
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    /// échelle cible (>1 = zoom avant).
+    pub scale: f32,
+    pub focus_x: f32,
+    pub focus_y: f32,
+    /// "manual" | "auto" (suit la télémétrie curseur) | null (= manual).
+    #[serde(default)]
+    pub focus_mode: Option<String>,
+    /// La caméra 3D du zoom : un angle fixe ("iso" | "left" | "right"), la caméra réelle qui
+    /// tourne autour de l'écran ("orbit", cf. `camera.rs` : avec le pointeur en focus auto,
+    /// posée par le point de focus en manuel), ou null (écran droit). Une valeur inconnue rend
+    /// l'écran droit.
+    pub rotation: Option<String>,
+    /// La région entière tombe sur une portion qu'un trim retire. Ses temps sont donc HORS de
+    /// la fenêtre source de `clip_index`, qui n'est là que pour l'adresser (le segment que la
+    /// coupe interrompt, cf. `cutAddressingSegmentIndex` côté TS).
+    ///
+    /// Conséquence de rendu : la région est jouée SÈCHE, pleine force sur `[start_sec, end_sec)`
+    /// et rien en dehors — ni fenêtre d'ease-in/ease-out, ni chaînage avec une région voisine.
+    /// C'est ce qui garde la coupe : un export ne compose jamais de frame à ces temps source,
+    /// alors qu'une enveloppe de transition, elle, déborderait sur les frames gardées d'à côté.
+    /// L'utilisateur qui pose la tête de lecture sur le trim voit l'effet ; le rendu, non.
+    /// `#[serde(default)]` : absent de tout payload sans trim sous un modificateur (issue #216).
+    #[serde(default)]
+    pub under_trim: bool,
+    /// Masque le curseur pendant cette région de zoom.
+    #[serde(default)]
+    pub hide_cursor: bool,
+}
+
+/// Une zone de vitesse portée par le temps source d'un clip.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneSpeedRegion {
+    /// Index du clip dont les temps source portent cette région (voir `SceneZoomRegion`).
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    pub speed: f64,
+}
+
+/// Une zone "Full Camera" de la timeline (temps en secondes) : la caméra PREND tout le cadre
+/// pendant cette fenêtre (plein écran net — ni marge, ni arrondi, ni masque, ni fond derrière).
+/// Pas de champs au-delà des bornes temporelles (miroir de `CameraFullscreenRegion`, TS).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCameraFullscreenRegion {
+    /// Index du clip dont les temps source portent cette région (voir `SceneZoomRegion`).
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    /// La région commence avant ce morceau : un trim ou une frontière de clip l'a coupée, et
+    /// `start_sec` est un bord de coupe, pas son vrai début. Pas de montée ici, plein cadre dès
+    /// la première frame, comme un zoom dont l'ease-in tombe hors du clip.
+    #[serde(default)]
+    pub continues_before: bool,
+    /// Pendant de `continues_before` à la fin : pas de descente au bord de la coupe.
+    #[serde(default)]
+    pub continues_after: bool,
+}
+
+/// Un fragment de région d'effet shader (`docs/shader-effects.md`, B.5). Temps source du clip,
+/// comme les autres régions ; la définition (code, paramètres) voyage avec chaque fragment.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneShaderEffect {
+    #[serde(default)]
+    pub clip_index: Option<usize>,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    /// L'étendue de la pilule ENTIÈRE en temps programme, d'où `ctx.region`. Absente : la
+    /// progression court sur le fragment, en temps source.
+    #[serde(default)]
+    pub programme_start_sec: Option<f64>,
+    #[serde(default)]
+    pub programme_end_sec: Option<f64>,
+    #[serde(default)]
+    pub target: ShaderEffectTarget,
+    /// Version du contrat. Une version que ce compositeur ne connaît pas ne se dessine pas.
+    #[serde(default = "default_contract")]
+    pub contract: u32,
+    /// Le WGSL de l'agent : une `fn effect(uv: vec2<f32>) -> vec4<f32>`.
+    pub code: String,
+    /// Les paramètres déclarés, dans l'ordre de la struct `FxParams` générée.
+    #[serde(default)]
+    pub params: Vec<ShaderParamDecl>,
+    /// Les valeurs, déjà normalisées par l'app : un nombre, ou 2 ou 4 floats.
+    #[serde(default)]
+    pub values: std::collections::HashMap<String, ShaderParamValue>,
+}
+
+fn default_contract() -> u32 {
+    crate::shader_fx::CONTRACT
+}
+
+/// Ce qu'un effet transforme : l'image sans les textes, les textes seuls, ou les deux.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShaderEffectTarget {
+    #[default]
+    Image,
+    Text,
+    Both,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ShaderParamDecl {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: ShaderParamType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShaderParamType {
+    Number,
+    Toggle,
+    Color,
+    Point,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum ShaderParamValue {
+    Scalar(f32),
+    Vector(Vec<f32>),
+}
+
+/// Rendu du curseur.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCursor {
+    pub show: bool,
+    /// Masque automatiquement le curseur après une période d'inactivité.
+    #[serde(default)]
+    pub auto_hide: bool,
+    /// échelle directe (1 = défaut).
+    pub size: f32,
+    pub smoothing: f32,
+    pub motion_blur: f32,
+    pub click_bounce: f32,
+    /// Curseur MODÉLISÉ en 3D (mode 15) : le curseur sculpté d'un état qui en a un
+    /// (`SceneCursorSprite::sculpt`), sinon son sprite extrudé. `#[serde(default)]` : absent des
+    /// projets et des JSON écrits avant le réglage, qui gardent donc le curseur plat.
+    #[serde(default)]
+    pub model3d: bool,
+    /// Chaque clic donne un impact à l'écran, quelle que soit la caméra : sous un angle fixe le
+    /// plan bascule du côté cliqué (`regions::click_impact`), sous la caméra réelle l'œil recule,
+    /// sur un écran droit l'écran recule (`frame_geometry::plan_frame`).
+    /// `#[serde(default)]` : l'app omet la clé quand elle est fausse.
+    #[serde(default)]
+    pub click_impact: bool,
+    pub clip_to_bounds: bool,
+    /// id du thème (jeu de sprites) — informatif ici : le natif consomme `cursor_sprites`.
+    pub theme: String,
+    /// Sprites par état de curseur (`"arrow"`, `"text"`, `"pointer"`, `"resize-ew"`, …), chemins
+    /// absolus résolus côté app (compositorViewService, même mécanisme que le wallpaper image).
+    /// Le thème choisi n'y fournit que les états qu'il possède ; l'app complète le reste avec
+    /// l'art intégrée, si bien qu'ici la table est TOUJOURS complète ou vide.
+    ///
+    /// Vide → curseur math dot+ring, qui n'est qu'un filet de sécurité : ce n'est PAS à quoi
+    /// ressemble un pointeur système, et l'afficher en temps normal était le bug « le curseur
+    /// par défaut est un point dans un cercle ».
+    /// `#[serde(default)]` : champ ajouté après coup, absent des JSON de test existants.
+    #[serde(default)]
+    pub cursor_sprites: std::collections::HashMap<String, SceneCursorSprite>,
+}
+
+/// Un sprite de curseur : image + point de pivot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCursorSprite {
+    /// Chemin absolu d'un PNG/JPEG déchiffrable par le crate `image`.
+    pub path: String,
+    /// Pivot en FRACTION de l'image (0..1), pas en pixels : le sprite est redimensionné au
+    /// réglage « taille du curseur », et seule une fraction survit à cette mise à l'échelle.
+    /// Un pivot centré (0.5, 0.5) imposé à tous les sprites décalait la pointe d'autant plus
+    /// que le curseur était agrandi — le bug que ce champ corrige.
+    pub hotspot_x: f32,
+    pub hotspot_y: f32,
+    /// Le curseur sculpté de cet état en 3D, `"<thème>/<état>"` (`sculpt::sculpted_shape`) : les
+    /// shaders le modèlent au lieu d'extruder le sprite, qui reste l'art en 2D.
+    #[serde(default)]
+    pub sculpt: Option<String>,
+    /// Le verre de cet état à plat, `"<thème>/<état>"` comme `sculpt` mais 3D éteinte comprise :
+    /// le shader dessine ce modèle en lentille de verre posée sur l'image (mode 19,
+    /// `frame_geometry::cursor_glass_cb`) au lieu du sprite, qui ne sert plus qu'au sélecteur.
+    #[serde(default)]
+    pub glass: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneCrop {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Audio finishing. Deliberately limited to a linear gain — the one operation the editor
+/// preview can apply identically to the source file it plays. See `audio::finish_audio`
+/// before adding a field here; a sync offset was tried and removed.
+///
+/// The field carries `#[serde(default)]`: a payload from a build that predates it must
+/// degrade to "that stage is neutral", not fail the whole scene.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAudio {
+    #[serde(default)]
+    pub gain_db: f32,
+}
+
+/// One imported audio track (issue #350) mixed over the assembled programme —
+/// voiceover / BGM / SFX. Deliberately a SEPARATE `Scene` field rather than a
+/// member of `SceneAudio`, so `SceneAudio` stays `Copy` and the pipelines keep
+/// copying it out of a borrow unchanged.
+///
+/// `start_sec` is the track's head on the OUTPUT programme; `trim_start_sec` /
+/// `trim_end_sec` window the source file (both source seconds). The renderer
+/// resolves `start_sec` from the track's raw timeline position — equal to it when
+/// the project has no trims/speed, which is the case this first cut mixes exactly.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneAudioTrack {
+    pub path: String,
+    #[serde(default)]
+    pub start_sec: f64,
+    #[serde(default)]
+    pub gain_db: f32,
+    #[serde(default)]
+    pub trim_start_sec: f64,
+    #[serde(default)]
+    pub trim_end_sec: Option<f64>,
+    /// Ramp lengths at this entry's own edges, in seconds. The app puts them only
+    /// on the pieces that touch the track's real start and end, so a split or
+    /// looping track fades once instead of at every cut or repeat.
+    ///
+    /// `#[serde(default)]` for the usual reason: a payload from a build that
+    /// predates the field must degrade to "no fade", not fail the whole scene.
+    #[serde(default)]
+    pub fade_in_sec: f64,
+    #[serde(default)]
+    pub fade_out_sec: f64,
+    /// A voiceover is voice: it is loudness-normalised like the recording's own audio.
+    /// A music bed is not. `#[serde(default)]` reads an older payload as music, which is
+    /// what every imported file was before voiceovers were recorded in the app.
+    #[serde(default)]
+    pub kind: SceneAudioTrackKind,
+}
+
+/// `AxcutAudioTrack["kind"]` on the app side.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SceneAudioTrackKind {
+    #[default]
+    Music,
+    Voiceover,
+}
+
+/// One click to be heard: `time_sec` is its place on the OUTPUT programme, `gain` the linear
+/// level of the hit (side clicks a little quieter than the left), `release` which of the two
+/// samples to play.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneClickHit {
+    pub time_sec: f64,
+    #[serde(default = "default_one")]
+    pub gain: f32,
+    #[serde(default)]
+    pub release: bool,
+}
+
+/// The "mouse clicks" toggle: the recorded click times, already projected onto the programme,
+/// plus the two hit samples to play them with.
+///
+/// Deliberately not an imported audio track. A bed baked into one file cannot follow an edit —
+/// `SceneAudioTrack`'s content is placed, never stretched, so every hit after a speed region
+/// drifts — while hits laid out here are positioned by the app's own projection, the same one
+/// imported audio tracks are placed with, so they cannot disagree with the picture.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneClickSound {
+    /// Absolute paths to the press and release samples, 48 kHz-friendly WAV files. `default` for
+    /// the usual reason: a half-written block must cost the sound, never the whole scene parse.
+    #[serde(default)]
+    pub down_path: String,
+    #[serde(default)]
+    pub up_path: String,
+    #[serde(default)]
+    pub hits: Vec<SceneClickHit>,
+}
+
+fn default_one() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneOutput {
+    pub width: u32,
+    pub height: u32,
+    /// null = fps du 1er clip.
+    pub fps: Option<f64>,
+}
+
+/// Effet d'arrière-plan de la webcam.
+///
+/// Ne porte que le MODE et ses paramètres — jamais des pixels. Le masque par pixel vient de
+/// la segmentation qui tourne dans ce processus (`segmentation.rs`) et arrive au shader comme
+/// texture `t3`. Une version antérieure faisait cuire le composite côté app et l'envoyait
+/// comme piste vidéo : le codec ne sait pas porter l'alpha, et preview et export divergeaient.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneWebcamEffect {
+    /// "none" | "transparent" | "blur" | "custom"
+    pub mode: String,
+    /// 0..1, seulement pour `blur`.
+    #[serde(default)]
+    pub blur_intensity: f32,
+    /// Fond derrière le sujet pour `custom`, parsé comme `settings.wallpaper`.
+    #[serde(default)]
+    pub background: Option<SceneBackground>,
+    /// Chemin du modèle ONNX de segmentation. Même convention que `SceneCursorSprite::path`
+    /// ou qu'un wallpaper image : c'est l'app qui sait où ses assets sont installés, le
+    /// natif ne devine pas. Absent = pas de segmentation, l'effet reste éteint.
+    #[serde(default)]
+    pub model_path: Option<String>,
+}
+
+impl SceneWebcamEffect {
+    /// Code passé au shader dans `fx.z` : 0 = aucun (la webcam se dessine telle quelle),
+    /// 1 = détourage, 2 = flou, 3 = fond personnalisé.
+    pub(crate) fn shader_code(&self) -> f32 {
+        match self.mode.as_str() {
+            "transparent" => 1.0,
+            "blur" => 2.0,
+            "custom" => 3.0,
+            _ => 0.0,
+        }
+    }
+}
+
+/// Tout ce dont le natif a besoin pour composer la scène, sérialisé depuis un document.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scene {
+    pub clips: Vec<SceneClip>,
+    pub layout: SceneLayout,
+    pub effects: SceneEffects,
+    pub background: SceneBackground,
+    pub zoom_regions: Vec<SceneZoomRegion>,
+    /// `#[serde(default)]` : champ ajouté après coup, absent des JSON de test existants.
+    #[serde(default)]
+    pub annotations: Vec<SceneAnnotation>,
+    /// `#[serde(default)]` : champ ajouté après coup, absent des JSON de test existants.
+    #[serde(default)]
+    pub speed_regions: Vec<SceneSpeedRegion>,
+    /// `#[serde(default)]` : champ ajouté après coup, absent des JSON de test existants.
+    #[serde(default)]
+    pub camera_fullscreen_regions: Vec<SceneCameraFullscreenRegion>,
+    #[serde(default)]
+    pub layout_regions: Vec<SceneLayoutRegion>,
+    pub cursor: SceneCursor,
+    /// Global audio finishing. Default keeps old scene payloads bit-for-bit compatible.
+    #[serde(default)]
+    pub audio: SceneAudio,
+    /// Imported audio tracks mixed over the programme (issue #350). `#[serde(default)]`:
+    /// absent from every scene written before this, and from a project with none.
+    #[serde(default)]
+    pub audio_tracks: Vec<SceneAudioTrack>,
+    /// Click hits for the "mouse clicks" toggle. `#[serde(default)]`: an empty `hits` is the
+    /// same as the field being absent, which is every scene written before this.
+    #[serde(default)]
+    pub click_sound: SceneClickSound,
+    /// Crop écran par clip, dans le même ordre que `clips` (`cropByClip` côté TS).
+    #[serde(default)]
+    pub crop_by_clip: Vec<Option<SceneCrop>>,
+    /// Effet d'arrière-plan de la webcam. Absent = aucun effet.
+    #[serde(default)]
+    pub webcam_effect: Option<SceneWebcamEffect>,
+    /// Effets shader écrits par un agent (`shader_fx`). Absent = aucun.
+    #[serde(default)]
+    pub shader_effects: Vec<SceneShaderEffect>,
+    /// État de rendu interne, positionné par `for_clip_window` (jamais envoyé par l'app).
+    #[serde(skip)]
+    pub(crate) active_clip_index: usize,
+    pub output: SceneOutput,
+}
+
+impl Scene {
+    pub fn layout_at(&self, t: f32) -> Option<SampledLayout<'_>> {
+        self.layout_regions.iter().find(|r| r.clip_index == self.active_clip_index
+            && t >= r.start_sec && t < r.end_sec).map(|r| r.sample(t))
+    }
+    /// Parse le JSON produit par `buildSceneDescription` (TS).
+    pub fn from_json(json: &str) -> anyhow::Result<Scene> {
+        Ok(serde_json::from_str(json)?)
+    }
+
+    /// Copie de scène limitée aux régions du clip actif. `clipIndex` est l'identité fiable
+    /// lorsque plusieurs clips réutilisent les mêmes temps source ; son absence retombe sur le
+    /// chevauchement avec la fenêtre source pour accepter les anciens payloads.
+    ///
+    /// Les deux tests étaient jusqu'ici cumulés, ce que la phrase ci-dessus ne dit pas : le
+    /// chevauchement est le REPLI, pas une seconde condition. La différence n'apparaît que pour
+    /// une région hors fenêtre, et une seule l'est — celle qui vit sous un trim (`under_trim`,
+    /// cf. `SceneZoomRegion`). L'app en émet une par modificateur entièrement coupé, adressée au
+    /// segment que la coupe interrompt, pour que la tête de lecture posée sur le trim montre ce
+    /// qu'il y a dessous. Exiger le chevauchement l'aurait filtrée ici même.
+    pub(crate) fn for_clip_window(
+        &self,
+        clip_index: usize,
+        source_start_sec: f64,
+        source_end_sec: f64,
+    ) -> Scene {
+        let belongs = |region_clip_index: Option<usize>, start_sec: f64, end_sec: f64| {
+            let overlaps_window = end_sec > source_start_sec && start_sec < source_end_sec;
+            region_clip_index
+                .map(|i| i == clip_index)
+                .unwrap_or(overlaps_window)
+        };
+        let mut scene = self.clone();
+        scene.zoom_regions.retain(|region| {
+            belongs(region.clip_index, region.start_sec, region.end_sec)
+        });
+        scene.speed_regions.retain(|region| {
+            belongs(region.clip_index, region.start_sec, region.end_sec)
+        });
+        scene.camera_fullscreen_regions.retain(|region| {
+            belongs(region.clip_index, region.start_sec, region.end_sec)
+        });
+        scene.layout_regions.retain(|region| belongs(Some(region.clip_index), region.start_sec as f64, region.end_sec as f64));
+        scene.annotations.retain(|annotation| {
+            belongs(annotation.clip_index, annotation.start_sec, annotation.end_sec)
+        });
+        scene.shader_effects.retain(|effect| {
+            belongs(effect.clip_index, effect.start_sec, effect.end_sec)
+        });
+        // Le layout dépend de la FORME de la source du clip (dimensions natives × crop), qui
+        // varie d'un clip à l'autre. On installe donc celui du clip composé dans les champs
+        // scalaires : `compose_frame` continue de lire un seul `layout`, sans jamais avoir à
+        // savoir qu'il en existe un par clip. Absent (payload ancien) → on garde les scalaires.
+        if let Some(Some(l)) = scene.layout.layout_by_clip.get(clip_index).cloned() {
+            scene.layout.screen_rect = Some(l.screen_rect);
+            scene.layout.webcam_rect = l.webcam_rect;
+            scene.layout.screen_radius_frac = l.screen_radius_frac;
+            scene.layout.webcam_radius_frac = l.webcam_radius_frac;
+            scene.layout.screen_cover = l.screen_cover;
+            if let Some(shape) = l.webcam_shape {
+                scene.layout.webcam_shape = shape;
+            }
+        }
+        scene.active_clip_index = clip_index;
+        scene
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// lui. Sans ce défaut, ouvrir un projet fait par une version antérieure échouerait au
+    /// parse au lieu de simplement ne rien tenir (issue #560).
+    
+    #[test]
+    fn parses_a_minimal_scene_json() {
+        let json = r##"{
+            "clips": [{"screenPath":"/s.mp4","webcamPath":"/w.mp4","sourceStartSec":0,"sourceEndSec":4,"webcamOffsetSec":0,"hasAudio":true}],
+            "layout": {"preset":"picture-in-picture","webcamSize":1.5,"webcamShape":"circle","webcamMirror":true,"webcamPosition":null,"webcamReactiveZoom":false},
+            "effects": {"padding":0.5,"blur":true,"shadow":0.8,"roundnessFrac":0.0222,"motionBlur":0.0},
+            "background": {"kind":"gradient","angleDeg":135,"stops":["#eaebed","#bcc0c6"]},
+            "zoomRegions": [{"clipIndex":0,"startSec":1.0,"endSec":3.0,"scale":2.0,"focusX":0.5,"focusY":0.3,"rotation":"iso"}],
+            "speedRegions": [{"clipIndex":0,"startSec":1.0,"endSec":2.0,"speed":2.0}],
+            "cursor": {"show":true,"size":1,"smoothing":0.5,"motionBlur":0.2,"clickBounce":1,"clipToBounds":false,"theme":"default"},
+            "cropByClip": [null],
+            "output": {"width":1920,"height":1080,"fps":null}
+        }"##;
+        let scene = Scene::from_json(json).expect("parse");
+        assert_eq!(scene.clips.len(), 1);
+        assert_eq!(scene.clips[0].screen_path, "/s.mp4");
+        assert_eq!(scene.layout.preset, "picture-in-picture");
+        assert!(scene.layout.webcam_mirror);
+        assert!((scene.effects.roundness_frac - 0.0222).abs() < 1e-6);
+        // L'ancien interrupteur `true` se lit comme la force qu'il dessinait.
+        assert_eq!(scene.effects.blur, 0.5);
+        let amount: SceneEffects = serde_json::from_str(
+            r#"{"padding":0,"blur":0.3,"shadow":0,"roundnessFrac":0,"motionBlur":0}"#,
+        )
+        .unwrap();
+        assert_eq!(amount.blur, 0.3);
+        match scene.background {
+            SceneBackground::Gradient { angle_deg, ref stops, ref offsets, motion } => {
+                assert_eq!(angle_deg, 135.0);
+                assert_eq!(stops.len(), 2);
+                assert!(offsets.is_empty(), "une scène sans offsets reste lisible");
+                assert_eq!(motion, WallpaperMotion::None);
+            }
+            _ => panic!("expected gradient"),
+        }
+        assert_eq!(scene.zoom_regions[0].scale, 2.0);
+        assert_eq!(scene.zoom_regions[0].clip_index, Some(0));
+        assert_eq!(scene.speed_regions[0].speed, 2.0);
+        assert!(scene.clips[0].has_audio);
+        assert_eq!(scene.crop_by_clip.len(), 1);
+        assert_eq!(scene.output.width, 1920);
+    }
+
+    #[test]
+    fn the_frame_defaults_to_none_and_tolerates_an_unknown_value() {
+        let effects = |frame: &str| -> SceneEffects {
+            serde_json::from_str(&format!(
+                r#"{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0{frame}}}"#
+            ))
+            .expect("parse effects")
+        };
+        assert_eq!(effects("").frame, SceneFrame::None);
+        assert_eq!(effects(r#","frame":"none""#).frame, SceneFrame::None);
+        assert_eq!(effects(r#","frame":"window""#).frame, SceneFrame::Window);
+        // Les trois appareils modelés (mode 17).
+        assert_eq!(effects(r#","frame":"laptop""#).frame, SceneFrame::Laptop);
+        assert_eq!(effects(r#","frame":"phone""#).frame, SceneFrame::Phone);
+        assert_eq!(effects(r#","frame":"monitor""#).frame, SceneFrame::Monitor);
+        // Un cadre d'une version plus récente de l'app : pas de cadre, mais la scène se lit.
+        assert_eq!(effects(r#","frame":"holo-visor""#).frame, SceneFrame::None);
+    }
+
+    /// Le thème est un réglage à part, qui vaut pour TOUS les cadres. Les deux anciennes valeurs
+    /// le portaient dans le cadre : elles se ramènent au chrome de fenêtre et imposent leur
+    /// thème, donc un projet qui n'a pas été migré rend encore ce qu'il rendait.
+    #[test]
+    fn the_frame_theme_is_its_own_setting_and_the_old_values_still_carry_theirs() {
+        let effects = |extra: &str| -> SceneEffects {
+            serde_json::from_str(&format!(
+                r#"{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0{extra}}}"#
+            ))
+            .expect("parse effects")
+        };
+        assert_eq!(effects("").frame_theme, SceneFrameTheme::Light);
+        assert_eq!(effects(r#","frameTheme":"light""#).frame_theme, SceneFrameTheme::Light);
+        assert_eq!(effects(r#","frameTheme":"dark""#).frame_theme, SceneFrameTheme::Dark);
+        // Valeur inconnue : le thème sombre est la dernière variante, donc `other` y tombe. Ce
+        // n'est pas gênant — un thème inconnu n'existe pas, et la scène se lit.
+        assert_eq!(effects(r#","frameTheme":"neon""#).frame_theme, SceneFrameTheme::Dark);
+
+        for (value, theme) in
+            [("window-light", SceneFrameTheme::Light), ("window-dark", SceneFrameTheme::Dark)]
+        {
+            let e = effects(&format!(r#","frame":"{value}""#));
+            assert_eq!(e.frame.resolved(), SceneFrame::Window, "{value}");
+            assert_eq!(e.frame.theme_override(), Some(theme), "{value}");
+            // Et le thème du projet ne les touche pas : elles disent déjà le leur.
+            let forced = effects(&format!(r#","frame":"{value}","frameTheme":"dark""#));
+            assert_eq!(forced.frame.theme_override(), Some(theme), "{value} sous un thème forcé");
+        }
+        // Un cadre normal, lui, suit le réglage.
+        assert_eq!(effects(r#","frame":"window""#).frame.theme_override(), None);
+        assert_eq!(effects(r#","frame":"laptop""#).frame.theme_override(), None);
+    }
+
+    #[test]
+    fn a_click_sound_payload_reads_the_apps_camel_case_names() {
+        let clicks: SceneClickSound = serde_json::from_str(
+            r#"{"downPath":"/u/click-down.wav","upPath":"/u/click-up.wav","hits":[
+                {"timeSec":2.5,"gain":0.7,"release":true},{"timeSec":4.0}]}"#,
+        )
+        .unwrap();
+        assert_eq!(clicks.down_path, "/u/click-down.wav");
+        assert_eq!(clicks.hits.len(), 2);
+        assert_eq!(clicks.hits[0].time_sec, 2.5);
+        assert!(clicks.hits[0].release);
+        // A hit that carries no level is a full-strength press.
+        assert_eq!(clicks.hits[1].gain, 1.0);
+        // And a scene from before the field reads as no hits, not as a parse failure.
+        assert!(SceneClickSound::default().hits.is_empty());
+        assert!(serde_json::from_str::<SceneClickSound>("{}").unwrap().hits.is_empty());
+    }
+
+    #[test]
+    fn parses_color_and_image_backgrounds() {
+        let color = r##"{"clips":[],"layout":{"preset":"no-webcam","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false},"effects":{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0},"background":{"kind":"color","color":"#123456"},"zoomRegions":[],"cursor":{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"},"cropByClip":[],"output":{"width":1280,"height":720,"fps":30}}"##;
+        let s = Scene::from_json(color).expect("parse color");
+        match s.background {
+            SceneBackground::Color { ref color } => assert_eq!(color, "#123456"),
+            _ => panic!("expected color"),
+        }
+        assert_eq!(s.output.fps, Some(30.0));
+    }
+
+    #[test]
+    fn wallpaper_motion_parses_and_tolerates_an_unknown_value() {
+        let motion_of = |json: &str| match serde_json::from_str::<SceneBackground>(json).expect("parse") {
+            SceneBackground::Gradient { motion, .. }
+            | SceneBackground::Image { motion, .. } => motion,
+            _ => panic!("expected gradient or image"),
+        };
+        let g: fn(&str) -> String =
+            |m| format!(r##"{{"kind":"gradient","angleDeg":90,"stops":["#000","#fff"]{m}}}"##);
+        let i: fn(&str) -> String =
+            |m| format!(r#"{{"kind":"image","path":"/wallpapers/wallpaper1.jpg"{m}}}"#);
+        for bg in [g, i] {
+            assert_eq!(motion_of(&bg("")), WallpaperMotion::None);
+            assert_eq!(motion_of(&bg(r#","motion":"drift""#)), WallpaperMotion::Drift);
+            assert_eq!(motion_of(&bg(r#","motion":"aurora""#)), WallpaperMotion::Aurora);
+            assert_eq!(motion_of(&bg(r#","motion":"waves""#)), WallpaperMotion::Waves);
+            assert_eq!(motion_of(&bg(r#","motion":"plasma""#)), WallpaperMotion::None);
+        }
+    }
+
+    #[test]
+    fn parses_webcam_rect_payload() {
+        // webcamRect est une fraction 0..1 du cadre de sortie ; sa présence doit désactiver
+        // le fallback `preset_placements` Rust côté `compose_frame` (voir `compositor.rs`).
+        let json = r##"{
+            "clips": [],
+            "layout": {
+                "preset": "picture-in-picture",
+                "webcamSize": 0.25,
+                "webcamShape": "rounded",
+                "webcamMirror": false,
+                "webcamPosition": null,
+                "webcamReactiveZoom": false,
+                "webcamRect": { "x": 0.8125, "y": 0.8125, "width": 0.1666667, "height": 0.1666667 }
+            },
+            "effects": {"padding": 0, "blur": false, "shadow": 0, "roundnessFrac": 0.0222, "motionBlur": 0},
+            "background": {"kind":"color","color":"#000000"},
+            "zoomRegions": [],
+            "cursor": {"show": true, "size": 1, "smoothing": 0, "motionBlur": 0, "clickBounce": 1, "clipToBounds": false, "theme": "default"},
+            "cropByClip": [],
+            "output": {"width": 1920, "height": 1080, "fps": null}
+        }"##;
+        let s = Scene::from_json(json).expect("parse w/ webcamRect");
+        let r = s
+            .layout
+            .webcam_rect
+            .expect("webcam_rect doit être présent pour ce payload");
+        // bornes + ratio cohérent avec `computeCompositeLayout` (TS) pour le preset PiP @25%.
+        assert!((0.0..=1.0).contains(&r.x) && (0.0..=1.0).contains(&r.y));
+        assert!(r.width > 0.0 && r.width <= 1.0);
+        assert!((r.width - r.height).abs() < 1e-5);
+    }
+
+    #[test]
+    fn webcam_rect_field_optional_in_payload() {
+        // L'ancien payload sans `webcamRect` doit toujours parser sans erreur (le champ est
+        // `#[serde(default)]`) ; `webcam_rect` est alors None → fallback `preset_placements`.
+        let json = r##"{"clips":[],"layout":{"preset":"picture-in-picture","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false},"effects":{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0},"background":{"kind":"color","color":"#000000"},"zoomRegions":[],"cursor":{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"},"cropByClip":[],"output":{"width":1920,"height":1080,"fps":null}}"##;
+        let s = Scene::from_json(json).expect("parse sans webcam_rect");
+        assert!(s.layout.webcam_rect.is_none());
+        assert_eq!(s.layout.preset, "picture-in-picture");
+        assert!(s.webcam_effect.is_none());
+    }
+
+    #[test]
+    fn webcam_effect_maps_each_mode_to_its_shader_code() {
+        let scene_with = |effect: &str| {
+            let json = format!(
+                r##"{{"clips":[],"layout":{{"preset":"picture-in-picture","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false}},"effects":{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0}},"background":{{"kind":"color","color":"#000000"}},"zoomRegions":[],"cursor":{{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"}},"cropByClip":[],"output":{{"width":1920,"height":1080,"fps":null}},"webcamEffect":{}}}"##,
+                effect
+            );
+            Scene::from_json(&json).expect("parse avec webcamEffect").webcam_effect.expect("présent")
+        };
+
+        assert_eq!(scene_with(r#"{"mode":"none"}"#).shader_code(), 0.0);
+        assert_eq!(scene_with(r#"{"mode":"transparent"}"#).shader_code(), 1.0);
+        assert_eq!(scene_with(r#"{"mode":"blur","blurIntensity":0.75}"#).shader_code(), 2.0);
+        assert_eq!(scene_with(r#"{"mode":"custom"}"#).shader_code(), 3.0);
+        // Un mode inconnu (document trafiqué, schéma futur) ne doit pas allumer un effet.
+        assert_eq!(scene_with(r#"{"mode":"hologram"}"#).shader_code(), 0.0);
+
+        let blur = scene_with(r#"{"mode":"blur","blurIntensity":0.75}"#);
+        assert_eq!(blur.blur_intensity, 0.75);
+        // `blurIntensity` absent => 0, pas une erreur de parse.
+        assert_eq!(scene_with(r#"{"mode":"blur"}"#).blur_intensity, 0.0);
+
+        let custom =
+            scene_with(r##"{"mode":"custom","background":{"kind":"color","color":"#ff0080"}}"##);
+        match custom.background {
+            Some(SceneBackground::Color { color }) => assert_eq!(color, "#ff0080"),
+            other => panic!("attendu un fond couleur, obtenu {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod annotation_tests {
+    use super::*;
+
+    /// Enveloppe minimale valide + les annotations passées en paramètre.
+    fn scene_json(annotations: &str) -> String {
+        format!(
+            r##"{{"clips":[],"layout":{{"preset":"no-webcam","webcamSize":1,"webcamShape":"rectangle","webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false}},"effects":{{"padding":0,"blur":false,"shadow":0,"roundnessFrac":0,"motionBlur":0}},"background":{{"kind":"color","color":"#000000"}},"zoomRegions":[],"annotations":{annotations},"cursor":{{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,"clipToBounds":false,"theme":"default"}},"cropByClip":[],"output":{{"width":1920,"height":1080,"fps":30}}}}"##
+        )
+    }
+
+    #[test]
+    fn an_older_payload_without_annotations_still_parses() {
+        // `#[serde(default)]` : tout JSON produit avant ce champ doit continuer à charger.
+        let json = scene_json("[]").replace(r#""annotations":[],"#, "");
+        let scene = Scene::from_json(&json).expect("parse sans annotations");
+        assert!(scene.annotations.is_empty());
+    }
+
+    #[test]
+    fn parses_a_text_annotation_with_its_style() {
+        let json = scene_json(
+            r##"[{"id":"ann1","clipIndex":0,"startSec":1.0,"endSec":3.0,"kind":"text","x":0.25,"y":0.5,"w":0.4,"h":0.1,"zIndex":2,"text":{"content":"Bonjour","color":"#ffffff","backgroundColor":"transparent","fontSizeRel":0.0296,"fontFamily":"Inter","fontWeight":"bold","fontStyle":"normal","textDecoration":"none","textAlign":"center","animation":"fade"}}]"##,
+        );
+        let scene = Scene::from_json(&json).expect("parse texte");
+        let ann = &scene.annotations[0];
+        assert_eq!(ann.kind, "text");
+        assert_eq!(ann.clip_index, Some(0));
+        assert_eq!(ann.z_index, 2);
+        assert!((ann.x - 0.25).abs() < 1e-6 && (ann.h - 0.1).abs() < 1e-6);
+        let text = ann.text.as_ref().expect("payload texte");
+        assert_eq!(text.content, "Bonjour");
+        assert_eq!(text.text_align, "center");
+        assert_eq!(text.animation.as_deref(), Some("fade"));
+        assert!(ann.figure.is_none() && ann.blur.is_none());
+    }
+
+    /// Le rect écran arbitraire des tests d'ancrage : décalé ET rétréci, comme un
+    /// écran que le padding a rentré dans le cadre.
+    const PADDED_SCREEN: [f32; 4] = [0.1, 0.1, 0.8, 0.8];
+
+    fn annotation_with_space(space: &str) -> SceneAnnotation {
+        let json = scene_json(&format!(
+            r##"[{{"id":"a","startSec":0.0,"endSec":1.0,"kind":"text",{space}"x":0.25,"y":0.5,"w":0.4,"h":0.1,"zIndex":0}}]"##
+        ));
+        Scene::from_json(&json)
+            .expect("parse annotation")
+            .annotations
+            .into_iter()
+            .next()
+            .expect("une annotation")
+    }
+
+    #[test]
+    fn an_annotation_without_a_space_still_measures_against_the_screen_rect() {
+        // Le champ est arrivé après coup : tout payload existant — et toute annotation,
+        // qui n'en envoie jamais — doit garder l'ancrage historique.
+        let ann = annotation_with_space("");
+        assert!(ann.space.is_none());
+        assert_eq!(ann.anchor_rect(PADDED_SCREEN), PADDED_SCREEN);
+    }
+
+    #[test]
+    fn a_frame_space_annotation_measures_against_the_output_frame() {
+        // C'est tout l'objet de l'issue #396 : le sous-titre ne bouge pas quand le
+        // padding rentre l'écran, parce qu'il ne mesure plus l'écran.
+        let ann = annotation_with_space(r#""space":"frame","#);
+        assert_eq!(ann.space.as_deref(), Some("frame"));
+        assert_eq!(ann.anchor_rect(PADDED_SCREEN), [0.0, 0.0, 1.0, 1.0]);
+        // Et il tombe au même endroit quel que soit le rect écran.
+        assert_eq!(ann.anchor_rect([0.3, 0.3, 0.4, 0.4]), ann.anchor_rect(PADDED_SCREEN));
+    }
+
+    #[test]
+    fn an_unknown_space_falls_back_instead_of_failing_the_whole_scene() {
+        // La raison du `Option<String>` : serde refuserait une variante inconnue d'une
+        // enum unitaire et ferait échouer `from_json` EN ENTIER, donc un binaire plus
+        // ancien perdrait la scène complète pour un mot qu'il ne connaît pas.
+        let ann = annotation_with_space(r#""space":"safe-area","#);
+        assert_eq!(ann.anchor_rect(PADDED_SCREEN), PADDED_SCREEN);
+        // Un null explicite doit passer par la même porte.
+        let nulled = annotation_with_space(r#""space":null,"#);
+        assert!(nulled.space.is_none());
+        assert_eq!(nulled.anchor_rect(PADDED_SCREEN), PADDED_SCREEN);
+    }
+
+    #[test]
+    fn parses_figure_and_blur_payloads() {
+        let json = scene_json(
+            r##"[{"id":"f","startSec":0.0,"endSec":1.0,"kind":"figure","x":0.1,"y":0.1,"w":0.2,"h":0.2,"zIndex":0,"figure":{"direction":"up-left","color":"#34B27B","strokeWidth":6}},
+                 {"id":"b","startSec":0.0,"endSec":1.0,"kind":"blur","x":0.0,"y":0.0,"w":0.5,"h":0.5,"zIndex":1,"blur":{"style":"mosaic","shape":"freehand","color":"black","intensity":8,"blockSize":16,"freehandPoints":[{"x":0.1,"y":0.2},{"x":0.3,"y":0.4}]}}]"##,
+        );
+        let scene = Scene::from_json(&json).expect("parse figure+blur");
+        let figure = scene.annotations[0].figure.as_ref().expect("payload figure");
+        assert_eq!(figure.direction, "up-left");
+        assert!((figure.stroke_width - 6.0).abs() < 1e-6);
+        let blur = scene.annotations[1].blur.as_ref().expect("payload blur");
+        assert_eq!(blur.shape, "freehand");
+        let points = blur.freehand_points.as_ref().expect("points");
+        assert_eq!(points.len(), 2);
+        assert!((points[1].x - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn for_clip_window_keeps_only_the_annotations_of_the_composed_clip() {
+        // Même règle que les zoom/speed/camera regions : `clipIndex` décide seul quand il est là.
+        // `under-trim` porte des temps hors fenêtre EXPRÈS (il vit sous une coupe) et doit donc
+        // survivre : le dessin est ensuite borné par `startSec`/`endSec`, jamais atteints par un
+        // export. Cf. issue #216.
+        let json = scene_json(
+            r##"[{"id":"keep","clipIndex":0,"startSec":1.0,"endSec":2.0,"kind":"figure","x":0,"y":0,"w":0.1,"h":0.1,"zIndex":0},
+                 {"id":"other-clip","clipIndex":1,"startSec":1.0,"endSec":2.0,"kind":"figure","x":0,"y":0,"w":0.1,"h":0.1,"zIndex":0},
+                 {"id":"under-trim","clipIndex":0,"underTrim":true,"startSec":50.0,"endSec":51.0,"kind":"figure","x":0,"y":0,"w":0.1,"h":0.1,"zIndex":0}]"##,
+        );
+        let scene = Scene::from_json(&json).expect("parse");
+        let filtered = scene.for_clip_window(0, 0.0, 10.0);
+        assert_eq!(
+            filtered.annotations.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["keep", "under-trim"]
+        );
+    }
+
+    #[test]
+    fn for_clip_window_still_falls_back_to_window_overlap_without_a_clip_index() {
+        // Vieux payload : rien ne dit à quel clip la région appartient, le chevauchement de
+        // fenêtre reste la seule réponse disponible. C'est le REPLI, pas une seconde condition.
+        let json = scene_json(
+            r##"[{"id":"in-window","startSec":1.0,"endSec":2.0,"kind":"figure","x":0,"y":0,"w":0.1,"h":0.1,"zIndex":0},
+                 {"id":"out-of-window","startSec":50.0,"endSec":51.0,"kind":"figure","x":0,"y":0,"w":0.1,"h":0.1,"zIndex":0}]"##,
+        );
+        let scene = Scene::from_json(&json).expect("parse");
+        let filtered = scene.for_clip_window(0, 0.0, 10.0);
+        assert_eq!(
+            filtered.annotations.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+            vec!["in-window"]
+        );
+    }
+}

@@ -1,0 +1,4400 @@
+// Compositeur — un draw par calque (quad). NV12->RGB maison (E1), coins arrondis SDF (E2).
+// Tout écrit depuis les maths (§7), rien repris de l'ancien paradigme.
+//
+// `ps_main` est compilé DEUX fois (`build.rs`) : sans `LAYER_MODELS` pour tous les calques, et
+// avec, en `ps_main_models`, pour les seuls modèles 3D (modes 15 à 17, `LayerCB::needs_models`).
+// Un pixel shader alloue à chaque draw les registres de sa branche la plus lourde, et ce sont
+// ces modèles ray-tracés : le même shader les portait pour le fond, l'ombre et la vidéo, qui
+// couvrent toute la sortie. Mesuré sur la version WGSL (RADV) : 168 VGPR, 6 vagues par SIMD au
+// lieu de 32, et un export Linux deux fois plus lent ; sans eux, 48.
+
+cbuffer Layer : register(b0)
+{
+    float4 dst;       // x,y,w,h dans l'espace sortie 0..1 (origine haut-gauche)
+    float4 src;       // u0,v0,u1,v1 dans l'espace source 0..1 ; modes 15 et 17 : décalage px du rayon, P, U
+    float2 quad_px;   // taille du quad en pixels (pour les SDF)
+    float  radius_px; // rayon des coins arrondis en px (0 = aucun) ; mode 17 : rayon des coins hauts du corps (unités du modèle)
+    float  mode;      // 0 = vidéo NV12, 1 = couleur pleine, 2 = ombre portée, 4 = curseur, 15 = curseur 3D, 16 = impact du clic, 17 = appareil modelé, 18 = écran cadré flouté en bloc, 19 = curseur de verre à plat
+    float4 color;     // couleur pleine / teinte (ombre : rgb + opacité dans a) ; mode 15 : coin du sprite, écrasement, opacité ; mode 17 : .r = l'appareil (1 portable, 2 téléphone, 3 moniteur), .g = thème sombre, .b = rayon des coins bas du corps, .a = opacité
+    float4 fx;        // fx.x = spread ombre (px), fx.y,fx.z libres ; mode 15 : rotation du plan (rad), tangage ; mode 17 : rotation du plan (rad), épaisseur
+    float4 src_prev;  // src à la frame précédente (flou de mouvement par vélocité) ; mode 15 : hotspot, lacet ; mode 17 : marges du corps (unités du modèle)
+    float4 dst_prev;  // dst à la frame précédente ; modes 13 et 15 : rect de clip ; mode 17 : angle du socle, rayon et recouvrement de l'ouverture, pénombre de l'ombre
+    float4 mb;        // mb.x = nombre de taps de motion blur (1 = désactivé) ; modes 15 et 17 : demi-taille du plan, translation ; mode 18 : .z = 1 si le plan est incliné, .w = 1 si son warp est projectif
+    float4 trail_a;   // mode 8 : coins TL, TR du plan à la frame précédente (px locaux, comme fx) ; mode 18 incliné : en fractions de sortie
+    float4 trail_b;   // mode 8 : coins BR, BL du plan à la frame précédente (comme src_prev) ; mode 18 incliné : en fractions de sortie
+    float4 trail_mb;  // mode 8 : x = taps, y = force du flou de mouvement (ceux du mode 0) ; mode 18 incliné : le `mb` du mode 8 (profondeur de champ), et `color.xy` sa lampe ; 0 ailleurs
+};
+// Mode 15 (curseur modélisé) : le détail des emplacements est dans `frame_geometry.rs`, en tête
+// de la section « Curseur modélisé » (`cursor_model_cb`). Mode 17 (appareil modelé) : en tête de
+// « Appareils modelés » (`device_frame_cb`), et résumé au-dessus de `device_frame` ci-dessous.
+
+struct VSOut
+{
+    float4 pos   : SV_Position;
+    float2 uv    : TEXCOORD0; // coords d'échantillonnage source
+    float2 local : TEXCOORD1; // coords pixel dans le quad (pour SDF)
+    float2 pout  : TEXCOORD2; // position 0..1 sortie (pour la vélocité par pixel)
+};
+
+VSOut vs_main(uint vid : SV_VertexID)
+{
+    float2 c = float2(vid & 1, (vid >> 1) & 1); // strip: (0,0)(1,0)(0,1)(1,1)
+    float2 p = dst.xy + c * dst.zw;             // 0..1 sortie
+    float2 ndc = float2(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0);
+    VSOut o;
+    o.pos = float4(ndc, 0.0, 1.0);
+    o.uv = src.xy + c * (src.zw - src.xy);
+    o.local = c * quad_px;
+    o.pout = p;
+    return o;
+}
+
+Texture2D<float>  texY  : register(t0);
+Texture2D<float2> texUV : register(t1);
+Texture2D<float4> texImg : register(t2); // wallpaper image RGBA (fond, mode 6) ; mode 18 : l'écran cadré isolé
+// Masque de segmentation du sujet, 0 = fond, 1 = sujet. Produit par `segmentation.rs` a la
+// resolution du modele (256x144) ; l'upscale vers la resolution webcam est fait par le sampler
+// lineaire, ce qui est exactement le filtrage qu'on veut sur un masque.
+Texture2D<float> texMask : register(t3);
+// Champ de distance signé du sprite de curseur (mode 15 seulement), R16F, cf. `cursor_sdf.rs`.
+// Le sprite lui-même est en t2 (texImg), comme aux modes 7 et 13.
+Texture2D<float> texSdf : register(t4);
+// Pyramide de profondeur de champ (`tilted_sample`), lue par le mode 8 et par le repli du mode 18,
+// qui garde t2 pour son rendu isolé : d'où un emplacement à elle.
+Texture2D<float4> texDof : register(t5);
+SamplerState samp : register(s0);
+
+// Plafond de la profondeur de champ du mode 8, en niveau de la pyramide demi-résolution (1.5 =
+// ~5.7 texels source). Validé à l'œil sur du texte : cf. `tests/tilted_depth_of_field.rs`.
+#define DOF_MAX_LOD 1.5
+
+// BT.709 limited -> RGB (§7 E1), matrice en dur, range mesuré en S1.
+float3 yuv709_limited(float y, float2 cbcr)
+{
+    float Yf = (y * 255.0 - 16.0) / 219.0;
+    float Cb = (cbcr.x * 255.0 - 128.0) / 224.0;
+    float Cr = (cbcr.y * 255.0 - 128.0) / 224.0;
+    float3 rgb;
+    rgb.r = Yf + 1.5748 * Cr;
+    rgb.g = Yf - 0.1873 * Cb - 0.4681 * Cr;
+    rgb.b = Yf + 1.8556 * Cb;
+    return saturate(rgb);
+}
+
+float3 sample_yuv(float2 uv)
+{
+    float y = texY.Sample(samp, uv);
+    float2 cbcr = texUV.Sample(samp, uv);
+    return yuv709_limited(y, cbcr);
+}
+
+// La même, au niveau 0 : lisible dans une boucle ou une branche (le cristal du mode 15).
+// SDF segment à bouts ronds — la primitive des flèches d'annotation, dont les tracés SVG sont
+// trois segments `stroke-linecap="round"` (cf. ArrowSvgs.tsx).
+float sd_segment(float2 p, float2 a, float2 b)
+{
+    float2 pa = p - a;
+    float2 ba = b - a;
+    float h = saturate(dot(pa, ba) / max(dot(ba, ba), 1e-6));
+    return length(pa - ba * h);
+}
+
+// SDF rectangle à coins arrondis (§7 E2) : <0 dedans.
+//
+// Coins CONTINUS : le quart de coin est une superellipse d'exposant n, pas un arc de cercle.
+// Un arc rejoint le bord droit sans angle, mais sa courbure y saute d'un coup de 0 à 1/r, et
+// l'œil lit ce saut comme une cassure ; ici elle monte en douceur depuis zéro (les coins
+// « continus » d'Apple). `r` garde son sens : l'étendue E = K(n)·r creuse le coin à 45° autant
+// qu'un cercle de rayon r, donc un réglage arrondit autant qu'avant, et deux contours
+// concentriques (r, et r + b autour) gardent une bordure d'épaisseur b à 2 % près. L'exposant
+// revient à 2 quand r approche le demi-petit-côté : à fond, un carré est un cercle et un
+// rectangle une pilule. La distance est divisée par la pente de la norme, donc l'antialiasing
+// garde sa largeur tout autour du coin. r <= 0 : le rectangle vif d'avant, à l'identique.
+float sd_round_rect(float2 p, float2 halfsz, float r)
+{
+    float hmin = min(halfsz.x, halfsz.y);
+    float2 q0 = abs(p) - halfsz;
+    // Hors des coins, la distance est celle du rectangle vif quel que soit l'exposant : un seul
+    // axe déborde de l'étendue E, qui s'y ajoute puis s'en retranche. E ne dépasse pas 1,42 r
+    // (n = 3) : sous 1,5 r du bord sur un axe, on rend la boîte sans calculer `n` ni E, deux
+    // transcendantes de moins sur presque tous les pixels d'un calque arrondi.
+    if (r <= 0.0 || hmin <= 0.0 || min(q0.x, q0.y) <= -min(1.5 * r, hmin))
+    {
+        return length(max(q0, 0.0)) + min(max(q0.x, q0.y), 0.0);
+    }
+    float n = 3.0 - smoothstep(0.5, 1.0, r / hmin);
+    float e = min(r * 0.29289322 / (1.0 - exp2(-1.0 / n)), hmin);
+    float2 q = abs(p) - halfsz + e;
+    float2 m = max(q, 0.0);
+    if (m.x > 0.0 && m.y > 0.0)
+    {
+        float len = pow(pow(m.x, n) + pow(m.y, n), 1.0 / n);
+        float2 g = pow(m / len, float2(n - 1.0, n - 1.0));
+        return (len - e) / length(g);
+    }
+    return max(m.x, m.y) + min(max(q.x, q.y), 0.0) - e;
+}
+
+// L'écran sous le chrome de FENÊTRE (modes 0 et 8) : coins HAUTS carrés, à ras de la barre de
+// titre, coins bas arrondis de `r`. L'arrondi du haut se fait une seule fois, par le cadre :
+// quand `r` dépasse la barre, l'arc du cadre descend sous elle et rogne les coins hauts de
+// l'écran. On le reproduit ici au contour INTÉRIEUR du filet — un rect arrondi de `r` qui monte
+// de `lift` (la barre moins le filet) au-dessus de l'écran. Tant que `r <= lift`, son arc reste
+// au-dessus de l'écran et ne rogne rien.
+float sd_screen_under_bar(float2 p, float2 halfsz, float r, float lift)
+{
+    float own = sd_round_rect(p, halfsz, (p.y < 0.0) ? 0.0 : r);
+    float2 up = float2(0.0, lift * 0.5);
+    return max(own, sd_round_rect(p + up, halfsz + up, r));
+}
+
+// Couverture du quad avec coins arrondis, pour les modes qui retournent AVANT la queue de
+// `ps_main` (5 gradient, 6 image). Ils s'en passaient tant qu'ils ne servaient qu'au fond plein
+// cadre, qui n'a pas de rayon ; depuis que la bulle webcam peut porter un dégradé ou une image,
+// sans ça le fond déborde en carré opaque sur les coins arrondis de la bulle et mange l'ombre.
+// Renvoie 1.0 quand aucun rayon n'est demandé — le fond plein cadre est donc inchangé.
+float quad_round_alpha(float2 local, float2 quad_px, float radius_px)
+{
+    if (radius_px <= 0.0 || quad_px.x <= 0.0 || quad_px.y <= 0.0)
+    {
+        return 1.0;
+    }
+    float2 halfsz = quad_px * 0.5;
+    float d = sd_round_rect(local - halfsz, halfsz, radius_px);
+    return 1.0 - smoothstep(0.0, 1.5, d); // même feather ~1.5px que la queue
+}
+
+// Le slot d'un layout en bloc, qui rogne le plan incliné (mode 8, `r` = `color.w`, rayon de ses
+// coins en px, 0 sans slot). Négatif : coins HAUTS carrés, à ras de la barre de la fenêtre qui
+// le contient (`ScreenMask::square_top`), coins bas arrondis de `-r`.
+float slot_alpha(float2 local, float2 quad_px, float r)
+{
+    if (r >= 0.0)
+    {
+        return quad_round_alpha(local, quad_px, r);
+    }
+    float2 halfsz = quad_px * 0.5;
+    float2 p = local - halfsz;
+    return 1.0 - smoothstep(0.0, 1.5, sd_round_rect(p, halfsz, (p.y < 0.0) ? 0.0 : -r));
+}
+
+// Intersection de deux droites données par (normale, offset) : n·x = d. Cramer.
+float2 line_cross(float2 n1, float d1, float2 n2, float d2)
+{
+    float det = n1.x * n2.y - n1.y * n2.x;
+    if (abs(det) < 1e-6) return float2(0.0, 0.0); // arêtes parallèles : quad dégénéré
+    return float2(d1 * n2.y - d2 * n1.y, d2 * n1.x - d1 * n2.x) / det;
+}
+
+// Distance signée EXACTE à un quadrilatère convexe (<0 dedans). Le max des demi-plans suffit près
+// des arêtes mais donne un coin en pointe ; ici on veut aussi la distance juste au coin, puisque
+// c'est elle qui devient l'arrondi une fois le rayon retranché.
+float sd_convex_quad(float2 p, float2 v0, float2 v1, float2 v2, float2 v3)
+{
+    float2 v[5] = { v0, v1, v2, v3, v0 };
+    float inside = -1e9;
+    float border = 1e9;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        float2 a = v[k];
+        float2 e = v[k + 1] - a;
+        float2 n = float2(e.y, -e.x) / max(length(e), 1e-6);
+        inside = max(inside, dot(p - a, n));
+        border = min(border, sd_segment(p, a, v[k + 1]));
+    }
+    return (inside < 0.0) ? -border : border;
+}
+
+// (s, t, ok) du warp inverse du mode 8 pour une racine `t` donnée : `ok` = 1 quand le couple
+// tombe dans le quad projeté (même marge 0.02 qu'ailleurs). Les deux racines doivent être
+// essayées — trancher sur `t` seul retient parfois celle dont le `s` sort du quad, et le pixel
+// est alors déclaré dehors alors que l'autre racine le plaçait dedans.
+float3 quad_st_for_root(float t, float2 e, float2 f, float2 g, float2 h)
+{
+    float denomX = e.x + g.x * t;
+    float denomY = e.y + g.y * t;
+    float s = (abs(denomX) > abs(denomY)) ? (h.x - f.x * t) / denomX : (h.y - f.y * t) / denomY;
+    float ok = (s >= -0.02 && s <= 1.02 && t >= -0.02 && t <= 1.02) ? 1.0 : 0.0;
+    return float3(s, t, ok);
+}
+
+// (s, t, ok) du point `P` dans le quad c00->c10->c11->c01 : le warp bilinéaire INVERSE, partagé
+// par le mode 8 (écran incliné) et le mode 13 (curseur posé sur ce même écran). Les deux doivent
+// résoudre exactement la même équation, sinon le curseur glisse par rapport au contenu — d'où
+// une seule implémentation plutôt que deux copies.
+//
+// `ok` = −1 quand `P` n'a AUCUN antécédent : au-delà du pli du warp bilinéaire, qu'aucun point
+// du plan prolongé n'atteint. (s, t) n'y veut rien dire. Ce n'est pas l'origine (0, 0), qui est
+// un vrai point du plan : le mode 18 le renvoyait sur le coin haut-gauche de l'écran, et le fond
+// loin de l'écran prenait la couleur de ce coin. Les appelants qui testent `ok < 0.5` écartent
+// ce pixel comme un pixel hors du quad ; ceux qui prolongent (s, t) hors du quad testent `ok < -0.5`.
+float3 quad_inverse_bilinear(float2 P, float2 c00, float2 c10, float2 c11, float2 c01)
+{
+    float2 e = c10 - c00;
+    float2 f = c01 - c00;
+    float2 g = c00 - c10 - c01 + c11;
+    float2 h = P - c00;
+    float k2 = g.x * f.y - g.y * f.x;
+    float k1 = e.x * f.y - e.y * f.x + h.x * g.y - h.y * g.x;
+    float k0 = h.x * e.y - h.y * e.x;
+    // Seuil RELATIF. Les présets « left »/« right » sont une rotation Y pure : le quad
+    // projeté est un trapèze symétrique dont `f` et `g` sont tous deux verticaux, donc
+    // k2 = 0 EXACTEMENT — au bruit d'arrondi près, et ce bruit vaut quelques centièmes sur
+    // des produits en 10^6. Un seuil absolu de 0.001 le manquait : l'équation passait dans la
+    // branche quadratique avec k2 ≈ 0, où `(-k1 + sqrt(k1²)) / 2k2` ne renvoie que du bruit —
+    // soustraire deux nombres presque égaux, puis diviser par presque rien. La quasi-totalité
+    // du quad était rejetée, ce qui se voyait comme un écran incliné tranché net.
+    if (abs(k2) < 1e-5 * abs(k1))
+    {
+        // k1 nul aussi : l'équation ne fixe plus `t`, aucun point à rendre.
+        if (abs(k1) < 1e-6) return float3(0.0, 0.0, -1.0);
+        return quad_st_for_root(-k0 / k1, e, f, g, h);
+    }
+    float disc = k1 * k1 - 4.0 * k2 * k0;
+    if (disc < 0.0) return float3(0.0, 0.0, -1.0);
+    // Forme stable : `q` n'oppose jamais deux quantités voisines, et les deux racines
+    // s'en déduisent exactement. `sign()` est évité parce qu'il vaut 0 en 0, ce qui
+    // annulerait `q` là où la formule reste parfaitement définie.
+    float q = -0.5 * (k1 + (k1 >= 0.0 ? 1.0 : -1.0) * sqrt(disc));
+    float3 r0 = quad_st_for_root(q / k2, e, f, g, h);
+    float3 r1 = quad_st_for_root(abs(q) > 0.0 ? k0 / q : q / k2, e, f, g, h);
+    return (r0.z > 0.5) ? r0 : r1;
+}
+
+// (s, t, ok) du point `P` dans le quad c00->c10->c11->c01 par l'homographie EXACTE du carré unité
+// sur le quad (forme de Heckbert, coordonnées relatives à c00), résolue à l'envers par Cramer.
+// C'est la projection d'un plan par une vraie caméra (`camera.rs`) : le warp bilinéaire s'en écarte
+// de plusieurs dizaines de px au centre d'un écran vu de biais. Miroir de `regions::square_to_quad`.
+float3 quad_inverse_projective(float2 P, float2 c00, float2 c10, float2 c11, float2 c01)
+{
+    float2 p1 = c10 - c00;
+    float2 p2 = c11 - c00;
+    float2 p3 = c01 - c00;
+    float2 d1 = p1 - p2;
+    float2 d2 = p3 - p2;
+    float2 d3 = p2 - p1 - p3;
+    float den = d1.x * d2.y - d2.x * d1.y;
+    float g = (d3.x * d2.y - d2.x * d3.y) / den;
+    float h = (d1.x * d3.y - d3.x * d1.y) / den;
+    float2 q = P - c00;
+    // x·(g s + h t + 1) = a s + b t, idem en y : un système 2×2 linéaire en (s, t).
+    float m00 = p1.x * (1.0 + g) - g * q.x;
+    float m01 = p3.x * (1.0 + h) - h * q.x;
+    float m10 = p1.y * (1.0 + g) - g * q.y;
+    float m11 = p3.y * (1.0 + h) - h * q.y;
+    float det = m00 * m11 - m01 * m10;
+    float s = (q.x * m11 - m01 * q.y) / det;
+    float t = (m00 * q.y - q.x * m10) / det;
+    float ok = (s >= -0.02 && s <= 1.02 && t >= -0.02 && t <= 1.02) ? 1.0 : 0.0;
+    return float3(s, t, ok);
+}
+
+// Le warp inverse d'un calque posé sur le plan : projectif sous la caméra réelle ou un appareil
+// (`projective` = 1, cf. `TiltedQuad::warp_flag`), bilinéaire sous un angle fixe, inchangé.
+// `ok` : 1 dans le quad, 0 dehors, −1 sans antécédent (`quad_inverse_bilinear`).
+float3 quad_inverse(float2 P, float2 c00, float2 c10, float2 c11, float2 c01, float projective)
+{
+    if (projective > 0.5)
+    {
+        return quad_inverse_projective(P, c00, c10, c11, c01);
+    }
+    return quad_inverse_bilinear(P, c00, c10, c11, c01);
+}
+
+// Le point (s, t) du plan dans le quad c00->c10->c11->c01 : le warp de `quad_inverse` dans le
+// sens direct, prolongé hors du carré unité. Miroir de `TiltedQuad::point_px` (l'homographie de
+// `regions::square_to_quad`, ou le bilinéaire des coins).
+float2 quad_forward(float2 st, float2 c00, float2 c10, float2 c11, float2 c01, float projective)
+{
+    if (projective > 0.5)
+    {
+        float2 p1 = c10 - c00;
+        float2 p2 = c11 - c00;
+        float2 p3 = c01 - c00;
+        float2 d1 = p1 - p2;
+        float2 d2 = p3 - p2;
+        float2 d3 = p2 - p1 - p3;
+        float den = d1.x * d2.y - d2.x * d1.y;
+        float g = (d3.x * d2.y - d2.x * d3.y) / den;
+        float h = (d1.x * d3.y - d3.x * d1.y) / den;
+        return c00 + (p1 * (1.0 + g) * st.x + p3 * (1.0 + h) * st.y) / (g * st.x + h * st.y + 1.0);
+    }
+    return c00 + st.x * (c10 - c00) + st.y * (c01 - c00) + st.x * st.y * (c00 - c10 - c01 + c11);
+}
+
+// Un échantillon de l'écran incliné (mode 8) : la vidéo nette, fondue vers la pyramide de
+// profondeur de champ (t5) au-delà d'un demi-texel de cercle de confusion `coc`. Sous ce seuil,
+// l'échantillon net d'avant, à l'octet.
+float3 tilted_sample(float2 uv, float coc)
+{
+    float3 rgb = sample_yuv(uv);
+    if (coc > 0.5)
+    {
+        float lod = clamp(log2(coc) - 1.0, 0.0, DOF_MAX_LOD);
+        float3 far_rgb = texDof.SampleLevel(samp, uv, lod).rgb;
+        rgb = lerp(rgb, far_rgb, saturate((coc - 0.5) / 1.5));
+    }
+    return rgb;
+}
+
+// Hash 2D -> [0,1) sans sin() : le hash `frac(sin(x) * 43758)` dépend de la précision du GPU,
+// celui-ci (Hoskins, « hash12 ») ne fait que des produits de petites valeurs.
+float hash12(float2 p)
+{
+    float3 p3 = frac(float3(p.x, p.y, p.x) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.x + p3.y) * p3.z);
+}
+
+// Bruit de valeur lissé (hermite), sans texture.
+float value_noise(float2 q)
+{
+    float2 i = floor(q);
+    float2 f = frac(q);
+    float2 u = f * f * (3.0 - 2.0 * f);
+    float a = hash12(i);
+    float b = hash12(i + float2(1.0, 0.0));
+    float c = hash12(i + float2(0.0, 1.0));
+    float d = hash12(i + float2(1.0, 1.0));
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
+// Rampe du mode 5 : quatre nœuds `rgb + position (w)`, dans l'ordre du dégradé, interpolés de
+// nœud en nœud comme CSS (avant le premier : sa couleur ; après le dernier : la sienne). Un
+// segment de longueur nulle est une marche nette. Deux stops à 0 et 1 suivis de deux copies du
+// dernier rendent exactement `lerp(c0, c1, t)`. `frame_geometry::gradient_layer` les remplit.
+float3 ramp4(float t, float4 k0, float4 k1, float4 k2, float4 k3)
+{
+    float3 c = k0.rgb;
+    c = lerp(c, k1.rgb, saturate((t - k0.w) / max(k1.w - k0.w, 1e-5)));
+    c = lerp(c, k2.rgb, saturate((t - k1.w) / max(k2.w - k1.w, 1e-5)));
+    c = lerp(c, k3.rgb, saturate((t - k2.w) / max(k3.w - k2.w, 1e-5)));
+    return c;
+}
+
+// Éclaircit vers le blanc (k > 0) ou assombrit vers le noir (k < 0) d'une fraction |k|.
+float3 lighten(float3 c, float k)
+{
+    return k > 0.0 ? c + (1.0 - c) * k : c * (1.0 + k);
+}
+
+// Les trois nappes de l'aurore : leur poids gaussien (1 au centre) en `p`, position centrée et
+// corrigée de l'aspect, sur des Lissajous de 10 à 20 s. Le dégradé et l'image en partagent la
+// course.
+float3 aurora_blobs(float2 p, float time, float aspect)
+{
+    const float TAU = 6.2831853;
+    float2 b0 = float2(0.35 * aspect * sin(TAU * time / 10.0), 0.25 * sin(TAU * time / 15.0 + 1.0));
+    float2 b1 = float2(0.30 * aspect * sin(TAU * time / 12.0 + 2.0), 0.22 * cos(TAU * time / 20.0));
+    float2 b2 = float2(0.25 * aspect * cos(TAU * time / 15.0 + 4.0), 0.28 * sin(TAU * time / 12.0 + 3.0));
+    return float3(exp(-dot(p - b0, p - b0) / 0.176), exp(-dot(p - b1, p - b1) / 0.132),
+                  exp(-dot(p - b2, p - b2) / 0.11));
+}
+
+// Mouvements 2 (aurore) et 3 (vagues) du mode 5, sur la rampe de ses stops.
+// `gp` 0..1 sur le quad, `dir`/`denom` ceux du dégradé, `time` = temps programme replié sur
+// 120 s (toutes les périodes ci-dessous le divisent), `aspect` = w/h de la sortie. Amples et
+// rapides assez pour se voir d'un coup d'œil : réglés plus bas, ils ne se voyaient qu'en
+// comparant deux images, et la plupart des dégradés proposés n'ont que deux teintes voisines,
+// d'où la lumière que chacun ajoute en plus de déplacer la rampe.
+float3 gradient_motion(float2 gp, float2 dir, float denom, float4 k0, float4 k1, float4 k2,
+                       float4 k3, float time, float motion, float aspect)
+{
+    const float TAU = 6.2831853;
+    float u = dot(gp - 0.5, dir) / denom; // position le long de l'axe, -0.5..0.5
+    if (motion < 2.5)
+    {
+        // Aurore : rampe perturbée par un bruit (dont l'origine tourne en 30 s), puis trois
+        // larges nappes gaussiennes sur des Lissajous de 10 à 20 s. Deux portent la couleur de
+        // fin éclaircie, une celle du début assombrie. Coordonnées corrigées de l'aspect pour
+        // que les nappes restent rondes.
+        float2 p = float2((gp.x - 0.5) * aspect, gp.y - 0.5);
+        float ph = TAU * time / 30.0;
+        float n = value_noise(p * 1.8 + 1.5 * float2(cos(ph), sin(ph)));
+        float3 g = ramp4(saturate(0.5 + u + 0.6 * (n - 0.5)), k0, k1, k2, k3);
+        float3 blobs = aurora_blobs(p, time, aspect);
+        float3 light = lighten(k3.rgb, 0.15);
+        g = lerp(g, light, 0.7 * blobs.x);
+        g = lerp(g, lighten(k0.rgb, -0.15), 0.7 * blobs.y);
+        g = lerp(g, light, 0.6 * blobs.z);
+        return g;
+    }
+    // Vagues : trois bandes sinus perpendiculaires à l'axe, qui avancent d'une bande en 6 s,
+    // ondulées le long des bandes (10 s). Elles décalent la rampe et éclairent leurs crêtes.
+    float v = dot(gp - 0.5, float2(-dir.y, dir.x)) / denom;
+    float w = sin(TAU * (3.0 * u + 0.04 * sin(TAU * (1.5 * v + time / 10.0)) - time / 6.0));
+    return lighten(ramp4(saturate(0.5 + u + 0.18 * w), k0, k1, k2, k3), 0.07 * w);
+}
+
+// Les mêmes mouvements sur une image (mode 6). `q` = position -0.5..0.5 dans le cadre, donc dans
+// le rect « cover » de l'image ; `time`, `motion`, `aspect` comme au mode 5. Rend `q` déplacé
+// (xy) et l'éclairage à appliquer à la couleur lue (z, cf. `lighten`). Chaque mouvement zoome
+// l'image d'au moins 6 % et ne déplace jamais la lecture de plus que la marge ainsi gagnée : il
+// ne lit rien hors de l'image.
+float3 image_motion(float2 q, float time, float motion, float aspect)
+{
+    const float TAU = 6.2831853;
+    if (motion < 1.5)
+    {
+        // Dérive : zoom lent entre 8 et 22 % (20 s), panoramique sur les trois quarts de la marge
+        // qu'il laisse (15 et 24 s). Sûre sur une photo, elle ne déforme rien.
+        float z = 1.15 + 0.07 * sin(TAU * time / 20.0);
+        float m = 0.375 * (1.0 - 1.0 / z);
+        return float3(q / z + m * float2(sin(TAU * time / 15.0), cos(TAU * time / 24.0)), 0.0);
+    }
+    if (motion < 2.5)
+    {
+        // Aurore : l'image s'écoule sous un bruit de ±3 % (marge 3,7 %, origine qui tourne en
+        // 30 s), et les nappes de l'aurore l'éclairent ou l'assombrissent au passage.
+        float2 p = float2(q.x * aspect, q.y);
+        float ph = TAU * time / 30.0;
+        float2 c = p * 1.6 + 1.5 * float2(cos(ph), sin(ph));
+        float2 flow = float2(value_noise(c), value_noise(c + float2(5.2, 1.3))) - 0.5;
+        float3 blobs = aurora_blobs(p, time, aspect);
+        return float3(q / 1.08 + 0.06 * flow, 0.12 * (blobs.x - blobs.y + 0.85 * blobs.z));
+    }
+    // Vagues : les bandes du dégradé, sur la diagonale à 135° des dégradés proposés, ondulent
+    // l'image de ±0,85 % (marge 2,8 %) et éclairent leurs crêtes.
+    float2 d = float2(0.7071068, 0.7071068);
+    float u = dot(q, d) / 1.4142136;
+    float v = dot(q, float2(-d.y, d.x)) / 1.4142136;
+    float w = sin(TAU * (3.0 * u + 0.04 * sin(TAU * (1.5 * v + time / 10.0)) - time / 6.0));
+    return float3(q / 1.06 + 0.012 * w * d, 0.07 * w);
+}
+
+// Couverture d'une pastille (disque) adoucie sur ~1.5 px, pour la barre de titre du mode 14.
+float disc_cov(float2 p, float2 c, float r)
+{
+    return 1.0 - smoothstep(r - 0.75, r + 0.75, length(p - c));
+}
+
+// Couverture d'un trait centré sur `x = 0`, de demi-épaisseur `half_w`, sur ~1 px. Un trait plus
+// fin qu'un pixel s'estompe au lieu de disparaître (même forme que la flèche du mode 9).
+float band_cov(float x, float half_w)
+{
+    return saturate(half_w + 0.5 - abs(x));
+}
+
+// Fond flouté pour le mode "blur" de la webcam.
+// Disque de Vogel (spirale à angle d'or) à 21 échantillons avec pondération gaussienne et
+// rotation par pixel via Interleaved Gradient Noise (IGN) pour un bokeh photographique doux, isotrope et rapide.
+static const float3 VOGEL_TAPS[21] = {
+    float3( 0.154303,  0.000000, 0.942213),
+    float3(-0.197070,  0.180532, 0.836464),
+    float3( 0.030165, -0.343712, 0.742584),
+    float3( 0.248394,  0.323986, 0.659241),
+    float3(-0.455834, -0.080631, 0.585251),
+    float3( 0.431806, -0.274679, 0.519566),
+    float3(-0.144431,  0.537274, 0.461253),
+    float3(-0.275445, -0.530352, 0.409484),
+    float3( 0.597605,  0.218244, 0.363526),
+    float3(-0.621708,  0.256632, 0.322726),
+    float3( 0.299704, -0.640451, 0.286505),
+    float3( 0.221474,  0.706094, 0.254349),
+    float3(-0.667525, -0.386844, 0.225802),
+    float3( 0.783083, -0.172159, 0.200460),
+    float3(-0.477903,  0.679768, 0.177961),
+    float3(-0.110407, -0.852001, 0.157988),
+    float3( 0.677789,  0.571241, 0.140256),
+    float3(-0.912091,  0.037718, 0.124514),
+    float3( 0.665301, -0.662063, 0.110540),
+    float3(-0.044511,  0.962596, 0.098133),
+    float3(-0.633036, -0.758588, 0.087119)
+};
+
+float3 blur_webcam_bg(float2 uv, float intensity, float2 qpx, float2 local_px)
+{
+    float max_r_px = max(intensity, 0.0) * 22.0 + 1.5;
+    float2 step = max_r_px / max(qpx, 1.0);
+    // Interleaved Gradient Noise pour rotation aléatoire par pixel
+    float noise = frac(52.9829189 * frac(0.06711056 * local_px.x + 0.00583715 * local_px.y));
+    float angle = noise * 6.2831853;
+    float s, c;
+    sincos(angle, s, c);
+    float3 sum = 0.0;
+    float total = 0.0;
+    [unroll] for (int k = 0; k < 21; k++)
+    {
+        float2 p = VOGEL_TAPS[k].xy;
+        float w = VOGEL_TAPS[k].z;
+        float2 rot_p = float2(p.x * c - p.y * s, p.x * s + p.y * c);
+        sum += sample_yuv(saturate(uv + rot_p * step)) * w;
+        total += w;
+    }
+    return sum / max(total, 1e-4);
+}
+
+// ============ Curseur MODÉLISÉ (mode 15) ============
+// L'état courant en objet 3D, lancé de rayons par pixel. Deux sortes d'objets :
+// - un curseur SCULPTÉ (`trail_a.x` > 0) : la flèche ou la main d'un des cinq thèmes d'origine,
+//   modelée en volumes (capsules et unions lissées, extrusions arrondies, voxels, polyèdres
+//   taillés), chacune avec ses matières ;
+// - sinon le sprite de l'état : sa silhouette (champ de distance signé tiré de son alpha par
+//   `cursor_sdf.rs`), extrudée avec un chanfrein. Le dessus porte l'art du sprite ; le chanfrein
+//   et les flancs, la couleur de son bord.
+// Ce qui touche le modèle est éclairé par une LAMPE proche (un dégradé et un reflet même sur une
+// face plane), avec ombres propres, occlusion et reflets d'un studio ; ce qui le rate tombe sur le
+// plan de l'écran, où l'on mesure l'ombre portée (marche vers la lumière, pénombre douce) et
+// l'ombre de contact. La caméra est reconstruite à l'identique de `regions::rotate_point` +
+// perspective P / (P - z) ; la pose, la caméra et la boîte de dessin viennent de
+// `frame_geometry::cursor_model_cb`, qui documente les emplacements du cbuffer.
+//
+// Repère du MODÈLE : unité = plus grand côté du sprite, origine au hotspot, x à droite, y vers le
+// bas, z vers la caméra ; le dessous est à -`model_thick()`, le dessus monte jusqu'à `trail_a.z`.
+// Le rect du sprite (ou la boîte du modèle sculpté) y commence en `color.rg` et mesure
+// `sprite_size()` (rapport w/h dans `radius_px`). Textures : t2 (texImg) = le sprite, RGBA ;
+// t4 (texSdf) = son champ, R16F, en unités du modèle, négatif dedans, sur le même rect.
+// Constantes : miroir exact de `frame_geometry.rs` (MODEL_*) et de `sculpt.rs` (SCULPT_*).
+
+// Taille du sprite, repère du modèle : son plus grand côté vaut 1, `radius_px` porte w/h.
+float2 sprite_size()
+{
+    return float2(min(radius_px, 1.0), min(1.0 / radius_px, 1.0));
+}
+
+// Un texel du sprite, en unités du modèle : le champ est le sprite suréchantillonné ×4
+// (`cursor_sdf::SDF_UPSAMPLE`) et le plus grand côté du sprite vaut 1.
+static const float CURSOR_SDF_UPSAMPLE = 4.0;
+float sprite_texel()
+{
+    uint w, h;
+    texSdf.GetDimensions(w, h);
+    return CURSOR_SDF_UPSAMPLE / (float)max(w, h);
+}
+
+// Épaisseur sous z = 0 (`SpriteShape::thick`), écrasée au clic de `color.b` (`CursorPose::squash`).
+float model_thick()
+{
+    return trail_a.y * color.b;
+}
+
+// Le curseur sculpté de ce dessin (`SpriteShape::sculpt`), 0 = le sprite extrudé.
+int sculpt_id()
+{
+    return (int)(trail_a.x + 0.5);
+}
+static const float MODEL_BEVEL = 0.045;
+// Direction VERS la lumière, repère caméra : haut-gauche, devant. La lumière d'appoint, repère
+// caméra aussi : à droite, un peu en bas, devant.
+static const float3 MODEL_LIGHT = float3(-0.4194, -0.5792, 0.6990);
+static const float3 MODEL_FILL = float3(0.7557, 0.2519, 0.6046);
+// Ambiance et diffus de l'appareil modelé (mode 17), qui garde son éclairage d'origine.
+static const float MODEL_AMBIENT = 0.36;
+static const float MODEL_DIFFUSE = 0.75;
+// Profondeur (texels du sprite) à laquelle on lit la couleur du bord : assez loin de la frange
+// antialiasée, assez près pour rester dans le filet de l'art (~4 texels).
+static const float MODEL_RIM_INSET = 1.5;
+// Ombre portée : dureté de la pénombre (plus grand = plus net), portée maximale (la marche vers
+// la lumière s'arrête à la boîte du modèle élargie d'autant) et opacité ; ombre de contact :
+// portée (unités) et opacité. La boîte de dessin en dépend : miroir des constantes
+// `MODEL_SOFTNESS`, `MODEL_SHADOW_PAD` et `MODEL_CONTACT_RADIUS` de `frame_geometry.rs`.
+static const float MODEL_SOFTNESS = 6.0;
+static const float MODEL_SHADOW_PAD = 0.45;
+static const float MODEL_SHADOW_ALPHA = 0.5;
+static const float MODEL_CONTACT_RADIUS = 0.12;
+static const float MODEL_CONTACT_ALPHA = 0.5;
+
+// ---- Curseurs sculptés ----
+// Les formes sont écrites dans le repère du PROTOTYPE où elles ont été dessinées : hauteur du
+// curseur 1, x à droite, y VERS LE HAUT, z vers la caméra, l'écran en z = 0 et le modèle posé à
+// SCULPT_HOVER au-dessus. `sculpt_point` y amène un point du repère du modèle. Identifiant :
+// 1 + 2 × thème + forme ; thèmes 0 Studio Ink, 1 Prism Glow, 2 Pop Coral, 3 Pixel Candy,
+// 4 Star Sprout ; formes 0 flèche, 1 main. Id des matières : 1 corps, 2 bande, calque ou
+// manchette, 3 tirets, calque corail ou étoile, 4 feuilles, 5 trait des thèmes cerclés (et
+// yeux), 6 cubes de Pixel Candy, 8 serti de Prism Glow, 9 son cristal (plus bas, `prism_*`).
+static const float SCULPT_SCALE = 0.85;
+static const float SCULPT_HOVER = 0.05;
+static const float SCULPT_VOX = 0.0625;
+// Hauteur, dans le prototype, du z = 0 du modèle : le dessus de la pointe de la flèche, l'axe du
+// bout de l'index.
+static const float SCULPT_ZREF_ARROW = 0.2;
+static const float SCULPT_ZREF_HAND = 0.185;
+// La lampe, à cette distance du centre du modèle (unités du modèle) dans la direction de la lumière.
+static const float SCULPT_LAMP_DIST = 1.9;
+// L'écran vu depuis le modèle (sa couleur n'est pas connue ici), linéaire : un gris moyen.
+static const float3 SCULPT_SCREEN = float3(0.32, 0.32, 0.32);
+
+float3 s_lin(float r, float g, float b)
+{
+    return pow(float3(r, g, b), 2.2);
+}
+
+float s_smin(float a, float b, float k)
+{
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * 0.25;
+}
+
+float2 s_opu(float2 a, float2 b)
+{
+    return a.x < b.x ? a : b;
+}
+
+float s_round_box(float3 p, float3 b, float r)
+{
+    float3 q = abs(p) - b + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+float s_ellipsoid(float3 p, float3 r)
+{
+    float k0 = length(p / r);
+    float k1 = length(p / (r * r));
+    return k0 * (k0 - 1.0) / k1;
+}
+
+// Extrusion d'une distance 2D à arêtes arrondies : demi-hauteur h, rayon r.
+float s_extrude(float d2, float z, float h, float r)
+{
+    float2 w = float2(d2 + r, abs(z) - h + r);
+    return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - r;
+}
+
+float2 s_rot(float2 v, float a)
+{
+    float c = cos(a), s = sin(a);
+    return float2(c * v.x - s * v.y, s * v.x + c * v.y);
+}
+
+float s_star5(float2 p, float r, float rf)
+{
+    const float2 k1 = float2(0.809016994375, -0.587785252292);
+    const float2 k2 = float2(-0.809016994375, -0.587785252292);
+    p.x = abs(p.x);
+    p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+    p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+    p.x = abs(p.x);
+    p.y -= r;
+    float2 ba = rf * float2(-k1.y, k1.x) - float2(0.0, 1.0);
+    float h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+    return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+
+// Lentille : deux disques de rayon r aux centres à ±d sur x, une feuille pointue à ses deux bouts
+// (0, ±sqrt(r² - d²)).
+float s_vesica(float2 p, float r, float d)
+{
+    p = abs(p);
+    float b = sqrt(r * r - d * d);
+    return (p.y - b) * d > p.x * b ? length(p - float2(0.0, b)) : length(p + float2(d, 0.0)) - r;
+}
+
+// Les thèmes CERCLÉS (Studio Ink, Pop Coral, Star Sprout) suivent la planche 3D de référence
+// (`design/cursors/3d-concept.png`) : le trait de leur dessin 2D n'est pas jeté, il devient la
+// matière qui porte tout. Chaque pièce (la flèche, le gant, la manchette, les feuilles, l'étoile)
+// est un plateau sous sa silhouette, un jonc sur le trait et un coussin de couleur bombé dedans.
+// RIM_POLY : sept sommets par polygone (un sommet coupe un côté en deux quand il en faut six).
+// D'abord la couleur de la flèche, commune aux trois thèmes (le trait l'élargit de 0,06, sa pointe
+// arrondie touche le hotspot), puis les paumes de Star Sprout, de Studio Ink et de Pop Coral,
+// arrondies de 0,05.
+static const float2 RIM_POLY[28] = {
+    float2(0.0, -0.06), float2(0.0, -0.7712), float2(0.165, -0.6325), float2(0.313, -0.9318),
+    float2(0.4234, -0.8557), float2(0.2672, -0.5686), float2(0.456, -0.5393),
+    float2(-0.173, -0.5237), float2(-0.016, -0.75), float2(0.329, -0.75), float2(0.411, -0.592),
+    float2(0.411, -0.43), float2(0.19, -0.435), float2(-0.03, -0.44),
+    float2(-0.1825, -0.6215), float2(0.0037, -0.9195), float2(0.3462, -0.9195), float2(0.467, -0.6906),
+    float2(0.467, -0.49), float2(0.2, -0.49), float2(-0.03, -0.49),
+    float2(-0.1807, -0.5534), float2(0.0194, -0.872), float2(0.3485, -0.872), float2(0.47, -0.6795),
+    float2(0.47, -0.49), float2(0.2, -0.49), float2(-0.03, -0.49)
+};
+
+// Les trois gants, mesurés sur leur dessin (g : 0 Star Sprout, 1 Studio Ink, 2 Pop Coral), neuf
+// lignes chacun : les segments de l'index, des trois doigts repliés et du pouce, ceux des trois
+// fentes entre les doigts, puis le V entre le pouce et l'index (un point du bord du pouce et la
+// normale qui entre dans le V). RIM_GLOVE_R, trois lignes par gant : les rayons des quatre doigts ;
+// ceux du pouce et des trois fentes ; le bord de l'index que longe le V, le fond du V, le trait.
+static const float4 RIM_GLOVE[27] = {
+    float4(0.0, -0.1077, 0.0, -0.6), float4(0.1493, -0.3279, 0.1493, -0.6),
+    float4(0.2863, -0.3654, 0.2863, -0.6), float4(0.4193, -0.4043, 0.4193, -0.6),
+    float4(-0.2, -0.478, -0.075, -0.625), float4(0.0788, -0.25, 0.0788, -0.3992),
+    float4(0.2188, -0.3, 0.2188, -0.4234), float4(0.3552, -0.33, 0.3552, -0.4534),
+    float4(-0.0845, -0.5386, 0.762, 0.648),
+    float4(0.0, -0.1186, 0.0, -0.65), float4(0.1614, -0.3838, 0.1614, -0.65),
+    float4(0.3177, -0.427, 0.3177, -0.65), float4(0.4645, -0.4848, 0.4645, -0.65),
+    float4(-0.215, -0.535, -0.1208, -0.6864), float4(0.0832, -0.3, 0.0832, -0.48),
+    float4(0.2414, -0.35, 0.2414, -0.482), float4(0.3959, -0.41, 0.3959, -0.533),
+    float4(-0.122, -0.5718, 0.867, 0.498),
+    float4(0.0, -0.122, 0.0, -0.65), float4(0.172, -0.387, 0.172, -0.65),
+    float4(0.3267, -0.427, 0.3267, -0.65), float4(0.4727, -0.4867, 0.4727, -0.65),
+    float4(-0.199, -0.483, -0.102, -0.645), float4(0.0927, -0.3, 0.0927, -0.476),
+    float4(0.2493, -0.35, 0.2493, -0.478), float4(0.402, -0.41, 0.402, -0.52),
+    float4(-0.0993, -0.5267, 0.858, 0.514)
+};
+static const float4 RIM_GLOVE_R[9] = {
+    float4(0.0552, 0.047, 0.045, 0.0375), float4(0.052, 0.0235, 0.0225, 0.0225), float4(0.0552, -0.548, 0.0525, 0.0),
+    float4(0.064, 0.0585, 0.0585, 0.0515), float4(0.06, 0.0197, 0.0178, 0.0172), float4(0.0648, -0.6, 0.058, 0.0),
+    float4(0.066, 0.0553, 0.0553, 0.0507), float4(0.063, 0.024, 0.022, 0.02), float4(0.0647, -0.555, 0.056, 0.0)
+};
+
+// Distance signée au polygone de RIM_POLY qui commence en `base` : distance aux arêtes, signe par
+// la parité des traversées d'une demi-droite.
+float s_rim_poly(float2 p, int base)
+{
+    float d = dot(p - RIM_POLY[base], p - RIM_POLY[base]);
+    float s = 1.0;
+    int j = base + 6;
+    [loop] for (int i = base; i < base + 7; i++)
+    {
+        float2 e = RIM_POLY[j] - RIM_POLY[i];
+        float2 w = p - RIM_POLY[i];
+        float2 b = w - e * saturate(dot(w, e) / dot(e, e));
+        d = min(d, dot(b, b));
+        bool c0 = p.y >= RIM_POLY[i].y;
+        bool c1 = p.y < RIM_POLY[j].y;
+        bool c2 = e.x * w.y > e.y * w.x;
+        if ((c0 && c1 && c2) || (!c0 && !c1 && !c2))
+        {
+            s = -s;
+        }
+        j = i;
+    }
+    return s * sqrt(d);
+}
+
+// Le gant `g` dans le plan, autour de sa paume `palm` : (silhouette, couleur). La silhouette unit
+// la paume, l'index levé, trois doigts repliés et le pouce ; la couleur en est creusée des
+// rainures du dessin, trois fentes entre les doigts et le V entre le pouce et l'index.
+float2 s_rim_glove(float2 p, int g, float palm)
+{
+    float4 r0 = RIM_GLOVE_R[3 * g];
+    float4 r1 = RIM_GLOVE_R[3 * g + 1];
+    float4 r2 = RIM_GLOVE_R[3 * g + 2];
+    int i = 9 * g;
+    float f = min(sd_segment(p, RIM_GLOVE[i].xy, RIM_GLOVE[i].zw) - r0.x,
+                  sd_segment(p, RIM_GLOVE[i + 1].xy, RIM_GLOVE[i + 1].zw) - r0.y);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 2].xy, RIM_GLOVE[i + 2].zw) - r0.z);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 3].xy, RIM_GLOVE[i + 3].zw) - r0.w);
+    f = min(f, sd_segment(p, RIM_GLOVE[i + 4].xy, RIM_GLOVE[i + 4].zw) - r1.x);
+    float grooves = min(sd_segment(p, RIM_GLOVE[i + 5].xy, RIM_GLOVE[i + 5].zw) - r1.y,
+                        sd_segment(p, RIM_GLOVE[i + 6].xy, RIM_GLOVE[i + 6].zw) - r1.z);
+    grooves = min(grooves, sd_segment(p, RIM_GLOVE[i + 7].xy, RIM_GLOVE[i + 7].zw) - r1.w);
+    float sil = s_smin(palm, f, 0.03);
+    float4 v = RIM_GLOVE[i + 8];
+    float wedge = max(max(-dot(p - v.xy, v.zw), p.x + r2.x), r2.y - p.y);
+    return float2(sil, max(sil, -min(grooves, wedge)));
+}
+
+// Une pièce cerclée : (distance, matière). `d` : le bord intérieur du trait dans le plan, `sil` :
+// le même avant les rainures, `dc` : le coussin. Le plateau (matière 5) monte de SCULPT_HOVER à
+// `zt` sous la silhouette élargie du trait `w`. Le jonc (matière 5), un tore de rayon w/2 à la
+// hauteur `zt`, suit le milieu du trait : dans une rainure plus étroite que le trait il n'en reste
+// que la crête, un muret entre les doigts. Le coussin de la matière `mat` sort du plateau, haut de
+// `h` au bord, bombé sur 0,045 puis de `bump` ; sa hauteur variable penche le champ, d'où la
+// distance minorée (× 0,8).
+float2 s_piece(float d, float dc, float sil, float z, float w, float zt, float h, float bump, float mat)
+{
+    float tray = s_extrude(sil - w, z - 0.5 * (SCULPT_HOVER + zt), 0.5 * (zt - SCULPT_HOVER), 0.012);
+    float bead = length(float2(d - 0.5 * w, z - zt)) - 0.5 * w;
+    float u = saturate(-dc / 0.045);
+    float cushion = 0.8 * s_extrude(dc, z - zt, h + 0.022 * u * (2.0 - u) + bump, 0.75 * h);
+    return s_opu(float2(min(tray, bead), 5.0), float2(cushion, mat));
+}
+
+// Pop Coral est du papier découpé : des feuilles à plat, au dessus plat et au bord à peine
+// cassé. La feuille marine sous la silhouette élargie du trait `w`, de SCULPT_HOVER à 0,15 ; la
+// feuille de couleur (matière 1) posée dessus, 0,02 d'épaisseur, découpée des rainures entre les
+// doigts qui laissent voir la marine.
+float2 s_paper(float d, float sil, float z, float w)
+{
+    float navy = s_extrude(sil - w, z - 0.5 * (SCULPT_HOVER + 0.15), 0.5 * (0.15 - SCULPT_HOVER), 0.006);
+    float sheet = s_extrude(d, z - 0.16, 0.01, 0.004);
+    return s_opu(float2(navy, 5.0), float2(sheet, 1.0));
+}
+
+// Bosse de rayon r en c, 1 au centre et 0 au bord : un coussin bombé sans pli. Une hauteur tirée
+// de la distance au bord plierait le coussin sur l'axe médian de sa silhouette.
+float s_bump(float2 p, float2 c, float r)
+{
+    float k = saturate(1.0 - dot(p - c, p - c) / (r * r));
+    return k * k;
+}
+
+// Un tiret du clic de Pop Coral : capsule inégale de a (rayon ra) à b (rayon rb), exacte.
+float s_dash(float2 p, float2 a, float2 b, float ra, float rb)
+{
+    p -= a;
+    b -= a;
+    float hb = dot(b, b);
+    float2 q = float2(abs(dot(p, float2(b.y, -b.x))), dot(p, b)) / hb;
+    float2 c = float2(sqrt(hb - (ra - rb) * (ra - rb)), ra - rb);
+    float k = c.x * q.y - c.y * q.x;
+    if (k < 0.0)
+    {
+        return sqrt(hb * dot(q, q)) - ra;
+    }
+    if (k > c.x)
+    {
+        return sqrt(hb * (dot(q, q) + 1.0 - 2.0 * q.y)) - rb;
+    }
+    return dot(c, q) - ra;
+}
+
+// Les thèmes cerclés. La flèche : Star Sprout menthe, Pop Coral corail, et Studio Ink noir, dont le
+// trait se partage en un jonc noir au bord et une bande ivoire en relief, le champ restant le
+// dessus du plateau. Le gant ivoire, jaune ou ivoire. Pop Coral est en papier découpé
+// (`s_paper`), ses calques et ses tirets aussi : des feuilles au dessus plat. Puis ce que chacun ajoute devant : le calque
+// jaune de la flèche, le calque corail du gant et les tirets du clic de Pop Coral ; la manchette,
+// l'étoile, ses feuilles et ses yeux de Star Sprout, lus dans le repère de l'étoile (centre `c`,
+// tournée, en unités de son rayon `rs`). Matières : 1 corps, 2 bande ivoire, calque jaune ou
+// manchette, 3 tirets, calque corail ou étoile, 4 feuilles, 5 le trait (plateaux, joncs, yeux).
+float2 s_rimmed(float3 p, int theme, int shape)
+{
+    bool arrow = shape == 0;
+    int g = theme == 4 ? 0 : (theme == 0 ? 1 : 2);
+    float poly = s_rim_poly(p.xy, arrow ? 0 : 7 * g + 7);
+    float2 body = float2(poly, poly);
+    float w = 0.06, zt = 0.17, h = 0.03;
+    float bump = 0.022 * s_bump(p.xy, float2(0.15, -0.45), 0.3);
+    float back = 1e9;
+    if (!arrow)
+    {
+        w = RIM_GLOVE_R[3 * g + 2].z;
+        // Le gant, puis pour Pop Coral son calque corail : le même gant décalé en bas à gauche. Une
+        // boucle et non deux appels (FXC recopierait le gant) ; le calque est sauté quand `p` est
+        // au-dessus du plateau du gant, qui en est alors plus près que lui.
+        [loop] for (int i = 0; i < 2; i++)
+        {
+            float2 q = p.xy + (i == 1 ? float2(0.03, 0.04) : float2(0.0, 0.0));
+            float2 v = s_rim_glove(q, g, (i == 1 ? s_rim_poly(q, 7 * g + 7) : poly) - 0.05);
+            if (i == 1)
+            {
+                back = v.x - w;
+            }
+            else
+            {
+                body = v;
+                if (theme != 2 || v.x - w <= 0.0)
+                {
+                    break;
+                }
+            }
+        }
+        zt = 0.185;
+        h = 0.028;
+        bump = 0.03 * s_bump(p.xy, float2(0.19, -0.62), 0.28);
+    }
+    float dc = body.y;
+    if (arrow && theme == 0)
+    {
+        // Studio Ink : pas de coussin, le jonc sur le bord extérieur du trait.
+        body -= 0.015;
+        w = 0.045;
+        dc = 1.0;
+    }
+    float2 r = theme == 2 ? s_paper(body.y, body.x, p.z, w)
+                          : s_piece(body.y, dc, body.x, p.z, w, zt, h, bump, 1.0);
+    if (theme == 0)
+    {
+        if (arrow)
+        {
+            float band = s_extrude(abs(poly + 0.0075) - 0.0225, p.z - zt, 0.028, 0.012);
+            r = s_opu(r, float2(band, 2.0));
+        }
+        return r;
+    }
+    if (theme == 2)
+    {
+        float dash;
+        if (arrow)
+        {
+            // Le calque jaune, décalé en bas à gauche, derrière le plateau.
+            float back = s_rim_poly(p.xy + float2(0.025, 0.05), 0) - 0.06;
+            r = s_opu(r, float2(s_extrude(back, p.z - 0.08, 0.03, 0.006), 2.0));
+            dash = min(s_dash(p.xy, float2(-0.1179, -0.1374), float2(-0.1799, -0.0443), 0.028, 0.045),
+                       s_dash(p.xy, float2(-0.1347, -0.2493), float2(-0.248, -0.2056), 0.026, 0.042));
+        }
+        else
+        {
+            r = s_opu(r, float2(s_extrude(back, p.z - 0.08, 0.03, 0.006), 3.0));
+            dash = min(s_dash(p.xy, float2(0.216, -0.1695), float2(0.2593, -0.0685), 0.028, 0.042),
+                       s_dash(p.xy, float2(0.3054, -0.2339), float2(0.3949, -0.1652), 0.0275, 0.041));
+        }
+        return s_opu(r, float2(s_extrude(dash, p.z - 0.11, 0.06, 0.006), 3.0));
+    }
+    if (!arrow)
+    {
+        // La manchette : un rectangle arrondi, cintré en sourire comme au dessin.
+        float2 cq = p.xy - float2(0.1541, -0.9047);
+        float2 bq = abs(float2(cq.x, cq.y - 0.2066 * cq.x * cq.x)) - float2(0.214, 0.0361);
+        float cuff = length(max(bq, 0.0)) + min(max(bq.x, bq.y), 0.0) - 0.03;
+        r = s_opu(r, s_piece(cuff, cuff, cuff, p.z, 0.0477, 0.225, 0.025, 0.0, 2.0));
+    }
+    float2 c = arrow ? float2(0.6118, -0.8079) : float2(0.15, -0.885);
+    float rs = arrow ? 0.1678 : 0.128;
+    float zs = arrow ? 0.23 : 0.285;
+    float2 q = s_rot(p.xy - c, arrow ? 0.2443 : 0.0) / rs;
+    float star = (s_star5(q, 0.82, 0.55) - 0.18) * rs;
+    float leaves = min(s_vesica(s_rot(q - float2(-0.33, 1.38), -0.925), 0.4296, 0.2626),
+                       s_vesica(s_rot(q - float2(0.53, 1.37), 0.873), 0.4296, 0.2626)) * rs;
+    r = s_opu(r, s_piece(leaves, leaves, leaves, p.z, 0.038, zs - 0.02, 0.018, 0.0, 4.0));
+    r = s_opu(r, s_piece(star, star, star, p.z, 0.038, zs, 0.022, 0.018 * s_bump(q, float2(0.0, 0.0), 1.0), 3.0));
+    // Les yeux : deux ovales marine qui affleurent du coussin.
+    float3 e = float3(abs(q.x) - 0.25, q.y - 0.08, (p.z - zs - 0.056) / rs);
+    return s_opu(r, float2(s_ellipsoid(e, float3(0.075, 0.13, 0.1)) * rs, 5.0));
+}
+
+// ---- Glass Lens ----
+// Une lentille de verre dans un trait sombre, et au-delà un liseré de verre. Ses formes sont la
+// flèche et le gant de Studio Ink (RIM_POLY 0, RIM_GLOVE 1) ; mesurées depuis le bord de la
+// lentille, le trait en occupe GLASS_LINE et le contour entier GLASS_RIM (miroir de `sculpt.rs`).
+// En volume (mode 15, `s_glass`) : un socle de verre sous toute la silhouette, de SCULPT_HOVER à
+// GLASS_TOP, arrondi sur toute la largeur du liseré ; la lentille, bombée de GLASS_DOME, qui en
+// sort dans le trait ; le trait, une bande graphite au dessus plat sur le bord de la lentille.
+// À plat (mode 19, `cursor_glass`), le même relief vu de face. Le verre (matière GLASS_MAT) entre
+// par sa face bombée et sort par le dessous plat du socle vers l'image (`glass_shade`).
+static const float GLASS_LINE = 0.04;
+static const float GLASS_RIM = 0.085;
+static const float GLASS_TOP = 0.18;
+static const float GLASS_DOME = 0.03;
+// La lentille monte sur cette largeur depuis son bord, puis reste à plat.
+static const float GLASS_RISE = 0.08;
+static const float GLASS_IOR = 1.5;
+static const float GLASS_DISPERSION = 0.012;
+static const float GLASS_MAT = 10.0;
+// À plat : l'air sous le socle, que le mode 15 tient de la garde au sol du modèle (prototype).
+static const float GLASS_GAP_FLAT = 0.15;
+// L'écart des deux prises de part et d'autre du point réfracté, rapporté au décalage
+// (`glass_smear`).
+static const float GLASS_SMEAR = 0.15;
+// La lueur propre du verre (linéaire) : sur un fond noir, la lentille reste un verre fumé visible.
+static const float GLASS_LIFT = 0.02;
+// L'ombre de la lentille, rapportée à celle d'un modèle opaque : le verre laisse passer la lumière.
+static const float GLASS_SHADOW = 0.6;
+
+// Glass Lens dans le plan (prototype) : x = la silhouette, y = la lentille (distances signées,
+// négatives dedans). Le trait est entre 0 et GLASS_LINE de la lentille, le liseré au-delà ; les
+// fentes entre les doigts, creusées dans la lentille, s'y remplissent du trait. Les formes
+// descendent de ce que le contour a de plus que le trait de Studio Ink : la pointe et le bout de
+// l'index restent au hotspot.
+float2 s_glass2(float2 p, int shape)
+{
+    if (shape == 0)
+    {
+        float poly = s_rim_poly(p + float2(0.0, GLASS_RIM - 0.06), 0);
+        return float2(poly - GLASS_RIM, poly);
+    }
+    float2 q = p + float2(0.0, GLASS_RIM - RIM_GLOVE_R[5].z);
+    float2 v = s_rim_glove(q, 1, s_rim_poly(q, 14) - 0.05);
+    return float2(v.x - GLASS_RIM, v.y);
+}
+
+// La hauteur du verre au-dessus de GLASS_TOP en fonction de la distance `d` à la lentille
+// (`s_glass2`), et sa pente : x = la hauteur, y = sa dérivée. La lentille monte de GLASS_DOME sur
+// GLASS_RISE ; le liseré tombe en quart de rond jusqu'au bord, l'arrondi du socle (`s_glass`). Le
+// trait n'est pas du verre : rien ne s'y lit.
+float2 s_glass_relief(float d)
+{
+    if (d < 0.0)
+    {
+        float u = saturate(-d / GLASS_RISE);
+        return float2(GLASS_DOME * u * (2.0 - u), -2.0 * GLASS_DOME * (1.0 - u) / GLASS_RISE);
+    }
+    float w = GLASS_RIM - GLASS_LINE;
+    float x = saturate((d - GLASS_LINE) / w);
+    float s = sqrt(max(1.0 - x * x, 0.05));
+    return float2(w * (s - 1.0), -x / s);
+}
+
+// Glass Lens en volume, repère du prototype : (distance, matière).
+float2 s_glass(float3 p, int shape)
+{
+    float2 g = s_glass2(p.xy, shape);
+    float half_h = 0.5 * (GLASS_TOP - SCULPT_HOVER);
+    float slab = s_extrude(g.x, p.z - SCULPT_HOVER - half_h, half_h, min(GLASS_RIM - GLASS_LINE, half_h));
+    float u = saturate(-g.y / GLASS_RISE);
+    float dome = 0.8 * s_extrude(g.y, p.z - GLASS_TOP, 0.009 + GLASS_DOME * u * (2.0 - u), 0.008);
+    float band = s_extrude(abs(g.y - 0.5 * GLASS_LINE) - 0.5 * GLASS_LINE, p.z - GLASS_TOP, 0.016, 0.008);
+    return s_opu(float2(min(slab, dome), GLASS_MAT), float2(band, 5.0));
+}
+
+// Pixel Candy est un pixel art, dessiné une fois : la même grille donne ses PNG 2D et, ici, un cube
+// par pixel. Une ligne par entier, bit c = colonne c, ligne 0 en haut. `PIX_BODY` : les pixels
+// pleins ; `PIX_LINE`, `PIX_HI`, `PIX_SHADE` : ceux du contour prune, du reflet rose pâle et de
+// l'ombre rose foncé, le reste est rose. `PIX_GRID` : colonnes, lignes et début de chaque forme
+// dans les tables ; `PIX_ORIGIN` : le coin haut-gauche du pixel (0, 0) ; `PIX_BOX` (centre,
+// demi-côtés) : la boîte de la forme ; `PIX_RECT`, bornés par `PIX_RECT_N` : la forme en
+// rectangles, pour l'ombre. Tables générées par scripts/generate-pixel-candy-voxels.mjs, qui
+// réécrit les trois shaders et les PNG : c'est là qu'on redessine une grille.
+// <pixel-candy-voxels>
+static const int PIX_BODY[32] = { 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 127, 247, 243, 480, 192, 48, 120, 120, 120, 504, 4088, 32760, 65534, 65535, 65535, 65534, 32766, 32764, 16380, 16376, 16376 };
+static const int PIX_LINE[32] = { 1, 3, 5, 9, 17, 33, 65, 129, 257, 513, 1985, 73, 149, 147, 288, 192, 48, 72, 72, 72, 456, 3656, 29256, 37454, 32777, 32769, 32770, 16386, 16388, 8196, 8200, 16376 };
+static const int PIX_HI[32] = { 0, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 18, 34, 32, 64, 0, 0, 16, 16, 16, 16, 16, 16, 16, 22, 18, 4, 4, 8, 8, 16, 0 };
+static const int PIX_SHADE[32] = { 0, 0, 0, 4, 8, 16, 32, 64, 128, 448, 40, 36, 64, 64, 128, 0, 0, 32, 32, 32, 32, 288, 2336, 18720, 16384, 16384, 16384, 8192, 8192, 4096, 8160, 0 };
+static const int PIX_RECT_N[3] = { 0, 17, 29 };
+static const int4 PIX_GRID[2] = {
+    int4(11, 16, 0, 0),
+    int4(16, 16, 16, 0)
+};
+static const float2 PIX_ORIGIN[2] = {
+    float2(0.0, 0.0),
+    float2(-0.3125, 0.0)
+};
+static const float4 PIX_BOX[2] = {
+    float4(0.3438, -0.5, 0.3438, 0.5),
+    float4(0.1875, -0.5, 0.5, 0.5)
+};
+static const float4 PIX_RECT[29] = {
+    float4(0.0313, -0.0313, 0.0313, 0.0313),
+    float4(0.0625, -0.0938, 0.0625, 0.0313),
+    float4(0.0938, -0.1563, 0.0938, 0.0313),
+    float4(0.125, -0.2188, 0.125, 0.0313),
+    float4(0.1563, -0.2813, 0.1563, 0.0313),
+    float4(0.1875, -0.3438, 0.1875, 0.0313),
+    float4(0.2188, -0.4063, 0.2188, 0.0313),
+    float4(0.25, -0.4688, 0.25, 0.0313),
+    float4(0.2813, -0.5313, 0.2813, 0.0313),
+    float4(0.3125, -0.5938, 0.3125, 0.0313),
+    float4(0.3438, -0.6563, 0.3438, 0.0313),
+    float4(0.2188, -0.7188, 0.2188, 0.0313),
+    float4(0.0938, -0.7813, 0.0938, 0.0313),
+    float4(0.375, -0.8125, 0.125, 0.0625),
+    float4(0.0625, -0.8438, 0.0625, 0.0313),
+    float4(0.4375, -0.9063, 0.125, 0.0313),
+    float4(0.4375, -0.9688, 0.0625, 0.0313),
+    float4(0.0, -0.0313, 0.0625, 0.0313),
+    float4(0.0, -0.1563, 0.125, 0.0938),
+    float4(0.0625, -0.2813, 0.1875, 0.0313),
+    float4(0.1563, -0.3438, 0.2813, 0.0313),
+    float4(0.25, -0.4063, 0.375, 0.0313),
+    float4(0.2188, -0.4688, 0.4688, 0.0313),
+    float4(0.1875, -0.5625, 0.5, 0.0625),
+    float4(0.2188, -0.6563, 0.4688, 0.0313),
+    float4(0.1875, -0.7188, 0.4375, 0.0313),
+    float4(0.2188, -0.7813, 0.4063, 0.0313),
+    float4(0.1875, -0.8438, 0.375, 0.0313),
+    float4(0.2188, -0.9375, 0.3438, 0.0625)
+};
+// </pixel-candy-voxels>
+
+// Le bit `c` d'une ligne. FXC évalue les deux côtés d'un `&&` : chaque index est ramené dans sa
+// table avant la lecture, les tests de bornes font le reste.
+bool s_pix_bit(int m, int c)
+{
+    return ((m >> clamp(c, 0, 31)) & 1) == 1;
+}
+
+// Le pixel (c, r) de la forme `shape`, r compté vers le bas depuis la ligne 0, est-il plein ?
+bool s_pix_body(int shape, int c, int r)
+{
+    int4 g = PIX_GRID[shape];
+    return c >= 0 && c < g.x && r >= 0 && r < g.y && s_pix_bit(PIX_BODY[g.z + clamp(r, 0, g.y - 1)], c);
+}
+
+// La cellule qui contient `p` (prototype, y vers le haut).
+int2 s_pix_cell(float2 p, int shape)
+{
+    float2 o = PIX_ORIGIN[shape];
+    return int2((int)floor((p.x - o.x) / SCULPT_VOX), (int)floor((o.y - p.y) / SCULPT_VOX));
+}
+
+// Un cube par pixel plein, tous de même hauteur, l'arête à peine cassée pour que chaque cube se
+// lise. Hors du voisinage 3×3, une borne : une cellule au moins, et jamais plus près que la boîte
+// de la forme.
+float2 s_voxels(float3 p, int shape)
+{
+    float4 b = PIX_BOX[shape];
+    float2 bq = max(abs(p.xy - b.xy) - b.zw, 0.0);
+    float bz = max(abs(p.z - (SCULPT_HOVER + 0.07)) - 0.07, 0.0);
+    float d = max(SCULPT_VOX, sqrt(dot(bq, bq) + bz * bz));
+    float2 o = PIX_ORIGIN[shape];
+    int2 cell = s_pix_cell(p.xy, shape);
+    const float3 cube = float3(0.5 * SCULPT_VOX, 0.5 * SCULPT_VOX, 0.07);
+    [loop] for (int j = -1; j <= 1; j++)
+    {
+        [loop] for (int i = -1; i <= 1; i++)
+        {
+            int c = cell.x + i;
+            int r = cell.y + j;
+            if (s_pix_body(shape, c, r))
+            {
+                float3 q = float3(p.x - o.x - (c + 0.5) * SCULPT_VOX, p.y - o.y + (r + 0.5) * SCULPT_VOX,
+                                  p.z - SCULPT_HOVER - 0.07);
+                d = min(d, s_round_box(q, cube, 0.006));
+            }
+        }
+    }
+    return float2(d, 6.0);
+}
+
+// Distance, dans le plan de l'écran, au contour de la forme.
+float s_pixel_outline(float2 p, int shape)
+{
+    float d = 1e9;
+    [loop] for (int i = PIX_RECT_N[shape]; i < PIX_RECT_N[shape + 1]; i++)
+    {
+        float2 q = abs(p - PIX_RECT[i].xy) - PIX_RECT[i].zw;
+        d = min(d, length(max(q, 0.0)) + min(max(q.x, q.y), 0.0));
+    }
+    return d;
+}
+
+// ---- Prism Glow : un cristal en MAILLAGE ----
+// Les facettes tracées sur l'art 2D du thème (`design/cursors/prism-glow/model`), en triangles dans
+// le repère du MODÈLE lui-même (unité = côté du sprite 128 px, origine au hotspot, y vers le bas,
+// dessus du serti en z = 0). Le serti marine est la silhouette de l'art extrudée sous z = 0, un
+// champ de distance comme les autres sculptés : il donne la couverture, l'ombre portée et l'ombre
+// de contact. Le cristal est lancé de rayons, triangles rangés par boîtes : réfraction par canal
+// (dispersion), réflexions totales internes, sortie par son fond plat vers l'image composée sous
+// le curseur, flous de confidentialité compris (sa copie en t5). Tables : miroir de `prism_mesh.rs` ;
+// un triangle = quatre
+// float4 (v0, drapeaux), (e1, r), (e2, g), (normale sortante, b) ; drapeaux = paroi (1) + 2 ×
+// arêtes réelles (bit k : l'arête opposée au sommet k) ; une boîte = deux float4 (coin bas,
+// premier triangle), (coin haut, nombre de triangles).
+// prism mesh: generated by design/cursors/prism-glow/model/export_compositor.py
+static const int PRISM_TRI_START[2] = { 0, 31 };
+static const int PRISM_TRI_COUNT[2] = { 31, 130 };
+static const int PRISM_SIL_START[2] = { 0, 25 };
+static const int PRISM_SIL_COUNT[2] = { 25, 42 };
+static const int PRISM_OUT_START[2] = { 67, 76 };
+static const int PRISM_OUT_COUNT[2] = { 9, 34 };
+static const int PRISM_BOX_START[2] = { 0, 4 };
+static const int PRISM_BOX_COUNT[2] = { 4, 18 };
+static const float4 PRISM_TRIS[644] = {
+    float4(0.252301, 0.266258, -0.042945, 11.0),
+    float4(-0.221166, -0.203988, 0.0, 0.01033),
+    float4(-0.221166, -0.203988, 0.042945, 0.045182),
+    float4(0.677984, -0.735077, 0.0, 0.577584),
+    float4(0.252301, 0.266258, -0.042945, 3.0),
+    float4(-0.221166, -0.203988, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.677984, -0.735077, 0.0, 0.577584),
+    float4(0.031135, 0.06227, -0.042945, 7.0),
+    float4(0.004294, 0.419785, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(-0.999948, 0.01023, 0.0, 0.577584),
+    float4(0.169632, 0.356442, 0.115951, 14.0),
+    float4(0.082669, -0.090184, -0.115951, 0.590616),
+    float4(-0.138497, -0.294172, -0.115951, 0.737911),
+    float4(0.466385, -0.505659, 0.725806, 0.973449),
+    float4(0.035429, 0.482055, 0.0, 14.0),
+    float4(0.134202, -0.125614, 0.115951, 0.000305),
+    float4(-0.004294, -0.419785, 0.0, 0.938689),
+    float4(-0.650191, 0.006652, 0.759742, 0.854994),
+    float4(0.031135, 0.06227, -0.042945, 9.0),
+    float4(0.004294, 0.419785, 0.0, 0.01033),
+    float4(0.004294, 0.419785, 0.042945, 0.045182),
+    float4(-0.999948, 0.01023, 0.0, 0.577584),
+    float4(0.169632, 0.356442, 0.115951, 14.0),
+    float4(0.159969, 0.080521, -0.045092, 0.381323),
+    float4(0.082669, -0.090184, -0.115951, 0.056123),
+    float4(0.461407, -0.510214, 0.725799, 0.973449),
+    float4(0.541104, 0.544325, -0.042945, 9.0),
+    float4(-0.288804, -0.278068, 0.0, 0.01033),
+    float4(-0.288804, -0.278068, 0.042945, 0.045182),
+    float4(0.69359, -0.72037, 0.0, 0.577584),
+    float4(0.329601, 0.436963, 0.070859, 14.0),
+    float4(0.211503, 0.107362, -0.070859, 0.545724),
+    float4(-0.077301, -0.170706, -0.070859, 0.064805),
+    float4(0.49567, -0.514808, 0.699488, 0.973449),
+    float4(0.268405, 0.533589, 0.081595, 14.0),
+    float4(0.061196, -0.096626, -0.010736, 0.000916),
+    float4(-0.098773, -0.177147, 0.034356, 0.046662),
+    float4(0.247834, 0.049458, 0.967539, 0.904662),
+    float4(0.541104, 0.544325, -0.042945, 7.0),
+    float4(-0.288804, -0.278068, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.69359, -0.72037, 0.0, 0.577584),
+    float4(0.199693, 0.595859, 0.0, 14.0),
+    float4(0.068712, -0.06227, 0.081595, 0.0),
+    float4(-0.030061, -0.239417, 0.115951, 0.01445),
+    float4(-0.504461, 0.426837, 0.750553, 0.254154),
+    float4(0.268405, 0.533589, 0.081595, 14.0),
+    float4(0.272699, 0.010736, -0.081595, 0.0),
+    float4(0.061196, -0.096626, -0.010736, 0.025193),
+    float4(0.283244, 0.073137, 0.956255, 0.527108),
+    float4(0.035429, 0.482055, 0.0, 14.0),
+    float4(0.0, 0.258742, 0.0, 0.0),
+    float4(0.134202, -0.125614, 0.115951, 0.473533),
+    float4(-0.653777, 0.0, 0.756687, 0.964691),
+    float4(0.359663, 0.559356, 0.0, 14.0),
+    float4(0.181442, -0.015031, 0.0, 0.006043),
+    float4(-0.091258, -0.025767, 0.081595, 0.076188),
+    float4(0.076465, 0.923048, 0.37701, 0.964691),
+    float4(0.035429, 0.482055, -0.042945, 3.0),
+    float4(0.0, 0.258742, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(-1.0, 0.0, 0.0, 0.577584),
+    float4(0.035429, 0.482055, -0.042945, 11.0),
+    float4(0.0, 0.258742, 0.0, 0.01033),
+    float4(0.0, 0.258742, 0.042945, 0.045182),
+    float4(-1.0, 0.0, 0.0, 0.577584),
+    float4(0.035429, 0.740798, -0.042945, 7.0),
+    float4(0.164264, -0.144939, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.661622, 0.749838, 0.0, 0.577584),
+    float4(0.035429, 0.740798, 0.0, 14.0),
+    float4(0.164264, -0.144939, 0.0, 0.0),
+    float4(0.134202, -0.384356, 0.115951, 0.010956),
+    float4(0.332572, 0.376915, 0.864483, 0.215854),
+    float4(0.035429, 0.740798, -0.042945, 11.0),
+    float4(0.164264, -0.144939, 0.0, 0.01033),
+    float4(0.164264, -0.144939, 0.042945, 0.045182),
+    float4(0.661622, 0.749838, 0.0, 0.577584),
+    float4(0.199693, 0.595859, -0.042945, 7.0),
+    float4(0.105215, 0.22546, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(-0.906183, 0.422886, 0.0, 0.577584),
+    float4(0.199693, 0.595859, 0.0, 14.0),
+    float4(0.105215, 0.22546, 0.0, 0.0),
+    float4(0.068712, -0.06227, 0.081595, 0.015991),
+    float4(-0.613882, 0.286478, 0.735581, 0.473533),
+    float4(0.199693, 0.595859, -0.042945, 11.0),
+    float4(0.105215, 0.22546, 0.0, 0.01033),
+    float4(0.105215, 0.22546, 0.042945, 0.045182),
+    float4(-0.906183, 0.422886, 0.0, 0.577584),
+    float4(0.304908, 0.821319, 0.0, 14.0),
+    float4(0.128834, -0.067638, 0.0, 0.0),
+    float4(-0.036503, -0.28773, 0.081595, 0.254154),
+    float4(0.133686, 0.254641, 0.957751, 0.973449),
+    float4(0.304908, 0.821319, -0.042945, 7.0),
+    float4(0.128834, -0.067638, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.464834, 0.885398, 0.0, 0.577584),
+    float4(0.433742, 0.753681, 0.0, 14.0),
+    float4(-0.07408, -0.194325, 0.0, 0.0),
+    float4(-0.165337, -0.220092, 0.081595, 0.964691),
+    float4(0.683362, -0.260508, 0.682021, 0.964691),
+    float4(0.433742, 0.753681, -0.042945, 11.0),
+    float4(-0.07408, -0.194325, 0.0, 0.01033),
+    float4(-0.07408, -0.194325, 0.042945, 0.045182),
+    float4(0.934406, -0.35621, 0.0, 0.577584),
+    float4(0.304908, 0.821319, -0.042945, 11.0),
+    float4(0.128834, -0.067638, 0.0, 0.01033),
+    float4(0.128834, -0.067638, 0.042945, 0.045182),
+    float4(0.464834, 0.885398, 0.0, 0.577584),
+    float4(0.433742, 0.753681, -0.042945, 7.0),
+    float4(-0.07408, -0.194325, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.934406, -0.35621, 0.0, 0.577584),
+    float4(0.359663, 0.559356, -0.042945, 7.0),
+    float4(0.181442, -0.015031, 0.042945, 0.01033),
+    float4(0.0, 0.0, 0.042945, 0.045182),
+    float4(0.082557, 0.996586, 0.0, 0.577584),
+    float4(0.359663, 0.559356, -0.042945, 11.0),
+    float4(0.181442, -0.015031, 0.0, 0.01033),
+    float4(0.181442, -0.015031, 0.042945, 0.045182),
+    float4(0.082557, 0.996586, 0.0, 0.577584),
+    float4(0.044345, 0.043263, -0.043263, 11.0),
+    float4(-0.043263, -0.005408, 0.0, 0.01033),
+    float4(-0.043263, -0.005408, 0.043263, 0.045182),
+    float4(0.124035, -0.992278, 0.0, 0.577584),
+    float4(0.044345, 0.043263, -0.043263, 7.0),
+    float4(-0.043263, -0.005408, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.124035, -0.992278, 0.0, 0.577584),
+    float4(0.001082, 0.037855, -0.043263, 7.0),
+    float4(-0.044345, 0.040019, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.669964, -0.742393, 0.0, 0.577584),
+    float4(0.044345, 0.043263, 0.0, 10.0),
+    float4(-0.043263, -0.005408, 0.0, 0.000305),
+    float4(-0.040019, 0.030284, 0.049753, 0.964691),
+    float4(0.101434, -0.811469, 0.575525, 0.973449),
+    float4(0.004326, 0.073548, 0.049753, 14.0),
+    float4(-0.003245, -0.035692, -0.049753, 0.0),
+    float4(-0.04759, 0.004326, -0.049753, 0.955978),
+    float4(-0.580475, -0.643229, 0.499304, 0.896269),
+    float4(0.001082, 0.037855, -0.043263, 11.0),
+    float4(-0.044345, 0.040019, 0.0, 0.01033),
+    float4(-0.044345, 0.040019, 0.043263, 0.045182),
+    float4(-0.669964, -0.742393, 0.0, 0.577584),
+    float4(-0.031366, 0.229295, 0.058405, 14.0),
+    float4(0.035692, -0.155748, -0.008653, 0.000305),
+    float4(-0.011897, -0.151422, -0.058405, 0.955978),
+    float4(-0.716533, -0.20131, 0.667874, 0.904662),
+    float4(-0.043263, 0.077874, -0.043263, 7.0),
+    float4(-0.001082, 0.154666, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.999976, -0.006993, 0.0, 0.577584),
+    float4(-0.031366, 0.229295, 0.058405, 14.0),
+    float4(0.089771, -0.137361, -0.02055, 0.445197),
+    float4(0.035692, -0.155748, -0.008653, 0.973449),
+    float4(0.216369, -0.004654, 0.976301, 0.973449),
+    float4(-0.031366, 0.229295, 0.058405, 14.0),
+    float4(-0.011897, -0.151422, -0.058405, 0.000305),
+    float4(-0.012979, 0.003245, -0.058405, 0.955978),
+    float4(-0.976245, -0.006827, 0.216564, 0.904662),
+    float4(-0.043263, 0.077874, -0.043263, 9.0),
+    float4(-0.001082, 0.154666, 0.0, 0.01033),
+    float4(-0.001082, 0.154666, 0.043263, 0.045182),
+    float4(-0.999976, -0.006993, 0.0, 0.577584),
+    float4(-0.045426, 0.564586, 0.052998, 14.0),
+    float4(0.014061, -0.335291, 0.005408, 0.520989),
+    float4(0.001082, -0.332046, -0.052998, 0.088655),
+    float4(-0.975941, -0.037462, 0.214794, 0.973449),
+    float4(-0.044345, 0.23254, 0.0, 3.0),
+    float4(0.0, 0.0, -0.043263, 0.01033),
+    float4(-0.001082, 0.332046, -0.043263, 0.045182),
+    float4(-0.999995, -0.003257, 0.0, 0.577584),
+    float4(-0.163319, 0.380717, -0.043263, 7.0),
+    float4(-0.060569, 0.02704, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.407651, -0.913138, 0.0, 0.577584),
+    float4(-0.094098, 0.431551, -0.043263, 11.0),
+    float4(-0.069221, -0.050834, 0.0, 0.01033),
+    float4(-0.069221, -0.050834, 0.043263, 0.045182),
+    float4(0.591909, -0.806004, 0.0, 0.577584),
+    float4(-0.163319, 0.380717, -0.043263, 11.0),
+    float4(-0.060569, 0.02704, 0.0, 0.01033),
+    float4(-0.060569, 0.02704, 0.043263, 0.045182),
+    float4(-0.407651, -0.913138, 0.0, 0.577584),
+    float4(0.075711, 0.08869, -0.043263, 11.0),
+    float4(-0.031366, -0.045426, 0.0, 0.01033),
+    float4(-0.031366, -0.045426, 0.043263, 0.045182),
+    float4(0.822897, -0.568191, 0.0, 0.577584),
+    float4(0.044345, 0.043263, 0.0, 6.0),
+    float4(-0.040019, 0.030284, 0.049753, 0.000305),
+    float4(0.014061, 0.048671, 0.037855, 0.964691),
+    float4(0.365607, -0.634949, 0.680566, 0.973449),
+    float4(0.075711, 0.08869, -0.043263, 7.0),
+    float4(-0.031366, -0.045426, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.822897, -0.568191, 0.0, 0.577584),
+    float4(0.058405, 0.091934, 0.037855, 14.0),
+    float4(0.017305, -0.003245, -0.037855, 0.0),
+    float4(-0.014061, -0.048671, -0.037855, 0.473533),
+    float4(0.757369, -0.522945, 0.39105, 0.904662),
+    float4(-0.031366, 0.229295, 0.058405, 14.0),
+    float4(0.107077, -0.140606, -0.058405, 0.0),
+    float4(0.089771, -0.137361, -0.02055, 0.376257),
+    float4(0.812052, 0.481346, 0.329966, 0.830777),
+    float4(0.077874, 0.407756, -0.043263, 11.0),
+    float4(-0.002163, -0.319067, 0.0, 0.01033),
+    float4(-0.002163, -0.319067, 0.043263, 0.045182),
+    float4(0.999977, -0.006779, 0.0, 0.577584),
+    float4(-0.031366, 0.229295, 0.058405, 14.0),
+    float4(0.10924, 0.178461, -0.058405, 0.0),
+    float4(0.107077, -0.140606, -0.058405, 0.376257),
+    float4(0.475583, -0.003224, 0.879665, 0.830777),
+    float4(0.147095, 0.272559, -0.043263, 7.0),
+    float4(-0.035692, 0.034611, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.696146, -0.7179, 0.0, 0.577584),
+    float4(0.147095, 0.272559, -0.043263, 11.0),
+    float4(-0.035692, 0.034611, 0.0, 0.01033),
+    float4(-0.035692, 0.034611, 0.043263, 0.045182),
+    float4(-0.696146, -0.7179, 0.0, 0.577584),
+    float4(0.144932, 0.307169, 0.049753, 14.0),
+    float4(0.002163, -0.034611, -0.049753, 0.0),
+    float4(-0.033529, 0.0, -0.049753, 0.9131),
+    float4(-0.630237, -0.649931, 0.424725, 0.904662),
+    float4(0.183869, 0.317985, 0.037855, 6.0),
+    float4(-0.036774, -0.045426, -0.037855, 0.0),
+    float4(-0.038937, -0.010816, 0.011897, 0.806958),
+    float4(0.374433, -0.753477, 0.540438, 0.854994),
+    float4(0.077874, 0.407756, -0.043263, 7.0),
+    float4(-0.002163, -0.319067, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.999977, -0.006779, 0.0, 0.577584),
+    float4(0.111403, 0.307169, -0.043263, 7.0),
+    float4(-0.002163, 0.131953, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.999866, -0.016391, 0.0, 0.577584),
+    float4(0.10924, 0.439122, 0.0, 6.0),
+    float4(0.035692, -0.131953, 0.049753, 0.18117),
+    float4(0.002163, -0.131953, 0.0, 0.955978),
+    float4(-0.82919, -0.013593, 0.558802, 0.964691),
+    float4(0.128708, 0.463999, 0.063813, 14.0),
+    float4(0.055161, -0.146014, -0.025958, 0.246204),
+    float4(0.016224, -0.156829, -0.014061, 0.964691),
+    float4(0.305397, -0.053644, 0.950713, 0.973449),
+    float4(0.111403, 0.307169, -0.043263, 11.0),
+    float4(-0.002163, 0.131953, 0.0, 0.01033),
+    float4(-0.002163, 0.131953, 0.043263, 0.045182),
+    float4(-0.999866, -0.016391, 0.0, 0.577584),
+    float4(0.189277, 0.28013, -0.043263, 11.0),
+    float4(-0.042182, -0.007571, 0.0, 0.01033),
+    float4(-0.042182, -0.007571, 0.043263, 0.045182),
+    float4(0.176664, -0.984271, 0.0, 0.577584),
+    float4(0.183869, 0.317985, 0.037855, 10.0),
+    float4(0.005408, -0.037855, -0.037855, 0.0),
+    float4(-0.036774, -0.045426, -0.037855, 0.806958),
+    float4(0.124328, -0.692684, 0.710445, 0.854994),
+    float4(0.189277, 0.28013, -0.043263, 7.0),
+    float4(-0.042182, -0.007571, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.176664, -0.984271, 0.0, 0.577584),
+    float4(0.183869, 0.317985, 0.037855, 14.0),
+    float4(0.02704, -0.004326, -0.037855, 0.0),
+    float4(0.005408, -0.037855, -0.037855, 0.514916),
+    float4(0.70062, -0.452013, 0.552101, 0.846876),
+    float4(0.210908, 0.313659, -0.043263, 11.0),
+    float4(-0.021632, -0.033529, 0.0, 0.01033),
+    float4(-0.021632, -0.033529, 0.043263, 0.045182),
+    float4(0.840297, -0.542127, 0.0, 0.577584),
+    float4(0.210908, 0.445612, 0.0, 10.0),
+    float4(0.0, -0.131953, 0.0, 0.0),
+    float4(-0.02704, -0.127627, 0.037855, 0.439658),
+    float4(0.813734, 0.0, 0.581238, 0.871366),
+    float4(0.210908, 0.313659, -0.043263, 7.0),
+    float4(-0.021632, -0.033529, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.840297, -0.542127, 0.0, 0.577584),
+    float4(0.210908, 0.445612, -0.043263, 11.0),
+    float4(0.0, -0.131953, 0.0, 0.01033),
+    float4(0.0, -0.131953, 0.043263, 0.045182),
+    float4(1.0, 0.0, 0.0, 0.577584),
+    float4(0.241193, 0.343943, -0.043263, 7.0),
+    float4(-0.002163, 0.107077, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.999796, -0.020198, 0.0, 0.577584),
+    float4(0.276885, 0.311496, -0.043263, 11.0),
+    float4(-0.035692, 0.032447, 0.0, 0.01033),
+    float4(-0.035692, 0.032447, 0.043263, 0.045182),
+    float4(-0.672673, -0.73994, 0.0, 0.577584),
+    float4(0.23903, 0.45102, 0.0, 14.0),
+    float4(0.042182, -0.108158, 0.046508, 0.000305),
+    float4(0.002163, -0.107077, 0.0, 0.846876),
+    float4(-0.758098, -0.015315, 0.651961, 0.896269),
+    float4(0.276885, 0.311496, -0.043263, 7.0),
+    float4(-0.035692, 0.032447, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.672673, -0.73994, 0.0, 0.577584),
+    float4(0.281211, 0.342862, 0.046508, 14.0),
+    float4(-0.004326, -0.031366, -0.046508, 0.0),
+    float4(-0.040019, 0.001082, -0.046508, 0.752941),
+    float4(-0.58651, -0.645161, 0.489667, 0.846876),
+    float4(0.246601, 0.459672, 0.06165, 14.0),
+    float4(0.070303, -0.101669, -0.024876, 0.262257),
+    float4(0.034611, -0.116811, -0.015142, 0.973449),
+    float4(0.27928, -0.041605, 0.959308, 0.973449),
+    float4(0.319067, 0.319067, -0.043263, 11.0),
+    float4(-0.042182, -0.007571, 0.0, 0.01033),
+    float4(-0.042182, -0.007571, 0.043263, 0.045182),
+    float4(0.176664, -0.984271, 0.0, 0.577584),
+    float4(0.319067, 0.319067, 0.0, 10.0),
+    float4(-0.042182, -0.007571, 0.0, 0.0),
+    float4(-0.037855, 0.023795, 0.046508, 0.896269),
+    float4(0.1483, -0.826245, 0.54344, 0.896269),
+    float4(0.319067, 0.319067, -0.043263, 7.0),
+    float4(-0.042182, -0.007571, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.176664, -0.984271, 0.0, 0.577584),
+    float4(0.319067, 0.319067, 0.0, 6.0),
+    float4(-0.037855, 0.023795, 0.046508, 0.0),
+    float4(-0.002163, 0.038937, 0.036774, 0.896269),
+    float4(0.437906, -0.604311, 0.665618, 0.896269),
+    float4(0.316904, 0.358004, 0.036774, 14.0),
+    float4(0.024876, -0.004326, -0.036774, 0.0),
+    float4(0.002163, -0.038937, -0.036774, 0.617212),
+    float4(0.707338, -0.464191, 0.533104, 0.921584),
+    float4(0.34178, 0.353677, -0.043263, 11.0),
+    float4(-0.022713, -0.034611, 0.0, 0.01033),
+    float4(-0.022713, -0.034611, 0.043263, 0.045182),
+    float4(0.836048, -0.548657, 0.0, 0.577584),
+    float4(0.340698, 0.474815, 0.0, 14.0),
+    float4(0.001082, -0.121137, 0.0, 0.0),
+    float4(-0.023795, -0.116811, 0.036774, 0.473533),
+    float4(0.828664, 0.007399, 0.559697, 0.930114),
+    float4(0.34178, 0.353677, -0.043263, 7.0),
+    float4(-0.022713, -0.034611, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.836048, -0.548657, 0.0, 0.577584),
+    float4(0.340698, 0.474815, -0.043263, 11.0),
+    float4(0.001082, -0.121137, 0.0, 0.01033),
+    float4(0.001082, -0.121137, 0.043263, 0.045182),
+    float4(0.99996, 0.008928, 0.0, 0.577584),
+    float4(0.411001, 0.351514, -0.043263, 11.0),
+    float4(-0.034611, 0.030284, 0.0, 0.01033),
+    float4(-0.034611, 0.030284, 0.043263, 0.045182),
+    float4(-0.658505, -0.752577, 0.0, 0.577584),
+    float4(0.411001, 0.351514, -0.043263, 7.0),
+    float4(-0.034611, 0.030284, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.658505, -0.752577, 0.0, 0.577584),
+    float4(0.412083, 0.38288, 0.043263, 14.0),
+    float4(-0.001082, -0.031366, -0.043263, 0.0),
+    float4(-0.035692, -0.001082, -0.043263, 0.745403),
+    float4(-0.574039, -0.656045, 0.489984, 0.854994),
+    float4(0.45102, 0.359085, -0.043263, 11.0),
+    float4(-0.040019, -0.007571, 0.0, 0.01033),
+    float4(-0.040019, -0.007571, 0.043263, 0.045182),
+    float4(0.185892, -0.98257, 0.0, 0.577584),
+    float4(0.45102, 0.359085, 0.0, 10.0),
+    float4(-0.040019, -0.007571, 0.0, 0.000305),
+    float4(-0.038937, 0.023795, 0.043263, 0.879622),
+    float4(0.151736, -0.802035, 0.577682, 0.9131),
+    float4(0.45102, 0.359085, -0.043263, 7.0),
+    float4(-0.040019, -0.007571, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.185892, -0.98257, 0.0, 0.577584),
+    float4(0.45102, 0.359085, 0.0, 6.0),
+    float4(-0.038937, 0.023795, 0.043263, 0.000305),
+    float4(0.003245, 0.0411, 0.032447, 0.879622),
+    float4(0.417852, -0.583049, 0.696744, 0.9131),
+    float4(0.473733, 0.391533, -0.043263, 11.0),
+    float4(-0.022713, -0.032447, 0.0, 0.01033),
+    float4(-0.022713, -0.032447, 0.043263, 0.045182),
+    float4(0.819232, -0.573462, 0.0, 0.577584),
+    float4(0.454264, 0.400185, 0.032447, 14.0),
+    float4(0.019468, -0.008653, -0.032447, 0.0),
+    float4(-0.003245, -0.0411, -0.032447, 0.527108),
+    float4(0.688617, -0.482032, 0.541712, 0.887922),
+    float4(0.473733, 0.391533, -0.043263, 7.0),
+    float4(-0.022713, -0.032447, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.819232, -0.573462, 0.0, 0.577584),
+    float4(-0.223888, 0.407756, -0.043263, 7.0),
+    float4(0.002163, 0.06814, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.999496, 0.03173, 0.0, 0.577584),
+    float4(-0.223888, 0.407756, -0.043263, 11.0),
+    float4(0.002163, 0.06814, 0.0, 0.01033),
+    float4(0.002163, 0.06814, 0.043263, 0.045182),
+    float4(-0.999496, 0.03173, 0.0, 0.577584),
+    float4(-0.167645, 0.416409, 0.046508, 14.0),
+    float4(-0.056242, -0.008653, -0.046508, 0.000305),
+    float4(-0.054079, 0.059487, -0.046508, 0.955978),
+    float4(-0.638985, 0.020285, 0.768952, 0.973449),
+    float4(-0.167645, 0.416409, 0.046508, 14.0),
+    float4(0.004326, -0.035692, -0.046508, 0.000305),
+    float4(-0.056242, -0.008653, -0.046508, 0.955978),
+    float4(-0.339782, -0.761112, 0.552501, 0.973449),
+    float4(-0.221724, 0.475896, 0.0, 14.0),
+    float4(0.139524, 0.055161, 0.043263, 0.520989),
+    float4(0.054079, -0.059487, 0.046508, 0.973449),
+    float4(-0.39307, 0.317373, 0.863001, 0.973449),
+    float4(-0.167645, 0.416409, 0.046508, 6.0),
+    float4(0.073548, 0.015142, -0.046508, 0.0),
+    float4(0.004326, -0.035692, -0.046508, 0.768154),
+    float4(0.490917, -0.668482, 0.558688, 0.871366),
+    float4(-0.094098, 0.431551, -0.043263, 7.0),
+    float4(-0.069221, -0.050834, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.591909, -0.806004, 0.0, 0.577584),
+    float4(-0.167645, 0.416409, 0.046508, 10.0),
+    float4(0.085445, 0.114648, -0.003245, 0.0),
+    float4(0.073548, 0.015142, -0.046508, 0.768154),
+    float4(0.548356, -0.38771, 0.740936, 0.871366),
+    float4(-0.0822, 0.531057, -0.043263, 11.0),
+    float4(-0.011897, -0.099506, 0.0, 0.01033),
+    float4(-0.011897, -0.099506, 0.043263, 0.045182),
+    float4(0.992928, -0.11872, 0.0, 0.577584),
+    float4(-0.044345, 0.23254, 0.0, 7.0),
+    float4(-0.001082, 0.332046, -0.043263, 0.01033),
+    float4(-0.001082, 0.332046, 0.052998, 0.045182),
+    float4(-0.999995, -0.003257, 0.0, 0.577584),
+    float4(-0.045426, 0.564586, 0.052998, 14.0),
+    float4(0.1233, -0.156829, -0.052998, 0.520989),
+    float4(0.014061, -0.335291, 0.005408, 0.088655),
+    float4(0.429355, 0.032562, 0.902549, 0.973449),
+    float4(0.10924, 0.439122, 0.0, 14.0),
+    float4(-0.031366, -0.031366, 0.0, 0.132876),
+    float4(-0.154666, 0.125464, 0.052998, 0.028428),
+    float4(0.182761, -0.182761, 0.966021, 0.955978),
+    float4(0.10924, 0.439122, -0.043263, 11.0),
+    float4(-0.031366, -0.031366, 0.0, 0.01033),
+    float4(-0.031366, -0.031366, 0.043263, 0.045182),
+    float4(0.707107, -0.707107, 0.0, 0.577584),
+    float4(0.10924, 0.439122, -0.043263, 7.0),
+    float4(-0.031366, -0.031366, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.707107, -0.707107, 0.0, 0.577584),
+    float4(0.10924, 0.439122, 0.0, 10.0),
+    float4(0.019468, 0.024876, 0.063813, 0.18117),
+    float4(0.035692, -0.131953, 0.049753, 0.955978),
+    float4(-0.933936, -0.126584, 0.334276, 0.964691),
+    float4(0.128708, 0.463999, 0.063813, 14.0),
+    float4(0.050834, 0.002163, -0.005408, 0.0),
+    float4(0.0822, -0.018387, -0.063813, 0.439658),
+    float4(0.07859, -0.92643, 0.368172, 0.871366),
+    float4(-0.221724, 0.475896, -0.043263, 7.0),
+    float4(0.122219, 0.207664, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.861819, 0.507216, 0.0, 0.577584),
+    float4(-0.221724, 0.475896, -0.043263, 9.0),
+    float4(0.122219, 0.207664, 0.0, 0.01033),
+    float4(0.122219, 0.207664, 0.043263, 0.045182),
+    float4(-0.861819, 0.507216, 0.0, 0.577584),
+    float4(-0.099506, 0.68356, 0.0, 14.0),
+    float4(0.017305, -0.152503, 0.043263, 0.0),
+    float4(-0.122219, -0.207664, 0.0, 0.723049),
+    float4(-0.365879, 0.215335, 0.905408, 0.854994),
+    float4(-0.0822, 0.531057, -0.043263, 7.0),
+    float4(-0.011897, -0.099506, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.086527, 0.045182),
+    float4(0.992928, -0.11872, 0.0, 0.577584),
+    float4(-0.099506, 0.68356, 0.0, 14.0),
+    float4(0.054079, -0.118974, 0.052998, 0.0),
+    float4(0.017305, -0.152503, 0.043263, 0.514916),
+    float4(-0.41958, 0.203352, 0.884647, 0.863157),
+    float4(-0.099506, 0.68356, -0.043263, 3.0),
+    float4(0.086527, 0.149258, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.86514, 0.501531, 0.0, 0.577584),
+    float4(-0.045426, 0.564586, -0.043263, 11.0),
+    float4(-0.036774, -0.033529, 0.0, 0.01033),
+    float4(-0.036774, -0.033529, 0.086527, 0.045182),
+    float4(0.673754, -0.738956, 0.0, 0.577584),
+    float4(-0.045426, 0.564586, -0.043263, 7.0),
+    float4(-0.036774, -0.033529, 0.086527, 0.01033),
+    float4(0.0, 0.0, 0.096261, 0.045182),
+    float4(0.673754, -0.738956, 0.0, 0.577584),
+    float4(-0.099506, 0.68356, 0.0, 14.0),
+    float4(0.086527, 0.149258, 0.0, 0.0),
+    float4(0.054079, -0.118974, 0.052998, 0.262257),
+    float4(-0.385563, 0.223515, 0.8952, 0.9131),
+    float4(-0.099506, 0.68356, -0.043263, 11.0),
+    float4(0.086527, 0.149258, 0.0, 0.01033),
+    float4(0.086527, 0.149258, 0.043263, 0.045182),
+    float4(-0.86514, 0.501531, 0.0, 0.577584),
+    float4(-0.012979, 0.832818, 0.0, 14.0),
+    float4(0.214153, -0.194685, 0.0822, 0.000305),
+    float4(-0.032447, -0.268232, 0.052998, 0.930114),
+    float4(-0.176863, 0.211325, 0.961281, 0.973449),
+    float4(0.128708, 0.463999, 0.063813, 14.0),
+    float4(-0.019468, -0.024876, -0.063813, 0.168276),
+    float4(-0.174135, 0.100587, -0.010816, 0.038209),
+    float4(-0.469238, -0.764881, 0.441331, 0.955978),
+    float4(0.201174, 0.638133, 0.0822, 14.0),
+    float4(-0.072466, -0.174135, -0.018387, 0.18117),
+    float4(-0.246601, -0.073548, -0.029203, 0.082277),
+    float4(-0.098561, -0.063844, 0.993081, 0.973449),
+    float4(-0.012979, 0.832818, -0.043263, 7.0),
+    float4(0.339617, -0.002163, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.006369, 0.99998, 0.0, 0.577584),
+    float4(0.179543, 0.466162, 0.058405, 10.0),
+    float4(-0.050834, -0.002163, 0.005408, 0.000305),
+    float4(0.021632, 0.171972, 0.023795, 0.022171),
+    float4(0.110896, -0.149888, 0.982464, 0.381323),
+    float4(-0.012979, 0.832818, 0.0, 14.0),
+    float4(0.339617, -0.002163, 0.0, 0.0),
+    float4(0.214153, -0.194685, 0.0822, 0.027314),
+    float4(0.002492, 0.391296, 0.920261, 0.49102),
+    float4(0.183869, 0.317985, 0.037855, 10.0),
+    float4(-0.055161, 0.146014, 0.025958, 0.0),
+    float4(0.02704, 0.127627, -0.037855, 0.439658),
+    float4(0.623841, 0.097823, 0.775405, 0.871366),
+    float4(0.210908, 0.445612, -0.043263, 7.0),
+    float4(0.0, -0.131953, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(1.0, 0.0, 0.0, 0.577584),
+    float4(0.210908, 0.445612, 0.0, 10.0),
+    float4(-0.031366, 0.02055, 0.058405, 0.000305),
+    float4(0.035692, 0.014061, 0.06165, 0.022171),
+    float4(-0.105864, -0.954447, 0.278971, 0.381323),
+    float4(0.23903, 0.45102, -0.043263, 11.0),
+    float4(-0.028121, -0.005408, 0.0, 0.01033),
+    float4(-0.028121, -0.005408, 0.043263, 0.045182),
+    float4(0.188847, -0.982006, 0.0, 0.577584),
+    float4(0.23903, 0.45102, -0.043263, 7.0),
+    float4(-0.028121, -0.005408, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.188847, -0.982006, 0.0, 0.577584),
+    float4(0.246601, 0.459672, 0.06165, 11.0),
+    float4(-0.007571, -0.008653, -0.06165, 0.000305),
+    float4(-0.035692, -0.014061, -0.06165, 0.022171),
+    float4(0.187618, -0.975617, 0.113888, 0.381323),
+    float4(0.241193, 0.343943, -0.043263, 11.0),
+    float4(-0.002163, 0.107077, 0.0, 0.01033),
+    float4(-0.002163, 0.107077, 0.043263, 0.045182),
+    float4(-0.999796, -0.020198, 0.0, 0.577584),
+    float4(0.23903, 0.45102, 0.0, 15.0),
+    float4(0.007571, 0.008653, 0.06165, 0.000305),
+    float4(0.042182, -0.108158, 0.046508, 0.846876),
+    float4(-0.94107, -0.299262, 0.157572, 0.896269),
+    float4(0.316904, 0.358004, 0.036774, 14.0),
+    float4(-0.070303, 0.101669, 0.024876, 0.0),
+    float4(0.023795, 0.116811, -0.036774, 0.473533),
+    float4(0.523424, 0.157027, 0.837478, 0.930114),
+    float4(0.340698, 0.474815, -0.043263, 7.0),
+    float4(0.001082, -0.121137, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.99996, 0.008928, 0.0, 0.577584),
+    float4(0.376391, 0.381799, -0.043263, 11.0),
+    float4(-0.001082, 0.107077, 0.0, 0.01033),
+    float4(-0.001082, 0.107077, 0.043263, 0.045182),
+    float4(-0.999949, -0.0101, 0.0, 0.577584),
+    float4(0.376391, 0.381799, -0.043263, 7.0),
+    float4(-0.001082, 0.107077, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(-0.999949, -0.0101, 0.0, 0.577584),
+    float4(0.375309, 0.488875, 0.0, 14.0),
+    float4(0.036774, -0.105995, 0.043263, 0.000305),
+    float4(0.001082, -0.107077, 0.0, 0.879622),
+    float4(-0.771254, -0.00779, 0.63648, 0.896269),
+    float4(0.375309, 0.488875, 0.0, 14.0),
+    float4(0.078955, -0.08869, 0.032447, 0.223224),
+    float4(0.036774, -0.105995, 0.043263, 0.964691),
+    float4(0.071225, 0.39802, 0.914608, 0.973449),
+    float4(0.473733, 0.603523, 0.0, 14.0),
+    float4(0.0, -0.21199, 0.0, 0.158953),
+    float4(-0.019468, -0.203337, 0.032447, 0.030716),
+    float4(0.857493, 0.0, 0.514496, 0.964691),
+    float4(0.473733, 0.603523, -0.043263, 11.0),
+    float4(0.0, -0.21199, 0.0, 0.01033),
+    float4(0.0, -0.21199, 0.043263, 0.045182),
+    float4(1.0, 0.0, 0.0, 0.577584),
+    float4(0.276885, 0.484549, 0.058405, 10.0),
+    float4(-0.030284, -0.024876, 0.003245, 0.000305),
+    float4(-0.097342, -0.018387, 0.0, 0.022171),
+    float4(-0.03153, 0.166923, 0.985466, 0.381323),
+    float4(0.246601, 0.459672, 0.06165, 14.0),
+    float4(0.030284, 0.024876, -0.003245, 0.0),
+    float4(0.094098, 0.015142, -0.06165, 0.473533),
+    float4(0.518869, -0.545855, 0.657888, 0.930114),
+    float4(0.375309, 0.488875, -0.043263, 11.0),
+    float4(-0.034611, -0.014061, 0.0, 0.01033),
+    float4(-0.034611, -0.014061, 0.043263, 0.045182),
+    float4(0.376377, -0.926467, 0.0, 0.577584),
+    float4(0.340698, 0.474815, 0.0, 14.0),
+    float4(-0.063813, 0.009734, 0.058405, 0.000305),
+    float4(0.034611, 0.014061, 0.0, 0.022171),
+    float4(0.3276, -0.806402, 0.492334, 0.381323),
+    float4(0.375309, 0.488875, -0.043263, 7.0),
+    float4(-0.034611, -0.014061, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.376377, -0.926467, 0.0, 0.577584),
+    float4(0.454264, 0.400185, 0.032447, 12.0),
+    float4(-0.078955, 0.08869, -0.032447, 0.158953),
+    float4(0.019468, 0.203337, -0.032447, 0.030716),
+    float4(-0.201684, 0.173144, 0.964025, 0.964691),
+    float4(0.201174, 0.638133, 0.0822, 8.0),
+    float4(0.075711, -0.153585, -0.023795, 0.000305),
+    float4(-0.021632, -0.171972, -0.023795, 0.022171),
+    float4(0.026497, -0.140281, 0.989757, 0.381323),
+    float4(0.473733, 0.603523, -0.043263, 7.0),
+    float4(0.0, -0.21199, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(1.0, 0.0, 0.0, 0.577584),
+    float4(0.276885, 0.484549, 0.058405, 14.0),
+    float4(-0.075711, 0.153585, 0.023795, 0.000305),
+    float4(0.098424, 0.004326, -0.058405, 0.022171),
+    float4(0.50316, 0.115345, 0.856461, 0.381323),
+    float4(0.375309, 0.488875, 0.0, 10.0),
+    float4(0.090853, 0.12979, 0.0, 0.158953),
+    float4(0.098424, 0.114648, 0.0, 0.030716),
+    float4(0.0, 0.0, 1.0, 0.964691),
+    float4(0.466162, 0.618665, -0.043263, 11.0),
+    float4(0.007571, -0.015142, 0.0, 0.01033),
+    float4(0.007571, -0.015142, 0.043263, 0.045182),
+    float4(0.894427, 0.447214, 0.0, 0.577584),
+    float4(0.466162, 0.618665, -0.043263, 3.0),
+    float4(0.007571, -0.015142, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.894427, 0.447214, 0.0, 0.577584),
+    float4(0.326638, 0.830655, 0.0, 14.0),
+    float4(0.139524, -0.21199, 0.0, 0.0),
+    float4(0.048671, -0.34178, 0.0, 0.015213),
+    float4(0.0, 0.0, 1.0, 0.428687),
+    float4(0.326638, 0.830655, 0.0, 14.0),
+    float4(0.048671, -0.34178, 0.0, 0.007492),
+    float4(-0.125464, -0.192522, 0.0822, 0.054475),
+    float4(0.472493, 0.067285, 0.878762, 0.964691),
+    float4(0.326638, 0.830655, -0.043263, 9.0),
+    float4(0.139524, -0.21199, 0.0, 0.01033),
+    float4(0.139524, -0.21199, 0.043263, 0.045182),
+    float4(0.835314, 0.549773, 0.0, 0.577584),
+    float4(0.326638, 0.830655, -0.043263, 7.0),
+    float4(0.139524, -0.21199, 0.043263, 0.01033),
+    float4(0.0, 0.0, 0.043263, 0.045182),
+    float4(0.835314, 0.549773, 0.0, 0.577584),
+    float4(-0.012979, 0.832818, -0.043263, 11.0),
+    float4(0.339617, -0.002163, 0.0, 0.01033),
+    float4(0.339617, -0.002163, 0.043263, 0.045182),
+    float4(0.006369, 0.99998, 0.0, 0.577584)
+};
+static const float4 PRISM_BOXES[44] = {
+    float4(0.030135, 0.06127, -0.043945, 0.0),
+    float4(0.330601, 0.483055, 0.116951, 7.0),
+    float4(0.034429, 0.265258, -0.043945, 7.0),
+    float4(0.542104, 0.741798, 0.116951, 8.0),
+    float4(0.034429, 0.355442, -0.043945, 15.0),
+    float4(0.305908, 0.822319, 0.116951, 8.0),
+    float4(0.267405, 0.532589, -0.043945, 23.0),
+    float4(0.542104, 0.822319, 0.082595, 8.0),
+    float4(-0.045345, 0.036855, -0.044263, 31.0),
+    float4(0.045345, 0.23354, 0.059405, 8.0),
+    float4(-0.224888, 0.072548, -0.044263, 39.0),
+    float4(0.059405, 0.565586, 0.059405, 8.0),
+    float4(-0.032366, 0.042263, -0.044263, 47.0),
+    float4(0.148095, 0.408756, 0.059405, 8.0),
+    float4(0.074711, 0.08769, -0.044263, 55.0),
+    float4(0.184869, 0.464999, 0.064813, 8.0),
+    float4(0.146095, 0.271559, -0.044263, 63.0),
+    float4(0.211908, 0.446612, 0.038855, 8.0),
+    float4(0.23803, 0.310496, -0.044263, 71.0),
+    float4(0.320067, 0.460672, 0.06265, 8.0),
+    float4(0.275885, 0.310496, -0.044263, 79.0),
+    float4(0.412001, 0.475815, 0.047508, 8.0),
+    float4(0.375391, 0.350514, -0.044263, 87.0),
+    float4(0.45202, 0.38388, 0.044263, 4.0),
+    float4(0.410001, 0.350514, -0.044263, 91.0),
+    float4(0.474733, 0.401185, 0.044263, 5.0),
+    float4(-0.224888, 0.379717, -0.044263, 96.0),
+    float4(-0.0812, 0.532057, 0.047508, 8.0),
+    float4(-0.095098, 0.228295, -0.044263, 104.0),
+    float4(0.211908, 0.565586, 0.064813, 8.0),
+    float4(-0.222724, 0.430551, -0.044263, 112.0),
+    float4(-0.011979, 0.833818, 0.053998, 8.0),
+    float4(-0.100506, 0.438122, -0.044263, 120.0),
+    float4(0.327638, 0.833818, 0.0832, 8.0),
+    float4(0.127708, 0.312659, -0.044263, 128.0),
+    float4(0.282211, 0.467162, 0.064813, 8.0),
+    float4(0.245601, 0.352677, -0.044263, 136.0),
+    float4(0.474733, 0.604523, 0.06265, 8.0),
+    float4(0.178543, 0.390533, -0.044263, 144.0),
+    float4(0.474733, 0.639133, 0.0832, 8.0),
+    float4(0.200174, 0.483549, -0.044263, 152.0),
+    float4(0.474733, 0.639133, 0.0832, 4.0),
+    float4(-0.013979, 0.487875, -0.044263, 156.0),
+    float4(0.467162, 0.833818, 0.0832, 5.0)
+};
+static const float2 PRISM_POLY[110] = {
+    float2(0.006442, -0.002147),
+    float2(-0.001074, 0.001074),
+    float2(-0.004294, 0.007515),
+    float2(-0.004294, 0.806288),
+    float2(-0.001074, 0.809509),
+    float2(0.004294, 0.809509),
+    float2(0.022546, 0.796626),
+    float2(0.185736, 0.655982),
+    float2(0.281288, 0.86319),
+    float2(0.286656, 0.870706),
+    float2(0.293098, 0.871779),
+    float2(0.465951, 0.781595),
+    float2(0.478834, 0.773006),
+    float2(0.478834, 0.763344),
+    float2(0.407975, 0.592638),
+    float2(0.45092, 0.586196),
+    float2(0.601227, 0.573313),
+    float2(0.606595, 0.569018),
+    float2(0.606595, 0.564724),
+    float2(0.601227, 0.556135),
+    float2(0.50138, 0.453067),
+    float2(0.425153, 0.37684),
+    float2(0.289877, 0.246933),
+    float2(0.081595, 0.057975),
+    float2(0.013957, 0.0),
+    float2(-0.011897, 0.0),
+    float2(-0.055161, 0.037855),
+    float2(-0.081119, 0.063813),
+    float2(-0.083282, 0.06814),
+    float2(-0.084363, 0.38288),
+    float2(-0.089771, 0.38288),
+    float2(-0.158993, 0.33529),
+    float2(-0.166564, 0.336372),
+    float2(-0.250927, 0.379635),
+    float2(-0.261743, 0.388288),
+    float2(-0.263906, 0.461836),
+    float2(-0.262824, 0.486712),
+    float2(-0.173053, 0.638133),
+    float2(-0.044345, 0.860939),
+    float2(-0.036774, 0.867429),
+    float2(-0.024876, 0.871755),
+    float2(0.33529, 0.871755),
+    float2(0.349351, 0.867429),
+    float2(0.363412, 0.853368),
+    float2(0.513752, 0.619747),
+    float2(0.513752, 0.379635),
+    float2(0.466162, 0.322311),
+    float2(0.461836, 0.320148),
+    float2(0.399104, 0.311496),
+    float2(0.393696, 0.313659),
+    float2(0.374227, 0.332046),
+    float2(0.343943, 0.288782),
+    float2(0.336372, 0.282293),
+    float2(0.269314, 0.271477),
+    float2(0.263906, 0.27364),
+    float2(0.243356, 0.292027),
+    float2(0.21199, 0.244438),
+    float2(0.207664, 0.241193),
+    float2(0.149258, 0.231459),
+    float2(0.138443, 0.231459),
+    float2(0.118974, 0.248764),
+    float2(0.116811, 0.222806),
+    float2(0.117892, 0.162237),
+    float2(0.115729, 0.076792),
+    float2(0.06814, 0.011897),
+    float2(0.062732, 0.007571),
+    float2(0.005408, 0.0),
+    float2(0.031135, 0.06227),
+    float2(0.252301, 0.266258),
+    float2(0.541104, 0.544325),
+    float2(0.359663, 0.559356),
+    float2(0.433742, 0.753681),
+    float2(0.304908, 0.821319),
+    float2(0.199693, 0.595859),
+    float2(0.035429, 0.740798),
+    float2(0.035429, 0.482055),
+    float2(-0.043263, 0.077874),
+    float2(0.001082, 0.037855),
+    float2(0.044345, 0.043263),
+    float2(0.075711, 0.08869),
+    float2(0.077874, 0.407756),
+    float2(0.10924, 0.439122),
+    float2(0.111403, 0.307169),
+    float2(0.147095, 0.272559),
+    float2(0.189277, 0.28013),
+    float2(0.210909, 0.313659),
+    float2(0.210909, 0.445612),
+    float2(0.23903, 0.45102),
+    float2(0.241193, 0.343943),
+    float2(0.276885, 0.311496),
+    float2(0.319067, 0.319067),
+    float2(0.34178, 0.353677),
+    float2(0.340698, 0.474815),
+    float2(0.375309, 0.488875),
+    float2(0.376391, 0.381799),
+    float2(0.411001, 0.351514),
+    float2(0.45102, 0.359085),
+    float2(0.473733, 0.391533),
+    float2(0.473733, 0.603523),
+    float2(0.466162, 0.618665),
+    float2(0.326638, 0.830655),
+    float2(-0.012979, 0.832818),
+    float2(-0.099506, 0.68356),
+    float2(-0.221724, 0.475896),
+    float2(-0.223888, 0.407756),
+    float2(-0.163319, 0.380717),
+    float2(-0.094098, 0.431551),
+    float2(-0.0822, 0.531057),
+    float2(-0.045426, 0.564586),
+    float2(-0.044345, 0.23254)
+};
+static const float PRISM_BEVEL = 0.012883;
+// end of the prism mesh
+
+// Le verre validé sur le prototype (30/09/2026).
+static const float PRISM_IOR = 1.61;
+static const float PRISM_DISPERSION = 0.035;
+static const float PRISM_GLOW = 0.45;
+static const float PRISM_FOLD = 0.35;
+// Rebonds au plus dans le cristal, par canal ; l'id de matière du cristal.
+static const int PRISM_BOUNCES = 6;
+static const float PRISM_MAT = 9.0;
+
+// Le modèle de Prism Glow de ce dessin : 0 flèche, 1 main, -1 un autre curseur.
+int prism_shape()
+{
+    int id = sculpt_id();
+    return id == 3 || id == 4 ? id - 3 : -1;
+}
+
+// Distance signée au polygone `n` sommets de PRISM_POLY à partir de `i0` (plan xy du modèle),
+// négative dedans : la silhouette du serti, ou le contour du cristal.
+float prism_poly_dist(float2 p, int i0, int n)
+{
+    float2 vj = PRISM_POLY[i0 + n - 1];
+    float d = 1e9;
+    float sgn = 1.0;
+    [loop] for (int i = 0; i < n; i++)
+    {
+        float2 vi = PRISM_POLY[i0 + i];
+        float2 e = vj - vi;
+        float2 w = p - vi;
+        float2 b = w - e * saturate(dot(w, e) / dot(e, e));
+        d = min(d, dot(b, b));
+        bool c0 = p.y >= vi.y;
+        bool c1 = p.y < vj.y;
+        bool c2 = e.x * w.y > e.y * w.x;
+        if ((c0 && c1 && c2) || (!c0 && !c1 && !c2))
+        {
+            sgn = -sgn;
+        }
+        vj = vi;
+    }
+    return sgn * sqrt(d);
+}
+
+// Le serti : la silhouette extrudée de z = -épaisseur à 0, arêtes arrondies de PRISM_BEVEL.
+float prism_rim(float3 p, int shape)
+{
+    float half_t = model_thick() * 0.5;
+    float sil = prism_poly_dist(p.xy, PRISM_SIL_START[shape], PRISM_SIL_COUNT[shape]);
+    float2 w = float2(sil + PRISM_BEVEL, abs(p.z + half_t) - (half_t - PRISM_BEVEL));
+    return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - PRISM_BEVEL;
+}
+
+// Distance le long de (ro, rd) au triangle `k` (Möller–Trumbore), -1 s'il le rate. Un rien de jeu
+// sur les bords : un rayon ne passe pas entre deux facettes voisines.
+float prism_tri(float3 ro, float3 rd, int k)
+{
+    float3 v0 = PRISM_TRIS[4 * k].xyz;
+    float3 e1 = PRISM_TRIS[4 * k + 1].xyz;
+    float3 e2 = PRISM_TRIS[4 * k + 2].xyz;
+    float3 pv = cross(rd, e2);
+    float det = dot(e1, pv);
+    if (abs(det) < 1e-10)
+    {
+        return -1.0;
+    }
+    float inv = 1.0 / det;
+    float3 sv = ro - v0;
+    float u = dot(sv, pv) * inv;
+    float3 qv = cross(sv, e1);
+    float v = dot(rd, qv) * inv;
+    if (u < -2e-4 || v < -2e-4 || u + v > 1.0004)
+    {
+        return -1.0;
+    }
+    return dot(e2, qv) * inv;
+}
+
+// Le triangle du cristal `shape` le plus proche devant (ro, rd) : sa distance (1e9 si aucun), son
+// indice dans `hit` (-1 si aucun). Les triangles sont rangés par voisinage, une boîte englobante
+// par groupe (PRISM_BOXES) : un rayon qui rate une boîte, ou n'y entre qu'au-delà du meilleur
+// point, saute tous ses triangles. L'inverse de la direction sert à toutes les boîtes.
+float prism_trace(float3 ro, float3 rd, int shape, out int hit)
+{
+    float3 inv = 1.0 / (abs(rd) > 1e-6 ? rd : 1e-6);
+    int b0 = PRISM_BOX_START[shape];
+    int nb = PRISM_BOX_COUNT[shape];
+    float best = 1e9;
+    hit = -1;
+    [loop] for (int j = b0; j < b0 + nb; j++)
+    {
+        float4 lo = PRISM_BOXES[2 * j];
+        float4 hi = PRISM_BOXES[2 * j + 1];
+        float3 t0 = (lo.xyz - ro) * inv;
+        float3 t1 = (hi.xyz - ro) * inv;
+        float3 tn = min(t0, t1);
+        float3 tf = max(t0, t1);
+        float tmin = max(max(tn.x, tn.y), tn.z);
+        float tmax = min(min(tf.x, tf.y), tf.z);
+        if (tmax < max(tmin, 1e-5) || tmin > best)
+        {
+            continue;
+        }
+        int k0 = (int)lo.w;
+        int n = (int)hi.w;
+        [loop] for (int i = k0; i < k0 + n; i++)
+        {
+            float t = prism_tri(ro, rd, i);
+            if (t > 1e-5 && t < best)
+            {
+                best = t;
+                hit = i;
+            }
+        }
+    }
+    return best;
+}
+
+// Le modèle `shape` du thème `theme`, repère du prototype : (distance, id de matière).
+float2 sculpt_proto(float3 p, int theme, int shape)
+{
+    if (theme == 3)
+    {
+        return s_voxels(p, shape);
+    }
+    if (theme == 5)
+    {
+        return s_glass(p, shape);
+    }
+    // Un seul appel pour les trois thèmes cerclés et leurs deux formes (FXC recopie chaque appel).
+    return s_rimmed(p, theme, shape);
+}
+
+// Repère du modèle -> prototype. L'écrasement du clic ne raccourcit que z, autour du hotspot.
+float3 sculpt_point(float3 q)
+{
+    float zref = (sculpt_id() - 1) % 2 == 0 ? SCULPT_ZREF_ARROW : SCULPT_ZREF_HAND;
+    return float3(q.x, -q.y, q.z / max(color.b, 1e-3)) / SCULPT_SCALE + float3(0.0, 0.0, zref);
+}
+
+// Une distance du prototype en unités du modèle : écrasé, z raccourcit, d'où le min (une borne
+// inférieure reste une borne inférieure).
+float sculpt_units()
+{
+    return SCULPT_SCALE * min(color.b, 1.0);
+}
+
+// Le curseur sculpté en `q` (repère du modèle) : distance et id de matière. `occ` : ce qui porte
+// l'ombre sur l'écran. La borne des plans d'une gemme et le champ des voxels sont de mauvaises
+// distances loin de la surface : la pénombre s'y strie, ou s'arrête net au bord de la boîte des
+// voxels. Pixel Candy porte donc l'ombre de sa forme, extrudée sur la hauteur des cubes. Prism
+// Glow n'a ici que son serti, dans le repère du modèle : son cristal est tracé à part
+// (`prism_primary`), et l'ombre est celle de toute sa silhouette.
+float2 sculpt_eval(float3 q, bool occ)
+{
+    int id = sculpt_id() - 1;
+    int theme = id / 2, shape = id % 2;
+    if (theme == 1)
+    {
+        return float2(prism_rim(q, shape), 8.0);
+    }
+    float3 p = sculpt_point(q);
+    float2 r;
+    if (occ && theme == 3)
+    {
+        float d2 = s_pixel_outline(p.xy, shape);
+        float dz = abs(p.z - (SCULPT_HOVER + 0.07)) - 0.07;
+        r = float2(length(max(float2(d2, dz), 0.0)) + min(max(d2, dz), 0.0), 7.0);
+    }
+    else
+    {
+        r = sculpt_proto(p, theme, shape);
+    }
+    return float2(r.x * sculpt_units(), r.y);
+}
+
+// Distance signée à la silhouette du sprite (plan xy du modèle). Dans le rect du sprite, le champ ;
+// hors de lui, une borne inférieure exacte le long de la normale au rect : le sprite tient dans son
+// rect, qui est convexe, donc |p - s|² >= |p - c|² + |c - s|² pour tout point s du sprite (c = p
+// ramené dans le rect). Échantillonné au niveau 0 : la marche est une boucle à sortie anticipée.
+float sd_sprite2(float2 p)
+{
+    float2 c = clamp(p, color.rg, color.rg + sprite_size());
+    float d = texSdf.SampleLevel(samp, (c - color.rg) / sprite_size(), 0.0);
+    float2 o = p - c;
+    float out2 = dot(o, o);
+    float e = max(d, 0.0);
+    return out2 > 0.0 ? sqrt(out2 + e * e) : d;
+}
+
+// Le modèle en `p` : distance signée et id de matière (0 pour un sprite). Sculpté, sa forme
+// (`sculpt_eval`, dont `occ`) ; sinon le contour rentré du chanfrein, épaisseur rentrée du
+// chanfrein, puis regonflé : les arêtes du dessus et du dessous sont arrondies de MODEL_BEVEL.
+float2 model_eval(float3 p, bool occ)
+{
+    if (sculpt_id() > 0)
+    {
+        return sculpt_eval(p, occ);
+    }
+    float half_t = model_thick() * 0.5;
+    float2 w = float2(sd_sprite2(p.xy) + MODEL_BEVEL, abs(p.z + half_t) - (half_t - MODEL_BEVEL));
+    return float2(min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - MODEL_BEVEL, 0.0);
+}
+
+// Entrée/sortie d'un rayon dans une boîte alignée (x = entrée, y = sortie ; x >= y : raté).
+float2 ray_box(float3 o, float3 d, float3 lo, float3 hi)
+{
+    float3 inv = 1.0 / (abs(d) > 1e-6 ? d : 1e-6);
+    float3 t0 = (lo - o) * inv;
+    float3 t1 = (hi - o) * inv;
+    float3 tn = min(t0, t1);
+    float3 tf = max(t0, t1);
+    return float2(max(max(tn.x, tn.y), tn.z), min(min(tf.x, tf.y), tf.z));
+}
+
+// Cosinus/sinus de la pose : rotation du plan (X, Y, Z), tangage et lacet du modèle.
+struct ModelFrame
+{
+    float3 c;
+    float3 s;
+    float cp;
+    float sp;
+    float cy;
+    float sy;
+};
+
+// Repère caméra -> repère du plan : la transposée de `regions::rotate_point` (X, Y, puis Z).
+float3 world_to_plane(float3 v, ModelFrame f)
+{
+    float y = v.y * f.c.x + v.z * f.s.x;
+    float z = -v.y * f.s.x + v.z * f.c.x;
+    float x = v.x * f.c.y - z * f.s.y;
+    z = v.x * f.s.y + z * f.c.y;
+    return float3(x * f.c.z + y * f.s.z, -x * f.s.z + y * f.c.z, z);
+}
+
+// Repère du modèle -> repère du plan (sans échelle ni translation) : tangage autour de x, puis
+// lacet autour de z (`ModelView::model_to_plane`).
+float3 model_to_plane(float3 v, ModelFrame f)
+{
+    float y = v.y * f.cp - v.z * f.sp;
+    float z = v.y * f.sp + v.z * f.cp;
+    return float3(v.x * f.cy - y * f.sy, v.x * f.sy + y * f.cy, z);
+}
+
+// L'inverse du précédent.
+float3 plane_to_model(float3 v, ModelFrame f)
+{
+    float x = v.x * f.cy + v.y * f.sy;
+    float y = -v.x * f.sy + v.y * f.cy;
+    return float3(x, y * f.cp + v.z * f.sp, -y * f.sp + v.z * f.cp);
+}
+
+
+// Couleur de la matière au point `p` du plan xy (alpha droit) : l'art du sprite, lu au plus à
+// MODEL_RIM_INSET texels du bord vers l'intérieur. Le dessus garde donc son art, et le chanfrein,
+// les flancs et le dessous prennent la couleur du bord de CE sprite (le filet blanc de la flèche,
+// le trait noir des mains), jamais la frange mêlée au transparent.
+float3 model_albedo(float2 p)
+{
+    float texel = sprite_texel();
+    float e = 0.25 * texel;
+    float2 g = float2(sd_sprite2(p + float2(e, 0.0)) - sd_sprite2(p - float2(e, 0.0)),
+                      sd_sprite2(p + float2(0.0, e)) - sd_sprite2(p - float2(0.0, e)));
+    float2 q = p - g / max(length(g), 1e-6) * max(sd_sprite2(p) + MODEL_RIM_INSET * texel, 0.0);
+    return texImg.SampleLevel(samp, (q - color.rg) / sprite_size(), 0.0).rgb;
+}
+
+struct SculptMat
+{
+    float3 alb; // albédo, linéaire
+    float rough;
+    float spec;
+    float sss; // enveloppe du diffus (matières tendres : caoutchouc, céramique)
+    float refl;
+};
+
+SculptMat s_mat(float3 alb, float rough, float spec, float sss, float refl)
+{
+    SculptMat m;
+    m.alb = alb;
+    m.rough = rough;
+    m.spec = spec;
+    m.sss = sss;
+    m.refl = refl;
+    return m;
+}
+
+// Couleur du cube qui porte `p` (prototype) : celle de son pixel.
+float3 s_pixel_colour(float3 p, int shape)
+{
+    int2 cell = s_pix_cell(p.xy, shape);
+    int4 g = PIX_GRID[shape];
+    int row = g.z + clamp(cell.y, 0, g.y - 1);
+    if (s_pix_bit(PIX_LINE[row], cell.x)) return s_lin(0.29, 0.12, 0.36);
+    if (s_pix_bit(PIX_HI[row], cell.x)) return s_lin(1.0, 0.78, 0.87);
+    if (s_pix_bit(PIX_SHADE[row], cell.x)) return s_lin(0.87, 0.27, 0.51);
+    return s_lin(1.0, 0.435, 0.66);
+}
+
+// La matière `mat` (id de `sculpt_proto`) au point `p` du prototype.
+SculptMat sculpt_material(float mat, float3 p, int theme, int shape)
+{
+    bool primary = mat < 1.5;
+    if (theme == 0)
+    {
+        // Ivoire (le gant, la bande de la flèche) ; noir satiné, presque sans reflet : un reflet
+        // large sur le champ plat de la flèche le virait au gris.
+        if (mat < 2.5) return s_mat(s_lin(0.95, 0.92, 0.85), 0.3, 0.6, 0.35, 0.25);
+        return s_mat(s_lin(0.1, 0.1, 0.11), 0.55, 0.05, 0.0, 0.1);
+    }
+    if (theme == 1)
+    {
+        // Le serti de Prism Glow : un émail marine, brillant sur son arrondi seulement (`model_shade`).
+        return s_mat(s_lin(0.02, 0.05, 0.33), 0.35, 0.5, 0.05, 0.3);
+    }
+    if (theme == 5)
+    {
+        // Le trait de Glass Lens : un graphite laqué, dont seuls les bords arrondis brillent (le
+        // verre a son propre ombrage, `glass_shade`).
+        return s_mat(s_lin(0.05, 0.055, 0.07), 0.25, 0.7, 0.0, 0.35);
+    }
+    if (theme == 2)
+    {
+        // Corail : la flèche, le calque et les tirets de la main ; jaune : le gant, le calque et les
+        // tirets de la flèche ; le trait marine.
+        if ((primary && shape == 0) || (mat > 2.5 && mat < 3.5 && shape == 1)) return s_mat(s_lin(1.0, 0.40, 0.30), 0.85, 0.08, 0.15, 0.03);
+        if (mat < 3.5) return s_mat(s_lin(1.0, 0.80, 0.10), 0.85, 0.08, 0.15, 0.03);
+        return s_mat(s_lin(0.09, 0.13, 0.45), 0.9, 0.05, 0.05, 0.02);
+    }
+    if (theme == 4)
+    {
+        // Coussins laqués ; le marine satiné, un reflet large et sombre plutôt qu'un filet blanc.
+        if (primary && shape == 0) return s_mat(s_lin(0.68, 0.93, 0.80), 0.25, 0.7, 0.3, 0.3);
+        if (primary) return s_mat(s_lin(0.97, 0.95, 0.90), 0.3, 0.6, 0.35, 0.25);
+        if (mat < 2.5) return s_mat(s_lin(0.52, 0.87, 0.78), 0.25, 0.7, 0.3, 0.3);
+        if (mat < 3.5) return s_mat(s_lin(1.0, 0.75, 0.25), 0.25, 0.7, 0.3, 0.3);
+        if (mat < 4.5) return s_mat(s_lin(0.62, 0.92, 0.72), 0.3, 0.6, 0.3, 0.35);
+        return s_mat(s_lin(0.07, 0.15, 0.33), 0.7, 0.15, 0.05, 0.08);
+    }
+    // Plastique mat : sur les faces plates des cubes, un reflet de la lampe blanchirait le prune.
+    return s_mat(s_pixel_colour(p, shape), 0.65, 0.1, 0.12, 0.04);
+}
+
+// L'environnement du studio vu du modèle : l'écran dessous, la pièce au-dessus (z du modèle), une
+// boîte à lumière dans la direction de la lampe et une bande dans celle de l'appoint. Un matériau
+// rugueux les voit plus larges et plus ternes.
+float3 model_env(float3 d, float rough, float3 l, float3 fill)
+{
+    float3 col = lerp(SCULPT_SCREEN * 0.9, s_lin(0.82, 0.85, 0.92) * 0.55, smoothstep(-0.15, 0.35, d.z));
+    float w = rough * 0.3;
+    float k = 1.0 - rough * 0.6;
+    col += s_lin(1.0, 0.97, 0.92) * 5.0 * k * smoothstep(0.90 - w, 0.97, dot(d, l));
+    col += s_lin(0.85, 0.9, 1.0) * 1.6 * k * smoothstep(0.93 - w, 0.98, dot(d, fill));
+    return col;
+}
+
+// Khronos PBR Neutral : garde les teintes, ne comprime que les hautes lumières ; puis sRGB.
+float3 model_tonemap(float3 c)
+{
+    const float start = 0.76;
+    float x = min(c.r, min(c.g, c.b));
+    c -= x < 0.08 ? x - 6.25 * x * x : 0.04;
+    float peak = max(c.r, max(c.g, c.b));
+    if (peak >= start)
+    {
+        const float d = 1.0 - start;
+        float np = 1.0 - d * d / (peak + d - start);
+        c *= np / peak;
+        float g = 1.0 - 1.0 / (0.15 * (peak - np) + 1.0);
+        c = lerp(c, float3(np, np, np), g);
+    }
+    return pow(saturate(c), 1.0 / 2.2);
+}
+
+
+// Couleur (alpha droit, sRGB) du point `q` du modèle, de normale `n`, vu le long de `rd`. La
+// lumière est une LAMPE (direction `L`, intensité `fall` rapportée au centre du modèle), pas un
+// soleil : un dégradé et un reflet même sur une face plane. `sh` : pénombre du modèle sur
+// lui-même ; `ao` : occlusion ; `mat` : id de matière d'un sculpté ; `l` et `fill` : directions de
+// la lumière et de l'appoint. Peu d'ambiance : le côté à l'abri de la lampe tombe dans l'ombre,
+// dans un ton plus profond de la matière elle-même (l'albédo compté deux fois), pas dans un voile
+// gris.
+float3 model_shade(float3 q, float3 n, float3 rd, float3 L, float fall, float sh, float ao, float mat,
+                   float3 l, float3 fill)
+{
+    int id = sculpt_id();
+    SculptMat m;
+    // Sur un sprite, reflets et brillance sur les arrondis seulement : le dessus plat d'un sprite
+    // sombre virerait au gris sous la lampe.
+    float gloss = 1.0;
+    if (id > 0)
+    {
+        // La matière d'un voxel se lit juste sous la surface : son flanc lit sa propre cellule.
+        float3 p = sculpt_point(q) - float3(n.x, -n.y, n.z) * 0.01;
+        m = sculpt_material(mat, p, (id - 1) / 2, (id - 1) % 2);
+        if (id == 3 || id == 4 || id > 10)
+        {
+            // Le serti de Prism Glow et le trait de Glass Lens, comme un sprite : leur dessus plat,
+            // face à la lampe, prendrait tout son reflet et virerait au gris.
+            gloss = 1.0 - smoothstep(0.97, 0.995, abs(n.z));
+        }
+    }
+    else
+    {
+        m = s_mat(pow(model_albedo(q.xy), 2.2), 0.45, 0.35, 0.2, 0.3);
+        gloss = 1.0 - smoothstep(0.97, 0.995, abs(n.z));
+    }
+    float3 key = s_lin(1.0, 0.97, 0.93) * 2.1 * fall;
+    float ndl = dot(n, L);
+    float wrap = 0.5 * m.sss;
+    float dif = saturate((ndl + wrap) / (1.0 + wrap)) * lerp(sh, 1.0, 0.15 * m.sss);
+    float ndh = saturate(dot(n, normalize(L - rd)));
+    float shin = exp2(10.0 * (1.0 - m.rough) + 1.0);
+    // Un lobe net selon la rugosité, plus un lustre large : les formes arrondies se lisent sous
+    // tous les angles.
+    float spe = (pow(ndh, shin) * (shin + 8.0) / 25.0 + 0.15 * pow(ndh, 8.0)) * sh * saturate(ndl * 4.0);
+    float fre = pow(1.0 - saturate(dot(n, -rd)), 5.0);
+    float3 amb = lerp(SCULPT_SCREEN * 0.12, s_lin(0.88, 0.92, 1.0) * 0.22, 0.5 + 0.5 * n.z);
+    float3 fl = s_lin(0.85, 0.9, 1.0) * saturate(dot(n, fill)) * 0.12;
+    float3 col = m.alb * (key * dif + (amb + fl) * ao * lerp(float3(1.0, 1.0, 1.0), m.alb, 0.5));
+    col += key * spe * m.spec * gloss;
+    col += model_env(reflect(rd, n), m.rough, l, fill) * m.refl * (0.04 + 0.96 * fre) * ao * gloss;
+    col += s_lin(0.9, 0.95, 1.0) * fre * 0.08 * ao * sh;
+    return model_tonemap(col);
+}
+
+// ---- Le cristal de Prism Glow ----
+
+float prism_fresnel(float c, float ior)
+{
+    float f0 = (ior - 1.0) / (ior + 1.0);
+    f0 *= f0;
+    return f0 + (1.0 - f0) * pow(1.0 - c, 5.0);
+}
+
+// Le cristal sur le rayon (ro, rd) : distance au point touché (1e9 si raté ou hors de Prism Glow),
+// facette dans `hc`. Une paroi sous le dessus du serti ne compte pas : le rayon a traversé le
+// serti avant, c'est lui qu'on voit.
+float prism_primary(float3 ro, float3 rd, out int hc)
+{
+    hc = -1;
+    int shape = prism_shape();
+    if (shape < 0)
+    {
+        return 1e9;
+    }
+    float t = prism_trace(ro, rd, shape, hc);
+    if (hc >= 0 && fmod(PRISM_TRIS[4 * hc].w, 2.0) > 0.5 && ro.z + rd.z * t < 0.0)
+    {
+        hc = -1;
+        return 1e9;
+    }
+    return t;
+}
+
+// La normale de la facette `h`, tournée vers le rayon qui arrive le long de `rd`.
+float3 prism_normal(int h, float3 rd)
+{
+    float3 n = PRISM_TRIS[4 * h + 3].xyz;
+    return dot(n, rd) > 0.0 ? -n : n;
+}
+
+// Distance de `p` au segment [a, b].
+float prism_seg(float3 p, float3 a, float3 b)
+{
+    float3 pa = p - a, ba = b - a;
+    return length(pa - ba * saturate(dot(pa, ba) / dot(ba, ba)));
+}
+
+// Distance, en pixels (`px` = unités du modèle par pixel au point), de `p` aux arêtes réelles de
+// la facette `h` : les plis de l'art et le bord du serti.
+float prism_edge_px(float3 p, int h, float px)
+{
+    float4 r0 = PRISM_TRIS[4 * h];
+    float3 a = r0.xyz;
+    float3 b = a + PRISM_TRIS[4 * h + 1].xyz;
+    float3 c = a + PRISM_TRIS[4 * h + 2].xyz;
+    int bits = (int)(r0.w * 0.5);
+    float d = 1e9;
+    if ((bits & 1) != 0) d = min(d, prism_seg(p, b, c));
+    if ((bits & 2) != 0) d = min(d, prism_seg(p, c, a));
+    if ((bits & 4) != 0) d = min(d, prism_seg(p, a, b));
+    return d / px;
+}
+
+// La rotation inverse de `world_to_plane` : du repère du plan à celui de la caméra.
+float3 plane_to_world(float3 v, ModelFrame f)
+{
+    float x = v.x * f.c.z - v.y * f.s.z;
+    float y = v.x * f.s.z + v.y * f.c.z;
+    float z = -x * f.s.y + v.z * f.c.y;
+    return float3(x * f.c.y + v.z * f.s.y, y * f.c.x - z * f.s.x, y * f.s.x + z * f.c.x);
+}
+
+// L'uv de sortie du point où le rayon (q, d) du modèle retombe sur le plan, (-1, -1) s'il n'y
+// retombe pas. L'œil est en (-mb.zw, persp) du repère caméra, le rayon du pixel `local` y va vers
+// (local + src.xy, -persp) : on remonte de ce point du plan à son `local`, puis à son uv de sortie.
+float2 screen_uv(float3 q, float3 d, float3 nz, float hz, float3 tip, float unit, ModelFrame f)
+{
+    float denom = dot(d, nz);
+    if (denom > -1e-4)
+    {
+        return float2(-1.0, -1.0);
+    }
+    float3 g = q + d * ((hz - dot(q, nz)) / denom);
+    float3 w = plane_to_world(tip + unit * model_to_plane(g, f), f);
+    float k = 1.0 - w.z / src.z;
+    if (k < 1e-3)
+    {
+        return float2(-1.0, -1.0);
+    }
+    return dst.xy + ((w.xy + mb.zw) / k - src.xy) / quad_px * dst.zw;
+}
+
+// Ce que montre l'image en `uv` : la copie de l'image composée faite juste avant le curseur (t5),
+// flous de confidentialité compris, en linéaire. Seuls des pixels déjà floutés passent donc à
+// travers le verre. Hors de l'image, l'écran sombre du studio.
+float3 screen_at(float2 uv)
+{
+    if (any(uv < 0.0) || any(uv > 1.0))
+    {
+        return SCULPT_SCREEN * 0.2;
+    }
+    return pow(texDof.SampleLevel(samp, uv, 0.0).rgb, 2.2);
+}
+
+// Ce que montre l'image là où le rayon (q, d) du modèle retombe sur le plan.
+float3 prism_screen(float3 q, float3 d, float3 nz, float hz, float3 tip, float unit, ModelFrame f)
+{
+    return screen_at(screen_uv(q, d, nz, hz, tip, unit, f));
+}
+
+// La couleur (sRGB, comme `model_shade`) du cristal au point `p` de la facette `h`, vu le long de
+// `rd` : reflet du studio, l'enregistrement réfracté par canal (la dispersion) à travers les
+// facettes et le fond plat, la lueur de la couleur de la facette dans l'art, ses plis en liseré.
+float3 prism_shade(float3 p, float3 n, float3 rd, int h, float px, float3 l, float3 fill, float3 nz,
+                   float hz, float3 tip, float unit, ModelFrame f)
+{
+    int shape = prism_shape();
+    float4 r3 = PRISM_TRIS[4 * h + 3];
+    float3 facet = float3(PRISM_TRIS[4 * h + 1].w, PRISM_TRIS[4 * h + 2].w, r3.w);
+    float F = prism_fresnel(saturate(-dot(rd, n)), PRISM_IOR);
+    float zb = -model_thick();
+    float3 trans = 0.0;
+    [loop] for (int ch = 0; ch < 3; ch++)
+    {
+        // Le rouge plie le moins, le bleu le plus. FXC n'indexe pas un vecteur par une variable en
+        // écriture (il déroulerait la boucle) : le canal passe par un masque.
+        float3 mask = float3(ch == 0, ch == 1, ch == 2);
+        float ior = PRISM_IOR + PRISM_DISPERSION * (ch - 1);
+        float3 d = refract(rd, n, 1.0 / ior);
+        float3 pos = p;
+        float thr = 1.0;
+        float acc = 0.0;
+        [loop] for (int b = 0; b < PRISM_BOUNCES; b++)
+        {
+            int hh;
+            float th = prism_trace(pos, d, shape, hh);
+            float tb = d.z < -1e-6 ? (zb - pos.z) / d.z : 1e9;
+            if (tb <= th)
+            {
+                // Le fond plat : le rayon sort vers l'écran, ou s'y réfléchit tout entier.
+                float3 qb = pos + d * tb;
+                float3 d2 = refract(d, float3(0.0, 0.0, 1.0), ior);
+                if (dot(d2, d2) < 1e-8)
+                {
+                    pos = qb;
+                    d = reflect(d, float3(0.0, 0.0, 1.0));
+                    continue;
+                }
+                acc += thr * dot(prism_screen(qb, d2, nz, hz, tip, unit, f), mask);
+                thr = 0.0;
+                break;
+            }
+            if (hh < 0)
+            {
+                break;
+            }
+            pos += d * th;
+            float4 rn = PRISM_TRIS[4 * hh + 3];
+            if (fmod(PRISM_TRIS[4 * hh].w, 2.0) > 0.5 && pos.z < 0.0)
+            {
+                // Une paroi sous le dessus du serti : le marine de son flanc intérieur.
+                acc += thr * dot(s_lin(0.03, 0.06, 0.37) * 0.35, mask);
+                thr = 0.0;
+                break;
+            }
+            float3 dout = refract(d, -rn.xyz, ior);
+            if (dot(dout, dout) < 1e-8)
+            {
+                d = reflect(d, -rn.xyz);
+                continue;
+            }
+            float fi = prism_fresnel(saturate(dot(dout, rn.xyz)), ior);
+            acc += thr * (1.0 - fi) * dot(model_env(dout, 0.05, l, fill), mask);
+            thr *= fi;
+            d = reflect(d, -rn.xyz);
+        }
+        trans += acc * mask;
+    }
+    float3 col = F * model_env(reflect(rd, n), 0.05, l, fill) + (1.0 - F) * trans + facet * PRISM_GLOW;
+    // Les plis de l'art : un liseré clair sur chaque arête réelle, fin d'un pixel.
+    float fold = 1.0 - smoothstep(0.2, 1.0, prism_edge_px(p, h, px));
+    col = lerp(col, s_lin(0.96, 0.99, 1.0) * 1.3, PRISM_FOLD * fold * (0.35 + 0.65 * saturate(dot(n, l))));
+    return model_tonemap(col);
+}
+
+// ---- Le verre de Glass Lens ----
+
+// La lumière qu'un verre de normale `n` (vue le long de `rd`, éclairé par `L`, `l`, `fill`)
+// ajoute à ce qu'il transmet `trans` (linéaire) : le reflet du studio pondéré de Fresnel, l'éclat
+// net de la lampe et son halo, et un liseré de lumière où la surface se dérobe, plus franc du
+// côté de la lampe. Commun au verre en volume et au verre à plat.
+float3 glass_light(float3 trans, float3 n, float3 rd, float3 L, float fall, float3 l, float3 fill)
+{
+    float c = saturate(-dot(rd, n));
+    float F = prism_fresnel(c, GLASS_IOR);
+    float ndh = saturate(dot(n, normalize(L - rd)));
+    float ndl = dot(n, L);
+    float3 key = s_lin(1.0, 0.97, 0.93) * 2.1 * fall;
+    float spe = (pow(ndh, 900.0) * 5.0 + pow(ndh, 40.0) * 0.12) * saturate(ndl * 4.0);
+    float edge = pow(1.0 - c, 4.0) * (0.25 + 0.75 * saturate(ndl + 0.3));
+    float3 col = (1.0 - F) * (trans * s_lin(0.97, 0.985, 1.0) + GLASS_LIFT) + F * model_env(reflect(rd, n), 0.03, l, fill);
+    return col + key * spe + s_lin(0.92, 0.96, 1.0) * edge * 0.6;
+}
+
+// L'image en `uv`, moyennée le long de la réfraction, de `uv0` (où le pixel tomberait sans verre)
+// à `uv` : là où le bord de la lentille comprime l'image, trois prises au lieu d'une l'empêchent de
+// s'émietter en pixels qui scintillent quand le curseur bouge.
+float3 glass_smear(float2 uv, float2 uv0)
+{
+    float2 s = all(uv0 >= 0.0) ? (uv - uv0) * GLASS_SMEAR : float2(0.0, 0.0);
+    return (screen_at(uv) + screen_at(uv - s) + screen_at(uv + s)) / 3.0;
+}
+
+// Couleur (sRGB, comme `model_shade`) du verre de Glass Lens au point `q` du modèle, de normale
+// `n`, vu le long de `rd` : l'enregistrement réfracté par canal (la dispersion), entré par la face
+// touchée, sorti par le dessous plat du socle vers l'image, comme le cristal de Prism Glow sort
+// par son fond ; une réflexion totale y renvoie le studio. L'image transmise n'est pas tonemappée :
+// sous la lentille, un blanc reste blanc.
+float3 glass_shade(float3 q, float3 n, float3 rd, float3 L, float fall, float3 l, float3 fill, float3 nz,
+                   float hz, float3 tip, float unit, ModelFrame f)
+{
+    float zb = -model_thick();
+    float2 uv0 = screen_uv(q, rd, nz, hz, tip, unit, f);
+    float3 trans = 0.0;
+    [loop] for (int ch = 0; ch < 3; ch++)
+    {
+        float3 mask = float3(ch == 0, ch == 1, ch == 2);
+        float ior = GLASS_IOR + GLASS_DISPERSION * (ch - 1);
+        float3 d = refract(rd, n, 1.0 / ior);
+        float3 seen = model_env(d, 0.05, l, fill);
+        if (d.z < -1e-4)
+        {
+            float3 qb = q + d * ((zb - q.z) / d.z);
+            float3 d2 = refract(d, float3(0.0, 0.0, 1.0), ior);
+            seen = dot(d2, d2) < 1e-8 ? model_env(reflect(d, float3(0.0, 0.0, 1.0)), 0.05, l, fill)
+                                      : glass_smear(screen_uv(qb, d2, nz, hz, tip, unit, f), uv0);
+        }
+        trans += seen * mask;
+    }
+    return pow(saturate(glass_light(trans, n, rd, L, fall, l, fill)), 1.0 / 2.2);
+}
+
+// Les passes de la boucle unique de `cursor_model`, dans l'ordre. Chaque tour n'évalue le modèle
+// QU'UNE fois (`model_eval`) : FXC recopie une fonction à chaque appel, et un curseur sculpté est
+// assez gros pour qu'un appel par passe multiplie par neuf le temps de compilation de ps_main.
+static const int STAGE_MARCH = 0; // le rayon de vue jusqu'au modèle (96 pas au plus)
+static const int STAGE_NORMAL = 1; // quatre sondes en tétraèdre autour du point touché
+static const int STAGE_AO = 2; // cinq sondes le long de la normale, jusqu'à 0,08 du prototype
+static const int STAGE_SELF = 3; // pénombre du modèle sur lui-même, vers la lampe (32 pas)
+static const int STAGE_PLANE = 4; // le point du plan : son contact, puis sa pénombre (32 pas)
+static const int STAGE_EDGE = 5; // quatre sondes à un demi-pixel du point touché : un bord ?
+static const int STAGE_SHADE = 6; // l'ombrage d'un échantillon, puis le rayon suivant s'il en reste
+static const int STAGE_DONE = 7;
+
+// Les trois rayons de plus d'un pixel au bord, en pixels autour de son centre.
+static const float2 MODEL_SUBPIXEL[3] = { float2(0.35, 0.2), float2(-0.35, 0.2), float2(0.0, -0.4) };
+
+// Sonde `k` de la normale, sommet d'un tétraèdre.
+float3 model_tetra(int k)
+{
+    return 0.5773 * (2.0 * float3((((k + 3) >> 1) & 1), ((k >> 1) & 1), (k & 1)) - 1.0);
+}
+
+float4 cursor_model(float2 local)
+{
+    ModelFrame f;
+    f.c = cos(fx.xyz);
+    f.s = sin(fx.xyz);
+    f.cp = cos(fx.w);
+    f.sp = sin(fx.w);
+    f.cy = cos(src_prev.w);
+    f.sy = sin(src_prev.w);
+    float persp = src.z;
+    float unit = src.w;
+    float3 tip = src_prev.xyz;
+    // La boîte du modèle : le rect du sprite, sur toute l'épaisseur.
+    float3 lo = float3(color.rg, -model_thick());
+    float3 hi = float3(color.rg + sprite_size(), trail_a.z);
+
+    // Le rayon de ce pixel : de la caméra (0, 0, P) à travers le pixel sur le plan image z = 0.
+    // Le plan est translaté de mb.zw dans le repère caméra (caméra réelle, 0 sous un angle fixe).
+    float3 dw = float3(local + src.xy, -persp);
+    float dlen = length(dw);
+    float3 ro = plane_to_model((world_to_plane(float3(-mb.z, -mb.w, persp), f) - tip) / unit, f);
+    float3 rd = plane_to_model(world_to_plane(dw / dlen, f), f);
+    float3 l = plane_to_model(world_to_plane(MODEL_LIGHT, f), f);
+    float3 fill = plane_to_model(world_to_plane(MODEL_FILL, f), f);
+    // Le plan de l'écran dans le repère du modèle : dot(p, nz) = hz.
+    float3 nz = plane_to_model(float3(0.0, 0.0, 1.0), f);
+    float hz = -tip.z / unit;
+    // Un sculpté n'est pas une borne exacte partout (dôme, ellipsoïdes) : pas raccourcis.
+    float stride = sculpt_id() > 0 ? 0.85 : 1.0;
+    // La lampe, à SCULPT_LAMP_DIST du centre du modèle dans la direction de la lumière.
+    float3 lamp = float3(color.rg + sprite_size() * 0.5, 0.0) + l * SCULPT_LAMP_DIST;
+
+    // Silhouette antialiasée : un rayon qui frôle le modèle à moins d'un pixel le couvre en partie
+    // (`best`, la plus petite distance rencontrée, en pixels). Les bords intérieurs (deux matières,
+    // une arête, un arrondi serré) sont suréchantillonnés : `STAGE_EDGE` sonde le modèle à un
+    // demi-pixel du point touché, dans son plan tangent ; si la matière change ou que la surface
+    // s'écarte, trois rayons de plus (`MODEL_SUBPIXEL`) sont marchés et ombrés, avec l'occlusion et
+    // les ombres du premier. Chaque échantillon passe par `STAGE_SHADE`, seul appel de
+    // `model_shade` ; le pixel est leur moyenne.
+    float3 ray = rd;
+    float2 tb = ray_box(ro, ray, lo - 0.02, hi + 0.02);
+    int stage = tb.x < tb.y && tb.y > 0.0 ? STAGE_MARCH : STAGE_DONE;
+    // Prism Glow : le cristal est tracé au départ de chaque rayon ; `tc` est
+    // son point touché (1e9 : raté), `hc` sa facette. La marche du serti s'arrête à lui.
+    bool need_tc = stage == STAGE_MARCH;
+    float tc = 1e9;
+    int hc = -1;
+    // Le point du plan derrière le pixel est à régler avant le prochain tour.
+    bool plane_next = stage == STAGE_DONE;
+    int k = 0;
+    float t = max(tb.x, 0.0);
+    float best = 1e9;
+    float t_best = t;
+    float d_best = 0.0;
+    float mat = 0.0;
+    float cov = 0.0;
+    float cov_s = 0.0;
+    float3 q = 0.0;
+    float3 n = 0.0;
+    float3 L = 0.0;
+    float ao = 1.0;
+    float sh = 1.0;
+    // Marche d'une ombre : x = distance parcourue, y = sortie de la boîte élargie ; `res` sa
+    // pénombre.
+    float2 ts = 0.0;
+    float res = 1.0;
+    float3 g = 0.0;
+    float inside = 0.0;
+    float contact = 0.0;
+    float dropped = 0.0;
+    // Sous-échantillons restants, échantillons ombrés, et leur somme (couleur × couverture,
+    // couverture).
+    int sub = 0;
+    int shaded = 0;
+    float4 acc = 0.0;
+    [loop] for (int it = 0; it < 500; it++)
+    {
+        if (need_tc)
+        {
+            need_tc = false;
+            tc = prism_primary(ro, ray, hc);
+        }
+        if (plane_next)
+        {
+            // Le plan, là où le modèle ne couvre pas tout le pixel : ombre portée et ombre de
+            // contact, seulement à l'intérieur de l'écran (`mb.xy` = sa demi-taille, px du plan).
+            plane_next = false;
+            stage = cov > 0.0 ? STAGE_SHADE : STAGE_DONE;
+            float denom = dot(rd, nz);
+            if (cov < 1.0 && denom < -1e-4)
+            {
+                g = ro + rd * ((hz - dot(ro, nz)) / denom);
+                float3 gp = tip + unit * model_to_plane(g, f);
+                inside = saturate(min(mb.x - abs(gp.x), mb.y - abs(gp.y)) + 0.5);
+                if (inside > 0.0)
+                {
+                    stage = STAGE_PLANE;
+                    k = 0;
+                    ts = 0.0;
+                }
+            }
+        }
+        if (stage == STAGE_SHADE)
+        {
+            if (cov_s > 0.0)
+            {
+                float3 c;
+                float3 tl = lamp - q;
+                float fall = SCULPT_LAMP_DIST * SCULPT_LAMP_DIST / dot(tl, tl);
+                if (abs(mat - PRISM_MAT) < 0.5)
+                {
+                    c = prism_shade(q, n, ray, hc, t_best / dlen, l, fill, nz, hz, tip, unit, f);
+                }
+                else if (mat > GLASS_MAT - 0.5)
+                {
+                    c = glass_shade(q, n, ray, normalize(tl), fall, l, fill, nz, hz, tip, unit, f);
+                }
+                else
+                {
+                    c = model_shade(q, n, ray, normalize(tl), fall, sh, ao, mat, l, fill);
+                }
+                acc += float4(c * cov_s, cov_s);
+            }
+            shaded++;
+            stage = STAGE_DONE;
+            if (sub > 0)
+            {
+                // Le rayon suivant, décalé dans le pixel ; il repart de sa propre entrée dans la
+                // boîte, pour ne pas manquer ce qui passerait devant le premier.
+                float3 dws = float3(local + MODEL_SUBPIXEL[3 - sub] + src.xy, -persp);
+                sub--;
+                dlen = length(dws);
+                ray = plane_to_model(world_to_plane(dws / dlen, f), f);
+                tb = ray_box(ro, ray, lo - 0.02, hi + 0.02);
+                cov_s = 0.0;
+                stage = STAGE_SHADE;
+                if (tb.x < tb.y && tb.y > 0.0)
+                {
+                    stage = STAGE_MARCH;
+                    k = 0;
+                    t = max(tb.x, 0.0);
+                    best = 1e9;
+                    t_best = t;
+                    need_tc = true;
+                }
+            }
+            continue;
+        }
+        float3 pos;
+        if (stage == STAGE_MARCH)
+        {
+            pos = ro + ray * t;
+        }
+        else if (stage == STAGE_NORMAL)
+        {
+            pos = q + 0.002 * model_tetra(k);
+        }
+        else if (stage == STAGE_EDGE)
+        {
+            float3 side = normalize(cross(n, ray));
+            float3 e = (k >= 2 ? cross(n, side) : side) * (k % 2 == 1 ? -1.0 : 1.0);
+            pos = q + e * 0.5 * t_best / dlen;
+        }
+        else if (stage == STAGE_AO)
+        {
+            pos = q + (0.01 + 0.0175 * k) * SCULPT_SCALE * n;
+        }
+        else if (stage == STAGE_SELF)
+        {
+            pos = q + n * 0.003 + L * ts.x;
+        }
+        else if (stage == STAGE_PLANE)
+        {
+            pos = g + l * ts.x;
+        }
+        else
+        {
+            break;
+        }
+        float2 m = model_eval(pos, stage == STAGE_PLANE);
+        float d = m.x;
+        if (stage == STAGE_MARCH)
+        {
+            float fp = t / dlen;
+            bool hit = d < 0.1 * fp;
+            if (hit || d / fp < best)
+            {
+                best = hit ? 0.0 : d / fp;
+                t_best = t;
+                d_best = d;
+                mat = m.y;
+            }
+            t += d * stride;
+            k++;
+            if (!hit && t >= tc)
+            {
+                // Le pas dépasse le cristal : c'est lui que le rayon touche, avant le serti.
+                hit = true;
+                best = 0.0;
+                t_best = tc;
+                d_best = 0.0;
+                mat = PRISM_MAT;
+            }
+            if (hit || t > tb.y || k == 96)
+            {
+                cov_s = saturate(1.0 - best);
+                if (shaded > 0)
+                {
+                    stage = STAGE_SHADE;
+                    if (cov_s > 0.0)
+                    {
+                        q = ro + ray * t_best;
+                        n = 0.0;
+                        stage = STAGE_NORMAL;
+                        k = 0;
+                    }
+                }
+                else
+                {
+                    cov = cov_s;
+                    if (cov > 0.0)
+                    {
+                        q = ro + ray * t_best;
+                        stage = STAGE_NORMAL;
+                        k = 0;
+                    }
+                    else
+                    {
+                        plane_next = true;
+                    }
+                }
+                if (stage == STAGE_NORMAL && abs(mat - PRISM_MAT) < 0.5)
+                {
+                    // Le cristal : la normale de sa facette, sans sondes ; ni occlusion ni ombre
+                    // propre. Un bord réel à moins d'un pixel (le serti, un pli) appelle les trois
+                    // rayons de plus, comme les bords intérieurs des autres modèles.
+                    n = prism_normal(hc, ray);
+                    k = 0;
+                    if (shaded > 0)
+                    {
+                        stage = STAGE_SHADE;
+                    }
+                    else
+                    {
+                        if (prism_edge_px(q, hc, t_best / dlen) < 0.75)
+                        {
+                            sub = 3;
+                        }
+                        stage = STAGE_DONE;
+                        plane_next = true;
+                    }
+                }
+            }
+        }
+        else if (stage == STAGE_NORMAL)
+        {
+            n += model_tetra(k) * d;
+            k++;
+            if (k == 4)
+            {
+                n = normalize(n);
+                k = 0;
+                stage = shaded > 0 ? STAGE_SHADE : STAGE_EDGE;
+            }
+        }
+        else if (stage == STAGE_EDGE)
+        {
+            // Autre matière, ou surface qui s'écarte du plan tangent de plus de 2 % d'un pixel
+            // (le point touché flotte déjà de `d_best` au-dessus d'elle).
+            if (m.y != mat || abs(d - d_best) > 0.02 * t_best / dlen)
+            {
+                sub = 3;
+            }
+            if (k == 0 && mat > 7.5 && mat < PRISM_MAT + 0.5)
+            {
+                // Le serti de Prism Glow au bord du cristal : son contour à moins d'un pixel.
+                int ps = prism_shape();
+                if (ps >= 0)
+                {
+                    float dout = prism_poly_dist(q.xy, PRISM_OUT_START[ps], PRISM_OUT_COUNT[ps]);
+                    if (abs(dout) < 0.75 * t_best / dlen)
+                    {
+                        sub = 3;
+                    }
+                }
+            }
+            k++;
+            if (k == 4)
+            {
+                stage = STAGE_AO;
+                k = 0;
+                ao = 0.0;
+            }
+        }
+        else if (stage == STAGE_AO)
+        {
+            ao += ((0.01 + 0.0175 * k) * SCULPT_SCALE - d) * pow(0.85, k);
+            k++;
+            if (k == 5)
+            {
+                ao = saturate(1.0 - 3.5 * ao / SCULPT_SCALE);
+                L = normalize(lamp - q);
+                float2 tbs = ray_box(q + n * 0.003, L, lo - MODEL_SHADOW_PAD, hi + MODEL_SHADOW_PAD);
+                if (tbs.x < tbs.y && tbs.y > 0.0)
+                {
+                    stage = STAGE_SELF;
+                    k = 0;
+                    ts = float2(max(tbs.x, 0.004), tbs.y);
+                    res = 1.0;
+                }
+                else
+                {
+                    plane_next = true;
+                }
+            }
+        }
+        else if (stage == STAGE_SELF)
+        {
+            res = min(res, MODEL_SOFTNESS * d / ts.x);
+            ts.x += clamp(d, 0.01, 0.2);
+            k++;
+            if (res < 0.002 || ts.x > ts.y || k == 32)
+            {
+                res = saturate(res);
+                sh = res * res * (3.0 - 2.0 * res);
+                plane_next = true;
+            }
+        }
+        else if (k == 0)
+        {
+            // Premier tour du plan : le contact, au point même. Ensuite la pénombre vers la
+            // lumière, marche bornée à la boîte du modèle élargie de sa portée.
+            contact = 1.0 - smoothstep(0.0, MODEL_CONTACT_RADIUS, d);
+            float2 tbp = ray_box(g, l, lo - MODEL_SHADOW_PAD, hi + MODEL_SHADOW_PAD);
+            ts = float2(max(tbp.x, 0.004), tbp.y);
+            res = 1.0;
+            k = 1;
+            if (!(tbp.x < tbp.y && tbp.y > 0.0))
+            {
+                stage = cov > 0.0 ? STAGE_SHADE : STAGE_DONE;
+            }
+        }
+        else
+        {
+            res = min(res, MODEL_SOFTNESS * d / ts.x);
+            ts.x += clamp(d, 0.01, 0.2);
+            k++;
+            if (res < 0.002 || ts.x > ts.y || k == 33)
+            {
+                res = saturate(res);
+                dropped = 1.0 - res * res * (3.0 - 2.0 * res);
+                stage = cov > 0.0 ? STAGE_SHADE : STAGE_DONE;
+            }
+        }
+    }
+
+    float w = 1.0 / max(shaded, 1);
+    // La lentille de Glass Lens laisse passer la lumière : son ombre est plus claire.
+    float clear = sculpt_id() > 10 ? GLASS_SHADOW : 1.0;
+    float shadow = inside * clear * max(dropped * MODEL_SHADOW_ALPHA, contact * MODEL_CONTACT_ALPHA);
+    float a = acc.a * w * color.a;
+    return float4(acc.rgb * w * color.a, a + (1.0 - a) * shadow * color.a); // prémultiplié, ombre noire
+}
+
+// ============ Verre à plat (mode 19) ============
+// Glass Lens, 3D éteinte (`frame_geometry::cursor_glass_cb`, qui documente les emplacements) : le
+// relief de son modèle vu de face (`s_glass2`, `s_glass_relief`), posé sur l'image comme le sprite
+// du mode 13. Un rayon de vue droit y entre, plie à la surface, traverse le verre jusqu'au dessous
+// plat du socle, en sort et descend GLASS_GAP_FLAT jusqu'à l'image : la copie de l'image composée
+// (t5), lue par canal (la dispersion), décalée d'autant. Le trait est une bande graphite.
+float4 cursor_glass(float2 local, float2 pout)
+{
+    if (pout.x < dst_prev.x || pout.x > dst_prev.x + dst_prev.z ||
+        pout.y < dst_prev.y || pout.y > dst_prev.y + dst_prev.w)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float3 r = quad_inverse(local, fx.xy, fx.zw, src_prev.xy, src_prev.zw, mb.x);
+    if (r.z < 0.5)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    // Le point du prototype (y vers le haut) sous ce pixel, et un pixel en unités du prototype.
+    float2 m = color.rg + saturate(r.xy) * sprite_size();
+    float2 p = float2(m.x, -m.y) / SCULPT_SCALE;
+    float px = 1.0 / max(color.b * SCULPT_SCALE, 1e-3);
+    int shape = (sculpt_id() - 1) % 2;
+    // La forme et le gradient de la lentille : trois évaluations dans une boucle, un seul appel
+    // pour FXC.
+    float2 g = 0.0;
+    float2 gd = 0.0;
+    float e = 0.25 * px;
+    [loop] for (int k = 0; k < 3; k++)
+    {
+        float2 v = s_glass2(p + (k == 1 ? float2(e, 0.0) : (k == 2 ? float2(0.0, e) : float2(0.0, 0.0))), shape);
+        if (k == 0) g = v;
+        else if (k == 1) gd.x = v.y;
+        else gd.y = v.y;
+    }
+    float cov = saturate(0.5 - g.x / px);
+    if (cov <= 0.0)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float2 out_dir = (gd - g.y) / e;
+    out_dir /= max(length(out_dir), 1e-4);
+    // Le relief, repère de la sortie (x à droite, y vers le bas, z vers le spectateur).
+    float2 relief = s_glass_relief(g.y);
+    float2 dir = float2(out_dir.x, -out_dir.y);
+    float3 n = normalize(float3(-relief.y * dir, 1.0));
+    float3 rd = float3(0.0, 0.0, -1.0);
+    // Le verre : par canal, la réfraction à la surface, la traversée jusqu'au dessous du socle,
+    // la sortie, puis l'air jusqu'à l'image. Le liseré, lui, est un bord arrondi : la lumière en
+    // ressort par le côté, après sa seule largeur de verre. Décalage en unités du prototype, puis
+    // de la sortie.
+    bool rim = g.y > GLASS_LINE;
+    float depth = rim ? GLASS_RIM - GLASS_LINE : GLASS_TOP - SCULPT_HOVER + relief.x;
+    float3 trans = 0.0;
+    [loop] for (int ch = 0; ch < 3; ch++)
+    {
+        float3 mask = float3(ch == 0, ch == 1, ch == 2);
+        float ior = GLASS_IOR + GLASS_DISPERSION * (ch - 1);
+        float3 d = refract(rd, n, 1.0 / ior);
+        float3 d2 = refract(d, float3(0.0, 0.0, 1.0), ior);
+        float2 off = d.xy * depth / max(-d.z, 0.05);
+        if (!rim && dot(d2, d2) > 1e-8)
+        {
+            off += d2.xy * GLASS_GAP_FLAT / max(-d2.z, 0.05);
+        }
+        off *= SCULPT_SCALE * src.xy;
+        trans += glass_smear(pout + off, pout) * mask;
+    }
+    float3 col = glass_light(trans, n, rd, MODEL_LIGHT, 1.0, MODEL_LIGHT, MODEL_FILL);
+    // Le trait : une bande graphite au dessus plat, comme en volume ; ses bords arrondis sur un
+    // quart de sa largeur prennent la lumière du côté de la lampe.
+    float edge_k = saturate(1.0 - min(g.y, GLASS_LINE - g.y) / (0.25 * GLASS_LINE));
+    float side = g.y < 0.5 * GLASS_LINE ? -1.0 : 1.0;
+    float3 nl = normalize(float3(side * edge_k * dir, 1.0));
+    float3 hl = normalize(MODEL_LIGHT + float3(0.0, 0.0, 1.0));
+    float3 line_col = s_lin(0.05, 0.055, 0.07) * (0.6 + 0.5 * saturate(dot(nl, MODEL_LIGHT)))
+                    + s_lin(1.0, 0.97, 0.93) * 0.8 * edge_k * pow(saturate(dot(nl, hl)), 40.0);
+    float in_line = saturate(0.5 + g.y / px) * saturate(0.5 - (g.y - GLASS_LINE) / px);
+    col = lerp(col, line_col, in_line);
+    float a = cov * color.a;
+    return float4(pow(saturate(col), 1.0 / 2.2) * a, a); // prémultiplié
+}
+
+// ============ Impact du clic (mode 16) ============
+// Sous le curseur modélisé : une tache de pression et un anneau posés SUR l'écran, centrés sur le
+// point cliqué. Même warp que le mode 13 (fx/src_prev = coins, mb.x = 1 : projectif) ; le carré
+// (s, t) porte un disque, d = 0 au point cliqué et 1 sur le cercle inscrit. src = anneau (rayon,
+// demi-épaisseur, opacité, opacité du halo sombre) ; mb.yz = tache (rayon, opacité) ; dst_prev =
+// le carré en fractions du plan, pour ne rien dessiner hors de l'écran ; radius_px = largeur de
+// l'antialiasing ; color = teinte de l'anneau et opacité. Emplacements : `cursor_impact_cb`.
+float4 cursor_impact(float2 local)
+{
+    float3 r = quad_inverse(local, fx.xy, fx.zw, src_prev.xy, src_prev.zw, mb.x);
+    float2 pf = dst_prev.xy + r.xy * dst_prev.zw;
+    if (r.z < 0.5 || any(pf < 0.0) || any(pf > 1.0))
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float d = length(r.xy * 2.0 - 1.0);
+    float x = abs(d - src.x);
+    float ring = src.z * (1.0 - smoothstep(src.y - radius_px, src.y + radius_px, x));
+    float halo = src.w * exp(-x * x / (6.0 * src.y * src.y + radius_px * radius_px));
+    float spot = mb.z * exp(-d * d / max(mb.y * mb.y, 1e-6));
+    float shade = saturate(halo + spot);
+    float a = ring + (1.0 - ring) * shade;
+    return float4(color.rgb * ring, a) * color.a; // prémultiplié, ombre noire
+}
+
+// ============ Cadre d'APPAREIL modelé (mode 17) ============
+// Un portable, un téléphone ou un moniteur, modelés en VRAIE 3D autour du métrage : un corps qui
+// a une épaisseur, des arêtes chanfreinées et une lunette, dont la face écran tombe EXACTEMENT
+// sur le plan du métrage — le mode 8 continue donc de le dessiner dans l'ouverture, que ce mode
+// creuse dans la face avant. Lancé de rayons par pixel dans la MÊME caméra que le plan,
+// reconstruite comme au mode 15 (`regions::rotate_point` puis perspective P / (P − z)). Des
+// formes neutres que l'on dessine soi-même : aucune marque, aucun logo.
+//
+// Repère du MODÈLE : unité = l'unité du cadre (`frame_geometry::frame_unit_px`, la même quel que
+// soit le ratio du clip), origine au CENTRE du plan, x à droite,
+// y vers le bas, z vers la caméra. L'écran occupe ±`mb.xy`, le corps l'entoure de `src_prev` et
+// va de z = −`fx.w` à 0 ; ce qui dépasse (socle, pied) sort vers +y et ±z.
+// Emplacements du cbuffer — miroir de `frame_geometry::device_frame_cb`, qui en fait foi :
+//   src       = (décalage px du rayon, P, unité du modèle en px)
+//   radius_px = rayon extérieur du corps, coins HAUTS (unités du modèle)
+//   color.r   = l'appareil (1 portable, 2 téléphone, 3 moniteur) ; color.g = 1 si thème sombre ;
+//               color.b = rayon extérieur du corps, coins BAS (unités) ; color.a = opacité
+//   fx        = (rotation du plan X, Y, Z en rad ; épaisseur du corps)
+//   src_prev  = marges du corps (gauche, haut, droite, bas), unités du modèle
+//   mb        = (demi-taille de l'écran ; translation du plan dans le repère caméra, px)
+//   dst_prev  = (angle du socle du portable depuis le plan, rad ; rayon des coins de l'OUVERTURE,
+//               celui du métrage, unités ; recouvrement de la lunette sur le métrage, unités ;
+//               pénombre de l'OMBRE en px, 0 pour l'appareil lui-même)
+// Les deux rayons du corps sont CONCENTRIQUES à celui de l'ouverture (`concentric_radius`) : la
+// lunette garde son épaisseur tout autour de chaque coin. Ils viennent tout faits du cbuffer.
+// Constantes : miroir exact de `frame_geometry.rs` (DEV_*), sauf ce qui ne change jamais
+// l'encombrement — le micro-chanfrein, l'encoche du socle, les coins de la semelle — et n'existe
+// donc que côté shader. Toutes en unités du modèle. L'éclairage est celui du curseur modélisé
+// (MODEL_LIGHT/AMBIENT/DIFFUSE), pour que les deux objets d'une même frame soient vus sous la
+// même lampe.
+//
+// Le parti pris matière : ALUMINIUM MAT ET VERRE NOIR, pas de plastique. Un gros arrondi d'arête
+// et un reflet large font un objet gonflé ; un produit se lit à ses faces PLATES, à une arête
+// nette et à un filet de lumière d'un pixel. D'où : un chanfrein de deux millièmes d'unité — assez
+// pour que l'arête ne coupe pas, trop peu pour arrondir la silhouette —, aucun lobe spéculaire
+// large, et un filet PEINT le long du contour (un tel chanfrein fait moins de deux pixels à
+// l'écran : modelé, il ne s'antialiaserait pas).
+static const float DEV_CHAMFER = 0.0021;
+// Distance MINIMALE de l'œil qui voit le relief du modèle : celle d'un bras devant un portable.
+// Miroir de `frame_geometry::DEV_EYE_MIN`.
+static const float DEV_EYE_MIN = 9.6;
+// Le plan proche du modèle (`frame_geometry::device_near_plane`) : une fraction de la distance
+// de l'œil du modèle, rapprochée du travelling de la caméra réelle, et la bande de fondu. L'objectif
+// des présets, 1,6 petit côté (`regions::PERSPECTIVE_FACTOR`), sert de distance de repos.
+static const float DEV_NEAR = 0.16;
+static const float DEV_NEAR_BAND = 0.1;
+static const float DEV_LENS = 1.6;
+// Le socle a sa profondeur réelle ; c'est son ANGLE (`device_deck_angle`) qui le rend discret vu
+// de face. Il a la largeur de la coque ; tout le reste de ce qui dépasse est fixe, en unités du
+// modèle, quelle que soit la forme du métrage encadré.
+static const float DEV_DECK_LEN = 1.30;
+// Le liseré d'aluminium qui borde la face avant (`DEV_RIM`), le rayon des coins avant de la
+// semelle du moniteur (`DEV_FOOT_R`) et l'encoche du socle du portable, au milieu de son arête
+// avant (`DEV_SCOOP_*` : demi-largeur, profondeur, hauteur de l'ellipsoïde retiré).
+static const float DEV_RIM = 0.0053;
+static const float DEV_FOOT_R = 0.0365;
+static const float DEV_SCOOP_W = 0.14;
+static const float DEV_SCOOP_D = 0.0372;
+static const float DEV_SCOOP_H = 0.0112;
+static const float DEV_DECK_THICK = 0.0446;
+static const float DEV_DECK_THICK_FRONT = 0.0391;
+static const float DEV_DECK_GAP = 0.0093;
+static const float DEV_NECK_W = 0.255;
+static const float DEV_NECK_LEN = 0.177;
+static const float DEV_FOOT_W = 0.456;
+static const float DEV_FOOT_H = 0.0456;
+static const float DEV_STAND_Z = 0.0219;
+static const float DEV_FOOT_Z = 0.195;
+// Teintes (alpha droit). Deux thèmes, `color.g` = 1 pour le sombre : aluminium argent ou
+// graphite, et le verre de la dalle qui va avec. Neutres — c'est ce qui fait un appareil
+// « schématique » et non une marque.
+static const float3 DEV_SHELL_LIGHT = float3(0.800, 0.806, 0.812);
+static const float3 DEV_SHELL_LIGHT_BACK = float3(0.600, 0.610, 0.622);
+static const float3 DEV_GLASS_LIGHT = float3(0.031, 0.034, 0.040);
+static const float3 DEV_SHELL_GRAPHITE = float3(0.255, 0.263, 0.278);
+static const float3 DEV_SHELL_GRAPHITE_BACK = float3(0.153, 0.161, 0.176);
+static const float3 DEV_GLASS_GRAPHITE = float3(0.043, 0.047, 0.055);
+// Voile directionnel de l'aluminium brossé : doux et étroit, jamais une tache.
+static const float DEV_SHEEN = 0.11;
+
+bool dev_dark() { return color.g > 0.5; }
+float3 dev_shell() { return dev_dark() ? DEV_SHELL_GRAPHITE : DEV_SHELL_LIGHT; }
+float3 dev_shell_back() { return dev_dark() ? DEV_SHELL_GRAPHITE_BACK : DEV_SHELL_LIGHT_BACK; }
+float3 dev_glass() { return dev_dark() ? DEV_GLASS_GRAPHITE : DEV_GLASS_LIGHT; }
+
+float2 dev_body_c() { return float2((src_prev.z - src_prev.x) * 0.5, (src_prev.w - src_prev.y) * 0.5); }
+float2 dev_body_h() { return mb.xy + float2((src_prev.x + src_prev.z) * 0.5, (src_prev.y + src_prev.w) * 0.5); }
+// Le chanfrein, borné par l'épaisseur : garde-fou, jamais atteint aux épaisseurs livrées.
+float dev_chamfer() { return min(DEV_CHAMFER, fx.w * 0.3); }
+float dev_deck_angle() { return dst_prev.x; }
+// L'appareil : 1 = portable, 2 = téléphone, 3 = moniteur (`device_kind_id`).
+bool dev_is(float k) { return abs(color.r - k) < 0.5; }
+
+// La hauteur du PLAN PROCHE devant l'écran (unités), pour la caméra RÉELLE en `eye` (repère du
+// plan, unités) qui regarde le long de `axis` : la distance au point qu'elle vise, rapportée à
+// celle de l'objectif des présets, rapproche d'autant l'œil du modèle et son plan proche. Miroir
+// de `frame_geometry::device_near_plane` : 1,54 u au repos, au-delà du socle (1,30 u) ; sous la
+// caméra en orbite, `zoom^−0,5` de moins.
+float dev_near_plane(float3 eye, float3 axis)
+{
+    float dist = eye.z / max(-axis.z, 1e-3);
+    return DEV_NEAR * DEV_EYE_MIN * dist / max(DEV_LENS * 2.0 * min(mb.x, mb.y), 1e-4);
+}
+
+// Ce qui reste d'un point `q` du modèle sous le plan proche `h_near` : 1 en deçà, 0 au-delà, un fondu
+// sur `DEV_NEAR_BAND` de sa hauteur — jamais une coupe franche qui montrerait une section.
+float dev_near_fade(float3 q, float h_near)
+{
+    return 1.0 - smoothstep(h_near * (1.0 - DEV_NEAR_BAND), h_near, q.z);
+}
+
+// Boîte 3D à arêtes chanfreinées.
+float sd_dev_box(float3 p, float3 h, float r)
+{
+    float3 q = abs(p) - h + r;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+// Le contour du CORPS dans le plan xy, signé (<0 dedans) : la silhouette de la face avant. Le
+// filet de lumière et le liseré du navigateur s'y accrochent.
+float sd_dev_outline(float2 p)
+{
+    // Coins hauts `radius_px`, coins bas `color.b` : le couvercle du portable est arrondi en haut
+    // et presque carré à la charnière.
+    float2 q = p - dev_body_c();
+    return sd_round_rect(q, dev_body_h(), (q.y < 0.0) ? radius_px : color.b);
+}
+
+// Ellipsoïde (borne de distance) : l'encoche du socle.
+float sd_dev_ellipsoid(float3 p, float3 r)
+{
+    float k0 = length(p / r);
+    float k1 = length(p / (r * r));
+    return k0 * (k0 - 1.0) / max(k1, 1e-6);
+}
+
+// La dalle PLEINE du corps : arrondie en xy, mince en z, chanfreinée. Sans le creux de l'écran,
+// c'est la silhouette qui porte l'ombre.
+float sd_dev_slab(float3 p)
+{
+    float t = fx.w;
+    float ch = dev_chamfer();
+    float2 w = float2(sd_dev_outline(p.xy) + ch, abs(p.z + t * 0.5) - (t * 0.5 - ch));
+    return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - ch;
+}
+
+// L'OUVERTURE dans le plan (<0 dedans) : le contour du métrage (rayon `dst_prev.y`, la même
+// fonction de coin que lui, `screen_corner_radius_px`) rentré du recouvrement `dst_prev.z`. Rentré
+// comme un décalage, pas comme un rect : les arcs gardent leur centre et perdent le recouvrement
+// de rayon, si bien que la lunette mord le métrage de la même largeur aux coins que le long des
+// bords — sous le même rayon, elle le mordait d'un demi-pixel de plus sur la diagonale. Elle reste
+// DANS le métrage sur tout son contour : la lunette gagne partout hors d'elle.
+float sd_dev_aperture(float2 p)
+{
+    float2 ah = mb.xy - dst_prev.z;
+    return sd_round_rect(p, ah, clamp(dst_prev.y - dst_prev.z, 0.0, min(ah.x, ah.y)));
+}
+
+// Le CORPS : la dalle moins le creux de l'écran, ouvert vers la caméra et fermé au fond — un trou
+// débouchant laisserait voir au travers par le côté.
+float sd_dev_body(float3 p)
+{
+    float hole = max(sd_dev_aperture(p.xy), -p.z - fx.w * 0.55);
+    return max(sd_dev_slab(p), -hole);
+}
+
+// Le repère du socle du portable : origine à la charnière (bord bas de la coque, à mi-épaisseur),
+// y vers l'avant le long du socle, z sa normale. Miroir de `DeviceView::model_points`.
+float3 dev_deck_local(float3 p)
+{
+    float2 c = dev_body_c();
+    float2 h = dev_body_h();
+    float3 d = p - float3(0.0, c.y + h.y, -fx.w * 0.5);
+    float ca = cos(dev_deck_angle());
+    float sa = sin(dev_deck_angle());
+    return float3(d.x, d.y * ca + d.z * sa, -d.y * sa + d.z * ca);
+}
+
+// Le socle : un COIN, pleine épaisseur à la charnière et aminci vers le bord avant, EXACTEMENT
+// aussi large que la coque, et séparé d'elle par un jeu — le trait sombre qui dit deux pièces.
+float sd_dev_deck(float3 p)
+{
+    float3 q = dev_deck_local(p);
+    float y0 = DEV_DECK_GAP;
+    float y1 = y0 + DEV_DECK_LEN;
+    float tb = DEV_DECK_THICK;
+    float slab = sd_dev_box(q - float3(0.0, (y0 + y1) * 0.5, -tb * 0.5),
+                            float3(dev_body_h().x, (y1 - y0) * 0.5, tb * 0.5),
+                            DEV_CHAMFER * 2.0);
+    // Le dessous remonte vers l'avant : c'est lui, et non l'épaisseur, qui fait le profil en coin.
+    float k = (DEV_DECK_THICK - DEV_DECK_THICK_FRONT) / DEV_DECK_LEN;
+    float under = (-tb + k * (q.y - y0) - q.z) * rsqrt(1.0 + k * k);
+    // L'encoche au milieu de l'arête avant, pour ouvrir l'écran du pouce : un creux peu profond,
+    // qui se lit de face comme un léger fléchissement du haut de la barre.
+    float scoop = sd_dev_ellipsoid(q - float3(0.0, y1, 0.0), float3(DEV_SCOOP_W, DEV_SCOOP_D, DEV_SCOOP_H));
+    return max(max(slab, under), -scoop);
+}
+
+// Entrée ANALYTIQUE du rayon dans le coin du socle (chanfrein ignoré, un millième d'unité), 1e9
+// s'il le manque. Vu par la tranche, le socle est frôlé par des rayons qui restent à quelques
+// pixels de lui sur toute sa profondeur : la marche y avance à pas d'un quart de pixel et
+// s'épuise avant de l'atteindre — ou d'atteindre la lunette juste derrière, qui s'effaçait.
+float dev_deck_hit(float3 ro, float3 rd)
+{
+    float3 q0 = dev_deck_local(ro);
+    float3 qd = dev_deck_local(ro + rd) - q0;
+    float hw = dev_body_h().x;
+    float y0 = DEV_DECK_GAP;
+    float len = DEV_DECK_LEN;
+    float tb = DEV_DECK_THICK;
+    float2 tt = ray_box(q0, qd, float3(-hw, y0, -tb), float3(hw, y0 + len, 0.0));
+    // Le dessous, qui remonte vers l'avant (`sd_dev_deck`) : dedans tant que g <= 0.
+    float k = (DEV_DECK_THICK - DEV_DECK_THICK_FRONT) / len;
+    float g0 = -tb + k * (q0.y - y0) - q0.z;
+    float gd = k * qd.y - qd.z;
+    if (abs(gd) > 1e-9)
+    {
+        float tg = -g0 / gd;
+        if (gd > 0.0) { tt.y = min(tt.y, tg); } else { tt.x = max(tt.x, tg); }
+    }
+    else if (g0 > 0.0)
+    {
+        return 1e9;
+    }
+    if (tt.x > tt.y || tt.y <= 0.0)
+    {
+        return 1e9;
+    }
+    // Entré par l'encoche (un ellipsoïde retiré), le rayon touche la matière à sa SORTIE de
+    // l'ellipsoïde, s'il est encore dans le coin.
+    float t_in = max(tt.x, 0.0);
+    float3 o = (q0 - float3(0.0, y0 + len, 0.0)) / float3(DEV_SCOOP_W, DEV_SCOOP_D, DEV_SCOOP_H);
+    float3 e = qd / float3(DEV_SCOOP_W, DEV_SCOOP_D, DEV_SCOOP_H);
+    float ea = dot(e, e);
+    float eb = dot(o, e);
+    float disc = eb * eb - ea * (dot(o, o) - 1.0);
+    if (disc > 0.0)
+    {
+        float s = sqrt(disc);
+        if (t_in >= (-eb - s) / ea && t_in < (-eb + s) / ea) { t_in = (-eb + s) / ea; }
+    }
+    return (t_in <= tt.y) ? t_in : 1e9;
+}
+
+// Le pied du moniteur : colonne mince contre le dos, puis semelle basse et plate qui part en
+// arrière. Pas de palet épais — un pied de moniteur est une tôle.
+float sd_dev_stand(float3 p)
+{
+    float y0 = dev_body_c().y + dev_body_h().y;
+    float zc = -fx.w * 0.5;
+    float neck = sd_dev_box(p - float3(0.0, y0 + DEV_NECK_LEN * 0.5 - 0.01, zc - DEV_STAND_Z * 0.5),
+                            float3(DEV_NECK_W, DEV_NECK_LEN * 0.5 + 0.01, DEV_STAND_Z * 0.5),
+                            DEV_CHAMFER * 2.0);
+    // La semelle : une plaque plate, coins arrondis dans son plan (xz), flancs droits.
+    float3 f = p - float3(0.0, y0 + DEV_NECK_LEN + DEV_FOOT_H * 0.5, zc - DEV_FOOT_Z * 0.5);
+    float2 fd = float2(sd_round_rect(f.xz, float2(DEV_FOOT_W, DEV_FOOT_Z * 0.5), DEV_FOOT_R),
+                       abs(f.y) - DEV_FOOT_H * 0.5);
+    float foot = min(max(fd.x, fd.y), 0.0) + length(max(fd, 0.0));
+    return min(neck, foot);
+}
+
+// Ce qui sort du corps : le socle du portable, le pied du moniteur, rien pour les deux autres.
+float sd_dev_extra(float3 p)
+{
+    if (dev_is(1.0)) { return sd_dev_deck(p); }
+    if (dev_is(3.0)) { return sd_dev_stand(p); }
+    return 1e9;
+}
+
+float sd_device(float3 p)
+{
+    return min(sd_dev_body(p), sd_dev_extra(p));
+}
+
+// Le modèle PLEIN, écran compris : ce que l'ombre voit.
+float sd_dev_solid(float3 p)
+{
+    return min(sd_dev_slab(p), sd_dev_extra(p));
+}
+
+float3 device_normal(float3 p)
+{
+    const float e = 0.0006;
+    return normalize(float3(1, -1, -1) * sd_device(p + float3(1, -1, -1) * e) +
+                     float3(-1, -1, 1) * sd_device(p + float3(-1, -1, 1) * e) +
+                     float3(-1, 1, -1) * sd_device(p + float3(-1, 1, -1) * e) +
+                     float3(1, 1, 1) * sd_device(p + float3(1, 1, 1) * e));
+}
+
+// Couverture d'une SDF 2D adoucie sur un pixel (`aa` = un pixel en unités du modèle).
+float dev_cov(float d, float aa)
+{
+    return saturate(0.5 - d / max(aa, 1e-6));
+}
+
+// Filet de lumière d'un pixel, peint juste à l'intérieur d'un contour `d2` (<0 dedans).
+float dev_hairline(float d2, float aa)
+{
+    return dev_cov(abs(d2 + aa) - aa * 0.55, aa);
+}
+
+// La matière au point `p`, normale `n` : `.rgb` l'albédo (alpha droit), `.a` = 1 pour le métal
+// (qui prend le voile directionnel), 0 pour le verre, qui reste mat.
+float4 device_albedo(float3 p, float3 n, float aa)
+{
+    float3 metal = dev_shell();
+    float3 back = dev_shell_back();
+    if (sd_dev_body(p) > sd_dev_extra(p))
+    {
+        if (!dev_is(1.0))
+        {
+            // Le pied du moniteur : de l'aluminium, un dégradé vertical doux, rien d'imprimé.
+            float v = saturate((p.y - dev_body_c().y - dev_body_h().y) / (DEV_NECK_LEN + DEV_FOOT_H));
+            return float4(lerp(metal, back, 0.15 + 0.45 * v), 1.0);
+        }
+        float3 q = dev_deck_local(p);
+        float hw = dev_body_h().x;
+        float y0 = DEV_DECK_GAP;
+        float len = DEV_DECK_LEN;
+        // La tranche AVANT : tout ce que la caméra droite voit du socle, une barre d'argent qui
+        // fonce doucement vers son arête basse.
+        if (q.y > y0 + len - DEV_CHAMFER * 3.0)
+        {
+            float s = saturate(-q.z / DEV_DECK_THICK_FRONT);
+            return float4(lerp(metal, back, smoothstep(0.35, 1.0, s) * 0.8), 1.0);
+        }
+        // Le dessous.
+        if (q.z < -DEV_DECK_THICK * 0.25) { return float4(back, 1.0); }
+        // Le dessus : clavier et pavé tactile, creusés d'un ton dans l'aluminium, avec le même
+        // filet de lumière que les arêtes — c'est lui qui dit « fraisé » et non « peint ». Vus
+        // seulement quand la caméra tourne : de face, le socle est vu par la tranche.
+        float3 top = metal;
+        // Clavier : 0,75 de la largeur du socle, de 0,10 à 0,56 de sa profondeur.
+        float key = sd_round_rect(q.xy - float2(0.0, y0 + len * 0.33),
+                                  float2(hw * 0.75, len * 0.23), len * 0.02);
+        top = lerp(top, metal * 0.52, dev_cov(key, aa));
+        top = lerp(top, metal * 1.06, dev_hairline(key, aa));
+        // Pavé tactile, centré dans la moitié avant.
+        float pad = sd_round_rect(q.xy - float2(0.0, y0 + len * 0.76),
+                                  float2(hw * 0.26, len * 0.14), len * 0.015);
+        top = lerp(top, metal * 0.88, dev_cov(pad, aa));
+        top = lerp(top, metal * 1.04, dev_hairline(pad, aa));
+        return float4(top, 1.0);
+    }
+    // Le dos et les flancs : l'aluminium, plus sombre quand il tourne le dos à la caméra.
+    float3 shell = lerp(back, metal, saturate(n.z * 0.8 + 0.5));
+    // La face avant est en z = 0 ; le quart avant du corps suffit à la reconnaître. À mi-épaisseur,
+    // la face avant de la colonne du moniteur, qui sort du corps en z = −épaisseur/2, se prenait
+    // pour du verre et pointillait la jonction en noir.
+    float front = (p.z < -fx.w * 0.25) ? 0.0 : smoothstep(0.30, 0.80, n.z);
+    if (front <= 0.0) { return float4(shell, 1.0); }
+
+    // Le liseré d'aluminium qui borde la face avant, et le filet de lumière d'un pixel sur son
+    // arête : le verre noir s'arrête à `DEV_RIM` du contour.
+    float edge = sd_dev_outline(p.xy);
+    float band = 1.0 - dev_cov(edge + DEV_RIM, aa);
+    float rim = dev_hairline(edge, aa);
+
+    // La face avant : une dalle de verre noir pour les trois appareils.
+    float3 c = dev_glass();
+    if (dev_is(2.0))
+    {
+        // Téléphone : un œil de caméra, rien d'autre — pas de fente de haut-parleur, qui date un
+        // téléphone. Au milieu de la lunette du HAUT DU TÉLÉPHONE, pas du métrage : une ouverture
+        // paysage est un téléphone COUCHÉ, son haut vers la gauche de l'image. Sa taille est fixe,
+        // comme l'épaisseur du corps.
+        bool upright = mb.y >= mb.x;
+        float2 e = upright ? p.xy : float2(-p.y, p.x);
+        float2 hh = upright ? mb.xy : float2(mb.y, mb.x);
+        float bez = (upright ? src_prev.y : src_prev.x) - DEV_RIM;
+        c = lerp(c, float3(0.086, 0.102, 0.133), dev_cov(length(e - float2(0.0, -hh.y - bez * 0.5)) - 0.003, aa));
+    }
+    else
+    {
+        // Portable et moniteur : un œil de caméra centré dans la lunette du haut, seul détail du
+        // cadre. Pas d'encoche : c'est la signature d'une marque, l'œil en est l'équivalent neutre.
+        float bez = src_prev.y - DEV_RIM;
+        c = lerp(c, float3(0.120, 0.133, 0.161), dev_cov(length(p.xy - float2(0.0, -mb.y - bez * 0.5)) - 0.2 * bez, aa));
+    }
+    c = lerp(c, metal, band);
+    c = lerp(c, min(metal * 1.12, 1.0), rim);
+    return float4(lerp(shell, c, front), max(band, rim));
+}
+
+// L'OMBRE portée de l'appareil (même calque, `dst_prev.w` = pénombre en px) : la silhouette que
+// la caméra voit VRAIMENT du modèle, socle et pied compris, là où un quad plat étiré dans le plan
+// de l'écran se lisait comme une dalle grise sous le portable. Le décalage de l'ombre est déjà
+// dans `src.xy` (`device_shadow_cb`) : le rayon de ce pixel est celui du pixel décalé. On marche
+// le modèle PLEIN, écran compris et sans l'arrêt au plan du métrage, et la plus courte approche
+// du rayon, en px (distance / empreinte du pixel à cette profondeur), tient lieu de distance au
+// contour — nulle dans la silhouette. Même pénombre que le mode 2 : pleine au contour, nulle à
+// `spread` px, donc rien au-delà de silhouette + décalage + pénombre. Ce que le plan proche `h_near`
+// efface de l'appareil, il l'efface de son ombre.
+float4 device_shadow(float3 ro, float3 rd, float fpk, float3 lo, float3 hi, float h_near)
+{
+    float spread = dst_prev.w;
+    // La pénombre en unités, avec de la marge pour ce qui est derrière le plan (le pied), dont
+    // les pixels sont plus grands.
+    float m = 2.0 * spread / src.w;
+    float2 tb = ray_box(ro, rd, lo - m, hi + m);
+    if (tb.x >= tb.y || tb.y <= 0.0)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    // Dans la silhouette pleine, à coup sûr : le rayon perce la face avant ou le socle.
+    if (rd.z < -1e-5 && sd_dev_outline((ro + rd * (-ro.z / rd.z)).xy) < 0.0)
+    {
+        return float4(0.0, 0.0, 0.0, color.a);
+    }
+    float t_deck = dev_is(1.0) ? dev_deck_hit(ro, rd) : 1e9;
+    if (t_deck < 1e9)
+    {
+        return float4(0.0, 0.0, 0.0, color.a * dev_near_fade(ro + rd * t_deck, h_near));
+    }
+    float t = max(tb.x, 0.0);
+    float best = 1e9;
+    float t_best = t;
+    [loop] for (int k = 0; k < 96; k++)
+    {
+        float d = sd_dev_solid(ro + rd * t);
+        float fp = t * fpk;
+        if (max(d, 0.0) / fp < best)
+        {
+            best = max(d, 0.0) / fp;
+            t_best = t;
+        }
+        if (d < 0.08 * fp || t > tb.y)
+        {
+            break;
+        }
+        t += max(d, fp);
+    }
+    float a = color.a * (1.0 - smoothstep(0.0, spread, best)) * dev_near_fade(ro + rd * t_best, h_near);
+    return float4(0.0, 0.0, 0.0, a); // noir prémultiplié
+}
+
+float4 device_frame(float2 local)
+{
+    ModelFrame f;
+    f.c = cos(fx.xyz);
+    f.s = sin(fx.xyz);
+    f.cp = 1.0;
+    f.sp = 0.0;
+    f.cy = 1.0;
+    f.sy = 0.0;
+    float persp = src.z;
+    float unit = src.w;
+
+    // Le rayon de ce pixel, dans le repère DU PLAN (= celui du modèle, à `unit` près) : caméra en
+    // (0, 0, P) du repère caméra, plan translaté de `mb.zw` dans ce même repère.
+    float3 dw = float3(local + src.xy, -persp);
+    float dlen = length(dw);
+    float3 ro = world_to_plane(float3(-mb.z, -mb.w, persp), f) / unit;
+    float3 rd = world_to_plane(dw / dlen, f);
+    float3 l = world_to_plane(MODEL_LIGHT, f);
+
+    // Le plan proche (`DeviceView::near_plane`) : tiré de la caméra RÉELLE, avant qu'on la recule.
+    float h_near = dev_near_plane(ro, world_to_plane(float3(0.0, 0.0, -1.0), f));
+
+    // L'ŒIL DU MODÈLE (`DeviceView::model_eye`). Le plan garde l'objectif des présets — c'est lui
+    // qui fait lire l'inclinaison du métrage —, mais cet œil est à 1,6 petit côté du plan : un
+    // socle de profondeur réelle (1,3) viendrait à quelques dixièmes de lui, et se projetterait en
+    // une dalle plus large que l'image. Le relief du modèle est donc vu d'un œil RECULÉ sur la même
+    // droite, à au moins `DEV_EYE_MIN` — la distance d'un bras —, et jamais plus bas que la ligne du
+    // centre de l'écran : d'en dessous, le socle, vu par la tranche depuis la caméra droite, montrait
+    // sa face inférieure et couvrait le bas du métrage. Chaque rayon passe par le MÊME point du plan
+    // que celui de l'objectif : la face écran reste exactement sur le métrage, seul ce qui sort du
+    // plan change de perspective. `fpk` = empreinte d'un pixel par unité de distance le long du
+    // nouveau rayon (celle du plan, rapportée à sa distance).
+    float fpk = 1.0 / dlen;
+    if (rd.z < -1e-5)
+    {
+        float ts = -ro.z / rd.z;
+        float3 e = float3(ro.x, min(ro.y, 0.0), ro.z);
+        float3 eye = e * max(1.0, DEV_EYE_MIN / max(length(e), 1e-3));
+        float3 v = ro + rd * ts - eye;
+        float lv = length(v);
+        fpk = ts / dlen / lv;
+        ro = eye;
+        rd = v / lv;
+    }
+
+    // La boîte du modèle, corps et débords compris : le socle du portable vient vers la caméra,
+    // le pied du moniteur s'en éloigne. Miroir de `DeviceView::model_points`.
+    float2 bc = dev_body_c();
+    float2 bh = dev_body_h();
+    float3 lo = float3(bc - bh, -fx.w);
+    float3 hi = float3(bc + bh, 0.0);
+    if (dev_is(1.0))
+    {
+        // Les quatre coins du profil du socle, de la charnière au bord avant, dessus et dessous.
+        float ca = cos(dev_deck_angle());
+        float sa = sin(dev_deck_angle());
+        float2 hinge = float2(bc.y + bh.y, -fx.w * 0.5);
+        float2 qy = float2(DEV_DECK_GAP, DEV_DECK_GAP + DEV_DECK_LEN);
+        float2 qz = float2(0.0, -DEV_DECK_THICK);
+        [unroll] for (int j = 0; j < 4; j++)
+        {
+            float a = qy[j & 1];
+            float b = qz[j >> 1];
+            float2 yz = hinge + float2(a * ca - b * sa, a * sa + b * ca);
+            lo = float3(lo.x, min(lo.yz, yz));
+            hi = float3(hi.x, max(hi.yz, yz));
+        }
+    }
+    else if (dev_is(3.0))
+    {
+        lo = float3(min(lo.x, -DEV_FOOT_W), lo.y, lo.z - DEV_FOOT_Z);
+        hi = float3(max(hi.x, DEV_FOOT_W), hi.y + DEV_NECK_LEN + DEV_FOOT_H, hi.z);
+    }
+
+    if (dst_prev.w > 0.0)
+    {
+        return device_shadow(ro, rd, fpk, lo, hi, h_near);
+    }
+
+    // Le plan du métrage occulte tout ce qui est derrière lui DANS l'ouverture : la marche s'y
+    // arrête. C'est ce qui laisse le mode 8 dessiner le métrage dans le cadre, et ce qui empêche
+    // de voir au travers de l'appareil par son ouverture. L'ouverture ARRONDIE, pas son rect :
+    // entre l'arc et le coin carré c'est de la lunette, et un rayon arrêté au plan y laissait voir
+    // le métrage — ou le fond — dans les coins à Roundness élevé.
+    //
+    // Hors de l'ouverture, le même point du plan dit si le rayon perce la FACE AVANT ; et le socle
+    // a son entrée analytique (`dev_deck_hit`). Ces deux surfaces-là sont connues sans marcher :
+    // la marche ne sert qu'à ce qui les précède (arêtes, flancs, pied) et à l'antialiasing du
+    // contour. Sans elles, un rayon qui frôle un socle vu par la tranche s'épuisait en pas d'un
+    // quart de pixel, et la lunette du bas laissait voir le fond sur une dizaine de pixels.
+    float t_max = 1e9;
+    float t_solid = 1e9;
+    if (rd.z < -1e-5)
+    {
+        float ts = -ro.z / rd.z;
+        float2 qp = ro.xy + rd.xy * ts;
+        if (ts > 0.0 && sd_dev_aperture(qp) < 0.0) { t_max = ts; }
+        else if (ts > 0.0 && sd_dev_outline(qp) < 0.0) { t_solid = ts; }
+    }
+    if (dev_is(1.0)) { t_solid = min(t_solid, dev_deck_hit(ro, rd)); }
+    bool solid = t_solid < t_max;
+
+    float2 tb = ray_box(ro, rd, lo - 0.01, hi + 0.01);
+    float t1 = min(min(tb.y, t_max), t_solid);
+    if (!solid && (tb.x >= t1 || t1 <= 0.0))
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    // Marche, avec la même silhouette antialiasée qu'au mode 15 : un rayon qui frôle le modèle à
+    // moins d'un pixel le couvre en partie.
+    float t = max(tb.x, 0.0);
+    float best = 1e9;
+    float t_best = t;
+    bool hit = false;
+    [loop] for (int k = 0; k < 80; k++)
+    {
+        float d = sd_device(ro + rd * t);
+        float fp = t * fpk;
+        if (d < 0.08 * fp)
+        {
+            hit = true;
+            t_best = t;
+            break;
+        }
+        if (d / fp < best)
+        {
+            best = d / fp;
+            t_best = t;
+        }
+        t += max(d, 0.25 * fp);
+        if (t > t1)
+        {
+            break;
+        }
+    }
+    if (!hit && solid)
+    {
+        hit = true;
+        t_best = t_solid;
+    }
+    float cov = hit ? 1.0 : saturate(1.0 - best);
+    if (cov <= 0.0)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    float3 q = ro + rd * t_best;
+    float3 n = device_normal(q);
+    float4 mat = device_albedo(q, n, t_best * fpk);
+    float diffuse = saturate(dot(n, l));
+    // Aucun lobe spéculaire large : c'est lui qui donnait l'air plastique et gonflé. Rien qu'un
+    // voile directionnel étroit sur le métal, et le filet de lumière déjà peint dans l'albédo.
+    float sheen = DEV_SHEEN * mat.a * pow(diffuse, 4.0);
+    float3 rgb = mat.rgb * (MODEL_AMBIENT + MODEL_DIFFUSE * diffuse) + sheen;
+    // Au-delà du plan proche, l'appareil s'efface (le socle, quand la caméra en orbite avance).
+    float a = cov * color.a * dev_near_fade(q, h_near);
+    return float4(rgb * a, a); // prémultiplié
+}
+
+float4 ps_main(VSOut i) : SV_Target
+{
+    // mode 19 : VERRE À PLAT de Glass Lens (cf. `cursor_glass`). Testé avant le mode 18, dont la
+    // branche n'a pas de borne haute. C'est un modèle, compilé avec les modes 15 à 17.
+    if (mode > 18.5)
+    {
+#ifdef LAYER_MODELS
+        return cursor_glass(i.local, i.pout);
+#else
+        return float4(0.0, 0.0, 0.0, 0.0);
+#endif
+    }
+
+    // mode 18 : l'écran CADRÉ (ombre, cadre, métrage, appareil) flouté comme UN objet rigide
+    // (`FrameGeometry::screen_trail`). t2 = son rendu isolé, prémultiplié, à la taille de la
+    // sortie. Chaque tap retrouve le point de l'objet qui couvrait ce pixel plus tôt sur la
+    // trajectoire (`f`, fractions de l'écran) et le relit là où il est dessiné maintenant (`q`,
+    // fractions de sortie). À plat, la boîte va de `dst_prev` (frame précédente) à `fx`
+    // (courante). Incliné (`mb.z` = 1), le plan : ses coins TL, TR / BR, BL courants dans
+    // `fx`/`src_prev`, ceux d'avant dans `trail_a`/`trail_b` ; le tap interpole les coins, et le
+    // warp du plan (`mb.w`, celui du mode 8) fait l'aller (le pixel vers le plan) et le retour (le
+    // plan vers le rendu courant) ; un pixel que le plan prolongé n'atteint pas (aller sans
+    // solution) n'a pas de tap. Un point hors de la sortie n'a pas été rendu : dans l'ouverture
+    // arrondie de l'écran (`quad_px`, `radius_px`, 2 px en retrait : la lunette mord dessus), on
+    // relit le métrage (`src` = la coupe) comme le mode 8 l'a dessiné, avec sa profondeur de champ
+    // (`trail_mb` = son `mb`, pyramide en t5) et sa lampe (`color.xy`), nulles à plat ; ailleurs
+    // (un bout de cadre hors champ), le tap est écarté.
+    if (mode > 17.5)
+    {
+        int taps = (int) mb.x;
+        float4 acc = 0.0;
+        float n = 0.0;
+        [loop] for (int k = 0; k < 16; k++)
+        {
+            if (k >= taps) break;
+            float a = saturate(mb.y) * (1.0 - (float) k / (float) (taps - 1));
+            float2 f;
+            float2 q;
+            if (mb.z > 0.5)
+            {
+                float4 ta = lerp(fx, trail_a, a);
+                float4 tb = lerp(src_prev, trail_b, a);
+                float3 r = quad_inverse(i.pout, ta.xy, ta.zw, tb.xy, tb.zw, mb.w);
+                if (r.z < -0.5) continue;
+                f = r.xy;
+                q = quad_forward(f, fx.xy, fx.zw, src_prev.xy, src_prev.zw, mb.w);
+            }
+            else
+            {
+                float4 r = lerp(fx, dst_prev, a);
+                f = (i.pout - r.xy) / r.zw;
+                q = fx.xy + f * fx.zw;
+            }
+            if (all(q >= 0.0) && all(q <= 1.0))
+            {
+                acc += texImg.SampleLevel(samp, q, 0.0);
+                n += 1.0;
+            }
+            else if (sd_round_rect(f * quad_px - quad_px * 0.5, quad_px * 0.5, radius_px) < -2.0)
+            {
+                float z = (f.x - 0.5) * trail_mb.x + (f.y - 0.5) * trail_mb.y;
+                float3 rgb = tilted_sample(lerp(src.xy, src.zw, f), trail_mb.w * abs(z - trail_mb.z));
+                rgb = saturate(rgb * (1.0 + color.x * (f.x - 0.5) + color.y * (f.y - 0.5)));
+                acc += float4(rgb, 1.0);
+                n += 1.0;
+            }
+        }
+        return acc / max(n, 1.0);
+    }
+
+#ifdef LAYER_MODELS
+    // mode 17 : CADRE D'APPAREIL MODELÉ (cf. `device_frame`). Testé en premier, comme le 16.
+    if (mode > 16.5)
+    {
+        return device_frame(i.local);
+    }
+
+    // mode 16 : IMPACT DU CLIC (cf. `cursor_impact`). Testé en premier, comme le mode 15.
+    if (mode > 15.5)
+    {
+        return cursor_impact(i.local);
+    }
+
+    // mode 15 : CURSEUR MODÉLISÉ (cf. `cursor_model`). Testé en premier : les branches suivantes
+    // n'ont pas de borne haute. dst_prev = rect de clip « Clip to canvas », comme au mode 13.
+    if (mode > 14.5)
+    {
+        if (i.pout.x < dst_prev.x || i.pout.x > dst_prev.x + dst_prev.z ||
+            i.pout.y < dst_prev.y || i.pout.y > dst_prev.y + dst_prev.w)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0);
+        }
+        return cursor_model(i.local);
+    }
+#else
+    // Les modèles 3D n'existent que dans `ps_main_models` ; un draw qui les enverrait ici ne
+    // peint rien plutôt qu'une ombre faite de leurs emplacements.
+    if (mode > 14.5)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+#endif
+
+    // mode 14 : CADRE DE FENÊTRE autour de l'écran (barre de titre, trois pastilles, filet),
+    // dessiné SOUS lui. Testé avant le mode 13, dont la branche n'a pas de borne haute.
+    // Même warp que le mode 8 — le cadre est le quad de l'écran prolongé, il penche donc avec
+    // lui ; à plat, le quad est un rect et le warp l'identité exacte.
+    // fx.xy/fx.zw = coins TL/TR, src_prev.xy/.zw = BR/BL (px locaux) ; dst_prev.xy = taille du
+    // cadre dans son plan, dst_prev.z = hauteur de la barre, dst_prev.w = épaisseur du filet
+    // (px du plan) ; radius_px = rayon du corps, LES QUATRE COINS (`plan_frame`, « Le rayon des
+    // coins ») ; color = fond de la barre, mb = couleur du filet (alpha droit) ; src.x = 1 : warp
+    // projectif.
+    if (mode > 13.5)
+    {
+        float3 r = quad_inverse(i.local, fx.xy, fx.zw, src_prev.xy, src_prev.zw, src.x);
+        if (r.z < 0.5)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0); // hors du cadre projeté
+        }
+        float2 plane_px = dst_prev.xy;
+        float bar = dst_prev.z;
+        float line_w = dst_prev.w;
+        float2 q = float2(r.x, r.y) * plane_px; // px du plan depuis le coin haut-gauche
+        float2 p = q - plane_px * 0.5;
+        // Le MÊME rayon aux quatre coins. Les coins hauts plafonnaient à la hauteur de la barre,
+        // parce que le métrage, lui, avait ses coins hauts carrés : deux contours qui ne se
+        // suivaient pas, et un haut de fenêtre qui se lisait comme un défaut de tracé. Le métrage
+        // est maintenant arrondi partout, donc le cadre peut l'être aussi.
+        float rad = max(radius_px, 0.0);
+        float d = sd_round_rect(p, plane_px * 0.5, rad);
+        float cov = 1.0 - smoothstep(0.0, 1.5, d);
+        // Filet intérieur le long du contour, et séparation entre la barre et le contenu.
+        float stroke = max(band_cov(-d - line_w * 0.5, line_w * 0.5),
+                           band_cov(q.y - (bar - line_w * 0.5), line_w * 0.5));
+        float3 rgb = lerp(color.rgb, mb.rgb, stroke * mb.a);
+        // Pastilles : proportions d'une barre de 28 px (rayon 6, pas de 20), centrées en hauteur
+        // dans la barre. Leur bloc est repoussé du coin d'au moins le rayon PLUS leur propre
+        // rayon et une marge : sans ça, l'arrondi mordait la première dès que Roundness montait.
+        // Une borne large (l'arc est toujours en deçà du rayon) plutôt qu'une résolution exacte.
+        float dr = bar * 0.214;
+        float dx = bar * 0.714;
+        float x0 = max(dx, rad + dr + bar * 0.18);
+        rgb = lerp(rgb, float3(1.000, 0.373, 0.341), disc_cov(q, float2(x0, bar * 0.5), dr));
+        rgb = lerp(rgb, float3(0.996, 0.737, 0.180), disc_cov(q, float2(x0 + dx, bar * 0.5), dr));
+        rgb = lerp(rgb, float3(0.157, 0.784, 0.251), disc_cov(q, float2(x0 + 2.0 * dx, bar * 0.5), dr));
+        float a = cov * color.a;
+        return float4(rgb * a, a); // prémultiplié
+    }
+
+    // mode 13 : SPRITE DE CURSEUR posé sur l'écran incliné. Même warp que le mode 8, mais
+    // échantillonnant la texture du curseur en alpha DROIT (comme le mode 7) au lieu de la
+    // vidéo NV12. Le curseur remplace un pointeur qui faisait partie de l'image capturée : il
+    // doit donc subir la même inclinaison qu'elle, sinon il se lit comme un autocollant plat
+    // collé par-dessus la scène. Corriger sa seule position ne suffisait pas.
+    // fx.xy/fx.zw = coins TL/TR (px locaux) ; src_prev.xy/.zw = BR/BL ; dst_prev = rect de clip
+    // « Clip to canvas » en espace sortie ; mb.x = 1 : warp projectif.
+    // Un mode supérieur doit être testé AVANT cette branche, qui n'a pas de borne haute.
+    if (mode > 12.5)
+    {
+        if (i.pout.x < dst_prev.x || i.pout.x > dst_prev.x + dst_prev.z ||
+            i.pout.y < dst_prev.y || i.pout.y > dst_prev.y + dst_prev.w)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0);
+        }
+        float3 r = quad_inverse(i.local, fx.xy, fx.zw, src_prev.xy, src_prev.zw, mb.x);
+        if (r.z < 0.5)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0); // hors du sprite projeté
+        }
+        float4 s = texImg.Sample(samp, saturate(float2(r.x, r.y)));
+        float a = s.a * color.a;
+        return float4(s.rgb * a, a);
+    }
+
+    // mode 8 : écran tilté en 3D (zoom regions "rotation" : iso/left/right) ou vu par la caméra
+    // réelle (`orbit`). `dst`/`quad_px` couvrent la BOUNDING BOX des 4 coins projetés
+    // (`frame_geometry::tilted_screen_cb`) ; ce shader retrouve où tombe chaque pixel DANS le quad
+    // (warp inverse : bilinéaire sous un angle fixe, projectif exact sous la caméra réelle ou un
+    // appareil, dst_prev.w = 1) et échantillonne la vidéo à l'UV correspondant, sinon transparent.
+    // fx.xy/fx.zw = coins TL/TR (px locaux, 0..quad_px) ; src_prev.xy/.zw = coins BR/BL.
+    // color.xy (caméra réelle) : éclairage 1 + color.x·(s − 0.5) + color.y·(t − 0.5).
+    // mb = [gx, gy, z_focus, k] : profondeur du point r du plan = (r.x - 0.5)*gx + (r.y - 0.5)*gy
+    // en px, positive vers la caméra ; z_focus = celle du focus du zoom (`TiltedQuad::depth_mb`) ;
+    // k = texels source de flou par px d'écart de profondeur (0 = profondeur de champ coupée).
+    // t5 (texDof) = pyramide demi-résolution de la vidéo, 5 niveaux, mêmes UV que t0/t1 ; liée
+    // explicitement à chaque draw du mode 8 (`draw_video` ne lie que t0/t1).
+    // trail_a/trail_b = coins du plan à la frame précédente, trail_mb = [taps, force] : son flou
+    // de mouvement (`FrameGeometry::tilt_trail`).
+    // mode 11 : texte d'annotation, rastérisé par Direct2D (voir text.rs). D2D écrit sur une
+    // surface DXGI en alpha PRÉMULTIPLIÉ, donc contrairement au mode 7 (sprite curseur, alpha
+    // droit) il ne faut SURTOUT pas re-multiplier ici : les bords adoucis des glyphes
+    // deviendraient deux fois trop transparents et le texte paraîtrait délavé.
+    // `color.a` reste l'opacité globale (fondu d'animation).
+    //
+    // mode 12 : ombre du quad PROJETÉ. Même pénombre que le mode 2, mais portée par le
+    // quadrilatère incliné au lieu d'un rect droit — une ombre droite derrière un écran penché ne
+    // se lit pas comme son ombre, mais comme une seconde surface posée derrière. Les coins
+    // arrivent dans la même convention que le mode 8 (fx = TL/TR, src_prev = BR/BL, px locaux) ;
+    // mb.y = étalement de la pénombre en px.
+    if (mode > 11.5)
+    {
+        float2 quad[5] = { fx.xy, fx.zw, src_prev.xy, src_prev.zw, fx.xy };
+        // Coins arrondis du même rayon que le plan (`radius_px`). Une ombre à coins vifs derrière
+        // un écran aux coins arrondis dépasse en pointe à chaque coin — visible, et d'autant plus
+        // que le rayon monte. On rentre donc chaque arête de `r`, et retrancher `r` à la distance
+        // du quadrilatère ainsi obtenu redonne un arrondi exactement tangent aux deux arêtes.
+        float r = max(radius_px, 0.0);
+        float2 v[4];
+        [unroll] for (int k = 0; k < 4; k++)
+        {
+            // TL→TR→BR→BL tourne dans le sens horaire en y-bas, donc (e.y, -e.x) sort du quad.
+            // Division par la longueur plutôt que `normalize` : une arête dégénérée donnerait un
+            // NaN qui effacerait l'ombre entière.
+            float2 ep = quad[k] - quad[(k + 3) & 3];       // arête précédente
+            float2 ec = quad[k + 1] - quad[k];             // arête courante
+            float2 np = float2(ep.y, -ep.x) / max(length(ep), 1e-6);
+            float2 nc = float2(ec.y, -ec.x) / max(length(ec), 1e-6);
+            // Chaque arête rentrée de r : n·x = n·a - r. Leur intersection est le coin rentré.
+            v[k] = line_cross(np, dot(quad[(k + 3) & 3], np) - r, nc, dot(quad[k], nc) - r);
+        }
+        float d = sd_convex_quad(i.local, v[0], v[1], v[2], v[3]) - r;
+        // Slot d'un layout en bloc (`dst_prev` = le slot en px locaux x0 y0 x1 y1, `mb.w` = son
+        // rayon ; nul ailleurs) : l'ombre est celle de ce qu'on voit, le plan rogné par le slot.
+        if (dst_prev.z > dst_prev.x)
+        {
+            float2 h = (dst_prev.zw - dst_prev.xy) * 0.5;
+            d = max(d, sd_round_rect(i.local - dst_prev.xy - h, h, mb.w));
+        }
+        float spread = max(mb.y, 1e-3);
+        float a = color.a * (1.0 - smoothstep(0.0, spread, d));
+        return float4(color.rgb * a, a);
+    }
+
+    if (mode > 10.5)
+    {
+        float4 s = texImg.Sample(samp, i.uv);
+        return s * color.a;
+    }
+
+    // mode 10 : annotation « flou » — masque la zone en réutilisant l'image DÉJÀ composée, qui
+    // arrive dans `texImg` (recopie du render target : on ne peut pas échantillonner la cible sur
+    // laquelle on dessine). `i.pout` donne directement l'UV de sortie, donc aucun mapping à
+    // refaire. fx.x = 0 mosaïque / 1 flou ; fx.y = taille de bloc px (mosaïque) ou rayon px
+    // (flou) ; fx.z = 0 rectangle / 1 ovale ; fx.w = 1 si le masque doit être teinté ;
+    // mb.z = 1 si le masque est un quad incliné (coins TL, TR dans dst_prev, BR, BL dans src_prev),
+    // mb.w = 1 si son warp est projectif.
+    if (mode > 9.5)
+    {
+        // Masque de forme, en coords locales normalisées du quad.
+        float2 n = i.local / max(quad_px, 1e-6);
+        // Écran incliné (mb.z = 1) : le masque est le quad dst_prev = TL, TR / src_prev = BR, BL,
+        // warpé comme le contenu qu'il cache (`FrameGeometry::privacy_mask`), par le même inverse
+        // que le mode 8. Bord net, marge de 2 % comprise : un fondu rendrait le masque en partie
+        // transparent SUR la zone à cacher.
+        if (mb.z > 0.5)
+        {
+            float3 w = quad_inverse(i.local, dst_prev.xy, dst_prev.zw, src_prev.xy, src_prev.zw, mb.w);
+            if (w.z < 0.5)
+            {
+                return float4(0.0, 0.0, 0.0, 0.0);
+            }
+            n = w.xy;
+        }
+        float cov = 1.0;
+        if (fx.z > 0.5)
+        {
+            // Ovale inscrit : distance au centre en unités de demi-axes, adoucie sur ~1px. Le
+            // fondu tombe HORS de l'ellipse : dedans, le masque reste plein.
+            float2 d = (n - 0.5) * 2.0;
+            float r = length(d);
+            float aa = 2.0 / max(min(quad_px.x, quad_px.y), 1.0);
+            cov = 1.0 - smoothstep(1.0, 1.0 + aa, r);
+        }
+        if (cov <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
+
+        float3 rgb;
+        if (fx.x > 0.5)
+        {
+            // Flou : on échantillonne un niveau de mip de l'image composée. `log2(rayon)` donne
+            // le niveau dont un texel couvre à peu près le rayon demandé, et le filtrage
+            // trilinéaire lisse la transition entre deux niveaux quand le rayon varie.
+            //
+            // Un noyau de quelques taps espacés du rayon ne floute PAS : il superpose autant de
+            // copies décalées, ce qui se voit comme du texte fantôme. Atteindre un vrai lissage
+            // par taps demanderait un tap par pixel de rayon ; la pyramide de mips donne le même
+            // résultat à coût constant, et c'est le GPU qui l'a construite.
+            float lod = log2(max(fx.y, 1.0));
+            rgb = texImg.SampleLevel(samp, i.pout, lod).rgb;
+        }
+        else
+        {
+            // Mosaïque : on quantifie l'UV sur une grille de `fx.y` px, alignée sur le quad pour
+            // que les blocs ne rampent pas quand l'annotation bouge.
+            float2 px_uv = dst.zw / max(quad_px, 1e-6);
+            float2 block = max(fx.y, 1.0) * px_uv;
+            float2 origin = dst.xy;
+            float2 q = origin + (floor((i.pout - origin) / block) + 0.5) * block;
+            // `SampleLevel(..., 0)` et non `Sample` : l'UV quantifié est une marche d'escalier,
+            // donc ses dérivées explosent en bord de bloc et le choix automatique de mip
+            // ramollirait justement les arêtes qui font la mosaïque.
+            rgb = texImg.SampleLevel(samp, q, 0.0).rgb;
+        }
+
+        if (fx.w > 0.5)
+        {
+            // Teinte blanc/noir : la couleur choisie, mêlée à moitié, garde la forme lisible sans
+            // effacer complètement ce qu'il y a dessous.
+            rgb = lerp(rgb, color.rgb, 0.5);
+        }
+        float a = cov * color.a;
+        return float4(rgb * a, a); // prémultiplié
+    }
+
+    // mode 9 : annotation « figure » — une flèche. Parité EXACTE avec `ArrowSvgs.tsx`, dont
+    // chaque direction est un tracé de trois segments à bouts ronds dans un viewBox 0..100 :
+    // une hampe et deux barbes. Trois `sd_segment` et un `min` reproduisent donc la forme telle
+    // quelle, pas une approximation. Les extrémités arrivent déjà converties en px locaux du
+    // quad (échelle uniforme centrée, comme le `preserveAspectRatio` par défaut du SVG).
+    // fx = hampe (a.xy, b.xy), src_prev = barbe 1, dst_prev = barbe 2 ; mb.y = demi-épaisseur px.
+    if (mode > 8.5)
+    {
+        float d = sd_segment(i.local, fx.xy, fx.zw);
+        d = min(d, sd_segment(i.local, src_prev.xy, src_prev.zw));
+        d = min(d, sd_segment(i.local, dst_prev.xy, dst_prev.zw));
+        // Couverture sur ~1 px : le trait reste net sans crénelage, et une flèche fine ne
+        // disparaît pas quand la demi-épaisseur descend sous le pixel.
+        float a = saturate(mb.y - d + 0.5) * color.a;
+        return float4(color.rgb * a, a); // prémultiplié, comme tous les autres modes
+    }
+
+    if (mode > 7.5)
+    {
+        float3 r = quad_inverse(i.local, fx.xy, fx.zw, src_prev.xy, src_prev.zw, dst_prev.w);
+        if (r.z < 0.5)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0); // hors du quad projeté
+        }
+        float2 uv = float2(lerp(src.x, src.z, saturate(r.x)), lerp(src.y, src.w, saturate(r.y)));
+        // Coins arrondis DANS LE REPÈRE DU PLAN (`dst_prev.xy` = sa taille avant projection) :
+        // le rayon reste constant le long du bord, alors qu'un arrondi calculé dans la bbox
+        // s'étirerait avec la perspective. Sans cet arrondi, un écran penché a des arêtes de
+        // couteau qui coupent le contenu en pleine phrase, et ça se lit comme une troncature
+        // plutôt que comme une inclinaison.
+        //
+        // Inconditionnel, rayon 0 COMPRIS : `sd_round_rect` dégénère alors en SDF de rectangle et
+        // le feather de 1.5 px subsiste, ce qui est précisément ce qui fait lire une arête inclinée
+        // comme une arête. Sous l'ancienne garde `radius_px > 0`, un slider Roundness à 0 laissait
+        // la couverture du plan au seul test binaire `r.z < 0.5` ci-dessus : des marches d'escalier
+        // en escalier franc, soit la troncature même que cette branche existe pour éviter (d'où le
+        // symptôme « le tilt 3D est tronqué, mais pas au-dessus d'un certain arrondi »). L'ombre du
+        // mode 12 applique déjà son `max(radius_px, 0.0)` sans garde, pour la même raison.
+        // dst_prev.z = 1 : écran sous le chrome de fenêtre, coins HAUTS carrés et rognés par
+        // l'arc du cadre (`sd_screen_under_bar`, `color.z` = la remontée, px du plan).
+        float2 plane_px = dst_prev.xy;
+        float2 p = float2(r.x, r.y) * plane_px - plane_px * 0.5;
+        float rad = max(radius_px, 0.0);
+        // Une branche et non `?:`, qui évalue ses DEUX opérandes (trois SDF par pixel).
+        float d;
+        if (dst_prev.z > 0.5)
+            d = sd_screen_under_bar(p, plane_px * 0.5, rad, color.z);
+        else
+            d = sd_round_rect(p, plane_px * 0.5, rad);
+        float tilt_a = 1.0 - smoothstep(0.0, 1.5, d);
+        // Slot d'un layout en bloc (`color.w` = rayon de ses coins, px ; 0 ailleurs, sans effet) :
+        // `dst` EST le slot, dont le rect arrondi rogne le plan. Le conteneur masque, le métrage
+        // penche dedans (`ScreenMask`). Négatif sous une fenêtre : coins hauts carrés.
+        tilt_a *= slot_alpha(i.local, quad_px, color.w);
+        // Profondeur de champ : cercle de confusion en texels source, nul au focus du zoom.
+        // Sous un demi-texel, l'échantillon net d'avant, à l'octet : le texte net ne passe
+        // jamais par le RGBA de la pyramide, et `k = 0` (réglage coupé) ne quitte jamais cette
+        // voie. Au-delà, fondu vers la pyramide demi-résolution (t5) au niveau `log2(coc) - 1`
+        // (son niveau 0 est déjà une moyenne 2x2), plafonné à DOF_MAX_LOD : au niveau 2, un
+        // bloc 4x4 soude les jambages d'un « m » en 1080p (`tilted_sample`).
+        float2 rs = saturate(float2(r.x, r.y));
+        float z = (rs.x - 0.5) * mb.x + (rs.y - 0.5) * mb.y;
+        float coc = mb.w * abs(z - mb.z);
+        float3 rgb = tilted_sample(uv, coc);
+        // Flou de mouvement, celui du mode 0 : l'UV que CE pixel montrait à la frame précédente,
+        // par le même warp inverse sur les coins d'avant (`trail_a`/`trail_b`), puis `taps`
+        // échantillons de celui-là à celui-ci, raccourcis de la force. Borné à une frame. Hors du
+        // plan d'avant, le warp prolongé donne encore le bon point (sa racine proche) ; sans
+        // solution, il n'y a pas de point d'avant, et l'échantillon reste net. Le
+        // mouvement se mesure entre les deux points NON bornés : `uv` l'est, et sur le bord d'un
+        // plan immobile, `uv − uv_prev` aurait flouté la frange.
+        int taps = (int) trail_mb.x;
+        if (taps > 1 && trail_mb.y > 0.001)
+        {
+            float3 rp = quad_inverse(i.local, trail_a.xy, trail_a.zw, trail_b.xy, trail_b.zw, dst_prev.w);
+            float2 duv = (r.xy - rp.xy) * (src.zw - src.xy) * saturate(trail_mb.y);
+            if (rp.z > -0.5 && dot(duv, duv) >= 1e-9)
+            {
+                float3 acc = 0.0;
+                [loop] for (int k = 0; k < 16; k++)
+                {
+                    if (k >= taps) break;
+                    float t = (float) k / (float) (taps - 1);
+                    acc += tilted_sample(uv - duv * (1.0 - t), coc);
+                }
+                rgb = acc / (float) taps;
+            }
+        }
+        if (dst_prev.w > 0.5)
+        {
+            // La lampe de la caméra réelle : le côté proche un peu plus clair.
+            rgb = saturate(rgb * (1.0 + color.x * (rs.x - 0.5) + color.y * (rs.y - 0.5)));
+        }
+        return float4(rgb * tilt_a, tilt_a); // prémultiplié, comme les autres modes
+    }
+
+    // mode 7 : sprite curseur thème (PNG alpha droite, arrow.png etc.). Prémultiplie ici
+    // (le blend state attend du prémultiplié partout ailleurs). fx = rect de clip "Clip to
+    // canvas" en espace sortie 0..1 [x,y,w,h] (= s_dst quand actif, sinon un rect englobant
+    // tout -> aucun effet).
+    if (mode > 6.5)
+    {
+        if (i.pout.x < fx.x || i.pout.x > fx.x + fx.z || i.pout.y < fx.y || i.pout.y > fx.y + fx.w)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0);
+        }
+        float4 s = texImg.Sample(samp, i.uv);
+        float a = s.a * color.a; // color.a = opacité globale (fade éventuel)
+        return float4(s.rgb * a, a);
+    }
+
+    // mode 6 : wallpaper image RGBA (cover-fit). src = rect uv déjà calculé (crop de
+    // recouvrement), i.uv l'interpole. Opaque.
+    // Fond animé : mêmes emplacements qu'au mode 5 (fx.z temps, fx.w mouvement, mb.x aspect).
+    // fx.w = 0 lit l'image telle quelle, à l'octet près.
+    if (mode > 5.5)
+    {
+        float2 uv = i.uv;
+        float light = 0.0;
+        if (fx.w > 0.5)
+        {
+            float2 size = src.zw - src.xy;
+            float3 m = image_motion((i.uv - src.xy) / size - 0.5, fx.z, fx.w, mb.x);
+            uv = src.xy + (m.xy + 0.5) * size;
+            light = m.z;
+        }
+        float a = quad_round_alpha(i.local, quad_px, radius_px);
+        return float4(lighten(texImg.Sample(samp, uv).rgb, light) * a, a); // prémultiplié
+    }
+
+    // mode 5 : gradient linéaire jusqu'à 4 stops (parité web wallpaper dégradé). Nœuds
+    // `rgb + position` dans color, src_prev, dst_prev, src (cf. `ramp4`), fx.xy = direction unitaire (espace sortie, y vers le bas). t est
+    // normalisé coin-à-coin (dénominateur = |dx|+|dy|) pour couvrir toute la diagonale.
+    // Fond animé : fx.z = temps programme (s, replié sur 120), fx.w = mouvement (0 immobile,
+    // 1 dérive, 2 aurore, 3 vagues), mb.x = aspect w/h. 0 rend le dégradé d'avant à l'octet.
+    if (mode > 4.5)
+    {
+        float2 dir = fx.xy;
+        float slide = 0.0;
+        if (fx.w > 0.5 && fx.w < 1.5)
+        {
+            // Dérive : l'axe balance de ±30° (0.5235988 rad) en 20 s, et le dégradé glisse le
+            // long de lui de ±20 % en 15 s. Une rotation seule laisse le centre immobile.
+            float da = 0.5235988 * sin(6.2831853 * fx.z / 20.0);
+            float sa = sin(da);
+            float ca = cos(da);
+            dir = float2(dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca);
+            slide = 0.2 * sin(6.2831853 * fx.z / 15.0);
+        }
+        float denom = max(abs(dir.x) + abs(dir.y), 1e-4);
+        // Paramétré sur le QUAD dès qu'il en a un (la bulle webcam), sinon sur la sortie. Pour le
+        // fond plein cadre les deux coïncident ; pour une bulle dans un coin, `pout` ne montrerait
+        // que la tranche du dégradé plein cadre qui passe dessous, jamais la rampe complète que
+        // le sélecteur affiche.
+        float2 gp = (quad_px.x > 0.0 && quad_px.y > 0.0) ? (i.local / quad_px) : i.pout;
+        float t = saturate(0.5 + dot(gp - 0.5, dir) / denom + slide);
+        float3 g = ramp4(t, color, src_prev, dst_prev, src);
+        if (fx.w > 1.5)
+        {
+            g = gradient_motion(gp, dir, denom, color, src_prev, dst_prev, src, fx.z, fx.w, mb.x);
+        }
+        float a = quad_round_alpha(i.local, quad_px, radius_px);
+        return float4(g * a, a); // prémultiplié
+    }
+
+    // mode 4 : curseur custom (dot + ring, dessiné depuis les maths). color = teinte.
+    // fx = rect de clip "Clip to canvas" (mêmes conventions que le mode 7 ci-dessus).
+    if (mode > 3.5)
+    {
+        if (i.pout.x < fx.x || i.pout.x > fx.x + fx.z || i.pout.y < fx.y || i.pout.y > fx.y + fx.w)
+        {
+            return float4(0.0, 0.0, 0.0, 0.0);
+        }
+        float2 p = i.local - quad_px * 0.5;
+        float r = length(p);
+        float R = quad_px.x * 0.5;
+        float aa = 1.5;
+        float dot_r = R * 0.34;
+        float ring_r = R * 0.72;
+        float ring_w = R * 0.09;
+        float dot = 1.0 - smoothstep(dot_r - aa, dot_r + aa, r);
+        float ring = smoothstep(ring_r - ring_w - aa, ring_r - ring_w, r)
+                   * (1.0 - smoothstep(ring_r + ring_w, ring_r + ring_w + aa, r));
+        // liseré sombre fin sous le dot pour le contraste sur fond clair
+        float halo = (1.0 - smoothstep(dot_r + aa, dot_r + aa + 2.5, r)) * (1.0 - dot);
+        float a = saturate(dot + ring) * color.a;
+        float3 rgb = color.rgb * (dot + ring) + float3(0, 0, 0) * halo;
+        a = saturate(a + halo * 0.35 * color.a);
+        return float4(rgb * a, a);
+    }
+
+    // mode 2 : ombre portée (§7 E4). Pénombre douce dérivée de la SDF du quad source,
+    // qui est inséré à l'intérieur du quad d'ombre (élargi de `spread` de chaque côté).
+    if (mode > 1.5)
+    {
+        // `quad_px`/`spread` sont en px de SORTIE : le render target porte la géométrie de
+        // sortie, donc aucune pré-déformation n'est nécessaire. (Historiquement le canvas
+        // était figé en 16:9 et étiré en fin de pipeline, d'où un facteur anisotrope transporté
+        // dans `mb.yz` que ce shader devait annuler — le halo ressortait elliptique sans lui.)
+        float spread = fx.x;
+        float2 halfsz = quad_px * 0.5 - spread;
+        float2 p = i.local - quad_px * 0.5;
+        float d = sd_round_rect(p, halfsz, radius_px);
+        float a = color.a * (1.0 - smoothstep(0.0, spread, d));
+        return float4(color.rgb * a, a);
+    }
+
+    float3 rgb;
+    // 1 sauf en mode detourage, ou il porte le masque du sujet (cf. la branche fx.z ci-dessous).
+    float alpha_mask = 1.0;
+    if (mode < 0.5)
+    {
+        // flou de mouvement par vélocité (§8) : pour CE pixel sortie, uv à la frame
+        // précédente = même pixel remappé par (dst_prev, src_prev). On floute le long
+        // de uv_prev->uv_now (capture translation ET zoom). Early-out si immobile.
+        float2 uv_now = i.uv;
+        float2 localp = (i.pout - dst_prev.xy) / dst_prev.zw;
+        float2 uv_prev = src_prev.xy + localp * (src_prev.zw - src_prev.xy);
+        float2 duv = uv_now - uv_prev;
+        float mb_scale = saturate(mb.y);
+        float2 duv_blur = duv * mb_scale;
+        int taps = (int) mb.x;
+        if (taps <= 1 || mb_scale <= 0.001 || dot(duv_blur, duv_blur) < 1e-9)
+        {
+            rgb = sample_yuv(uv_now);
+        }
+        else
+        {
+            float3 acc = 0.0;
+            [loop] for (int k = 0; k < 16; k++)
+            {
+                if (k >= taps) break;
+                float t = (float) k / (float) (taps - 1);
+                acc += sample_yuv(uv_now - duv_blur * (1.0 - t));
+            }
+            rgb = acc / (float) taps;
+        }
+
+        // Effet d'arriere-plan webcam. fx.z : 1 = detourage, 2 = flou, 3 = fond personnalise.
+        // `color` porte la couleur de fond du mode 3, fx.w l'intensite du flou du mode 2.
+        // fx.xy porte l'etendue VALIDE de la texture webcam (wcw/wtw, wch/wth) : le masque a
+        // ete produit sur la frame ENTIERE, pas sur le sous-rect dessine, pour que le modele
+        // ne se fasse pas amputer le sujet par un crop utilisateur. Il faut donc ramener uv,
+        // qui vit dans l'espace source, dans cet espace-la.
+        // Le masque est absent (texture 1x1 noire) tant que la segmentation n'a pas produit sa
+        // premiere frame : `person` vaut alors 0 et le mode 1 rendrait la webcam invisible, donc
+        // c'est l'appelant qui ne met fx.z a autre chose que 0 qu'une fois un masque disponible.
+        float effect = fx.z;
+        if (effect > 0.5)
+        {
+            float2 mask_uv = uv_now / max(fx.xy, 1e-6);
+            float person = saturate(texMask.Sample(samp, mask_uv));
+            if (effect > 2.5)
+            {
+                rgb = lerp(color.rgb, rgb, person);
+            }
+            else if (effect > 1.5)
+            {
+                rgb = lerp(blur_webcam_bg(uv_now, fx.w, quad_px, i.local), rgb, person);
+            }
+            else
+            {
+                alpha_mask = person;
+            }
+        }
+    }
+    else
+    {
+        rgb = color.rgb;
+    }
+
+    float alpha = color.a * alpha_mask;
+    if (radius_px > 0.0)
+    {
+        // `quad_px` est en px de SORTIE (le render target porte la géométrie de sortie) et
+        // `radius_px` est un rayon réel en px de sortie : la SDF isotrope les compare dans le
+        // même espace, le coin est donc rond par construction. (Avant, le canvas figé en 16:9
+        // était étiré en fin de pipeline et il fallait pré-déformer par `mb.yz` pour que le
+        // cercle ne ressorte pas elliptique.)
+        // mb.w = 1 : écran sous le chrome de fenêtre, coins HAUTS carrés et rognés par l'arc du
+        // cadre (`sd_screen_under_bar`, `mb.z` = la remontée du contour intérieur, px).
+        float2 halfsz = quad_px * 0.5;
+        float2 p = i.local - quad_px * 0.5;
+        // Une branche et non `?:`, qui évalue ses DEUX opérandes : trois SDF par pixel de l'écran
+        // au lieu d'une -- 0,6 ms par frame 1080p sur une Radeon 610M (mesuré en WGSL).
+        float d;
+        if (mb.w > 0.5)
+            d = sd_screen_under_bar(p, halfsz, radius_px, mb.z);
+        else
+            d = sd_round_rect(p, halfsz, radius_px);
+        alpha *= 1.0 - smoothstep(0.0, 1.5, d); // ~1.5px feather (§7 fwidth-like)
+    }
+    return float4(rgb * alpha, alpha); // prémultiplié
+}
+
+// ============ RGB -> NV12 (§5) : deux passes vers les plans d'une texture NV12 ============
+// VS plein écran (triangle unique) qui expose l'UV.
+struct FSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
+FSOut vs_fs(uint vid : SV_VertexID)
+{
+    FSOut o;
+    o.uv = float2((vid << 1) & 2, vid & 2);
+    o.pos = float4(o.uv * float2(2, -2) + float2(-1, 1), 0, 1);
+    return o;
+}
+
+Texture2D<float4> rgbTex : register(t0);
+SamplerState sampNV : register(s0);
+
+// BT.709 limited, RGB(0..1) -> Y' et Cb,Cr (inverse de yuv709_limited).
+float rgb2y(float3 c)  { return (16.0  + 219.0 * (0.2126*c.r + 0.7152*c.g + 0.0722*c.b)) / 255.0; }
+float2 rgb2uv(float3 c)
+{
+    float yp = 0.2126*c.r + 0.7152*c.g + 0.0722*c.b;
+    float cb = (c.b - yp) / 1.8556;
+    float cr = (c.r - yp) / 1.5748;
+    return (128.0 + 224.0 * float2(cb, cr)) / 255.0;
+}
+
+float ps_y(FSOut i) : SV_Target   // plan Y (R8), pleine résolution
+{
+    return rgb2y(rgbTex.Sample(sampNV, i.uv).rgb);
+}
+float2 ps_uv(FSOut i) : SV_Target // plan UV (R8G8), demi-résolution (bilinéaire moyenne)
+{
+    return rgb2uv(rgbTex.Sample(sampNV, i.uv).rgb);
+}
+
+// ============ Flou gaussien séparable (§7 E3) ============
+// fx.x = sigma (px), fx.y = pas de texel (1/dim), fx.zw = direction (1,0)|(0,1).
+#define BLUR_R 24
+float4 ps_blur(FSOut i) : SV_Target
+{
+    float sigma = max(fx.x, 0.001);
+    float2 step = fx.y * fx.zw;
+    float4 acc = 0.0;
+    float wsum = 0.0;
+    [unroll]
+    for (int k = -BLUR_R; k <= BLUR_R; k++)
+    {
+        float w = exp(-0.5 * (k * k) / (sigma * sigma));
+        acc += rgbTex.Sample(sampNV, i.uv + k * step) * w;
+        wsum += w;
+    }
+    return acc / wsum;
+}
+// simple copie/échantillonnage d'une texture RGBA (pour redessiner le fond flouté)
+float4 ps_tex(FSOut i) : SV_Target { return rgbTex.Sample(sampNV, i.uv); }
+
+// ============ Dual-Kawase (fond flouté rapide) ============
+// fx.xy = texel de la texture SOURCE (1/w, 1/h), fx.z = offset. 5 taps (down) / 8 taps (up),
+// bilinéaires, à résolution décroissante -> bien moins de samples qu'un gaussien large.
+float4 ps_kawase_down(FSOut i) : SV_Target
+{
+    float2 hp = fx.xy * 0.5 * fx.z;
+    float2 uv = i.uv;
+    float4 s = rgbTex.Sample(sampNV, uv) * 4.0;
+    s += rgbTex.Sample(sampNV, uv - hp);
+    s += rgbTex.Sample(sampNV, uv + hp);
+    s += rgbTex.Sample(sampNV, uv + float2(hp.x, -hp.y));
+    s += rgbTex.Sample(sampNV, uv - float2(hp.x, -hp.y));
+    return s / 8.0;
+}
+float4 ps_kawase_up(FSOut i) : SV_Target
+{
+    float2 hp = fx.xy * 0.5 * fx.z;
+    float2 uv = i.uv;
+    float4 s = rgbTex.Sample(sampNV, uv + float2(-hp.x * 2.0, 0.0));
+    s += rgbTex.Sample(sampNV, uv + float2(-hp.x, hp.y)) * 2.0;
+    s += rgbTex.Sample(sampNV, uv + float2(0.0, hp.y * 2.0));
+    s += rgbTex.Sample(sampNV, uv + float2(hp.x, hp.y)) * 2.0;
+    s += rgbTex.Sample(sampNV, uv + float2(hp.x * 2.0, 0.0));
+    s += rgbTex.Sample(sampNV, uv + float2(hp.x, -hp.y)) * 2.0;
+    s += rgbTex.Sample(sampNV, uv + float2(0.0, -hp.y * 2.0));
+    s += rgbTex.Sample(sampNV, uv + float2(-hp.x, -hp.y)) * 2.0;
+    return s / 12.0;
+}

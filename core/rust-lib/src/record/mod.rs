@@ -6,11 +6,13 @@ pub mod core;
 pub mod capture_macos;
 #[cfg(target_os = "macos")]
 pub mod cursor_macos;
+pub mod editor;
 pub mod mic;
 #[cfg(target_os = "macos")]
 pub mod picker_macos;
 pub mod session;
 pub mod project;
+pub mod scene_json;
 pub mod wav;
 
 // Used by the macOS cursor sampler; unused on other targets.

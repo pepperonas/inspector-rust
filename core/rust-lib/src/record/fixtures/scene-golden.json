@@ -1,0 +1,88 @@
+{
+  "background": {
+    "color": "#000000",
+    "kind": "color"
+  },
+  "clips": [
+    {
+      "extraAudio": {
+        "gainDb": -6.0,
+        "offsetSec": 0.12,
+        "path": "<PROJECT>/mic.wav"
+      },
+      "hasAudio": true,
+      "screenPath": "<PROJECT>/screen.mp4",
+      "sourceEndSec": 4.0,
+      "sourceStartSec": 0.0,
+      "webcamOffsetSec": 0.0,
+      "webcamPath": ""
+    },
+    {
+      "extraAudio": {
+        "gainDb": -6.0,
+        "offsetSec": 0.12,
+        "path": "<PROJECT>/mic.wav"
+      },
+      "hasAudio": true,
+      "screenPath": "<PROJECT>/screen.mp4",
+      "sourceEndSec": 10.0,
+      "sourceStartSec": 6.5,
+      "webcamOffsetSec": 0.0,
+      "webcamPath": ""
+    }
+  ],
+  "cropByClip": [
+    null,
+    {
+      "height": 1.0,
+      "width": 0.5,
+      "x": 0.25,
+      "y": 0.0
+    }
+  ],
+  "cursor": {
+    "clickBounce": 0.0,
+    "clipToBounds": false,
+    "motionBlur": 0.0,
+    "show": false,
+    "size": 1.0,
+    "smoothing": 0.0,
+    "theme": "default"
+  },
+  "effects": {
+    "blur": 0.0,
+    "depthOfField": false,
+    "motionBlur": 0.0,
+    "padding": 0.0,
+    "roundnessFrac": 0.0,
+    "shadow": 0.0
+  },
+  "layout": {
+    "preset": "no-webcam",
+    "webcamMirror": false,
+    "webcamPosition": null,
+    "webcamReactiveZoom": false,
+    "webcamShape": "rectangle",
+    "webcamSize": 1.0
+  },
+  "output": {
+    "fps": 30,
+    "height": 1080,
+    "width": 1920
+  },
+  "speedRegions": [
+    {
+      "clipIndex": 0,
+      "endSec": 3.0,
+      "speed": 2.0,
+      "startSec": 1.0
+    },
+    {
+      "clipIndex": 1,
+      "endSec": 9.25,
+      "speed": 0.5,
+      "startSec": 7.0
+    }
+  ],
+  "zoomRegions": []
+}

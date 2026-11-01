@@ -4078,5 +4078,6 @@
   "set.changelog.search": "Changelog durchsuchen",
   "set.changelog.count": "{shown} von {total} Versionen",
   "set.changelog.older": "Ältere Versionen",
-  "set.changelog.installed": "installiert"
+  "set.changelog.installed": "installiert",
+  "rec2.default_title": "Aufnahme"
 }

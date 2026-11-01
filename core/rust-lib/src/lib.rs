@@ -81,6 +81,7 @@ mod pagespeed_export;
 mod paste;
 mod path_arg;
 mod qr;
+mod record;
 mod recolor;
 mod region_picker;
 mod repo_stats;

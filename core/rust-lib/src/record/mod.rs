@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod core;
+pub mod project;
 
 pub use core::PauseShared;
 

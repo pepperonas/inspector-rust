@@ -2,15 +2,22 @@
 #![allow(dead_code)]
 
 pub mod core;
+#[cfg(target_os = "macos")]
+pub mod cursor_macos;
 pub mod mic;
 pub mod project;
 pub mod wav;
 
+// Used by the macOS cursor sampler; unused on other targets.
+#[allow(unused_imports)]
 pub use core::PauseShared;
 
 /// Monotonic host time in nanoseconds. On macOS this is the same clock as the
 /// CMSampleBuffer timestamps of the host clock (mach_absolute_time x timebase).
 #[cfg(target_os = "macos")]
+// libc marks the mach time API deprecated in favour of `mach2`; the calls are
+// still the right (and only) ones here.
+#[allow(deprecated)]
 pub fn host_now_ns() -> i64 {
     use std::sync::OnceLock;
     static TB: OnceLock<(u32, u32)> = OnceLock::new();

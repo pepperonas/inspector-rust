@@ -1227,6 +1227,32 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_record_config,
             #[cfg(target_os = "macos")]
             commands::set_record_config,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_open,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_current,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_update,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_seek,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_play,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_position,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_frame,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_resize,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_thumbs,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_export,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_cancel_export,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_restart,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_close,
             commands::open_audio_swap_overlay,
             commands::audio_swap_get_selected_video,
             commands::audio_swap_probe,

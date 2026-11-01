@@ -4139,5 +4139,14 @@
   "rec2.panel.delete": "Delete",
   "rec2.panel.delete_q": "Delete the project?",
   "rec2.panel.delete_yes": "Yes, delete",
-  "rec2.panel.keys": "↓ select · ⏎ new recording · ⌘⏎ show in Finder · ⌫ delete (2× = confirm) · Esc back"
+  "rec2.panel.keys": "↓ select · ⏎ new recording · ⌘⏎ show in Finder · ⌫ delete (2× = confirm) · Esc back",
+  "record.editor.window_title": "Recording editor",
+  "record.editor.no_session": "No recording is open in the editor.",
+  "record.editor.unreadable": "The project could not be read.",
+  "record.editor.no_video": "This recording has no readable video (screen.mp4).",
+  "record.editor.helper_missing": "The render helper (ir-record-render) is missing from the app.",
+  "record.editor.busy": "The preview is busy with an export. Try again when it is done.",
+  "record.editor.export_busy": "An export is already running.",
+  "record.editor.bad_export": "These export settings are not supported.",
+  "record.editor.no_downloads": "The Downloads folder was not found."
 }

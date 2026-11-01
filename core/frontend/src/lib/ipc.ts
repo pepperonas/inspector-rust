@@ -5197,3 +5197,113 @@ export function getRecordNotes(): Promise<RecordNotes> {
 export function setRecordNotes(notes: RecordNotes): Promise<void> {
   return invoke("set_record_notes", { notes });
 }
+
+// ── record (stage 2): editor ────────────────────────────────────────────────
+export type RecordAspect = "source" | "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
+export type RecordOutputTarget = "p720" | "p1080" | "source";
+export interface RecordEditClip { startMs: number; endMs: number }
+export interface RecordSpeedRegion { clip: number; startMs: number; endMs: number; speed: number }
+export interface RecordCropRect { x: number; y: number; w: number; h: number }
+export interface RecordEditDoc {
+  version: number;
+  clips: RecordEditClip[];
+  speed: RecordSpeedRegion[];
+  crop: (RecordCropRect | null)[];
+  output: { aspect: RecordAspect };
+  micGainDb: number;
+}
+export interface RecordEditorView {
+  doc: RecordEditDoc;
+  programmeMs: number;
+  clips: { progStartMs: number; progEndMs: number }[];
+  speed: { index: number; progStartMs: number; progEndMs: number }[];
+}
+export interface RecordingMeta {
+  source: "display" | "window";
+  sourceLabel: string;
+  width: number;
+  height: number;
+  fps: number;
+  durationMs: number;
+  systemAudio: boolean;
+  mic: { offsetMs: number; sampleRate: number } | null;
+  cursorMode: RecordCursorMode;
+  pauses: [number, number][];
+}
+export interface EditorInit {
+  project: { dir: string; title: string; createdAt: number; durationMs: number; status: RecordProjectStatus; failure: string | null };
+  meta: RecordingMeta;
+  view: RecordEditorView;
+  /** The preview could not start (helper error); the editor offers a restart. */
+  helperError: string | null;
+}
+export interface EditorSourcePos { clip: number; sourceMs: number }
+export interface EditorPlayback {
+  playing: boolean;
+  positionMs: number;
+  programmeMs: number;
+  exporting: boolean;
+  helperError: string | null;
+}
+export interface EditorExportOptions {
+  kind: "mp4" | "gif";
+  target: RecordOutputTarget;
+  fps: number;
+  codec: "h264" | "hevc";
+  gifWidth: number;
+  loopForever: boolean;
+}
+/** A decoded `editor_frame` response; `null` when nothing newer exists. */
+export interface EditorFrame { gen: number; width: number; height: number; rgba: Uint8ClampedArray }
+
+/** Layout: gen u64 LE, w u32 LE, h u32 LE, RGBA. An empty buffer means "nothing newer". */
+export function decodeEditorFrame(buf: ArrayBuffer): EditorFrame | null {
+  if (buf.byteLength < 16) return null;
+  const v = new DataView(buf);
+  const gen = Number(v.getBigUint64(0, true));
+  const width = v.getUint32(8, true);
+  const height = v.getUint32(12, true);
+  if (width === 0 || height === 0 || buf.byteLength !== 16 + width * height * 4) return null;
+  return { gen, width, height, rgba: new Uint8ClampedArray(buf, 16) };
+}
+export function editorOpen(dir: string): Promise<EditorInit> {
+  return invoke("editor_open", { dir });
+}
+export function editorCurrent(): Promise<EditorInit | null> {
+  return invoke("editor_current");
+}
+export function editorUpdate(doc: RecordEditDoc): Promise<RecordEditorView> {
+  return invoke("editor_update", { doc });
+}
+export function editorSeek(programmeMs: number): Promise<EditorSourcePos | null> {
+  return invoke("editor_seek", { programmeMs });
+}
+export function editorPlay(playing: boolean): Promise<EditorPlayback> {
+  return invoke("editor_play", { playing });
+}
+export function editorPosition(): Promise<EditorPlayback | null> {
+  return invoke("editor_position");
+}
+export async function editorFrame(sinceGen: number): Promise<EditorFrame | null> {
+  const buf = await invoke<ArrayBuffer>("editor_frame", { sinceGen });
+  return decodeEditorFrame(buf);
+}
+export function editorResize(w: number, h: number): Promise<void> {
+  return invoke("editor_resize", { w, h });
+}
+export function editorThumbs(count: number): Promise<string[]> {
+  return invoke("editor_thumbs", { count });
+}
+/** Resolves with the target path; the outcome arrives as `record-export-*` events. */
+export function editorExport(opts: EditorExportOptions): Promise<string> {
+  return invoke("editor_export", { opts });
+}
+export function editorCancelExport(): Promise<void> {
+  return invoke("editor_cancel_export");
+}
+export function editorRestart(): Promise<EditorPlayback> {
+  return invoke("editor_restart");
+}
+export function editorClose(): Promise<void> {
+  return invoke("editor_close");
+}

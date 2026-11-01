@@ -7178,6 +7178,107 @@ pub async fn record_delete_project(app: AppHandle, dir: String) -> Result<(), St
     .map_err(|e| format!("record task: {e}"))?
 }
 
+// ── record (stage 2): editor + render helper ────────────────────────────────
+// All async: everything here may wait on the helper (or build a window on the main
+// thread), so the blocking part always runs in `spawn_blocking`.
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+async fn editor_blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| format!("editor task: {e}"))?
+}
+
+/// Open a project in the editor window (window + render helper + preview).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_open(app: AppHandle, dir: String) -> Result<crate::record::editor_ipc::EditorInit, String> {
+    editor_blocking(move || crate::record::editor_ipc::open_editor(&app, std::path::PathBuf::from(dir))).await
+}
+
+/// The open session (for the editor window when it mounts), or null.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_current() -> Result<Option<crate::record::editor_ipc::EditorInit>, String> {
+    Ok(crate::record::editor_ipc::current())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_update(app: AppHandle, doc: crate::record::editor::EditDoc) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::update(&app, doc)).await
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_seek(app: AppHandle, programme_ms: u64) -> Result<Option<crate::record::editor_ipc::SourcePos>, String> {
+    editor_blocking(move || crate::record::editor_ipc::seek(&app, programme_ms)).await
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_play(app: AppHandle, playing: bool) -> Result<crate::record::editor_ipc::PlaybackState, String> {
+    editor_blocking(move || crate::record::editor_ipc::play(&app, playing)).await
+}
+
+/// Playhead + transport state (advances the clock; never starts a helper).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_position() -> Result<Option<crate::record::editor_ipc::PlaybackState>, String> {
+    Ok(crate::record::editor_ipc::position())
+}
+
+/// Raw bytes: `gen u64 LE`, `w u32 LE`, `h u32 LE`, RGBA — empty when nothing is newer.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_frame(since_gen: u64) -> Result<tauri::ipc::Response, String> {
+    let bytes = editor_blocking(move || Ok(crate::record::editor_ipc::frame(since_gen))).await?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_resize(app: AppHandle, w: u32, h: u32) -> Result<(), String> {
+    editor_blocking(move || crate::record::editor_ipc::resize(&app, w, h)).await
+}
+
+/// `count` evenly spaced thumbnails as `data:image/jpeg;base64,…` URLs.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_thumbs(app: AppHandle, count: u32) -> Result<Vec<String>, String> {
+    editor_blocking(move || crate::record::editor_ipc::thumbs(&app, count)).await
+}
+
+/// Start an export into ~/Downloads; returns the target path. Progress and the outcome
+/// arrive as `record-export-progress` / `record-export-done` / `record-export-failed`.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_export(app: AppHandle, opts: crate::record::editor_ipc::ExportOptions) -> Result<String, String> {
+    editor_blocking(move || crate::record::editor_ipc::export(&app, opts)).await
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_cancel_export() -> Result<(), String> {
+    editor_blocking(crate::record::editor_ipc::cancel_export).await
+}
+
+/// Start a new render helper after `record-editor-fatal` and re-open the preview.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_restart(app: AppHandle) -> Result<crate::record::editor_ipc::PlaybackState, String> {
+    editor_blocking(move || crate::record::editor_ipc::restart(&app)).await
+}
+
+/// Save, stop the helper (≤ 2 s, then killed) and close the editor window.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_close(app: AppHandle) -> Result<(), String> {
+    editor_blocking(move || {
+        crate::record::editor_ipc::close(&app, true);
+        Ok(())
+    })
+    .await
+}
+
 /// The stored config; an empty project folder comes back resolved.
 #[cfg(target_os = "macos")]
 #[tauri::command]

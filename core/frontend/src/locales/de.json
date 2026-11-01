@@ -4139,5 +4139,14 @@
   "rec2.panel.delete": "Löschen",
   "rec2.panel.delete_q": "Projekt löschen?",
   "rec2.panel.delete_yes": "Ja, löschen",
-  "rec2.panel.keys": "↓ wählen · ⏎ neue Aufnahme · ⌘⏎ im Finder zeigen · ⌫ löschen (2× = bestätigen) · Esc zurück"
+  "rec2.panel.keys": "↓ wählen · ⏎ neue Aufnahme · ⌘⏎ im Finder zeigen · ⌫ löschen (2× = bestätigen) · Esc zurück",
+  "record.editor.window_title": "Aufnahme-Editor",
+  "record.editor.no_session": "Im Editor ist keine Aufnahme geöffnet.",
+  "record.editor.unreadable": "Das Projekt konnte nicht gelesen werden.",
+  "record.editor.no_video": "Diese Aufnahme hat kein lesbares Video (screen.mp4).",
+  "record.editor.helper_missing": "Der Render-Helfer (ir-record-render) fehlt in der App.",
+  "record.editor.busy": "Die Vorschau ist mit einem Export beschäftigt. Bitte danach erneut versuchen.",
+  "record.editor.export_busy": "Es läuft bereits ein Export.",
+  "record.editor.bad_export": "Diese Export-Einstellungen werden nicht unterstützt.",
+  "record.editor.no_downloads": "Der Ordner „Downloads“ wurde nicht gefunden."
 }

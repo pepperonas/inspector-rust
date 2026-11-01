@@ -27,6 +27,8 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 parking_lot = { workspace = true }
 base64 = { workspace = true }
+# `record` editor: wire protocol of the `ir-record-render` helper (platform-free).
+record-render-protocol = { path = "../../record-render-protocol" }
 dirs = { workspace = true }
 clipboard-rs = { workspace = true }
 # `tls` (rustls) enables HTTPS for the Shazam discovery API (shazam.rs); the

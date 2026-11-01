@@ -305,8 +305,13 @@ fn round_ms(v: f64) -> u64 {
     if v <= 0.0 { 0 } else { v.round() as u64 }
 }
 
+/// The programme length — by definition the programme time of the last clip's end, so the
+/// timeline (`view`) and this number can never disagree by a rounding step.
 pub fn programme_duration_ms(doc: &EditDoc) -> u64 {
-    round_ms((0..doc.clips.len()).map(|i| clip_programme_ms(doc, i)).sum())
+    match doc.clips.last() {
+        Some(c) => source_to_programme(doc, doc.clips.len() - 1, c.end_ms),
+        None => 0,
+    }
 }
 
 /// Where programme time `t_ms` lands in the source: `(clip, source ms)`. The very end of
@@ -330,7 +335,9 @@ pub fn programme_to_source(doc: &EditDoc, t_ms: u64) -> Option<(usize, u64)> {
 
 /// Programme time of `source_ms` within `clip` (clamped into the clip's window).
 pub fn source_to_programme(doc: &EditDoc, clip: usize, source_ms: u64) -> u64 {
-    let Some(c) = doc.clips.get(clip) else { return programme_duration_ms(doc) };
+    let Some(c) = doc.clips.get(clip) else {
+        return round_ms((0..doc.clips.len()).map(|i| clip_programme_ms(doc, i)).sum());
+    };
     let src = (source_ms.clamp(c.start_ms, c.end_ms.max(c.start_ms))) as f64;
     let mut acc: f64 = (0..clip).map(|i| clip_programme_ms(doc, i)).sum();
     for (s, e, v) in segments(doc, clip) {
@@ -344,13 +351,16 @@ pub fn source_to_programme(doc: &EditDoc, clip: usize, source_ms: u64) -> u64 {
 
 /// The timeline geometry the editor UI draws: clip and speed spans in programme ms.
 pub fn view(doc: &EditDoc) -> EditorView {
+    // Each clip starts exactly where the previous one ended (no second float sum per edge).
+    let mut prev_end = 0;
     let clips = doc
         .clips
         .iter()
         .enumerate()
-        .map(|(i, c)| ClipSpan {
-            prog_start_ms: source_to_programme(doc, i, c.start_ms),
-            prog_end_ms: source_to_programme(doc, i, c.end_ms),
+        .map(|(i, c)| {
+            let span = ClipSpan { prog_start_ms: prev_end, prog_end_ms: source_to_programme(doc, i, c.end_ms) };
+            prev_end = span.prog_end_ms;
+            span
         })
         .collect();
     let speed = doc
@@ -643,6 +653,24 @@ mod tests {
         // camelCase on the wire.
         let j = serde_json::to_value(&v).unwrap();
         assert!(j.get("programmeMs").is_some() && j["clips"][0].get("progStartMs").is_some());
+    }
+
+    #[test]
+    fn view_clips_are_contiguous() {
+        // Clip i ends exactly where clip i+1 starts, and the last end is the programme length —
+        // for awkward speeds whose float sums round differently per path.
+        for k in 1..60u64 {
+            let d = doc(
+                vec![clip(0, 333 + k), clip(1_000, 1_777 + 3 * k), clip(4_000, 4_101 + 7 * k)],
+                vec![sr(0, 10, 300, 3.0), sr(1, 1_001, 1_500 + k, 0.3 + k as f64 * 0.11), sr(2, 4_001, 4_100, 7.0)],
+            );
+            let v = view(&d);
+            assert_eq!(v.clips[0].prog_start_ms, 0);
+            for w in v.clips.windows(2) {
+                assert_eq!(w[0].prog_end_ms, w[1].prog_start_ms, "gap or overlap at k={k}");
+            }
+            assert_eq!(v.clips.last().unwrap().prog_end_ms, v.programme_ms, "k={k}");
+        }
     }
 
     #[test]

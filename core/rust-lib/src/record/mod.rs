@@ -12,6 +12,9 @@ pub mod mic;
 pub mod picker_macos;
 pub mod session;
 pub mod project;
+pub mod render_client;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub mod editor_ipc;
 pub mod scene_json;
 pub mod wav;
 

@@ -202,21 +202,11 @@ pub fn yt_dlp_path() -> Option<PathBuf> {
     )
 }
 
-fn ffprobe_path(ffmpeg: &Path) -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
-    ffmpeg
-        .parent()
-        .map(|d| d.join(exe))
-        .filter(|p| p.is_file())
-        .or_else(|| which("ffprobe", "ffprobe.exe", &[]))
-}
-
 // ── probes ───────────────────────────────────────────────────────────────────
 
 /// Media duration in seconds (via ffprobe `format=duration`).
 pub fn probe_duration(file: &Path) -> Option<f64> {
-    let ffmpeg = crate::screen_record::ffmpeg_path()?;
-    let ffprobe = ffprobe_path(&ffmpeg)?;
+    let ffprobe = crate::ffmpeg_util::ffprobe_path()?;
     let out = Command::new(ffprobe)
         .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1"])
         .arg(file)
@@ -227,8 +217,7 @@ pub fn probe_duration(file: &Path) -> Option<f64> {
 
 /// Whether the file has at least one audio stream.
 pub fn has_audio_stream(file: &Path) -> bool {
-    let Some(ffmpeg) = crate::screen_record::ffmpeg_path() else { return false };
-    let Some(ffprobe) = ffprobe_path(&ffmpeg) else { return false };
+    let Some(ffprobe) = crate::ffmpeg_util::ffprobe_path() else { return false };
     Command::new(ffprobe)
         .args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0"])
         .arg(file)
@@ -249,7 +238,7 @@ pub fn download_youtube_audio(url: &str, dir: &Path) -> Result<PathBuf, String> 
         return Err("invalid URL — must start with http:// or https://".into());
     }
     let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
-    let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
     let template = dir.join("ytaudio.%(ext)s");
@@ -280,7 +269,7 @@ pub fn download_youtube_audio(url: &str, dir: &Path) -> Result<PathBuf, String> 
 /// Returns the output path. The mode is downgraded to Replace if Mix was asked
 /// for but the video has no original audio stream.
 pub fn apply_swap(video: &Path, audio: &Path, mut spec: SwapSpec) -> Result<PathBuf, String> {
-    let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     if spec.video_seconds <= 0.0 {
         spec.video_seconds = probe_duration(video).ok_or("could not read video duration")?;
     }

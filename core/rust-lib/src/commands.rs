@@ -4969,7 +4969,7 @@ fn cursor_display_index(app: &AppHandle) -> usize {
             let monitors = w.available_monitors().unwrap_or_default();
             if let Some(m) = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors) {
                 let p = m.position();
-                let rects = crate::screen_record::cg_displays::physical_rects();
+                let rects = crate::display_rects::physical_rects();
                 if !rects.is_empty() {
                     let mut best = 0usize;
                     let mut best_d = i64::MAX;

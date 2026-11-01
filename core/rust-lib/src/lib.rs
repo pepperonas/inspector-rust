@@ -91,6 +91,9 @@ mod github_api;
 mod report_style;
 mod screen_picker;
 mod screen_record;
+mod ffmpeg_util;
+#[cfg(target_os = "macos")]
+mod display_rects;
 mod screen_recording;
 mod screenshot_editor;
 mod screenshot_preview;

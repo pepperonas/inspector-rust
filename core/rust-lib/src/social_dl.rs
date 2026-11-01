@@ -493,7 +493,7 @@ pub fn download(
         None => return Err("not a supported social-media URL".into()),
     };
     let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
-    let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
     let template = dir.join("%(title).100B [%(id)s].%(ext)s");

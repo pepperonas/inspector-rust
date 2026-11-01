@@ -71,8 +71,7 @@ pub fn build_trim_args(
 
 /// Whether `file` has a video stream (drives codec choice + the preview).
 pub fn has_video_stream(file: &Path) -> bool {
-    let Some(ffmpeg) = crate::screen_record::ffmpeg_path() else { return false };
-    let Some(ffprobe) = ffprobe_path(&ffmpeg) else { return false };
+    let Some(ffprobe) = crate::ffmpeg_util::ffprobe_path() else { return false };
     Command::new(ffprobe)
         .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])
         .arg(file)
@@ -81,14 +80,9 @@ pub fn has_video_stream(file: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn ffprobe_path(ffmpeg: &Path) -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
-    ffmpeg.parent().map(|d| d.join(exe)).filter(|p| p.is_file())
-}
-
 /// Trim `input` to `[start, end]`, writing the sibling output. Returns its path.
 pub fn apply_trim(input: &Path, start_s: f64, end_s: f64, lossless: bool) -> Result<PathBuf, String> {
-    let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     if end_s <= start_s {
         return Err("end must be after start".into());
     }

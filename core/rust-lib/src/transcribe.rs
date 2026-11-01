@@ -574,7 +574,7 @@ pub fn cancel() -> bool {
 }
 
 fn worker_command() -> Result<Command, String> {
-    let ffmpeg = crate::screen_record::ffmpeg_path()
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path()
         .ok_or_else(|| crate::i18n::t("trx.no_ffmpeg"))?;
     let mut path_dirs = vec![ffmpeg.parent().unwrap_or(Path::new(".")).to_path_buf()];
     if let Some(current) = std::env::var_os("PATH") {

@@ -535,52 +535,6 @@ fn push_video_out(a: &mut Vec<String>, out: &str) {
     a.push(out.into());
 }
 
-// ── ffmpeg discovery ─────────────────────────────────────────────────────────
-
-/// Locate the `ffmpeg` binary on PATH or in common install locations.
-pub fn ffmpeg_path() -> Option<PathBuf> {
-    // Honour an explicit PATH lookup first.
-    if let Ok(path) = std::env::var("PATH") {
-        let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
-        for dir in std::env::split_paths(&path) {
-            let cand = dir.join(exe);
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    // Common spots GUI apps (with a stripped PATH) miss.
-    let extra: &[&str] = if cfg!(target_os = "macos") {
-        &["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
-    } else if cfg!(windows) {
-        &[r"C:\ffmpeg\bin\ffmpeg.exe", r"C:\Program Files\ffmpeg\bin\ffmpeg.exe"]
-    } else {
-        &["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
-    };
-    extra.iter().map(PathBuf::from).find(|p| p.is_file())
-}
-
-/// Locate `ffprobe` — it ships alongside `ffmpeg`, so try the resolved ffmpeg's
-/// own directory first, then PATH.
-fn ffprobe_path(ffmpeg: &Path) -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
-    if let Some(dir) = ffmpeg.parent() {
-        let cand = dir.join(exe);
-        if cand.is_file() {
-            return Some(cand);
-        }
-    }
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path) {
-            let cand = dir.join(exe);
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    None
-}
-
 // ── Audio-sync post-process (avfoundation under-delivery correction) ──────────
 //
 // avfoundation's audio capture systematically under-delivers samples: a recording
@@ -674,7 +628,7 @@ fn count_audio_samples(ffmpeg: &Path, file: &Path) -> Option<u64> {
 ///
 /// Best-effort — any encode failure leaves the original file intact.
 fn fix_audio_sync(ffmpeg: &Path, file: &Path) {
-    let ffprobe = ffprobe_path(ffmpeg);
+    let ffprobe = crate::ffmpeg_util::ffprobe_beside(ffmpeg);
     // atempo ratio is conditional; de-click always runs.
     let ratio = ffprobe.as_ref().and_then(|ffprobe| {
         let video_s = ffprobe_field(ffprobe, "v:0", "stream=duration", file)?
@@ -872,7 +826,7 @@ pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> R
     if state.is_recording() {
         return Err("already recording".into());
     }
-    let ffmpeg = ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let ffmpeg = crate::ffmpeg_util::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let final_out = output_path()?;
     let seg0 = segment_path(0)?;
 
@@ -1130,70 +1084,6 @@ pub fn cleanup_orphans() {
     }
 }
 
-/// CoreGraphics display enumeration → physical display rects in active-display
-/// order (main display first), matching the order ffmpeg's avfoundation uses for
-/// its `Capture screen N` devices. Same FFI pattern as `brightness.rs`.
-#[cfg(target_os = "macos")]
-pub(crate) mod cg_displays {
-    type CGDirectDisplayID = u32;
-
-    #[repr(C)]
-    struct CGPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    struct CGSize {
-        width: f64,
-        height: f64,
-    }
-    #[repr(C)]
-    struct CGRect {
-        origin: CGPoint,
-        size: CGSize,
-    }
-
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGGetActiveDisplayList(
-            max_displays: u32,
-            active: *mut CGDirectDisplayID,
-            display_count: *mut u32,
-        ) -> i32;
-        fn CGDisplayBounds(display: CGDirectDisplayID) -> CGRect;
-        fn CGDisplayPixelsWide(display: CGDirectDisplayID) -> usize;
-        fn CGDisplayPixelsHigh(display: CGDirectDisplayID) -> usize;
-    }
-
-    /// `(x, y, w, h)` per display in **physical pixels**, active-display order.
-    /// `CGDisplayBounds` is in points; we scale by each display's pixels/points
-    /// ratio. (Assumes a uniform scale factor across displays — the common case;
-    /// mixed-DPI layouts may be slightly off.) Empty on failure → caller falls
-    /// back to the primary screen.
-    pub fn physical_rects() -> Vec<(i32, i32, u32, u32)> {
-        let mut ids = [0u32; 16];
-        let mut count = 0u32;
-        let err = unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) };
-        if err != 0 {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        for &id in ids.iter().take(count as usize) {
-            let b = unsafe { CGDisplayBounds(id) };
-            let pw = unsafe { CGDisplayPixelsWide(id) } as f64;
-            let ph = unsafe { CGDisplayPixelsHigh(id) } as f64;
-            let scale = if b.size.width > 0.0 { pw / b.size.width } else { 1.0 };
-            out.push((
-                (b.origin.x * scale).round() as i32,
-                (b.origin.y * scale).round() as i32,
-                pw as u32,
-                ph as u32,
-            ));
-        }
-        out
-    }
-}
-
 #[cfg(target_os = "macos")]
 fn resolve_args(
     ffmpeg: &std::path::Path,
@@ -1213,7 +1103,7 @@ fn resolve_args(
     // → pick that `Capture screen N` device and crop relative to that display.
     // On a single-monitor setup this resolves to (screen 0, region) — the
     // previous behaviour.
-    let displays = cg_displays::physical_rects();
+    let displays = crate::display_rects::physical_rects();
     let (ordinal, crop_x, crop_y) =
         pick_display_for_region(&displays, region).unwrap_or((0, region.x, region.y));
     let screen =

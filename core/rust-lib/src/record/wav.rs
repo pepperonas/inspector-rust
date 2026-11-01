@@ -64,13 +64,23 @@ pub struct WavSink {
     input_rate: u32,
     samples: u64,
     origin_ns: Option<i64>,
+    /// Unconsumed source samples + fractional read position (drift-free resampling).
+    carry: Vec<f32>,
+    phase: f64,
 }
 
 impl WavSink {
     pub fn create(path: &Path, sample_rate: u32) -> io::Result<Self> {
         let mut w = BufWriter::new(File::create(path)?);
         w.write_all(&wav_header(OUT_RATE, 1, 0))?;
-        Ok(Self { w, input_rate: sample_rate, samples: 0, origin_ns: None })
+        Ok(Self {
+            w,
+            input_rate: sample_rate,
+            samples: 0,
+            origin_ns: None,
+            carry: Vec::new(),
+            phase: 0.0,
+        })
     }
 
     /// Timeline time (ns) corresponding to sample 0.
@@ -80,7 +90,55 @@ impl WavSink {
 
     /// Update the input rate (device may change after a re-open).
     pub fn set_input_rate(&mut self, rate: u32) {
+        if rate != self.input_rate {
+            self.carry.clear();
+            self.phase = 0.0;
+        }
         self.input_rate = rate;
+    }
+
+    /// Stateful linear resample: the fractional source position carries across
+    /// pushes so the long-run output count has no per-chunk rounding bias.
+    fn resample_stateful(&mut self, input: &[f32]) -> Vec<f32> {
+        if self.input_rate == OUT_RATE {
+            return input.to_vec();
+        }
+        if self.input_rate == 0 {
+            return Vec::new();
+        }
+        self.carry.extend_from_slice(input);
+        let ratio = self.input_rate as f64 / OUT_RATE as f64;
+        let mut out = Vec::with_capacity((input.len() as f64 / ratio) as usize + 2);
+        let mut pos = self.phase;
+        while (pos.floor() as usize) + 1 < self.carry.len() {
+            let i0 = pos.floor() as usize;
+            let frac = (pos - i0 as f64) as f32;
+            out.push(self.carry[i0] + (self.carry[i0 + 1] - self.carry[i0]) * frac);
+            pos += ratio;
+        }
+        let consumed = (pos.floor() as usize).min(self.carry.len());
+        self.carry.drain(..consumed);
+        self.phase = pos - consumed as f64;
+        out
+    }
+
+    fn write_silence_to(&mut self, target_ns: i64) -> io::Result<()> {
+        let target_samples = (target_ns as i128 * OUT_RATE as i128 / 1_000_000_000) as u64;
+        let mut missing = target_samples.saturating_sub(self.samples);
+        let zeros = [0u8; 4096];
+        while missing > 0 {
+            let n = missing.min((zeros.len() / 2) as u64);
+            self.w.write_all(&zeros[..n as usize * 2])?;
+            missing -= n;
+            self.samples += n;
+        }
+        Ok(())
+    }
+
+    /// Write trailing silence up to timeline `at_ns` (no-op if already past).
+    pub fn pad_to(&mut self, at_ns: i64) -> io::Result<()> {
+        let origin = *self.origin_ns.get_or_insert(at_ns);
+        self.write_silence_to(at_ns - origin)
     }
 
     pub fn push(&mut self, at_ns: i64, mono_f32: &[f32]) -> io::Result<()> {
@@ -88,17 +146,9 @@ impl WavSink {
         let expected_ns = (self.samples as i64) * 1_000_000_000 / OUT_RATE as i64;
         let target_ns = at_ns - origin;
         if target_ns - expected_ns > GAP_THRESHOLD_NS {
-            let target_samples = (target_ns as i128 * OUT_RATE as i128 / 1_000_000_000) as u64;
-            let mut missing = target_samples.saturating_sub(self.samples);
-            let zeros = [0u8; 4096];
-            while missing > 0 {
-                let n = missing.min((zeros.len() / 2) as u64);
-                self.w.write_all(&zeros[..n as usize * 2])?;
-                missing -= n;
-                self.samples += n;
-            }
+            self.write_silence_to(target_ns)?;
         }
-        let resampled = resample_linear(mono_f32, self.input_rate, OUT_RATE);
+        let resampled = self.resample_stateful(mono_f32);
         let mut buf = Vec::with_capacity(resampled.len() * 2);
         for s in &resampled {
             buf.extend_from_slice(&to_i16(*s).to_le_bytes());
@@ -185,6 +235,48 @@ mod tests {
         assert_eq!(resample_linear(&input, 44_100, 48_000).len(), 480);
         assert_eq!(resample_linear(&input, 48_000, 48_000).len(), 441);
         assert!(resample_linear(&[], 44_100, 48_000).is_empty());
+    }
+
+    #[test]
+    fn explicit_origin_yields_leading_silence() {
+        let p = tmp("origin");
+        let mut s = WavSink::create(&p, 48_000).unwrap();
+        s.set_origin(0);
+        s.push(300_000_000, &vec![0.2f32; 480]).unwrap();
+        let ms = s.finish().unwrap();
+        assert!((309..=311).contains(&ms), "ms={ms}");
+    }
+
+    #[test]
+    fn no_resampling_drift_over_an_hour() {
+        let p = tmp("drift");
+        let mut s = WavSink::create(&p, 44_100).unwrap();
+        s.set_origin(0);
+        let chunk = vec![0.1f32; 1024];
+        let mut n = 0u64;
+        for _ in 0..3600 {
+            let at = (n as i128 * 1_000_000_000 / 44_100) as i64;
+            s.push(at, &chunk).unwrap();
+            n += 1024;
+        }
+        let expect = 3600u64 * 1024 * 48_000 / 44_100;
+        assert!(
+            (s.samples as i64 - expect as i64).abs() <= 1100,
+            "{} vs {}",
+            s.samples,
+            expect
+        );
+    }
+
+    #[test]
+    fn pad_to_extends_and_is_noop_when_past() {
+        let p = tmp("pad");
+        let mut s = WavSink::create(&p, 48_000).unwrap();
+        s.set_origin(0);
+        s.push(0, &vec![0.0f32; 4800]).unwrap(); // 100 ms
+        s.pad_to(500_000_000).unwrap();
+        s.pad_to(200_000_000).unwrap();
+        assert_eq!(s.finish().unwrap(), 500);
     }
 
     #[test]

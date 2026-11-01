@@ -41,11 +41,13 @@ const EXIT_FATAL: i32 = 2;
 /// How many compositors (one per output size) stay cached. Each compiles the 4k-line MSL
 /// uber-shader on construction, so reuse matters; each also holds render targets.
 const MAX_COMPOSITORS: usize = 3;
+/// `ExportFailed.msg` for an `Export` sent while another one is queued or running.
+pub(crate) const EXPORT_BUSY: &str = "export already running";
 /// Progress events at most this often (plus the first frame).
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
 /// The protocol channel. Cloned into the reader thread for its own `Error` replies.
-type Out = Arc<Mutex<File>>;
+type Out = Arc<Mutex<Box<dyn Write + Send>>>;
 
 fn send_event(out: &Out, ev: &Event) -> io::Result<()> {
     let mut f = out.lock().unwrap_or_else(|p| p.into_inner());
@@ -83,7 +85,7 @@ fn take_protocol_stdout() -> io::Result<File> {
 /// Runs the helper until `Shutdown`, end of input or a fatal error; returns the exit code.
 pub fn run() -> i32 {
     let out: Out = match take_protocol_stdout() {
-        Ok(f) => Arc::new(Mutex::new(f)),
+        Ok(f) => Arc::new(Mutex::new(Box::new(f) as Box<dyn Write + Send>)),
         Err(e) => {
             eprintln!("ir-record-render: cannot set up the protocol channel: {e}");
             return EXIT_FATAL;
@@ -154,10 +156,16 @@ struct Incoming {
 struct ExportSlot(Arc<Mutex<Option<(u64, ExportControl)>>>);
 
 impl ExportSlot {
-    fn begin(&self, id: u64) -> ExportControl {
+    /// Registers export `id`, or `None` while another one is queued or running: there is ONE
+    /// export at a time, and the running one stays the one `Cancel`/EOF reach.
+    fn begin(&self, id: u64) -> Option<ExportControl> {
+        let mut slot = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if slot.is_some() {
+            return None;
+        }
         let control = ExportControl::default();
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some((id, control.clone()));
-        control
+        *slot = Some((id, control.clone()));
+        Some(control)
     }
 
     fn cancel(&self) {
@@ -211,7 +219,16 @@ fn read_commands(mut input: impl io::Read, tx: mpsc::Sender<Incoming>, out: Out,
             }
             Command::Export { .. } => {
                 next_export += 1;
-                Some(exports.begin(next_export))
+                match exports.begin(next_export) {
+                    Some(control) => Some(control),
+                    None => {
+                        let _ = send_event(
+                            &out,
+                            &Event::ExportFailed { msg: EXPORT_BUSY.to_string(), cancelled: false },
+                        );
+                        continue;
+                    }
+                }
             }
             _ => None,
         };
@@ -295,6 +312,7 @@ impl State {
                 self.exports.finish(id);
                 match result {
                     Ok(()) => self.event(Event::ExportDone { path: out_path }),
+                    Err(e) if e.is::<io::Error>() => Err(e.downcast::<io::Error>().expect("checked")),
                     Err(e) => {
                         let cancelled = e.is::<ExportCancelled>();
                         let msg = if cancelled { "export cancelled".to_string() } else { format!("{e:#}") };
@@ -305,6 +323,7 @@ impl State {
             // Handled by the reader thread; never queued.
             Command::Cancel => Ok(()),
             Command::Shutdown => {
+                // May block if the preview thread is wedged; the app kills the helper after a timeout (Task 5).
                 // Let the preview's render thread wind down before the process exits.
                 self.live = None;
                 Ok(())
@@ -430,12 +449,15 @@ impl State {
             if frames <= 1 || last_sent.is_none_or(|t| now.duration_since(t) >= PROGRESS_EVERY) {
                 last_sent = Some(now);
                 if send_event(&out, &Event::ExportProgress { frames, total }).is_err() {
+                    // Nobody is listening: stop rendering, the staged file is removed and
+                    // nothing is published.
                     write_failed.set(true);
+                    control.cancel();
                 }
             }
         };
         let (gpu, comp) = self.compositor(size, &scene)?;
-        match kind {
+        let result: Result<()> = match kind {
             ExportKind::Mp4 { codec, .. } => {
                 let params = ExportParams {
                     width: size.0,
@@ -447,7 +469,7 @@ impl State {
                     },
                     bit_rate: None,
                 };
-                pipeline::run_composited_multi_cancellable(&clips, out_path, gpu, comp, &cfg, &params, &mut progress, control)?;
+                pipeline::run_composited_multi_cancellable(&clips, out_path, gpu, comp, &cfg, &params, &mut progress, control).map(|_| ())
             }
             ExportKind::Gif { loop_forever, .. } => {
                 let params = GifExportParams {
@@ -457,13 +479,14 @@ impl State {
                     loop_count: if *loop_forever { None } else { Some(1) },
                     dither: true,
                 };
-                export_gif_cancellable(&clips, Path::new(out_path), gpu, comp, &cfg, &params, &mut progress, control)?;
+                export_gif_cancellable(&clips, Path::new(out_path), gpu, comp, &cfg, &params, &mut progress, control).map(|_| ())
             }
-        }
+        };
         if write_failed.get() {
-            bail!("the app stopped listening during the export");
+            // An io::Error: `handle` treats it as a dead channel and the helper exits.
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "the app stopped listening during the export").into());
         }
-        Ok(())
+        result
     }
 }
 
@@ -575,6 +598,119 @@ mod tests {
         // Clip 0: 0–4 s with 1–3 s at ×2 → 3 s. Clip 1: 6.5–10 s with 7–9.25 s at ×0.5 → 5.75 s.
         let frames = expected_frames(&scene, 30);
         assert!((frames as i64 - (8.75 * 30.0) as i64).abs() <= 1, "{frames}");
+    }
+
+    /// Output sink shared with the reader thread.
+    #[derive(Clone, Default)]
+    struct Sink(Arc<Mutex<Vec<u8>>>);
+    impl Write for Sink {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Sink {
+        fn events(&self) -> Vec<Event> {
+            let bytes = self.0.lock().unwrap().clone();
+            let mut r = io::Cursor::new(bytes);
+            let mut out = Vec::new();
+            while let Ok((tag, body)) = read_frame(&mut r) {
+                assert_eq!(tag, record_render_protocol::TAG_EVENT);
+                out.push(record_render_protocol::decode_event(&body).unwrap());
+            }
+            out
+        }
+    }
+
+    /// stdin that serves chunks as the test hands them over and reports EOF once the test
+    /// drops its sender — so the reader can be observed BEFORE end of input.
+    struct Feed {
+        rx: mpsc::Receiver<Vec<u8>>,
+        buf: io::Cursor<Vec<u8>>,
+    }
+    impl io::Read for Feed {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            loop {
+                let n = io::Read::read(&mut self.buf, out)?;
+                if n > 0 {
+                    return Ok(n);
+                }
+                match self.rx.recv() {
+                    Ok(chunk) => self.buf = io::Cursor::new(chunk),
+                    Err(_) => return Ok(0),
+                }
+            }
+        }
+    }
+
+    fn encoded(cmd: &Command) -> Vec<u8> {
+        let mut b = Vec::new();
+        record_render_protocol::write_command(&mut b, cmd).unwrap();
+        b
+    }
+
+    fn export_cmd(path: &str) -> Command {
+        Command::Export {
+            scene: serde_json::json!({}),
+            kind: ExportKind::Gif { w: 2, h: 2, fps: 1, loop_forever: true },
+            out_path: path.into(),
+        }
+    }
+
+    /// Ruling 1 (fix round 1): one export at a time. A second `Export` while one runs is
+    /// answered `ExportFailed{"export already running"}`, never queued, and the running export
+    /// stays the one `Cancel` reaches.
+    #[test]
+    fn second_export_is_rejected_and_the_running_one_stays_cancellable() {
+        let sink = Sink::default();
+        let out: Out = Arc::new(Mutex::new(Box::new(sink.clone())));
+        let slot = ExportSlot::default();
+        let (feed_tx, feed_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
+        let reader = {
+            let (out, slot) = (out.clone(), slot.clone());
+            std::thread::spawn(move || {
+                read_commands(Feed { rx: feed_rx, buf: io::Cursor::new(Vec::new()) }, tx, out, slot)
+            })
+        };
+        let t = Duration::from_secs(5);
+
+        feed_tx.send(encoded(&export_cmd("/a.gif"))).unwrap();
+        let first = rx.recv_timeout(t).expect("first export forwarded");
+        assert!(matches!(&first.cmd, Command::Export { out_path, .. } if out_path == "/a.gif"));
+        let running = first.control.expect("the export carries its control");
+
+        feed_tx.send(encoded(&export_cmd("/b.gif"))).unwrap();
+        feed_tx.send(encoded(&Command::SetPlaying { playing: true })).unwrap();
+        // The command after the rejected one arrives; the rejected Export never does.
+        let next = rx.recv_timeout(t).unwrap();
+        assert!(matches!(next.cmd, Command::SetPlaying { playing: true }), "{:?}", next.cmd);
+        assert_eq!(
+            sink.events(),
+            vec![Event::ExportFailed { msg: EXPORT_BUSY.into(), cancelled: false }]
+        );
+        assert!(running.check().is_ok(), "the rejected Export must not touch the running one");
+
+        feed_tx.send(encoded(&Command::Cancel)).unwrap();
+        feed_tx.send(encoded(&Command::SetPlaying { playing: false })).unwrap();
+        rx.recv_timeout(t).unwrap();
+        assert!(running.check().is_err(), "Cancel reaches the running export");
+
+        // Once it is finished, the next Export is accepted again.
+        slot.finish(1);
+        feed_tx.send(encoded(&export_cmd("/c.gif"))).unwrap();
+        let third = rx.recv_timeout(t).unwrap();
+        assert!(matches!(&third.cmd, Command::Export { out_path, .. } if out_path == "/c.gif"));
+        let third_control = third.control.unwrap();
+
+        // End of input (the app is gone): the running export is cancelled, Shutdown queued.
+        drop(feed_tx);
+        assert!(matches!(rx.recv_timeout(t).unwrap().cmd, Command::Shutdown));
+        assert!(third_control.check().is_err());
+        reader.join().unwrap();
     }
 
     #[test]

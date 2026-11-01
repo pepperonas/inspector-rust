@@ -370,3 +370,44 @@ fn panic_is_reported_not_fatal() {
     assert!(!status.success(), "{status:?}");
     println!("panic -> Fatal, exit {status:?}");
 }
+
+/// Fix round 1, ruling 2: the app goes away mid-export (its end of stdout closed). The next
+/// progress write fails, the export is cancelled, nothing is published or left staged, and the
+/// helper exits non-zero instead of rendering to the end for nobody.
+#[test]
+#[ignore]
+fn broken_output_cancels_export_and_exits() {
+    let Some(dir) = project() else { return };
+    let out = out_dir("broken");
+    let mp4 = out.join("orphan.mp4");
+    let mut child = Proc::new(HELPER)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start helper");
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    write_command(
+        &mut stdin,
+        &Command::Export {
+            scene: scene(&dir, &[], (1920, 1080)),
+            kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 60, codec: Codec::Hevc },
+            out_path: mp4.display().to_string(),
+        },
+    )
+    .unwrap();
+    // Wait for the export to run, then close our end of its output.
+    let (tag, body) = read_frame(&mut stdout).expect("first progress");
+    assert_eq!(tag, TAG_EVENT);
+    assert!(matches!(decode_event(&body).unwrap(), Event::ExportProgress { .. }));
+    drop(stdout);
+    let t = Instant::now();
+    let status = wait(&mut child, Duration::from_secs(30));
+    assert!(!status.success(), "{status:?}");
+    let left: Vec<_> = std::fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name()).collect();
+    println!("broken output: exit {status:?} after {:?}, files left {left:?}", t.elapsed());
+    assert!(left.is_empty(), "files left behind: {left:?}");
+    drop(stdin);
+    let _ = std::fs::remove_dir_all(&out);
+}

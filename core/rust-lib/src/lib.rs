@@ -1210,6 +1210,14 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::record_open_hud,
             #[cfg(target_os = "macos")]
+            commands::record_open_notes,
+            #[cfg(target_os = "macos")]
+            commands::record_close_notes,
+            #[cfg(target_os = "macos")]
+            commands::get_record_notes,
+            #[cfg(target_os = "macos")]
+            commands::set_record_notes,
+            #[cfg(target_os = "macos")]
             commands::record_pick_source,
             #[cfg(target_os = "macos")]
             commands::record_start,

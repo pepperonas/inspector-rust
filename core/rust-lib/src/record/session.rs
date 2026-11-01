@@ -344,6 +344,7 @@ mod mac {
     pub const HUD_LABEL: &str = "record-hud";
     pub const COUNTDOWN_LABEL: &str = "record-countdown";
     pub const BAR_LABEL: &str = "record-bar";
+    pub const NOTES_LABEL: &str = "record-notes";
     const FPS: u32 = 60;
     const COUNTDOWN: Duration = Duration::from_secs(3);
     const FIRST_FRAME: Duration = Duration::from_secs(3);
@@ -730,7 +731,7 @@ mod mac {
         // Idempotent: a window with this label is reused (close() is async,
         // rebuilding right after it fails with "label already exists").
         if let Some(w) = app.get_webview_window(label) {
-            if label == HUD_LABEL {
+            if label == HUD_LABEL || label == NOTES_LABEL {
                 let _ = w.show();
                 let _ = w.set_focus();
                 harden_window(app, label, false);
@@ -750,6 +751,7 @@ mod mac {
         let (w, h, focused) = match label {
             HUD_LABEL => (440.0, 320.0, true),
             BAR_LABEL => (312.0, 54.0, false),
+            NOTES_LABEL => (360.0, 420.0, true),
             _ => (0.0, 0.0, false),
         };
         let win = match label {
@@ -764,6 +766,13 @@ mod mac {
                     let _ = win.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
                     let _ = win.set_size(tauri::PhysicalSize::new(size.width, size.height));
                     let _ = win.set_ignore_cursor_events(true);
+                }
+                NOTES_LABEL => {
+                    let area = m.work_area();
+                    let ww = (w * scale) as i32;
+                    let x = area.position.x + area.size.width as i32 - ww - (24.0 * scale) as i32;
+                    let y = area.position.y + (48.0 * scale) as i32;
+                    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
                 }
                 HUD_LABEL => {
                     let ww = (w * scale) as i32;
@@ -781,7 +790,7 @@ mod mac {
                 }
             }
         }
-        if label == HUD_LABEL {
+        if label == HUD_LABEL || label == NOTES_LABEL {
             let _ = win.show();
             let _ = win.set_focus();
             harden_window(app, label, false);
@@ -876,6 +885,15 @@ mod mac {
         hide_popup_window(app);
         open_window(app, HUD_LABEL);
         Ok(())
+    }
+
+    /// Teleprompter notes window (never captured, survives `NSApp.hide`).
+    pub fn open_notes(app: &AppHandle) {
+        open_window(app, NOTES_LABEL);
+    }
+
+    pub fn close_notes(app: &AppHandle) {
+        close_window(app, NOTES_LABEL);
     }
 
     pub fn pick_source(app: &AppHandle, kind: SourceKind) -> Result<(), String> {

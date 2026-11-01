@@ -1513,3 +1513,17 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
 html.anim-reduced .eq-bar {
   animation: none;
 }
+
+/* record countdown digit: one pulse per second (reduced/off → static) */
+@keyframes recCountIn {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: scale(1); }
+}
+.rec-count-digit {
+  animation: recCountIn var(--duration-base) var(--ease-sharp) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-count-digit { animation: none; }
+}
+:root.anim-reduced .rec-count-digit,
+:root.anim-off .rec-count-digit { animation: none; }

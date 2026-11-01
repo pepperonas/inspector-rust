@@ -5146,3 +5146,88 @@ export function getGithubConfig(): Promise<GithubConfig> {
 export function setGithubConfig(config: GithubConfig): Promise<GithubConfig> {
   return invoke("set_github_config", { config });
 }
+
+// ── record (stage 1) ────────────────────────────────────────────────────────
+export type RecordPhaseName = "idle" | "picking" | "countdown" | "recording" | "paused" | "finishing";
+export type RecordCursorMode = "editable-overlay" | "system";
+export interface RecordStatus {
+  supported: boolean;
+  reason: string | null;
+  phase: RecordPhaseName;
+  elapsedMs: number;
+  projectDir: string | null;
+  source: string | null;
+  lowDiskMinutes: number | null;
+}
+export interface RecordStartOptions {
+  systemAudio: boolean;
+  mic: boolean;
+  cursorMode: RecordCursorMode;
+  countdown: boolean;
+  title: string;
+}
+export interface RecordConfig {
+  projectDir: string;
+  countdown: boolean;
+  cursorMode: RecordCursorMode;
+  systemAudio: boolean;
+  mic: boolean;
+}
+export interface RecordNotes {
+  text: string;
+  font: number;
+  speed: number;
+}
+export interface RecordFinished {
+  dir: string;
+  status: "ready" | "failed" | "cancelled";
+  failure: string | null;
+}
+export function recordStatus(): Promise<RecordStatus> {
+  return invoke("record_status");
+}
+export function recordOpenHud(): Promise<void> {
+  return invoke("record_open_hud");
+}
+export function recordPickSource(kind: "display" | "window"): Promise<void> {
+  return invoke("record_pick_source", { kind });
+}
+export function recordStart(opts: RecordStartOptions): Promise<RecordStatus> {
+  return invoke("record_start", { opts });
+}
+export function recordPause(): Promise<RecordStatus> {
+  return invoke("record_pause");
+}
+export function recordResume(): Promise<RecordStatus> {
+  return invoke("record_resume");
+}
+export function recordStop(): Promise<string> {
+  return invoke("record_stop");
+}
+export function recordCancel(): Promise<void> {
+  return invoke("record_cancel");
+}
+export function recordRevealProject(dir: string): Promise<void> {
+  return invoke("record_reveal_project", { dir });
+}
+export function recordDeleteProject(dir: string): Promise<void> {
+  return invoke("record_delete_project", { dir });
+}
+export function getRecordConfig(): Promise<RecordConfig> {
+  return invoke("get_record_config");
+}
+export function setRecordConfig(config: RecordConfig): Promise<RecordConfig> {
+  return invoke("set_record_config", { config });
+}
+export function recordOpenNotes(): Promise<void> {
+  return invoke("record_open_notes");
+}
+export function recordCloseNotes(): Promise<void> {
+  return invoke("record_close_notes");
+}
+export function getRecordNotes(): Promise<RecordNotes> {
+  return invoke("get_record_notes");
+}
+export function setRecordNotes(notes: RecordNotes): Promise<void> {
+  return invoke("set_record_notes", { notes });
+}

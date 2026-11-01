@@ -7345,6 +7345,51 @@ pub async fn record_open_hud(app: AppHandle) -> Result<(), String> {
 
 /// Present Apple's content-sharing picker; the answer arrives as
 /// `record-source-picked` / `record-pick-cancelled`.
+/// Teleprompter notes window (built on a worker thread).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_open_notes(app: AppHandle) -> Result<(), String> {
+    crate::record::session::open_notes(&app);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_close_notes(app: AppHandle) -> Result<(), String> {
+    crate::record::session::close_notes(&app);
+    Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecordNotes {
+    pub text: String,
+    pub font: u32,
+    pub speed: u32,
+}
+
+/// Notes text + font size + scroll speed (settings `record.notes*`).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn get_record_notes(db: State<'_, DbHandle>) -> RecordNotes {
+    let get = |k: &str| crate::settings::get(&db, k).ok().flatten();
+    let num = |k: &str, d: u32| get(k).and_then(|v| v.trim().parse().ok()).unwrap_or(d);
+    RecordNotes {
+        text: get("record.notes").unwrap_or_default(),
+        font: num("record.notes_font", 28).clamp(12, 96),
+        speed: num("record.notes_scroll_speed", 0).min(100),
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn set_record_notes(db: State<'_, DbHandle>, notes: RecordNotes) -> Result<(), String> {
+    crate::settings::set(&db, "record.notes", &notes.text).map_err(map_err)?;
+    crate::settings::set(&db, "record.notes_font", &notes.font.clamp(12, 96).to_string()).map_err(map_err)?;
+    crate::settings::set(&db, "record.notes_scroll_speed", &notes.speed.min(100).to_string()).map_err(map_err)?;
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn record_pick_source(app: AppHandle, kind: crate::record::project::SourceKind) -> Result<(), String> {

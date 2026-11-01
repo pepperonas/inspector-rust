@@ -55,6 +55,12 @@ const RecordOverlay = React.lazy(() =>
 const RecordStopBar = React.lazy(() =>
   import("./components/RecordStopBar").then((m) => ({ default: m.RecordStopBar })),
 );
+const RecordHud = React.lazy(() => import("./components/RecordHud").then((m) => ({ default: m.RecordHud })));
+const RecordCountdown = React.lazy(() =>
+  import("./components/RecordCountdown").then((m) => ({ default: m.RecordCountdown })),
+);
+const RecordBar = React.lazy(() => import("./components/RecordBar").then((m) => ({ default: m.RecordBar })));
+const RecordNotes = React.lazy(() => import("./components/RecordNotes").then((m) => ({ default: m.RecordNotes })));
 const AudioSwapOverlay = React.lazy(() =>
   import("./components/AudioSwapOverlay").then((m) => ({ default: m.AudioSwapOverlay })),
 );
@@ -86,6 +92,10 @@ function Mount() {
   if (label === "brightness-overlay") return <BrightnessOverlay />;
   if (label === "record-overlay") return <RecordOverlay />;
   if (label === "record-stop") return <RecordStopBar />;
+  if (label === "record-hud") return <RecordHud />;
+  if (label === "record-countdown") return <RecordCountdown />;
+  if (label === "record-bar") return <RecordBar />;
+  if (label === "record-notes") return <RecordNotes />;
   if (label === "audio-swap") return <AudioSwapOverlay />;
   if (label === "trim-overlay") return <TrimOverlay />;
   if (label === "color-loupe") return <ColorLoupe />;

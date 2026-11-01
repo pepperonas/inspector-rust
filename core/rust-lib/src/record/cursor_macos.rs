@@ -138,6 +138,8 @@ const CG_HEAD_INSERT: u32 = 0;
 const CG_TAP_LISTEN_ONLY: u32 = 1;
 const CG_MOUSE_CLICK_STATE: u32 = 1;
 const NS_BITMAP_PNG: usize = 4;
+const CG_WINDOW_LIST_ON_SCREEN_ONLY: u32 = 1;
+const CG_WINDOW_LIST_EXCLUDE_DESKTOP: u32 = 16;
 
 type CGEventTapCallBack = extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef;
 
@@ -211,7 +213,8 @@ extern "C" {
     fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
     fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
 
-    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
     fn AXUIElementCopyElementAtPosition(app: AXUIElementRef, x: f32, y: f32, out: *mut CFTypeRef) -> i32;
     fn AXUIElementCopyAttributeValue(el: AXUIElementRef, attr: CFStringRef, out: *mut CFTypeRef) -> i32;
     fn AXUIElementSetMessagingTimeout(el: AXUIElementRef, timeout: f32) -> i32;
@@ -276,20 +279,115 @@ unsafe fn ax_string(el: AXUIElementRef, attr: &CfStr) -> Option<String> {
     out
 }
 
-/// Hit-test the element under `pt` and classify the innermost ≤ 5 ancestors.
-unsafe fn ax_cursor_type(pt: (f64, f64), a: &AxAttrs) -> Option<CursorType> {
-    let sw = AXUIElementCreateSystemWide();
-    if sw.is_null() {
+/// `NSString` for a dictionary key (autoreleased).
+unsafe fn ns_str(s: &CStr) -> *mut AnyObject {
+    msg_send![class!(NSString), stringWithUTF8String: s.as_ptr()]
+}
+
+unsafe fn ns_f64(dict: *mut AnyObject, key: *mut AnyObject) -> Option<f64> {
+    let v: *mut AnyObject = msg_send![dict, objectForKey: key];
+    if v.is_null() {
         return None;
     }
-    // Setting the timeout on the system-wide element sets the GLOBAL one;
-    // restore the default (0) right after the hit test so other AX users
-    // (text expander) keep theirs.
-    AXUIElementSetMessagingTimeout(sw, AX_TIMEOUT_S);
+    let is_num: bool = msg_send![v, isKindOfClass: class!(NSNumber)];
+    is_num.then(|| msg_send![v, doubleValue])
+}
+
+/// Pid owning the frontmost on-screen window that contains `pt` (global
+/// top-left points), skipping our own process (in-process AX would hop into
+/// AppKit off the main thread). Falls back to the frontmost application.
+/// Must run inside an autorelease pool.
+unsafe fn pid_at_point(pt: (f64, f64)) -> Option<i32> {
+    let own = std::process::id() as i32;
+    let list = CGWindowListCopyWindowInfo(
+        CG_WINDOW_LIST_ON_SCREEN_ONLY | CG_WINDOW_LIST_EXCLUDE_DESKTOP,
+        0,
+    );
+    let mut found = None;
+    if !list.is_null() {
+        let arr = list as *mut AnyObject; // CFArray, toll-free bridged
+        let k_bounds = ns_str(c"kCGWindowBounds");
+        let k_pid = ns_str(c"kCGWindowOwnerPID");
+        let k_alpha = ns_str(c"kCGWindowAlpha");
+        let (k_x, k_y, k_w, k_h) = (ns_str(c"X"), ns_str(c"Y"), ns_str(c"Width"), ns_str(c"Height"));
+        let n: usize = msg_send![arr, count];
+        for i in 0..n {
+            let d: *mut AnyObject = msg_send![arr, objectAtIndex: i];
+            let Some(pid) = ns_f64(d, k_pid).map(|p| p as i32) else { continue };
+            if pid == own || ns_f64(d, k_alpha).is_some_and(|a| a <= 0.0) {
+                continue;
+            }
+            let b: *mut AnyObject = msg_send![d, objectForKey: k_bounds];
+            if b.is_null() {
+                continue;
+            }
+            let (Some(x), Some(y), Some(w), Some(h)) = (ns_f64(b, k_x), ns_f64(b, k_y), ns_f64(b, k_w), ns_f64(b, k_h))
+            else {
+                continue;
+            };
+            if pt.0 >= x && pt.0 < x + w && pt.1 >= y && pt.1 < y + h {
+                found = Some(pid);
+                break;
+            }
+        }
+        CFRelease(list);
+    }
+    found.or_else(|| {
+        let ws: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        let pid: i32 = msg_send![app, processIdentifier];
+        (pid > 0 && pid != own).then_some(pid)
+    })
+}
+
+/// Per-app AX element cache: the messaging timeout is set on the APP element
+/// (never on the system-wide one, which would change the process-global
+/// timeout other threads rely on).
+#[derive(Default)]
+struct AppElCache {
+    pid: i32,
+    el: Option<AXUIElementRef>,
+}
+
+impl AppElCache {
+    unsafe fn get(&mut self, pid: i32) -> Option<AXUIElementRef> {
+        if self.pid != pid || self.el.is_none() {
+            self.clear();
+            let el = AXUIElementCreateApplication(pid);
+            if el.is_null() {
+                return None;
+            }
+            AXUIElementSetMessagingTimeout(el, AX_TIMEOUT_S);
+            self.pid = pid;
+            self.el = Some(el);
+        }
+        self.el
+    }
+    fn clear(&mut self) {
+        if let Some(el) = self.el.take() {
+            // SAFETY: we own the +1 element from AXUIElementCreateApplication.
+            unsafe { CFRelease(el) };
+        }
+    }
+}
+
+impl Drop for AppElCache {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+/// Hit-test the element under `pt` inside the app owning that point and
+/// classify the innermost ≤ 5 ancestors. Every element queried carries the
+/// 0.05 s per-element timeout. Must run inside an autorelease pool.
+unsafe fn ax_cursor_type(pt: (f64, f64), a: &AxAttrs, cache: &mut AppElCache) -> Option<CursorType> {
+    let pid = pid_at_point(pt)?;
+    let app = cache.get(pid)?;
     let mut hit: CFTypeRef = std::ptr::null();
-    let e = AXUIElementCopyElementAtPosition(sw, pt.0 as f32, pt.1 as f32, &mut hit);
-    AXUIElementSetMessagingTimeout(sw, 0.0);
-    CFRelease(sw);
+    let e = AXUIElementCopyElementAtPosition(app, pt.0 as f32, pt.1 as f32, &mut hit);
     if e != 0 || hit.is_null() {
         return None;
     }
@@ -450,6 +548,8 @@ pub struct TickStats {
     pub total_work: Duration,
     pub max_work: Duration,
     pub image_renders: u64,
+    pub ax_calls: u64,
+    pub ax_total: Duration,
 }
 
 struct Shared {
@@ -546,7 +646,15 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
             }
         }
     }
+    // Clicks AND cursor types need Accessibility + a working tap; without the
+    // tap we cannot honestly claim `native` (no clicks), so the whole
+    // recording is position-only (positions + images).
+    if native && tap.is_none() {
+        tracing::warn!("record cursor: Accessibility granted but no event tap; recording position-only");
+    }
+    let native = tap.is_some();
     let provider = if native { CursorProvider::Native } else { CursorProvider::PositionOnly };
+    let mut app_cache = AppElCache::default();
 
     let attrs = AxAttrs {
         role: CfStr::new("AXRole"),
@@ -570,12 +678,12 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
 
     let emit = |sink: &mut SampleSink,
                     vis: &mut CursorVisibility,
-                    at_ns: i64,
+                    timeline_ns: i64,
                     p: (f64, f64),
                     kind: Option<Interaction>,
                     asset_id: &Option<String>,
                     cursor_type: Option<CursorType>| {
-        let Some(time_ms) = video_ms(clock.timeline_ns(at_ns), origin_ns) else {
+        let Some(time_ms) = video_ms(timeline_ns, origin_ns) else {
             return;
         };
         let bounds = *shared.bounds.lock();
@@ -610,8 +718,18 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
             break;
         }
         let work_start = Instant::now();
+        // Drain every tick. The tap callback already drops clicks that happen
+        // while paused, so anything queued here happened before the pause
+        // began (or after the resume): its timeline time is `at - offset`.
+        // Known edge: a click queued just before a pause+resume that both fit
+        // into one tick gets the post-resume offset, i.e. a slightly early
+        // time; `SampleSink` keeps it ordered.
         let events: Vec<TapEvent> = std::mem::take(&mut *ctx.queue.lock());
         if clock.is_paused() {
+            let off = clock.offset_ns();
+            for ev in &events {
+                emit(&mut sink, &mut visibility, ev.at_ns - off, (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+            }
             continue;
         }
         objc2::rc::autoreleasepool(|_| {
@@ -638,14 +756,15 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
             if native && ax_paused_until.is_none_or(|t| Instant::now() >= t) {
                 let t0 = Instant::now();
                 // SAFETY: AX reads with per-element timeouts.
-                cursor_type = unsafe { ax_cursor_type(pt, &attrs) };
+                cursor_type = unsafe { ax_cursor_type(pt, &attrs, &mut app_cache) };
+                stats.ax_calls += 1;
+                stats.ax_total += t0.elapsed();
                 ax_paused_until = (t0.elapsed() > AX_SLOW).then(|| Instant::now() + AX_BACKOFF);
             }
-            let now_ns = host_now_ns();
             for ev in &events {
-                emit(&mut sink, &mut visibility, ev.at_ns, (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+                emit(&mut sink, &mut visibility, clock.timeline_ns(ev.at_ns), (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
             }
-            emit(&mut sink, &mut visibility, now_ns, pt, None, &asset_id, cursor_type);
+            emit(&mut sink, &mut visibility, clock.timeline_ns(host_now_ns()), pt, None, &asset_id, cursor_type);
         });
         let w = work_start.elapsed();
         stats.ticks += 1;
@@ -772,7 +891,7 @@ mod tests {
         let (r, st) = rec.stop_with_stats();
         let avg = st.total_work.as_secs_f64() * 1000.0 / st.ticks.max(1) as f64;
         println!(
-            "provider={:?} samples={} assets={} ticks={} avg_tick_ms={:.3} max_tick_ms={:.3} image_renders={} first_asset={:?}",
+            "provider={:?} samples={} assets={} ticks={} avg_tick_ms={:.3} max_tick_ms={:.3} image_renders={} ax_calls={} avg_ax_ms={:.3} typed_samples={} first_asset={:?}",
             r.provider,
             r.samples.len(),
             r.assets.len(),
@@ -780,6 +899,9 @@ mod tests {
             avg,
             st.max_work.as_secs_f64() * 1000.0,
             st.image_renders,
+            st.ax_calls,
+            st.ax_total.as_secs_f64() * 1000.0 / st.ax_calls.max(1) as f64,
+            r.samples.iter().filter(|s| s.cursor_type.is_some()).count(),
             r.assets.first().map(|a| (a.width, a.height, a.hotspot_x, a.hotspot_y, a.scale_factor, a.image_data_url.len())),
         );
         assert!(r.samples.len() >= 50, "too few samples: {}", r.samples.len());

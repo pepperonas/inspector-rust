@@ -488,6 +488,79 @@ pub fn apply_gain_db(pcm: &mut PlanarPcm, gain_db: f32) {
     }
 }
 
+/// Inspector Rust: bounds for an extra audio track's gain (same range as `SceneAudioTrack`).
+pub const EXTRA_AUDIO_MIN_GAIN_DB: f64 = -60.0;
+pub const EXTRA_AUDIO_MAX_GAIN_DB: f64 = 12.0;
+
+/// Clamp an extra audio track's gain to −60…+12 dB; a non-finite value means 0 dB.
+pub fn clamp_extra_gain_db(gain_db: f64) -> f32 {
+    if !gain_db.is_finite() {
+        return 0.0;
+    }
+    gain_db.clamp(EXTRA_AUDIO_MIN_GAIN_DB, EXTRA_AUDIO_MAX_GAIN_DB) as f32
+}
+
+/// Inspector Rust: the part of `extra.path` that lies under the clip's source window
+/// `[source_start_sec, source_end_sec]`, gain applied, exactly `(end − start) × rate` samples
+/// long. File time = source time − `offset_sec`; whatever falls before the file's start or
+/// past its end is silence. A missing or undecodable file returns `None` after a warning —
+/// never an error: the export goes on without it.
+pub fn decode_extra_audio_window(
+    extra: &crate::scene::ExtraAudio,
+    source_start_sec: f64,
+    source_end_sec: f64,
+) -> Option<PlanarPcm> {
+    let target_samples = (((source_end_sec - source_start_sec).max(0.0)
+        * AUDIO_OUTPUT_SAMPLE_RATE as f64)
+        .round()) as usize;
+    if std::fs::metadata(&extra.path).is_err() {
+        eprintln!(
+            "[audio] warning: extra audio {} not found; silence kept",
+            extra.path
+        );
+        return None;
+    }
+    let offset = if extra.offset_sec.is_finite() { extra.offset_sec } else { 0.0 };
+    let file_start = source_start_sec - offset;
+    let file_end = source_end_sec - offset;
+    let mut out = vec![vec![0.0f32; target_samples]; AUDIO_OUTPUT_CHANNELS];
+    if file_end <= 0.0 || target_samples == 0 {
+        return Some(out);
+    }
+    // Never seek before the file: decode from 0 and place it after the leading silence.
+    let decode_start = file_start.max(0.0);
+    let pcm = match decode_clip_audio(&extra.path, decode_start, file_end) {
+        Ok(Some(pcm)) => pcm,
+        Ok(None) => {
+            eprintln!(
+                "[audio] warning: extra audio {} has no audio stream; silence kept",
+                extra.path
+            );
+            return None;
+        }
+        Err(error) => {
+            eprintln!(
+                "[audio] warning: extra audio {} not decoded ({error:#}); silence kept",
+                extra.path
+            );
+            return None;
+        }
+    };
+    let lead = (((decode_start - file_start) * AUDIO_OUTPUT_SAMPLE_RATE as f64).round()) as usize;
+    let gain = 10.0f32.powf(clamp_extra_gain_db(extra.gain_db) / 20.0);
+    for channel in 0..AUDIO_OUTPUT_CHANNELS {
+        let Some(source) = pcm.get(channel) else { continue };
+        if lead >= target_samples {
+            break;
+        }
+        let count = source.len().min(target_samples - lead);
+        for index in 0..count {
+            out[channel][lead + index] = source[index] * gain;
+        }
+    }
+    Some(out)
+}
+
 extern "C" {
     fn sn_fmt_stream(s: *mut AVFormatContext, i: i32) -> *mut AVStream;
     // bindgen rend `AVFormatContext` opaque (atteinte seulement par pointeur), d'où l'accesseur

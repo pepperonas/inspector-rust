@@ -77,6 +77,7 @@ fn a_frame_rendered_alone_is_the_frame_of_the_full_walk() {
             source_end_sec: end,
             webcam_offset_sec: 0.0,
             has_audio: false,
+            extra_audio: None,
         })
         .collect();
     // La config de l'export (`export_cfg_and_scene` dans l'addon).

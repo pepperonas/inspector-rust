@@ -96,6 +96,27 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    `text_fonts::tests::only_the_font_files_of_the_directory_are_registered`,
    `text_macos::tests::every_shipped_family_draws_from_its_own_files`.
 
+8. **Per-clip extra audio track (stage 2, Task 2 — the recorder's `mic.wav`).** RECON §6 showed
+   `audioTracks` are placed, never speed-stretched, so a mic under a speed region would drift;
+   this is option (c) there.
+   - `src/scene.rs`: `SceneClip.extra_audio: Option<ExtraAudio>` (serde `extraAudio`, default
+     `None`) and the new `ExtraAudio { path, offset_sec, gain_db }` (`offsetSec`, `gainDb`).
+     Convention: file time = source time − `offset_sec`. + parse test.
+   - `src/audio.rs`: `clamp_extra_gain_db` (−60…+12, non-finite → 0) and
+     `decode_extra_audio_window` — decodes `[start − offset, end − offset]` of the file, pads
+     silence before the file start / past its end to exactly the window length, applies the
+     gain. Missing/undecodable file → stderr warning + `None`, never an export error.
+   - `src/audio_jobs.rs`: `decode_and_stretch_clip_audio_with_extra` sums clip audio (loudness
+     gain now applied before the stretch — linear, so equivalent) and the extra track, THEN
+     stretches with the clip's speed segments. The original function is untouched. + 6 tests
+     (synthetic WAVs decoded by the vendored LGPL ffmpeg, no GPU).
+   - `src/pipeline_macos.rs`: `ClipSource.extra_audio`; the export spawns an audio job when
+     `has_audio || extra_audio.is_some()` and the concat plan counts such clips as audible.
+   - `tests/{export_timing,hevc10_decode,render_frames_match_export}.rs`: `extra_audio: None`
+     added to the `ClipSource` literals so they compile.
+   - Why not mix after the stretch: the mic has to follow the exact same tempo map as the
+     picture; mixing first reuses the one stretch the clip audio already gets.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -105,6 +126,7 @@ code, bindgen transmutes) are left as they are.
 scripts/build-ffmpeg-macos.sh
 MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p openscreen-compositor --lib
 # 2026-11-01: 484 passed, 0 failed, 3 ignored (Metal tests ran on an M1 Pro)
+# 2026-11-01 after patch 8: 491 passed, 0 failed, 3 ignored
 ```
 
 ## Updating from upstream

@@ -22,8 +22,10 @@
 //! sur le même chemin, en lecture seule lui aussi.
 
 use crate::audio::{
-    apply_gain_db, decode_clip_audio, loudness_gain_db, stretch_clip_pcm_by_speed, PlanarPcm,
+    apply_gain_db, decode_clip_audio, decode_extra_audio_window, loudness_gain_db,
+    stretch_clip_pcm_by_speed, PlanarPcm,
 };
+use crate::scene::ExtraAudio;
 use crate::regions::SpeedSegment;
 use std::collections::VecDeque;
 use std::thread::JoinHandle;
@@ -71,6 +73,65 @@ pub fn decode_and_stretch_clip_audio(
             None
         }
     }
+}
+
+/// Inspector Rust: `decode_and_stretch_clip_audio` plus an optional extra track (`mic.wav`).
+///
+/// The extra track is decoded over the SAME source window (shifted by its offset), its gain
+/// applied, and summed with the clip audio BEFORE the stretch — so a speed region stretches
+/// both alike and the mic stays lip-synced. Clip audio keeps its loudness normalisation (a
+/// linear gain, so applying it before the stretch equals applying it after). Either part may
+/// be absent; `None` only when neither yields audio.
+#[allow(clippy::too_many_arguments)]
+pub fn decode_and_stretch_clip_audio_with_extra(
+    clip_index: usize,
+    screen_path: &str,
+    has_audio: bool,
+    extra: Option<&ExtraAudio>,
+    source_start_sec: f64,
+    source_end_sec: f64,
+    speed_segments: &[SpeedSegment],
+    out_fps: f64,
+) -> Option<PlanarPcm> {
+    let clip = if has_audio {
+        match decode_clip_audio(screen_path, source_start_sec, source_end_sec) {
+            Ok(Some(mut pcm)) => {
+                apply_gain_db(&mut pcm, loudness_gain_db(screen_path));
+                Some(pcm)
+            }
+            Ok(None) => {
+                eprintln!(
+                    "[pipeline] warning: clip #{clip_index} déclaré audio mais sans flux décodable; silence conservé"
+                );
+                None
+            }
+            Err(error) => {
+                eprintln!(
+                    "[pipeline] warning: décodage audio du clip #{clip_index} échoué ({error:#}); silence conservé"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let extra = extra.and_then(|extra| decode_extra_audio_window(extra, source_start_sec, source_end_sec));
+    let mixed = match (clip, extra) {
+        (None, None) => return None,
+        (Some(pcm), None) | (None, Some(pcm)) => pcm,
+        (Some(mut pcm), Some(extra)) => {
+            for (plane, extra_plane) in pcm.iter_mut().zip(extra.iter()) {
+                if plane.len() < extra_plane.len() {
+                    plane.resize(extra_plane.len(), 0.0);
+                }
+                for (sample, add) in plane.iter_mut().zip(extra_plane.iter()) {
+                    *sample += *add;
+                }
+            }
+            pcm
+        }
+    };
+    Some(stretch_clip_pcm_by_speed(&mixed, speed_segments, out_fps))
 }
 
 /// Collecte les résultats de jobs indexés lancés au fil du parcours, en bornant le nombre
@@ -244,5 +305,183 @@ mod tests {
         jobs.spawn(0, || panic!("décodage impossible"));
         jobs.spawn(1, || 42u32);
         assert_eq!(jobs.into_results(), vec![None, Some(42)]);
+    }
+
+    // --- Extra audio (Inspector Rust: mic.wav per clip, mixed before the speed stretch) ---
+
+    use crate::audio::{PlanarPcm, AUDIO_OUTPUT_SAMPLE_RATE};
+    use crate::regions::speed_segments_for_window;
+    use crate::scene::{ExtraAudio, SceneSpeedRegion};
+
+    const RATE: f64 = AUDIO_OUTPUT_SAMPLE_RATE as f64;
+
+    /// A 16-bit stereo 48 kHz WAV of `pcm` (same layout as `audio::tests::write_wav`).
+    fn write_wav(path: &std::path::Path, pcm: &PlanarPcm) {
+        let frames = pcm[0].len();
+        let data_len = (frames * 4) as u32;
+        let mut bytes = Vec::with_capacity(44 + frames * 4);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&48_000u32.to_le_bytes());
+        bytes.extend_from_slice(&(48_000u32 * 4).to_le_bytes());
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for index in 0..frames {
+            for plane in pcm {
+                let value = (plane[index].clamp(-1.0, 1.0) * 32767.0).round() as i16;
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "ir-extra-audio-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// `secs` of silence with a 2 ms click of 0.9 at `click_sec`.
+    fn click_track(secs: f64, click_sec: f64) -> PlanarPcm {
+        let mut plane = vec![0.0f32; (secs * RATE).round() as usize];
+        let at = (click_sec * RATE).round() as usize;
+        for sample in plane.iter_mut().skip(at).take(96) {
+            *sample = 0.9;
+        }
+        vec![plane.clone(), plane]
+    }
+
+    fn peak_sec(pcm: &PlanarPcm) -> f64 {
+        let (index, _) = pcm[0]
+            .iter()
+            .enumerate()
+            .fold((0, 0.0f32), |best, (i, v)| if v.abs() > best.1 { (i, v.abs()) } else { best });
+        index as f64 / RATE
+    }
+
+    fn peak(pcm: &PlanarPcm) -> f32 {
+        pcm.iter().flatten().fold(0.0f32, |m, v| m.max(v.abs()))
+    }
+
+    const FPS: f64 = 30.0;
+
+    #[test]
+    fn mic_follows_speed_region() {
+        // The mic must be stretched exactly like the picture: a click at source 3.5 s, behind
+        // a 2× region over 1–3 s, lands at programme 1 + 1 + 0.5 = 2.5 s. Placed as an
+        // external track it would stay at 3.5 s — a full second out of sync.
+        let dir = temp_dir("speed");
+        let mic = dir.join("mic.wav");
+        write_wav(&mic, &click_track(4.0, 3.5));
+        let regions = [SceneSpeedRegion { clip_index: Some(0), start_sec: 1.0, end_sec: 3.0, speed: 2.0 }];
+        let segments = speed_segments_for_window(&regions, 0.0, 4.0, 0.0, FPS);
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db: 0.0 };
+        let pcm = decode_and_stretch_clip_audio_with_extra(
+            0, "", false, Some(&extra), 0.0, 4.0, &segments, FPS,
+        )
+        .expect("mic present → audio");
+        assert!((pcm[0].len() as f64 / RATE - 3.0).abs() < 0.05, "programme is 3 s long");
+        let at = peak_sec(&pcm);
+        assert!((at - 2.5).abs() <= 0.010, "click at {at} s, expected 2.5 s ±10 ms");
+    }
+
+    #[test]
+    fn mic_gain_applies() {
+        let dir = temp_dir("gain");
+        let mic = dir.join("mic.wav");
+        let total = (2.0 * RATE) as usize;
+        let plane: Vec<f32> = (0..total)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / RATE as f32).sin())
+            .collect();
+        write_wav(&mic, &vec![plane.clone(), plane]);
+        let segments = speed_segments_for_window(&[], 0.0, 2.0, 0.0, FPS);
+        let run = |gain_db: f64| {
+            let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db };
+            peak(&decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.0, 2.0, &segments, FPS).unwrap())
+        };
+        let ratio = run(-6.0) / run(0.0);
+        assert!((ratio - 0.501).abs() <= 0.501 * 0.01, "−6 dB gave ×{ratio}");
+        // Clamped to −60…+12 even if the scene asks for more.
+        let loud = run(40.0) / run(0.0);
+        assert!((loud - 3.981).abs() <= 3.981 * 0.01, "+40 dB must clamp to +12 dB, got ×{loud}");
+    }
+
+    #[test]
+    fn mic_offset_shifts() {
+        // mic time = source time − offset: the mic started 0.25 s after the video, so a click
+        // at mic 1.0 s belongs to source 1.25 s. The first 0.25 s of the clip have no mic.
+        let dir = temp_dir("offset");
+        let mic = dir.join("mic.wav");
+        write_wav(&mic, &click_track(2.0, 1.0));
+        let segments = speed_segments_for_window(&[], 0.0, 2.0, 0.0, FPS);
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.25, gain_db: 0.0 };
+        let pcm = decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.0, 2.0, &segments, FPS)
+            .unwrap();
+        assert!((pcm[0].len() as f64 / RATE - 2.0).abs() < 0.05);
+        let at = peak_sec(&pcm);
+        assert!((at - 1.25).abs() <= 0.010, "click at {at} s, expected 1.25 s");
+        // A clip that starts later in the source: window 0.5–2.0 → click at programme 0.75 s.
+        let segments = speed_segments_for_window(&[], 0.5, 2.0, 0.0, FPS);
+        let pcm = decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.5, 2.0, &segments, FPS)
+            .unwrap();
+        let at = peak_sec(&pcm);
+        assert!((at - 0.75).abs() <= 0.010, "click at {at} s, expected 0.75 s");
+    }
+
+    #[test]
+    fn missing_extra_audio_is_silence_not_error() {
+        let dir = temp_dir("missing");
+        let extra = ExtraAudio {
+            path: dir.join("does-not-exist.wav").to_string_lossy().into_owned(),
+            offset_sec: 0.0,
+            gain_db: 0.0,
+        };
+        let segments = speed_segments_for_window(&[], 0.0, 2.0, 0.0, FPS);
+        // No clip audio either: nothing to mix, the clip stays silent (assemble pads it).
+        assert!(decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.0, 2.0, &segments, FPS).is_none());
+        // With clip audio: the clip audio survives, the missing mic adds nothing.
+        let screen = dir.join("screen.wav");
+        write_wav(&screen, &click_track(2.0, 0.5));
+        let pcm = decode_and_stretch_clip_audio_with_extra(
+            0, &screen.to_string_lossy(), true, Some(&extra), 0.0, 2.0, &segments, FPS,
+        )
+        .expect("clip audio still decodes");
+        assert!((peak_sec(&pcm) - 0.5).abs() <= 0.010);
+        // Garbage file: same rule.
+        let garbage = dir.join("garbage.wav");
+        std::fs::write(&garbage, b"not a wav").unwrap();
+        let extra = ExtraAudio { path: garbage.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db: 0.0 };
+        assert!(decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.0, 2.0, &segments, FPS).is_none());
+    }
+
+    #[test]
+    fn mic_window_entirely_before_the_file_is_silence_of_full_length() {
+        // offset larger than the clip end: every mic time is negative → silence, but the
+        // window keeps its length so the concat plan stays aligned.
+        let dir = temp_dir("before");
+        let mic = dir.join("mic.wav");
+        write_wav(&mic, &click_track(1.0, 0.5));
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 5.0, gain_db: 0.0 };
+        let pcm = crate::audio::decode_extra_audio_window(&extra, 0.0, 2.0).expect("silence, not None");
+        assert_eq!(pcm[0].len(), (2.0 * RATE) as usize);
+        assert_eq!(peak(&pcm), 0.0);
+    }
+
+    #[test]
+    fn extra_audio_gain_is_clamped() {
+        use crate::audio::clamp_extra_gain_db;
+        assert_eq!(clamp_extra_gain_db(-100.0), -60.0);
+        assert_eq!(clamp_extra_gain_db(50.0), 12.0);
+        assert_eq!(clamp_extra_gain_db(-3.0), -3.0);
+        assert_eq!(clamp_extra_gain_db(f64::NAN), 0.0);
     }
 }

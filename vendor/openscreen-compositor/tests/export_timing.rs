@@ -169,6 +169,7 @@ fn whole_clip(dir: &PathBuf) -> ClipSource {
         source_end_sec: SOURCE_SEC,
         webcam_offset_sec: 0.0,
         has_audio: false,
+        extra_audio: None,
     }
 }
 
@@ -764,6 +765,7 @@ fn mp4_export_rejects_an_undecodable_single_tail_frame_without_publishing() {
                 source_end_sec: tail.source_end_sec,
                 webcam_offset_sec: 0.0,
                 has_audio: false,
+                extra_audio: None,
             }],
             &out.to_string_lossy(),
             &gpu,

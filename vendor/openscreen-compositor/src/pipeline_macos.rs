@@ -34,7 +34,7 @@ use crate::audio::{
     mix_external_tracks,
     AacEncoder, PlanarPcm,
 };
-use crate::audio_jobs::{decode_and_stretch_clip_audio, ClipAudioJobs};
+use crate::audio_jobs::{decode_and_stretch_clip_audio_with_extra, ClipAudioJobs};
 use crate::compositor::Compositor;
 use crate::d3d::Gpu;
 use crate::export_control::{with_validated_mp4_output, ExportControl};
@@ -751,6 +751,8 @@ pub struct ClipSource {
     pub source_end_sec: f64,
     pub webcam_offset_sec: f64,
     pub has_audio: bool,
+    /// Inspector Rust: extra audio (mic) mixed before the speed stretch; see `SceneClip`.
+    pub extra_audio: Option<crate::scene::ExtraAudio>,
 }
 
 /// Codec cible pour l'export. Identique à `pipeline_windows::ExportCodec`.
@@ -1386,19 +1388,23 @@ fn run_multi_inner(
             &mut |clip_index, source_end_sec, frames_in_clip, speed_segments| {
                 clip_frame_counts[clip_index] = frames_in_clip;
                 let clip = &clips[clip_index];
-                if clip.has_audio && frames_in_clip > 0 {
+                if (clip.has_audio || clip.extra_audio.is_some()) && frames_in_clip > 0 {
                     // L'audio d'un clip ne dépend que de ce clip : le décoder et l'étirer ici,
                     // sur le thread de rendu, immobilisait la barre d'export pour toute sa
                     // durée — rien n'appelle `progress()` entre deux clips. Le travail part
                     // sur un thread et se recouvre avec la composition du clip suivant ; les
                     // résultats sont récupérés après le parcours, rangés par index de clip.
                     let path = clip.screen.clone();
+                    let has_audio = clip.has_audio;
+                    let extra = clip.extra_audio.clone();
                     let source_start_sec = clip.source_start_sec;
                     let segments = speed_segments.to_vec();
                     audio_jobs.spawn(clip_index, move || {
-                        decode_and_stretch_clip_audio(
+                        decode_and_stretch_clip_audio_with_extra(
                             clip_index,
                             &path,
+                            has_audio,
+                            extra.as_ref(),
                             source_start_sec,
                             source_end_sec,
                             &segments,
@@ -1433,7 +1439,10 @@ fn run_multi_inner(
             .map(|slot| slot.flatten())
             .collect();
 
-        let declared_audio: Vec<bool> = clips.iter().map(|clip| clip.has_audio).collect();
+        let declared_audio: Vec<bool> = clips
+            .iter()
+            .map(|clip| clip.has_audio || clip.extra_audio.is_some())
+            .collect();
         let plan = build_audio_concat_plan(&clip_frame_counts, &declared_audio, out_fps as f64);
         audio_encoder.encode(
             &finish_audio(

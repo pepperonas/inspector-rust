@@ -19,6 +19,23 @@ pub struct SceneClip {
     /// Une source sans piste audio décodable garde sa durée via du silence natif.
     #[serde(default)]
     pub has_audio: bool,
+    /// Inspector Rust: a separate audio file (the recorder's `mic.wav`) mixed into this clip's
+    /// audio BEFORE the speed stretch, so it stays in sync with the picture. `None` = none.
+    #[serde(default)]
+    pub extra_audio: Option<ExtraAudio>,
+}
+
+/// Inspector Rust: an extra audio file for one clip. Its time runs alongside the clip's
+/// source: `file time = source time − offset_sec` (positive = the file started later than the
+/// video). Outside the file there is silence. `gain_db` is clamped to −60…+12.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtraAudio {
+    pub path: String,
+    #[serde(default)]
+    pub offset_sec: f64,
+    #[serde(default)]
+    pub gain_db: f64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -1081,6 +1098,24 @@ mod tests {
         assert!(scene.clips[0].has_audio);
         assert_eq!(scene.crop_by_clip.len(), 1);
         assert_eq!(scene.output.width, 1920);
+    }
+
+    #[test]
+    fn clip_extra_audio_parses_camel_case_and_defaults_to_none() {
+        let clip: SceneClip = serde_json::from_str(
+            r#"{"screenPath":"s.mp4","webcamPath":"","sourceStartSec":0,"sourceEndSec":4,
+                "webcamOffsetSec":0,"extraAudio":{"path":"mic.wav","offsetSec":0.25,"gainDb":-6}}"#,
+        )
+        .unwrap();
+        let extra = clip.extra_audio.expect("extraAudio parsed");
+        assert_eq!(extra.path, "mic.wav");
+        assert_eq!(extra.offset_sec, 0.25);
+        assert_eq!(extra.gain_db, -6.0);
+        let plain: SceneClip = serde_json::from_str(
+            r#"{"screenPath":"s.mp4","webcamPath":"","sourceStartSec":0,"sourceEndSec":4,"webcamOffsetSec":0}"#,
+        )
+        .unwrap();
+        assert!(plain.extra_audio.is_none());
     }
 
     #[test]

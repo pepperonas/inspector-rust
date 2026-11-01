@@ -117,6 +117,20 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    - Why not mix after the stretch: the mic has to follow the exact same tempo map as the
      picture; mixing first reuses the one stretch the clip audio already gets.
 
+9. **Mono extra audio at unity (stage 2, Task 2 fix round 1).** The recorder's `mic.wav` is mono
+   48 kHz i16; swresample's default mono→stereo upmix puts it at −3 dB (√½) per side, so the mic
+   came out 3 dB below its `gainDb`. Ruling: mono goes to L and R at unity.
+   - `src/audio.rs`: `AudioResampler::from_frame` takes `mono_at_unity`; when set and the input
+     is mono it calls `swr_set_matrix` with `[1.0, 1.0]` before `swr_init`. The flag is threaded
+     through `decode_clip_audio_inner`; upstream's paths (`decode_clip_audio`,
+     `decode_audio_window`/loudness) pass `false`, so clip-audio behaviour is unchanged. New
+     private `decode_extra_clip_audio` passes `true`; `decode_extra_audio_window` uses it.
+   - Side change: a failing `swr_set_matrix`/`swr_init` now frees the `SwrContext` (upstream
+     leaked it on `swr_init` failure).
+   - `src/audio_jobs.rs`: tests `mono_48k_mic_is_mixed_at_unity` (mono 48 kHz mic + 44.1 kHz
+     stereo clip audio → 0.5 peak in both channels ±1 %) and
+     `mic_shorter_than_clip_pads_silence` (same length, silent tail).
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -127,6 +141,7 @@ scripts/build-ffmpeg-macos.sh
 MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p openscreen-compositor --lib
 # 2026-11-01: 484 passed, 0 failed, 3 ignored (Metal tests ran on an M1 Pro)
 # 2026-11-01 after patch 8: 491 passed, 0 failed, 3 ignored
+# 2026-11-01 after patch 9: 493 passed, 0 failed, 3 ignored
 ```
 
 ## Updating from upstream

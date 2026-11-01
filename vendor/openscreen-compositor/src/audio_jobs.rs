@@ -476,6 +476,84 @@ mod tests {
         assert_eq!(peak(&pcm), 0.0);
     }
 
+    /// A 16-bit PCM WAV with any rate and channel count (interleaved from `planes`).
+    fn write_wav_at(path: &std::path::Path, rate: u32, planes: &[Vec<f32>]) {
+        let channels = planes.len() as u16;
+        let frames = planes[0].len();
+        let block = 2 * channels as u32;
+        let data_len = frames as u32 * block;
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&rate.to_le_bytes());
+        bytes.extend_from_slice(&(rate * block).to_le_bytes());
+        bytes.extend_from_slice(&(block as u16).to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for index in 0..frames {
+            for plane in planes {
+                let value = (plane[index].clamp(-1.0, 1.0) * 32767.0).round() as i16;
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    fn sine_plane(secs: f64, rate: f64, amplitude: f32) -> Vec<f32> {
+        (0..(secs * rate).round() as usize)
+            .map(|i| amplitude * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / rate as f32).sin())
+            .collect()
+    }
+
+    #[test]
+    fn mono_48k_mic_is_mixed_at_unity() {
+        // The recorder's mic.wav is mono 48 kHz i16. Ruling: mono goes to L AND R at unity —
+        // swresample's default upmix would put it at −3 dB (√½) on each side.
+        let dir = temp_dir("mono");
+        let mic = dir.join("mic.wav");
+        write_wav_at(&mic, 48_000, &[sine_plane(2.0, 48_000.0, 0.5)]);
+        // Clip audio in another shape (44.1 kHz stereo), silent, so the peak is the mic's.
+        let screen = dir.join("screen.wav");
+        let silence = vec![0.0f32; (2.0 * 44_100.0) as usize];
+        write_wav_at(&screen, 44_100, &[silence.clone(), silence]);
+        let segments = speed_segments_for_window(&[], 0.0, 2.0, 0.0, FPS);
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db: 0.0 };
+        let pcm = decode_and_stretch_clip_audio_with_extra(
+            0, &screen.to_string_lossy(), true, Some(&extra), 0.0, 2.0, &segments, FPS,
+        )
+        .unwrap();
+        assert!((pcm[0].len() as f64 / RATE - 2.0).abs() < 0.05);
+        for (channel, plane) in pcm.iter().enumerate() {
+            let p = plane.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert!((p - 0.5).abs() <= 0.5 * 0.01, "channel {channel}: peak {p}, expected 0.5 ±1 %");
+        }
+    }
+
+    #[test]
+    fn mic_shorter_than_clip_pads_silence() {
+        // The mic stops 1 s before the clip ends: same programme length, silent tail.
+        let dir = temp_dir("short");
+        let mic = dir.join("mic.wav");
+        write_wav_at(&mic, 48_000, &[sine_plane(2.0, 48_000.0, 0.5)]);
+        let segments = speed_segments_for_window(&[], 0.0, 3.0, 0.0, FPS);
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db: 0.0 };
+        let pcm = decode_and_stretch_clip_audio_with_extra(0, "", false, Some(&extra), 0.0, 3.0, &segments, FPS)
+            .expect("mic present → audio");
+        let expected = (3.0 * RATE) as usize;
+        for plane in &pcm {
+            assert!(plane.len().abs_diff(expected) <= 1, "length {} vs {expected}", plane.len());
+            let head = plane[..(1.9 * RATE) as usize].iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert!(head > 0.4, "mic present in the first 2 s (peak {head})");
+            let tail = plane[(2.05 * RATE) as usize..].iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert_eq!(tail, 0.0, "tail after the mic's end must be silent");
+        }
+    }
+
     #[test]
     fn extra_audio_gain_is_clamped() {
         use crate::audio::clamp_extra_gain_db;

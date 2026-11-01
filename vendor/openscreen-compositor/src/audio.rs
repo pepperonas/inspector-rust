@@ -529,7 +529,7 @@ pub fn decode_extra_audio_window(
     }
     // Never seek before the file: decode from 0 and place it after the leading silence.
     let decode_start = file_start.max(0.0);
-    let pcm = match decode_clip_audio(&extra.path, decode_start, file_end) {
+    let pcm = match decode_extra_clip_audio(&extra.path, decode_start, file_end) {
         Ok(Some(pcm)) => pcm,
         Ok(None) => {
             eprintln!(
@@ -587,7 +587,14 @@ struct AudioResampler {
 }
 
 impl AudioResampler {
-    unsafe fn from_frame(frame: *mut AVFrame, dctx: *mut AVCodecContext) -> Result<Self> {
+    /// `mono_at_unity` (Inspector Rust): a mono input goes to L and R at full level instead
+    /// of swresample's default −3 dB (√½) per side. Used for the extra (mic) track only, so
+    /// upstream's clip-audio path keeps its behaviour.
+    unsafe fn from_frame(
+        frame: *mut AVFrame,
+        dctx: *mut AVCodecContext,
+        mono_at_unity: bool,
+    ) -> Result<Self> {
         let mut output_layout = AVChannelLayout::default();
         av_channel_layout_default(&mut output_layout, AUDIO_OUTPUT_CHANNELS as i32);
 
@@ -600,6 +607,7 @@ impl AudioResampler {
             av_channel_layout_default(&mut fallback_layout, 1);
             &fallback_layout as *const AVChannelLayout
         };
+        let input_is_mono = (*input_layout).nb_channels == 1;
         let input_rate = if (*frame).sample_rate > 0 {
             (*frame).sample_rate
         } else {
@@ -629,7 +637,18 @@ impl AudioResampler {
         if ctx.is_null() {
             bail!("swr_alloc_set_opts2: contexte nul");
         }
-        averr(swr_init(ctx), "swr_init")?;
+        if mono_at_unity && input_is_mono {
+            // matrix[out * stride + in]: one input channel copied to both outputs at 1.0.
+            let matrix = [1.0f64; AUDIO_OUTPUT_CHANNELS];
+            if let Err(error) = averr(swr_set_matrix(ctx, matrix.as_ptr(), 1), "swr_set_matrix") {
+                swr_free(&mut ctx);
+                return Err(error);
+            }
+        }
+        if let Err(error) = averr(swr_init(ctx), "swr_init") {
+            swr_free(&mut ctx);
+            return Err(error);
+        }
         Ok(Self { ctx, input_rate })
     }
 
@@ -731,6 +750,17 @@ pub fn decode_clip_audio(path: &str, source_start_sec: f64, source_end_sec: f64)
     Ok(decode_audio_window(path, source_start_sec, source_end_sec)?.map(|(pcm, _)| pcm))
 }
 
+/// Inspector Rust: `decode_clip_audio` with a mono source upmixed at unity (see
+/// `AudioResampler::from_frame`). For the extra (mic) track.
+fn decode_extra_clip_audio(
+    path: &str,
+    source_start_sec: f64,
+    source_end_sec: f64,
+) -> Result<Option<PlanarPcm>> {
+    Ok(unsafe { decode_clip_audio_inner(path, source_start_sec, source_end_sec, true) }?
+        .map(|(pcm, _)| pcm))
+}
+
 /// `decode_clip_audio`, plus whether the file still has audio past `source_end_sec`: what a
 /// caller walking a whole file one window at a time needs to know where to stop.
 fn decode_audio_window(
@@ -738,13 +768,14 @@ fn decode_audio_window(
     source_start_sec: f64,
     source_end_sec: f64,
 ) -> Result<Option<(PlanarPcm, bool)>> {
-    unsafe { decode_clip_audio_inner(path, source_start_sec, source_end_sec) }
+    unsafe { decode_clip_audio_inner(path, source_start_sec, source_end_sec, false) }
 }
 
 unsafe fn decode_clip_audio_inner(
     path: &str,
     source_start_sec: f64,
     source_end_sec: f64,
+    mono_at_unity: bool,
 ) -> Result<Option<(PlanarPcm, bool)>> {
     let mut fmt: *mut AVFormatContext = ptr::null_mut();
     let cpath = CString::new(path)?;
@@ -882,7 +913,7 @@ unsafe fn decode_clip_audio_inner(
                     track.origin_sec = Some(frame_sec);
                 }
                 if track.resampler.is_none() {
-                    track.resampler = Some(AudioResampler::from_frame(frame, track.dctx)?);
+                    track.resampler = Some(AudioResampler::from_frame(frame, track.dctx, mono_at_unity)?);
                 }
                 track
                     .resampler

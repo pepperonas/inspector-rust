@@ -63,7 +63,7 @@ pub fn start(app: &AppHandle, label: String) {
     }
 
     // Build the overlay from a worker thread so Tauri marshals the window
-    // creation onto the event loop cleanly (the proven record-stop pattern).
+    // creation onto the event loop cleanly (the proven worker-thread window-build pattern).
     let app2 = app.clone();
     let label2 = label;
     std::thread::spawn(move || build_overlay(&app2, &label2));

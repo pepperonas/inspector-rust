@@ -69,7 +69,7 @@ if [[ -f "${INFO_PLIST}" ]]; then
     'Inspector Rust uses Apple Events to read your Finder selection so the popup can run actions (resize, OCR, …) on the files you have selected.' \
     "${INFO_PLIST}"
   plutil -replace NSMicrophoneUsageDescription -string \
-    'Inspector Rust uses the microphone for live BPM detection — type "bpm" in the popup and press Enter to estimate the tempo of music playing nearby.' \
+    'Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").' \
     "${INFO_PLIST}"
 fi
 

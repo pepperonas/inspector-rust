@@ -828,12 +828,9 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
             }
             #[cfg(not(target_os = "macos"))]
             {
-                let app_main = app.clone();
-                let _ = app.run_on_main_thread(move || {
-                    if let Err(e) = crate::commands::screen_record_open_overlay(app_main.clone()) {
-                        tracing::warn!("screen-record overlay: {e}");
-                    }
-                });
+                // The ScreenCaptureKit recorder is macOS-only; the hotkey
+                // stays registered but does nothing elsewhere.
+                tracing::info!("record is macOS-only");
             }
         }
         ActionId::AudioSwap => {

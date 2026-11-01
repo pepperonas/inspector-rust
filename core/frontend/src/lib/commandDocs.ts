@@ -984,7 +984,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     command: "record",
     aliases: [],
     category: CAT_MEDIA,
-    version_added: "0.227.0",
+    version_added: "0.228.0",
     tagline: "Record the screen or a window as an editable project.",
     tagline_de: "Bildschirm oder Fenster als nachbearbeitbares Projekt aufnehmen.",
     synopsis: "record",

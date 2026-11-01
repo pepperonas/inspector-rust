@@ -410,11 +410,11 @@ if [[ -f "${INFO_PLIST}" ]]; then
   OS_LANG="$(defaults read -g AppleLocale 2>/dev/null || echo en)"
   if [[ "${OS_LANG}" == de* ]]; then
     AE_DESC='Inspector Rust nutzt Apple Events, um deine Finder-Auswahl zu lesen, damit das Popup Aktionen (Größe ändern, OCR, …) auf die ausgewählten Dateien anwenden kann.'
-    MIC_DESC='Inspector Rust nutzt das Mikrofon zur Live-BPM-Erkennung — tippe „bpm“ ins Popup und drücke Enter, um das Tempo der Musik in der Nähe zu schätzen.'
+    MIC_DESC='Inspector Rust nutzt das Mikrofon zur Live-BPM-Erkennung („bpm“ im Popup) und, wenn du es wählst, um deine Stimme bei Bildschirmaufnahmen („record“) als eigene Spur aufzunehmen.'
     BT_DESC='Inspector Rust nutzt Bluetooth für den „btsniff“-Live-Scan — er listet nahe sendende Bluetooth-LE-Geräte zur Inspektion. Aufzeichnungen bleiben auf diesem Mac.'
   else
     AE_DESC='Inspector Rust uses Apple Events to read your Finder selection so the popup can run actions (resize, OCR, …) on the files you have selected.'
-    MIC_DESC='Inspector Rust uses the microphone for live BPM detection — type "bpm" in the popup and press Enter to estimate the tempo of music playing nearby.'
+    MIC_DESC='Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").'
     BT_DESC='Inspector Rust uses Bluetooth for the "btsniff" live scan — it lists nearby advertising Bluetooth LE devices for inspection. Captures stay on this Mac.'
   fi
   # `-replace` works whether or not the key already exists.
@@ -428,7 +428,7 @@ if [[ -f "${INFO_PLIST}" ]]; then
   # Same trick for NSMicrophoneUsageDescription — required by macOS
   # before getUserMedia({audio: true}) can pop the mic-permission
   # prompt. Used by the `bpm` overlay (v0.45.0+) to detect BPM from
-  # the microphone in real time.
+  # the microphone in real time, and by `record` for the mic track.
   if plutil -replace NSMicrophoneUsageDescription -string "${MIC_DESC}" \
        "${INFO_PLIST}" 2>/dev/null; then
     echo "▸ Injected NSMicrophoneUsageDescription into Info.plist"

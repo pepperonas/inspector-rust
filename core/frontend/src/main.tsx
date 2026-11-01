@@ -49,12 +49,6 @@ const WindowPalette = React.lazy(() =>
 const BrightnessOverlay = React.lazy(() =>
   import("./components/BrightnessOverlay").then((m) => ({ default: m.BrightnessOverlay })),
 );
-const RecordOverlay = React.lazy(() =>
-  import("./components/RecordOverlay").then((m) => ({ default: m.RecordOverlay })),
-);
-const RecordStopBar = React.lazy(() =>
-  import("./components/RecordStopBar").then((m) => ({ default: m.RecordStopBar })),
-);
 const RecordHud = React.lazy(() => import("./components/RecordHud").then((m) => ({ default: m.RecordHud })));
 const RecordCountdown = React.lazy(() =>
   import("./components/RecordCountdown").then((m) => ({ default: m.RecordCountdown })),
@@ -90,8 +84,6 @@ function Mount() {
   if (label === "screenshot-editor") return <ScreenshotEditor />;
   if (label === "status-toast") return <StatusToast />;
   if (label === "brightness-overlay") return <BrightnessOverlay />;
-  if (label === "record-overlay") return <RecordOverlay />;
-  if (label === "record-stop") return <RecordStopBar />;
   if (label === "record-hud") return <RecordHud />;
   if (label === "record-countdown") return <RecordCountdown />;
   if (label === "record-bar") return <RecordBar />;

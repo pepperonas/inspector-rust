@@ -140,7 +140,7 @@ export function FeaturesPanel() {
         {
           name: t("feat.screen_recording"),
           trigger: formatHotkey("Ctrl+Shift+Alt+S"),
-          note: t("feat.drag_a_region_pick_audio"),
+          note: t("feat.record_hotkey_note"),
         },
         {
           name: t("feat.replace_overlay_audio"),

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.228.0] - 2026-11-01
+
+### Added
+- **`record` — screen recording into editable projects (macOS 14+, Apple Silicon).** Type `record` (or press ⌃⇧⌥S) to open the recording HUD: pick a display or a single window through ScreenCaptureKit, choose system audio and the microphone, start after a countdown, pause and resume from a floating control bar, and keep notes in a separate window while you record. Every take becomes a project folder in `~/Movies/Inspector Rust/` with the screen video (system audio included), the microphone on its own track, a pointer-telemetry sidecar (position, clicks, pointer shape) and a project file, so later editing can rework the take instead of a flat video. Inspector Rust's own windows never appear in the recording. The `record` panel lists earlier projects to reveal or delete them.
+
+### Changed
+- **`record` replaces the old ffmpeg region recorder.** The marquee-and-ffmpeg recorder (and its stop bar) is gone, and with it the dependency on ffmpeg and a loopback audio device for recording. ⌃⇧⌥S now opens the `record` HUD. On Windows and Linux there is no recorder any more; the shortcut does nothing there.
+
 ## [0.227.0] - 2026-10-30
 
 ### Fixed

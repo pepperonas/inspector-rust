@@ -112,7 +112,9 @@ ndarray = { workspace = true }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
-    # CTRL+BREAK graceful-stop for the recording ffmpeg (screen_record.rs)
+    # Was: CTRL+BREAK stop for the removed ffmpeg recorder (screen_record.rs, gone
+    # in v0.228.0). Possibly unused now — drop only after a Windows cross-check
+    # (ORT_SKIP_DOWNLOAD=1 cargo check --target x86_64-pc-windows-gnu) stays clean.
     "Win32_System_Console",
     # Touchpad gestures: Raw Input + HID Precision-Touchpad parsing (gestures/windows.rs)
     "Win32_UI_Input",

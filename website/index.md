@@ -21,7 +21,7 @@ Files in the current release:
 - **Clipboard history** — Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.
 - **Text expander** — Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.
 - **77 commands in the search bar** — Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add `?` to any command for its help. Or describe a task in your own words: an AI (Claude, Gemini or ChatGPT) writes the script, you approve it, and it runs on its own — on a schedule or when something happens.
-- **Screen tools** — Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.
+- **Screen tools** — Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording of a display or window (macOS) and a colour picker with a magnifier.
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
 

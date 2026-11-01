@@ -51,6 +51,16 @@ pub enum Notice {
 
 pub type Sink = Arc<dyn Fn(Notice) + Send + Sync>;
 
+/// `RenderClient::frame`'s answer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FrameAnswer {
+    Frame(PreviewFrame),
+    /// The helper answered: nothing newer than `since_gen`.
+    NoneNewer,
+    /// No request was made: the helper is busy (another request, an export).
+    Busy,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientState {
     Running,
@@ -92,7 +102,41 @@ struct Shared {
     /// Set by an orderly `shutdown`: the end of the stream is then expected, not a death.
     closing: AtomicBool,
     exporting: AtomicBool,
+    /// The running export's target (its staging file sits next to it).
+    export_target: Mutex<Option<PathBuf>>,
+    pid: u32,
     sink: Sink,
+}
+
+/// An export the helper can no longer finish (killed, crashed, shut down mid-export).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanedExport {
+    /// Staging files of THIS helper process for this export's type (`.openscreen-<ext>-<pid>-
+    /// <n>.partial.<ext>`, the compositor's `with_staged_output` name) — never the target.
+    pub remove: Vec<PathBuf>,
+    /// The target exists: the helper published it (atomic rename) before it died, so the
+    /// export is complete even though its `ExportDone` never arrived.
+    pub published: bool,
+}
+
+/// Pure decision for [`OrphanedExport`]: `names` are the file names in the target's folder.
+pub fn orphaned_export(target: &Path, helper_pid: u32, names: &[String]) -> OrphanedExport {
+    let dir = target.parent().unwrap_or(Path::new("."));
+    let ext = target.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix = format!(".openscreen-{ext}-{helper_pid}-");
+    let suffix = format!(".partial.{ext}");
+    let target_name = target.file_name().map(|n| n.to_string_lossy().into_owned());
+    let remove = names
+        .iter()
+        .filter(|n| {
+            n.strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(&suffix))
+                .is_some_and(|nonce| !nonce.is_empty() && nonce.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .map(|n| dir.join(n))
+        .collect();
+    let published = target_name.is_some_and(|t| names.contains(&t));
+    OrphanedExport { remove, published }
 }
 
 impl Shared {
@@ -110,13 +154,37 @@ impl Shared {
             let _ = child.kill();
             let _ = child.wait();
         }
-        if self.closing.load(Ordering::SeqCst) {
+        let closing = self.closing.load(Ordering::SeqCst);
+        // The child is gone: nothing writes to the export any more. Clean up after it and tell
+        // the UI — also on an orderly close, where the export simply ends as cancelled.
+        if self.exporting.swap(false, Ordering::SeqCst) {
+            let target = self.export_target.lock().unwrap_or_else(|p| p.into_inner()).take();
+            let mut published = None;
+            if let Some(target) = target {
+                let names: Vec<String> = target
+                    .parent()
+                    .and_then(|d| std::fs::read_dir(d).ok())
+                    .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+                    .unwrap_or_default();
+                let orphan = orphaned_export(&target, self.pid, &names);
+                for f in &orphan.remove {
+                    if let Err(e) = std::fs::remove_file(f) {
+                        tracing::warn!(target: "record::render", "removing {}: {e}", f.display());
+                    }
+                }
+                if orphan.published {
+                    published = Some(target);
+                }
+            }
+            match published {
+                Some(path) => (self.sink)(Notice::ExportDone { path: path.to_string_lossy().into_owned() }),
+                None => (self.sink)(Notice::ExportFailed { reason: reason.clone(), cancelled: closing }),
+            }
+        }
+        if closing {
             return;
         }
         tracing::warn!(target: "record::render", "render helper dead: {reason}");
-        if self.exporting.swap(false, Ordering::SeqCst) {
-            (self.sink)(Notice::ExportFailed { reason: reason.clone(), cancelled: false });
-        }
         (self.sink)(Notice::Dead { reason });
     }
 
@@ -145,9 +213,13 @@ pub fn helper_path() -> Option<(PathBuf, bool)> {
     if let Some(up) = dir.parent() {
         candidates.push(up.join(HELPER_NAME));
     }
-    let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    candidates.push(target.join("debug").join(HELPER_NAME));
-    candidates.push(target.join("release").join(HELPER_NAME));
+    // The workspace's own build folders only for a debug build outside a bundle: a release
+    // bundle missing its helper must fail, not pick up a developer's local build.
+    if cfg!(debug_assertions) && !in_bundle {
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        candidates.push(target.join("debug").join(HELPER_NAME));
+        candidates.push(target.join("release").join(HELPER_NAME));
+    }
     candidates.into_iter().find(|p| p.is_file()).map(|p| (p, !in_bundle))
 }
 
@@ -189,7 +261,10 @@ impl RenderClient {
             let _ = child.wait();
             return Err("render helper has no pipes".into());
         };
+        let pid = child.id();
         let shared = Arc::new(Shared {
+            pid,
+            export_target: Mutex::new(None),
             child: Mutex::new(child),
             dead: Mutex::new(None),
             closing: AtomicBool::new(false),
@@ -292,29 +367,30 @@ impl RenderClient {
         }
     }
 
-    /// The newest preview frame after `since_gen`; `None` when nothing is newer, the helper is
-    /// busy with another request (thumbnails) or an export blocks its render thread.
-    pub fn frame(&self, since_gen: u64) -> Result<Option<PreviewFrame>, String> {
+    /// The newest preview frame after `since_gen`. `Busy` when another request (thumbnails, a
+    /// re-open) holds the helper or an export blocks its render thread — no frame can come then,
+    /// which the stall watchdog must not mistake for a wedged preview.
+    pub fn frame(&self, since_gen: u64) -> Result<FrameAnswer, String> {
         if let Some(reason) = self.shared.dead_reason() {
             return Err(reason);
         }
         if self.exporting() {
-            return Ok(None);
+            return Ok(FrameAnswer::Busy);
         }
         let rx = match self.replies.try_lock() {
             Ok(rx) => rx,
             Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(FrameAnswer::Busy),
         };
         let rx = self.begin(rx, &Command::Frame { since_gen })?;
         let deadline = Instant::now() + self.timeouts.frame;
         loop {
             match self.next(&rx, deadline, "Frame")? {
-                Reply::Preview(f) if f.is_empty() => return Ok(None),
-                Reply::Preview(f) => return Ok(Some(f)),
+                Reply::Preview(f) if f.is_empty() => return Ok(FrameAnswer::NoneNewer),
+                Reply::Preview(f) => return Ok(FrameAnswer::Frame(f)),
                 Reply::Event(Event::Error { msg }) => {
                     tracing::debug!(target: "record::render", "frame: {msg}");
-                    return Ok(None);
+                    return Ok(FrameAnswer::NoneNewer);
                 }
                 other => tracing::debug!(target: "record::render", "ignoring {other:?} while waiting for a frame"),
             }
@@ -346,8 +422,10 @@ impl RenderClient {
         if self.shared.exporting.swap(true, Ordering::SeqCst) {
             return Err("record.editor.export_busy".into());
         }
+        *self.shared.export_target.lock().unwrap_or_else(|p| p.into_inner()) = Some(PathBuf::from(&out_path));
         if let Err(e) = self.send(&Command::Export { scene, kind, out_path }) {
             self.shared.exporting.store(false, Ordering::SeqCst);
+            self.shared.export_target.lock().unwrap_or_else(|p| p.into_inner()).take();
             return Err(e);
         }
         Ok(())
@@ -423,11 +501,13 @@ fn read_loop(mut stdout: impl std::io::Read, tx: Sender<Reply>, shared: Arc<Shar
                     continue;
                 }
                 Ok(Event::ExportDone { path }) => {
+                    shared.export_target.lock().unwrap_or_else(|p| p.into_inner()).take();
                     shared.exporting.store(false, Ordering::SeqCst);
                     (shared.sink)(Notice::ExportDone { path });
                     continue;
                 }
                 Ok(Event::ExportFailed { msg, cancelled }) => {
+                    shared.export_target.lock().unwrap_or_else(|p| p.into_inner()).take();
                     shared.exporting.store(false, Ordering::SeqCst);
                     (shared.sink)(Notice::ExportFailed { reason: msg, cancelled });
                     continue;
@@ -562,6 +642,74 @@ mod tests {
     }
 
     #[test]
+    fn orphaned_export_removes_only_this_helpers_staging() {
+        let target = Path::new("/d/Demo 2026-11-02 09.05.mp4");
+        let names: Vec<String> = [
+            ".openscreen-mp4-42-0.partial.mp4",  // ours
+            ".openscreen-mp4-42-17.partial.mp4", // ours, later nonce
+            ".openscreen-mp4-43-0.partial.mp4",  // another helper (a second app instance)
+            ".openscreen-gif-42-0.partial.gif",  // another export type
+            ".openscreen-mp4-42-x.partial.mp4",  // not a nonce
+            ".openscreen-mp4-42-.partial.mp4",   // empty nonce
+            "Demo 2026-11-02 09.05 2.mp4",       // the user's earlier export
+            "notes.txt",
+        ]
+        .map(String::from)
+        .to_vec();
+        let o = orphaned_export(target, 42, &names);
+        assert_eq!(
+            o.remove,
+            vec![Path::new("/d/.openscreen-mp4-42-0.partial.mp4"), Path::new("/d/.openscreen-mp4-42-17.partial.mp4")]
+        );
+        assert!(!o.published, "the target was never published");
+        let mut with_target = names.clone();
+        with_target.push("Demo 2026-11-02 09.05.mp4".into());
+        let o = orphaned_export(target, 42, &with_target);
+        assert!(o.published, "a published target is a finished export");
+        assert!(!o.remove.iter().any(|p| p == target), "the target itself is never removed");
+    }
+
+    #[test]
+    fn death_mid_export_removes_the_staging_file() {
+        let dir = std::env::temp_dir().join(format!("ir-render-client-{}-staging", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let staging = |pid: u32| dir.join(format!(".openscreen-gif-{pid}-0.partial.gif"));
+        // Writes its staging file (named after its own pid), then crashes.
+        let crash = script(
+            "staging-crash",
+            &format!("touch \"{}/.openscreen-gif-$$-0.partial.gif\"\nsleep 0.3\nexit 9", dir.display()),
+        );
+        let (sink, seen) = collecting();
+        let client = RenderClient::spawn_with(crash, Vec::new(), sink).unwrap();
+        let pid = client.shared.pid;
+        let kind = ExportKind::Gif { w: 2, h: 2, fps: 15, loop_forever: true };
+        client.export(serde_json::json!({}), kind.clone(), dir.join("out.gif").to_string_lossy().into()).unwrap();
+        wait_until(|| staging(pid).exists() || client.is_dead());
+        wait_until(|| client.is_dead());
+        assert!(!staging(pid).exists(), "the partial file is gone");
+        assert!(seen.lock().unwrap().iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: false, .. })));
+
+        // Editor closed mid-export: an orderly close still cleans up and reports a cancel.
+        let busy = script(
+            "staging-close",
+            &format!("touch \"{}/.openscreen-gif-$$-0.partial.gif\"\ntrap '' TERM\nexec sleep 30", dir.display()),
+        );
+        let (sink, seen) = collecting();
+        let t = Timeouts { shutdown: Duration::from_millis(300), ..Timeouts::default() };
+        let client = RenderClient::spawn_with_timeouts(busy, Vec::new(), sink, t).unwrap();
+        let pid = client.shared.pid;
+        client.export(serde_json::json!({}), kind, dir.join("out2.gif").to_string_lossy().into()).unwrap();
+        wait_until(|| staging(pid).exists());
+        client.shutdown();
+        assert!(!staging(pid).exists());
+        let seen = seen.lock().unwrap();
+        assert!(seen.iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: true, .. })), "{seen:?}");
+        assert!(!seen.iter().any(|n| matches!(n, Notice::Dead { .. })), "an orderly close is not a death");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn export_is_one_at_a_time_and_death_fails_it() {
         let alive = script("export", "sleep 0.3\nexit 3");
         let (sink, seen) = collecting();
@@ -572,7 +720,7 @@ mod tests {
             client.export(serde_json::json!({}), kind, "/tmp/y.gif".into()).unwrap_err(),
             "record.editor.export_busy"
         );
-        assert_eq!(client.frame(0).unwrap(), None, "no frame requests while an export blocks the helper");
+        assert_eq!(client.frame(0).unwrap(), FrameAnswer::Busy, "no frame requests while an export blocks the helper");
         wait_until(|| client.is_dead());
         wait_until(|| seen.lock().unwrap().iter().any(|n| matches!(n, Notice::ExportFailed { .. })));
         assert!(!client.exporting());

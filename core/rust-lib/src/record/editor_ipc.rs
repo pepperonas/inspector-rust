@@ -17,13 +17,14 @@
 
 use super::editor::{self, Aspect, EditDoc, EditorView, OutputTarget};
 use super::project::{self, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
-use super::render_client::{Notice, RenderClient, Sink};
+use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
 use super::scene_json::scene_json;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -96,9 +97,28 @@ pub fn export_path(
         .expect("an unbounded range finds a free name")
 }
 
-/// While playing and not exporting: no frame for [`PLAYBACK_STALL`] is a stalled helper.
-pub fn stalled(playing: bool, exporting: bool, since_last_frame: Duration) -> bool {
-    playing && !exporting && since_last_frame > PLAYBACK_STALL
+/// What one frame poll tells the stall watchdog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FramePoll {
+    /// A new frame arrived.
+    Frame,
+    /// The helper answered "nothing newer".
+    NoneNewer,
+    /// No request was possible (thumbnails, a re-open, an export hold the helper).
+    Busy,
+}
+
+/// The stall watchdog. `anchor_ms` is the last moment the preview was known healthy; only
+/// time spent playing with the helper free to answer counts. Returns the new anchor and
+/// whether the helper is stalled (no frame for more than [`PLAYBACK_STALL`]).
+pub fn stall_check(playing: bool, poll: FramePoll, anchor_ms: u64, now_ms: u64) -> (u64, bool) {
+    match poll {
+        FramePoll::Frame | FramePoll::Busy => (now_ms, false),
+        FramePoll::NoneNewer if !playing => (now_ms, false),
+        FramePoll::NoneNewer => {
+            (anchor_ms, now_ms.saturating_sub(anchor_ms) > PLAYBACK_STALL.as_millis() as u64)
+        }
+    }
 }
 
 /// Programme frame indices on the `fps` grid for `count` evenly spaced thumbnails (centred in
@@ -310,6 +330,15 @@ impl Transport {
         }
     }
 
+    /// Re-aims a fresh preview (a restarted helper starts on clip 0) at the playhead: always a
+    /// `SetActiveClip`, never a `SetTime` into whatever clip the helper happens to show.
+    pub fn reaim(&mut self, doc: &EditDoc, now_ms: u64) -> Vec<Command> {
+        let pos = self.position(now_ms);
+        self.base_ms = pos;
+        self.started_ms = now_ms;
+        self.aim(doc, pos, true).0
+    }
+
     /// The document changed: keep the playhead (clamped into the new programme) and re-aim.
     pub fn set_doc(&mut self, doc: &EditDoc, now_ms: u64) -> Vec<Command> {
         let pos = self.position(now_ms);
@@ -334,12 +363,15 @@ pub struct EditorInit {
 }
 
 struct Session {
+    /// Unique per `open_editor`: an old window's close must not end a newer session.
+    id: u64,
     dir: PathBuf,
     project: Project,
     doc: EditDoc,
     transport: Transport,
     preview: (u32, u32),
-    last_frame_at: Instant,
+    /// Stall-watchdog anchor (`now_ms` clock), see [`stall_check`].
+    last_frame_ms: u64,
     dirty: bool,
     save_pending: bool,
 }
@@ -375,6 +407,10 @@ impl Session {
 }
 
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
+/// Bumped for every editor window built; a destroyed window that is no longer the current
+/// one never touches the session.
+static WINDOW_GEN: AtomicU64 = AtomicU64::new(0);
 static HOST: Mutex<Option<Arc<RenderClient>>> = Mutex::new(None);
 
 fn session() -> std::sync::MutexGuard<'static, Option<Session>> {
@@ -400,6 +436,8 @@ fn sink(app: &AppHandle) -> Sink {
             let _ = app.emit(EV_EXPORT_FAILED, serde_json::json!({ "reason": reason, "cancelled": cancelled }));
         }
         Notice::Dead { reason } => {
+            // Keep the edits: the next save would otherwise wait for another edit or the close.
+            let _ = std::thread::Builder::new().name("ir-editor-save".into()).spawn(flush_save);
             let _ = app.emit(EV_FATAL, serde_json::json!({ "reason": reason }));
         }
     })
@@ -426,10 +464,11 @@ fn ensure_client(app: &AppHandle, reopen: bool) -> Result<Arc<RenderClient>, Str
         let opened = {
             let mut s = session();
             s.as_mut().map(|s| {
-                let pos = s.transport.position(now_ms());
+                // The fresh helper's preview is paused on clip 0; stop the clock with it and
+                // aim at the playhead with a SetActiveClip (Transport::reaim).
                 s.transport.pause(now_ms());
-                let (cmds, _) = s.transport.seek(&s.doc, now_ms(), pos);
-                s.last_frame_at = Instant::now();
+                let cmds = s.transport.reaim(&s.doc, now_ms());
+                s.last_frame_ms = now_ms();
                 (s.preview_scene(), s.preview, cmds)
             })
         };
@@ -499,11 +538,16 @@ fn show_window(app: &AppHandle) {
         match built {
             Ok(win) => {
                 let app = handle.clone();
+                let gen = WINDOW_GEN.fetch_add(1, Ordering::SeqCst) + 1;
                 win.on_window_event(move |ev| {
-                    if matches!(ev, tauri::WindowEvent::Destroyed) {
-                        let app = app.clone();
-                        std::thread::spawn(move || close(&app, false));
+                    if !matches!(ev, tauri::WindowEvent::Destroyed) || WINDOW_GEN.load(Ordering::SeqCst) != gen {
+                        return;
                     }
+                    // The session this window showed when it went away — read now, not on the
+                    // thread, so an editor opened meanwhile is never the one closed.
+                    let Some(id) = session().as_ref().map(|s| s.id) else { return };
+                    let app = app.clone();
+                    std::thread::spawn(move || close(&app, false, Some(id)));
                 });
             }
             Err(e) => tracing::warn!(target: "record::editor", "editor window: {e}"),
@@ -528,12 +572,13 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     let (scene, preview, init) = {
         let mut s = session();
         let new = Session {
+            id: NEXT_SESSION.fetch_add(1, Ordering::SeqCst),
             transport: Transport::new(&doc),
             preview: (0, 0),
             dir,
             project,
             doc,
-            last_frame_at: Instant::now(),
+            last_frame_ms: now_ms(),
             dirty: false,
             save_pending: false,
         };
@@ -572,7 +617,7 @@ pub fn update(app: &AppHandle, doc: EditDoc) -> Result<EditorView, String> {
         let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
         s.doc = editor::normalize(doc, s.project.recording.duration_ms);
         let cmds = s.transport.set_doc(&s.doc, now_ms());
-        s.last_frame_at = Instant::now();
+        s.last_frame_ms = now_ms();
         schedule_save(s);
         (editor::view(&s.doc), s.preview_scene(), cmds)
     };
@@ -586,7 +631,7 @@ pub fn seek(app: &AppHandle, programme_ms: u64) -> Result<Option<SourcePos>, Str
     let (cmds, pos) = {
         let mut guard = session();
         let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
-        s.last_frame_at = Instant::now();
+        s.last_frame_ms = now_ms();
         s.transport.seek(&s.doc, now_ms(), programme_ms)
     };
     let client = ensure_client(app, true)?;
@@ -612,7 +657,7 @@ pub fn play(app: &AppHandle, playing: bool) -> Result<PlaybackState, String> {
     let cmds = {
         let mut guard = session();
         let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
-        s.last_frame_at = Instant::now();
+        s.last_frame_ms = now_ms();
         if playing { s.transport.play(&s.doc, now_ms()) } else { s.transport.pause(now_ms()) }
     };
     let client = ensure_client(app, true)?;
@@ -644,25 +689,26 @@ pub fn position() -> Option<PlaybackState> {
 pub fn frame(since_gen: u64) -> Vec<u8> {
     let Some(state) = tick() else { return Vec::new() };
     let Some(client) = current_client() else { return Vec::new() };
-    match client.frame(since_gen) {
-        Ok(Some(f)) => {
-            if let Some(s) = session().as_mut() {
-                s.last_frame_at = Instant::now();
-            }
-            frame_response(Some(&f))
+    let (poll, body) = match client.frame(since_gen) {
+        Ok(FrameAnswer::Frame(f)) => (FramePoll::Frame, frame_response(Some(&f))),
+        Ok(FrameAnswer::NoneNewer) => (FramePoll::NoneNewer, Vec::new()),
+        Ok(FrameAnswer::Busy) => (FramePoll::Busy, Vec::new()),
+        Err(_) => return Vec::new(),
+    };
+    let stalled = {
+        let mut guard = session();
+        let Some(s) = guard.as_mut() else { return body };
+        let (anchor, stalled) = stall_check(state.playing, poll, s.last_frame_ms, now_ms());
+        s.last_frame_ms = anchor;
+        if stalled {
+            s.transport.pause(now_ms());
         }
-        Ok(None) => {
-            let since = session().as_ref().map(|s| s.last_frame_at.elapsed()).unwrap_or_default();
-            if stalled(state.playing, client.exporting(), since) {
-                client.abandon(format!("render helper stalled: no preview frame for {} s", PLAYBACK_STALL.as_secs()));
-                if let Some(s) = session().as_mut() {
-                    s.transport.pause(now_ms());
-                }
-            }
-            Vec::new()
-        }
-        Err(_) => Vec::new(),
+        stalled
+    };
+    if stalled {
+        client.abandon(format!("render helper stalled: no preview frame for {} s", PLAYBACK_STALL.as_secs()));
     }
+    body
 }
 
 pub fn resize(app: &AppHandle, w: u32, h: u32) -> Result<(), String> {
@@ -684,7 +730,20 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         (scene_json(&s.dir, &s.project, &s.doc, out, THUMB_FPS), frames)
     };
     let client = ensure_client(app, true)?;
-    let rendered = client.thumbs(scene, THUMB_FPS, frames.clone(), THUMB_WIDTH)?;
+    let rendered = client.thumbs(scene, THUMB_FPS, frames.clone(), THUMB_WIDTH);
+    // The helper paused its preview while rendering, the app clock ran on: put the preview
+    // back where the playhead is now.
+    let cmds = {
+        let mut guard = session();
+        guard.as_mut().filter(|s| s.transport.playing()).map(|s| {
+            s.last_frame_ms = now_ms();
+            s.transport.reaim(&s.doc, now_ms())
+        })
+    };
+    if let Some(cmds) = cmds {
+        let _ = send_all(&client, &cmds);
+    }
+    let rendered = rendered?;
     let b64 = base64::engine::general_purpose::STANDARD;
     Ok(frames
         .iter()
@@ -730,11 +789,21 @@ pub fn restart(app: &AppHandle) -> Result<PlaybackState, String> {
     Ok(playback(guard.as_ref().ok_or(ERR_NO_SESSION)?))
 }
 
-/// Ends the session: saves, shuts the helper down (≤ 2 s, then killed), closes the window
-/// (unless it is already going away).
-pub fn close(app: &AppHandle, close_window: bool) {
+/// Ends the session: saves, shuts the helper down (≤ 2 s, then killed; a running export ends
+/// as cancelled and its partial file is removed), closes the window (unless it is already
+/// going away). With `expected`, only that session is ended — a newer one is left alone.
+pub fn close(app: &AppHandle, close_window: bool, expected: Option<u64>) {
+    if !should_close(session().as_ref().map(|s| s.id), expected) {
+        return;
+    }
     flush_save();
-    session().take();
+    {
+        let mut guard = session();
+        if !should_close(guard.as_ref().map(|s| s.id), expected) {
+            return;
+        }
+        guard.take();
+    }
     let client = HOST.lock().unwrap_or_else(|p| p.into_inner()).take();
     if let Some(c) = client {
         c.shutdown();
@@ -747,6 +816,20 @@ pub fn close(app: &AppHandle, close_window: bool) {
             }
         });
     }
+}
+
+/// `close` for `expected`: no expectation closes whatever is open; otherwise only the
+/// expected session (an already-closed one leaves nothing to do).
+pub fn should_close(current: Option<u64>, expected: Option<u64>) -> bool {
+    match expected {
+        None => true,
+        Some(id) => current == Some(id),
+    }
+}
+
+/// App exit (`RunEvent::Exit`): save and stop the helper.
+pub fn shutdown(app: &AppHandle) {
+    close(app, false, None);
 }
 
 #[cfg(test)]
@@ -848,12 +931,49 @@ mod tests {
     }
 
     #[test]
-    fn stall_only_while_playing_and_not_exporting() {
-        let long = PLAYBACK_STALL + Duration::from_millis(1);
-        assert!(stalled(true, false, long));
-        assert!(!stalled(true, false, PLAYBACK_STALL));
-        assert!(!stalled(false, false, long), "a paused preview sends no new frames");
-        assert!(!stalled(true, true, long), "an export blocks the preview by design");
+    fn stall_counts_only_free_playing_time() {
+        let stall = PLAYBACK_STALL.as_millis() as u64;
+        // Helper answers "nothing newer" for longer than the limit while playing → stalled.
+        assert_eq!(stall_check(true, FramePoll::NoneNewer, 0, stall), (0, false), "exactly the limit is fine");
+        assert_eq!(stall_check(true, FramePoll::NoneNewer, 0, stall + 1), (0, true));
+        // Thumbnails / a re-open / an export hold the helper for a long time: never a stall, and
+        // the clock restarts afterwards.
+        let mut anchor = 0;
+        for now in (0..30_000).step_by(100) {
+            let (a, stalled) = stall_check(true, FramePoll::Busy, anchor, now);
+            assert!(!stalled, "busy at {now}");
+            anchor = a;
+        }
+        // The busy time does not count: right after it, "nothing newer" is not a stall yet …
+        assert_eq!(anchor, 29_900, "every busy poll moves the anchor");
+        assert_eq!(stall_check(true, FramePoll::NoneNewer, anchor, 30_400), (anchor, false));
+        // … only a full stall window of free playing time is.
+        assert!(stall_check(true, FramePoll::NoneNewer, anchor, anchor + stall + 1).1);
+        // Paused: no frames are expected.
+        assert_eq!(stall_check(false, FramePoll::NoneNewer, 0, 60_000), (60_000, false));
+        // A frame resets the anchor.
+        assert_eq!(stall_check(true, FramePoll::Frame, 0, 9_000), (9_000, false));
+    }
+
+    #[test]
+    fn restart_reaims_with_set_active_clip() {
+        let d = doc(&[(0, 2_000), (5_000, 8_000)]);
+        let mut t = Transport::new(&d);
+        let _ = t.seek(&d, 0, 3_000); // playhead in clip 1
+        // A fresh helper shows clip 0: the reopen must switch clips, not SetTime into clip 0.
+        assert_eq!(t.reaim(&d, 0), vec![Command::SetActiveClip { clip: 1, source_sec: 6.0 }]);
+        // Same while playing (the clock is stopped first, as the reopen does).
+        let _ = t.play(&d, 0);
+        let _ = t.pause(500);
+        assert_eq!(t.reaim(&d, 500), vec![Command::SetActiveClip { clip: 1, source_sec: 6.5 }]);
+    }
+
+    #[test]
+    fn close_only_ends_the_expected_session() {
+        assert!(should_close(Some(3), None), "editor_close / app exit end whatever is open");
+        assert!(should_close(Some(3), Some(3)));
+        assert!(!should_close(Some(4), Some(3)), "an old window's close never ends a newer session");
+        assert!(!should_close(None, Some(3)), "already closed");
     }
 
     #[test]
@@ -917,7 +1037,7 @@ mod tests {
         client.open(scene.clone(), w, h).unwrap();
         let mut got = None;
         for _ in 0..100 {
-            if let Some(f) = client.frame(0).unwrap() {
+            if let FrameAnswer::Frame(f) = client.frame(0).unwrap() {
                 got = Some(f);
                 break;
             }

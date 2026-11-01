@@ -7198,7 +7198,7 @@ pub async fn editor_open(app: AppHandle, dir: String) -> Result<crate::record::e
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_current() -> Result<Option<crate::record::editor_ipc::EditorInit>, String> {
-    Ok(crate::record::editor_ipc::current())
+    editor_blocking(|| Ok(crate::record::editor_ipc::current())).await
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -7223,7 +7223,8 @@ pub async fn editor_play(app: AppHandle, playing: bool) -> Result<crate::record:
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_position() -> Result<Option<crate::record::editor_ipc::PlaybackState>, String> {
-    Ok(crate::record::editor_ipc::position())
+    // Off the async runtime: the tick may write to a full helper stdin.
+    editor_blocking(|| Ok(crate::record::editor_ipc::position())).await
 }
 
 /// Raw bytes: `gen u64 LE`, `w u32 LE`, `h u32 LE`, RGBA — empty when nothing is newer.
@@ -7273,7 +7274,7 @@ pub async fn editor_restart(app: AppHandle) -> Result<crate::record::editor_ipc:
 #[tauri::command]
 pub async fn editor_close(app: AppHandle) -> Result<(), String> {
     editor_blocking(move || {
-        crate::record::editor_ipc::close(&app, true);
+        crate::record::editor_ipc::close(&app, true, None);
         Ok(())
     })
     .await

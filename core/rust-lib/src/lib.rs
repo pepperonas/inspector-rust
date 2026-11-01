@@ -1317,6 +1317,10 @@ pub fn run(context: tauri::Context<Wry>) {
             // A running `record` take is finalised so its files stay usable.
             #[cfg(target_os = "macos")]
             record::session::shutdown(_app);
+            // The editor: save pending edits, stop the render helper (a running export is
+            // cancelled and its partial file removed).
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            record::editor_ipc::shutdown(_app);
             boom::shutdown();
             live_transcribe::restore_output();
         }

@@ -1,4 +1,4 @@
-import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { appVersion, recordOpenHud, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg } from "./lib/transcribe";
@@ -99,6 +99,7 @@ const GesturesPanel = lazy(() =>
   import("./components/GesturesPanel").then((m) => ({ default: m.GesturesPanel })),
 );
 const LumenPanel = lazy(() => import("./components/LumenPanel").then((m) => ({ default: m.LumenPanel })));
+const RecordPanel = lazy(() => import("./components/RecordPanel").then((m) => ({ default: m.RecordPanel })));
 const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
 const RandomPanel = lazy(() => import("./components/RandomPanel").then((m) => ({ default: m.RandomPanel })));
 const CommandHelp = lazy(() => import("./components/CommandHelp"));
@@ -1714,6 +1715,17 @@ function App() {
   // `bluetooth` / `bt` -- manage paired devices inline. Shows while fully
   // typed (the `sound` pattern: listing is a cheap sync read, no radio scan);
   // Enter only hands the arrow keys over. Actions stay explicit clicks/keys.
+  const isRecordCmd = parsedCommand?.spec.kind === "record";
+  const [recordMode, setRecordMode] = useState(false);
+  const [recordFocus, setRecordFocus] = useState(false);
+  useEffect(() => {
+    if (isRecordCmd && !recordMode) setRecordMode(true);
+    else if (!isRecordCmd && recordMode) {
+      setRecordMode(false);
+      setRecordFocus(false);
+    }
+  }, [isRecordCmd, recordMode]);
+
   const isBluetoothCmd = parsedCommand?.spec.kind === "bluetooth";
   const [bluetoothMode, setBluetoothMode] = useState(false);
   const [bluetoothFocus, setBluetoothFocus] = useState(false);
@@ -2056,6 +2068,10 @@ function App() {
           : t("cmd.rz.example");
         break;
       }
+      case "record":
+        label = t("cmd.record.label");
+        hint = t("cmd.record.hint");
+        break;
       case "bluetooth":
         label = t("cmd.bt.label");
         hint = t("cmd.bt.hint");
@@ -4302,6 +4318,8 @@ function App() {
     setDezibelMode(false);
     setBluetoothMode(false);
     setBluetoothFocus(false);
+    setRecordMode(false);
+    setRecordFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -4446,7 +4464,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github", "record",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4473,6 +4491,11 @@ function App() {
           commandKind === "github" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
+      }
+      if (commandKind === "record") {
+        setRecordMode(true);
+        recordOpenHud().catch((e) => console.warn("record hud:", e));
+        return true;
       }
       if (commandKind === "bluetooth") {
         setBluetoothMode(true);
@@ -5581,6 +5604,7 @@ function App() {
       !gameMode &&
       !bpmMode &&
       !bluetoothFocus &&
+      !recordFocus &&
       !equalizerMode &&
       !totpMode &&
       !pwgenEditing &&
@@ -6317,6 +6341,17 @@ function App() {
                       onExit={() => {
                         setTokensMode(false);
                         setTokensFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : recordMode ? (
+                  <div className="md3-pop-in h-full">
+                    <RecordPanel
+                      focused={recordFocus}
+                      onRequestFocus={() => setRecordFocus(true)}
+                      onExit={() => {
+                        setRecordFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

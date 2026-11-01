@@ -54,6 +54,7 @@ import { LanguageSection } from "./LanguageSection";
 import { InlineMd } from "./InlineMd";
 import { locale, useT, tn, tSplit, type MessageKey } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
+import { RecordSettingsSection } from "./RecordSettingsSection";
 import { crtOffMs } from "../lib/md3-motion";
 import { IS_LINUX, IS_MAC } from "../lib/platform";
 import { LinuxShortcutsSettings } from "./LinuxShortcutsSettings";
@@ -3071,6 +3072,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     "repos": (
         <div className="mb-6">
           <RepositoriesSection />
+        </div>
+    ),
+    "record": (
+        <div className="mb-6">
+          <RecordSettingsSection />
         </div>
     ),
     "github": (

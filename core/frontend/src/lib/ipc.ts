@@ -5207,6 +5207,20 @@ export function recordStop(): Promise<string> {
 export function recordCancel(): Promise<void> {
   return invoke("record_cancel");
 }
+export type RecordProjectStatus = "recording" | "ready" | "incomplete" | "failed";
+export interface RecordProjectItem {
+  dir: string;
+  title: string;
+  createdAt: number;
+  durationMs: number;
+  status: RecordProjectStatus;
+  failure: string | null;
+  /** The take running right now (its files are not final yet). */
+  active: boolean;
+}
+export function recordListProjects(): Promise<RecordProjectItem[]> {
+  return invoke("record_list_projects");
+}
 export function recordRevealProject(dir: string): Promise<void> {
   return invoke("record_reveal_project", { dir });
 }

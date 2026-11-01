@@ -981,6 +981,30 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["trim", "md2pdf"],
   },
   {
+    command: "record",
+    aliases: [],
+    category: CAT_MEDIA,
+    version_added: "0.227.0",
+    tagline: "Record the screen or a window as an editable project.",
+    tagline_de: "Bildschirm oder Fenster als nachbearbeitbares Projekt aufnehmen.",
+    synopsis: "record",
+    description:
+      "Records a display or a single window with ScreenCaptureKit — optionally with system audio, microphone and pointer data kept separate so the cursor can be restyled later. Typing `record` lists your recent projects (title, date, length; broken or interrupted takes show their reason). **Enter** opens the recording HUD, where you pick the source, toggle the tracks and start; **⌘⏎** shows a project in Finder; **⌫** (twice) deletes it. While a take runs the panel shows its phase and time with a Stop button. `Ctrl+Shift+Alt+S` opens the same HUD from anywhere.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "record", result: "Recent recordings; Enter opens the HUD for a new one." },
+      { input: "record + Enter", result: "Choose Screen or Window, set audio/cursor, press Record." },
+      { input: "record?", result: "This help." },
+    ],
+    tips: [
+      "The hotkey `Ctrl+Shift+Alt+S` skips the search bar and opens the HUD directly.",
+      "Projects live in the folder set under Settings → Recording; each one is a plain folder you can back up or move.",
+    ],
+    caveats: ["Apple Silicon only, macOS 14+ — elsewhere the panel explains why recording is unavailable.", "Needs the Screen Recording permission."],
+    related: ["shot", "trim"],
+  },
+  {
     command: "trim",
     aliases: [],
     category: CAT_MEDIA,

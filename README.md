@@ -689,6 +689,7 @@ alone for the whole index.
 | `transcribe` | v0.205.0 | Local audio/video → TXT, or live dictation from the microphone. |
 | `spotify` | v0.206.0 | Spotify: now playing, local play history, export, control. |
 | `github` | v0.209.0 | GitHub analytics: account age, followers, stars and forks since creation, repository insights. |
+| `record` | v0.227.0 | Record the screen or a window as an editable project. |
 
 <!-- COMMANDS:END -->
 

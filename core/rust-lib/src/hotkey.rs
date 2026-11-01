@@ -816,12 +816,25 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
             });
         }
         ActionId::Record => {
-            let app_main = app.clone();
-            let _ = app.run_on_main_thread(move || {
-                if let Err(e) = crate::commands::screen_record_open_overlay(app_main.clone()) {
-                    tracing::warn!("screen-record overlay: {e}");
-                }
-            });
+            #[cfg(target_os = "macos")]
+            {
+                // open_hud builds windows from its own worker thread.
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    if let Err(e) = crate::record::session::open_hud(&app) {
+                        tracing::warn!("record hud: {e}");
+                    }
+                });
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let app_main = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(e) = crate::commands::screen_record_open_overlay(app_main.clone()) {
+                        tracing::warn!("screen-record overlay: {e}");
+                    }
+                });
+            }
         }
         ActionId::AudioSwap => {
             let app = app.clone();

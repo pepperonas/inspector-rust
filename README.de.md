@@ -688,6 +688,7 @@ Englisch.)
 | `transcribe` | v0.205.0 | Audio/Video lokal → TXT, oder Live-Diktat vom Mikrofon. |
 | `spotify` | v0.206.0 | Spotify: läuft gerade, lokaler Verlauf, Export, Steuerung. |
 | `github` | v0.209.0 | GitHub-Statistik: Kontoalter, Follower, Sterne und Forks seit Erstellung, Repository-Insights. |
+| `record` | v0.227.0 | Bildschirm oder Fenster als nachbearbeitbares Projekt aufnehmen. |
 
 <!-- COMMANDS:END -->
 

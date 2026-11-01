@@ -103,6 +103,7 @@ export type CommandKind =
   | "shazam"
   | "spotify"
   | "github"
+  | "record"
   | "boom"
   | "uptime"
   | "weather"
@@ -1100,6 +1101,17 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Your GitHub statistics: followers, stars, repository ranking and their growth over time, from local snapshots",
     description_de: "Deine GitHub-Statistik: Follower, Sterne, Repository-Rangliste und ihr Wachstum über die Zeit, aus lokalen Snapshots",
     requiresArg: false,
+  },
+  {
+    kind: "record",
+    keyword: "record",
+    syntax: "record",
+    description:
+      "Record the screen or a window (system audio, microphone, pointer data) into an editable project — Enter opens the recording HUD",
+    description_de:
+      "Bildschirm oder Fenster aufnehmen (Systemton, Mikro, Zeigerdaten) als nachbearbeitbares Projekt — Enter öffnet das Aufnahme-HUD",
+    requiresArg: false,
+    platform: ["mac"],
   },
   {
     kind: "iris",

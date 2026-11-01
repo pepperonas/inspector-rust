@@ -88,6 +88,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   sec("github", ["github", "github token", "integrations", "integration", "oauth", "followers", "stars", "sterne"]),
   sec("language", ["language", "sprache", "english", "englisch", "deutsch", "german", "locale"]),
   sec("changelog", ["changelog", "änderungen", "versionshinweise", "release notes", "what's new", "neuigkeiten", "history of changes"]),
+  sec("record", ["record","aufnahme","recording","video"]),
 ];
 
 export interface SettingsCategory {
@@ -110,7 +111,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   cat("clipboard", ["clipboard-history", "clipboard-privacy", "paste", "capture"]),
   cat("snippets", ["snippets", "expander", "auto-expand", "direct-slots"]),
   cat("desktop", ["gestures", "window", "window-palette", "cursor-wrap"]),
-  cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb"]),
+  cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb", "record"]),
   cat("services", ["ai", "weather", "spotify", "pagespeed", "github", "repos"]),
   cat("sync", ["cloud-sync", "device-sync", "auto-backup", "backup"]),
   cat("about", ["about", "changelog"]),

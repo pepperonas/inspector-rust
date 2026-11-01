@@ -55,6 +55,9 @@ const RecordCountdown = React.lazy(() =>
 );
 const RecordBar = React.lazy(() => import("./components/RecordBar").then((m) => ({ default: m.RecordBar })));
 const RecordNotes = React.lazy(() => import("./components/RecordNotes").then((m) => ({ default: m.RecordNotes })));
+const RecordEditor = React.lazy(() =>
+  import("./components/RecordEditor").then((m) => ({ default: m.RecordEditor })),
+);
 const AudioSwapOverlay = React.lazy(() =>
   import("./components/AudioSwapOverlay").then((m) => ({ default: m.AudioSwapOverlay })),
 );
@@ -88,6 +91,7 @@ function Mount() {
   if (label === "record-countdown") return <RecordCountdown />;
   if (label === "record-bar") return <RecordBar />;
   if (label === "record-notes") return <RecordNotes />;
+  if (label === "record-editor") return <RecordEditor />;
   if (label === "audio-swap") return <AudioSwapOverlay />;
   if (label === "trim-overlay") return <TrimOverlay />;
   if (label === "color-loupe") return <ColorLoupe />;

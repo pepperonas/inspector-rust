@@ -568,6 +568,64 @@ const mockLanguage = () => ({
   system: "en",
 });
 
+
+// ── record editor (stage 2) — invented 24-s take, spans computed here only for the mockup ──
+type EdDoc = { clips: { startMs: number; endMs: number }[]; speed: { clip: number; startMs: number; endMs: number; speed: number }[] } & Record<string, unknown>;
+let edDoc: EdDoc = {
+  version: 1,
+  clips: [{ startMs: 0, endMs: 9_000 }, { startMs: 11_000, endMs: 24_000 }],
+  speed: [{ clip: 1, startMs: 14_000, endMs: 20_000, speed: 3 }],
+  crop: [null, null],
+  output: { aspect: "source" },
+  micGainDb: -3,
+};
+let edPlaying = false;
+let edPos = 3_400;
+function edView(doc: EdDoc) {
+  let t = 0;
+  const speed: { index: number; progStartMs: number; progEndMs: number }[] = [];
+  const clips = doc.clips.map((c, ci) => {
+    const start = t;
+    let src = c.startMs;
+    doc.speed
+      .map((r, index) => ({ r, index }))
+      .filter(({ r }) => r.clip === ci)
+      .sort((a, b) => a.r.startMs - b.r.startMs)
+      .forEach(({ r, index }) => {
+        t += r.startMs - src;
+        const ps = t;
+        t += (r.endMs - r.startMs) / r.speed;
+        speed.push({ index, progStartMs: Math.round(ps), progEndMs: Math.round(t) });
+        src = r.endMs;
+      });
+    t += c.endMs - src;
+    return { progStartMs: Math.round(start), progEndMs: Math.round(t) };
+  });
+  return { doc, programmeMs: Math.round(t), clips, speed };
+}
+function edFrame(): ArrayBuffer {
+  const w = 320, h = 180;
+  const buf = new ArrayBuffer(16 + w * h * 4);
+  const v = new DataView(buf);
+  v.setBigUint64(0, BigInt(Date.now()), true);
+  v.setUint32(8, w, true);
+  v.setUint32(12, h, true);
+  const px = new Uint8ClampedArray(buf, 16);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const win = x > 40 && x < 280 && y > 30 && y < 150;
+      px[i] = win ? 236 : 30 + y / 3;
+      px[i + 1] = win ? (y < 44 ? 210 : 240) : 60 + x / 8;
+      px[i + 2] = win ? 245 : 120 + x / 4;
+      px[i + 3] = 255;
+    }
+  return buf;
+}
+const edThumb = (i: number) =>
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='90'><rect width='160' height='90' fill='hsl(${210 + i * 7},45%,${30 + (i % 4) * 4}%)'/><rect x='20' y='15' width='120' height='60' rx='4' fill='#eef'/></svg>`);
+
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     // ── boot ──────────────────────────────────────────────────────────────
@@ -856,6 +914,19 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "speedtest_run": return SPEED_RUNS[0];
     case "speedtest_history": return SPEED_RUNS;
     case "speedtest_clear_history": return null;
+    case "editor_current": return {
+        project: { dir: "/Users/ana/Movies/Inspector Rust/2026-11-02 Demo", title: "Onboarding walkthrough", createdAt: 0, durationMs: 24_000, status: "ready", failure: null },
+        meta: { source: "display", sourceLabel: "Studio Display", width: 3024, height: 1964, fps: 60, durationMs: 24_000, systemAudio: true, mic: { offsetMs: 0, sampleRate: 48_000 }, cursorMode: "system", pauses: [] },
+        view: edView(edDoc),
+        helperError: null,
+      };
+    case "editor_update": edDoc = args.doc as EdDoc; return edView(edDoc);
+    case "editor_seek": edPos = Number(args.programmeMs); return { clip: 0, sourceMs: edPos };
+    case "editor_play": edPlaying = Boolean(args.playing); return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null };
+    case "editor_position": if (edPlaying) edPos += 66; return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null };
+    case "editor_frame": return Number(args.sinceGen) > 0 ? new ArrayBuffer(0) : edFrame();
+    case "editor_resize": return null;
+    case "editor_thumbs": return Array.from({ length: Number(args.count) || 8 }, (_, i) => edThumb(i));
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

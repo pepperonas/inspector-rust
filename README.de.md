@@ -92,7 +92,7 @@
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~250k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~255k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2264 Rust + 3663 Frontend, alle grün">
@@ -124,15 +124,15 @@
   [![Commands](https://img.shields.io/badge/commands-78-4f46e5?style=flat-square)](#commands)
   [![Docs](https://img.shields.io/badge/docs-39%20pages-0ea5e9?style=flat-square)](./docs)
   [![Rust modules](https://img.shields.io/badge/rust%20modules-110-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![Crates](https://img.shields.io/badge/crates-871-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-514-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
-  [![UI components](https://img.shields.io/badge/UI%20components-113-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
-  [![Test suites](https://img.shields.io/badge/test%20suites-342-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
+  [![Crates](https://img.shields.io/badge/crates-890-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-527-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
+  [![UI components](https://img.shields.io/badge/UI%20components-114-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
+  [![Test suites](https://img.shields.io/badge/test%20suites-348-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-46-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
   [![Hidden triggers](https://img.shields.io/badge/hidden%20triggers-11-ff69b4?style=flat-square)](./core/frontend/src/lib/feature-extras.ts)
-  [![Frontend modules](https://img.shields.io/badge/frontend%20modules-123-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
+  [![Frontend modules](https://img.shields.io/badge/frontend%20modules-124-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
   [![Releases](https://img.shields.io/badge/releases-596-8957e5?style=flat-square)](./CHANGELOG.md)
   [![License](.github/badges/license-mit-blue-d5dc0172.svg)](./LICENSE)
   [![Tauri](.github/badges/tauri-2-24c8db-31b76b30.svg)](https://tauri.app)
@@ -239,7 +239,7 @@
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
   [![Tests](https://img.shields.io/badge/tests-5927%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-514-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-527-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-78-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-68-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-110-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
@@ -253,9 +253,9 @@
   [![Image formats](.github/badges/image-formats-5-blueviolet-73e0101a.svg)](#)
   [![Time tracking](.github/badges/timesheet-event-based-encrypted-ce422b-9f407ee0.svg)](./docs/timesheet.md)
   [![Privacy](.github/badges/privacy-offline-no-telemetry-success-1b1e254a.svg)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~132k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![TS LoC](https://img.shields.io/badge/TypeScript-~118k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-216-0ea5e9?style=flat-square)](./features.txt)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~135k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![TS LoC](https://img.shields.io/badge/TypeScript-~120k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
+  [![Features](https://img.shields.io/badge/features-217-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](.github/badges/xdr-up-to-1600-nits-ffb300-683a54d2.svg)](#)
   [![Audio presets](.github/badges/boom-20-eq-presets-1db954-38c8049c.svg)](#)
   [![Material colours](.github/badges/snippets-255-colours-blueviolet-b1f62fa5.svg)](#)
@@ -446,7 +446,7 @@
   [![Espresso-betrieben](.github/badges/angetrieben-von-espresso-6f4e37-265ae0ef.svg)](#)
   [![Zero Config](.github/badges/setup-zero-config-brightgreen-a0d242b5.svg)](#)
   [![Kein Account](.github/badges/account-nicht-no-tig-brightgreen-2069ea26.svg)](#)
-  [![100+ Features](https://img.shields.io/badge/features-216%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-217%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](.github/badges/versteckt-pong-snake-invaders-flappy-ff69b4-5d4c2958.svg)](#)
   [![Auf LinkedIn teilen](.github/badges/teilen-auf-linkedin-0a66c2-c957a7ef.svg)](https://www.linkedin.com/)
 

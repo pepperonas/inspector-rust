@@ -35,7 +35,8 @@
         "scope": [
           "$CACHE/InspectorRust/**",
           "$LOCALDATA/InspectorRust/Cache/**",
-          "$HOME/My Drive/media/memes/**"
+          "$HOME/My Drive/media/memes/**",
+          "$HOME/Movies/Inspector Rust/**"
         ]
       }
     }

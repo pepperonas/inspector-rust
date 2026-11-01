@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
-pub const EDITOR_LABEL: &str = "record-editor";
+pub const EDITOR_LABEL: &str = super::EDITOR_WINDOW;
 /// Document changes reach `project.json` at most this long after the last edit.
 pub const SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 /// While playing, no new preview frame for this long means the helper is stalled.
@@ -431,6 +431,12 @@ fn now_ms() -> u64 {
     START.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
+/// The confirmation after an export: the file name (the Finder shows where).
+pub fn export_done_toast(path: &str) -> crate::status_toast::StatusToast {
+    let name = Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
+    crate::status_toast::StatusToast { kind: "record".into(), on: true, title: crate::i18n::t("rec2.toast.exported"), subtitle: name }
+}
+
 fn sink(app: &AppHandle) -> Sink {
     let app = app.clone();
     Arc::new(move |notice| match notice {
@@ -439,6 +445,7 @@ fn sink(app: &AppHandle) -> Sink {
         }
         Notice::ExportDone { path } => {
             crate::commands::reveal_in_file_manager(Path::new(&path));
+            crate::status_toast::announce_keeping_popup(&app, export_done_toast(&path));
             let _ = app.emit(EV_EXPORT_DONE, serde_json::json!({ "path": path }));
         }
         Notice::ExportFailed { reason, cancelled } => {
@@ -862,6 +869,23 @@ pub fn shutdown(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_done_toast_names_the_file() {
+        let t = export_done_toast("/Users/x/Downloads/Demo 2026-11-02 09.05.mp4");
+        assert_eq!(t.kind, "record");
+        assert!(t.on);
+        assert_eq!(t.subtitle, "Demo 2026-11-02 09.05.mp4");
+        assert!(!t.title.is_empty() && t.title != "rec2.toast.exported");
+    }
+
+    #[test]
+    fn export_done_shows_a_toast_and_reveals_once() {
+        let src = include_str!("editor_ipc.rs");
+        let arm = src.split("Notice::ExportDone { path } =>").nth(1).unwrap().split("Notice::ExportFailed").next().unwrap();
+        assert_eq!(arm.matches("reveal_in_file_manager").count(), 1);
+        assert!(arm.contains("announce_keeping_popup(&app, export_done_toast(&path))"));
+    }
     use crate::record::editor::{EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
     use chrono::NaiveDate;
 

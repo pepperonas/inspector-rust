@@ -7191,7 +7191,14 @@ async fn editor_blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_open(app: AppHandle, dir: String) -> Result<crate::record::editor_ipc::EditorInit, String> {
-    editor_blocking(move || crate::record::editor_ipc::open_editor(&app, std::path::PathBuf::from(dir))).await
+    editor_blocking(move || {
+        // Opened from the `record` panel: close the popup FIRST and let its blur-hide
+        // (`app.hide()`) settle, so it cannot take the freshly shown editor away with it.
+        crate::hotkey::hide_popup(&app);
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        crate::record::editor_ipc::open_editor(&app, std::path::PathBuf::from(dir))
+    })
+    .await
 }
 
 /// The open session (for the editor window when it mounts), or null.

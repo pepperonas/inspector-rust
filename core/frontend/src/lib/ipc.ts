@@ -5123,7 +5123,8 @@ export interface RecordConfig {
   countdown: boolean;
   cursorMode: RecordCursorMode;
   systemAudio: boolean;
-  mic: boolean;
+  mic: boolean;  /** After a successful take, open the editor instead of the Finder (default on). */
+  openEditor: boolean;
 }
 export interface RecordNotes {
   text: string;

@@ -18,6 +18,9 @@ pub mod editor_ipc;
 pub mod scene_json;
 pub mod wav;
 
+/// Window label of the record editor (the status toast must not `app.hide()` it away).
+pub const EDITOR_WINDOW: &str = "record-editor";
+
 // Used by the macOS cursor sampler; unused on other targets.
 #[allow(unused_imports)]
 pub use core::PauseShared;

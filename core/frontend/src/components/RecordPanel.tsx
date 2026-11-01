@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Square, Video } from "lucide-react";
 import {
+  editorOpen,
   recordDeleteProject,
   recordListProjects,
   recordOpenHud,
@@ -17,7 +18,8 @@ import { locale, t, useT, type MessageKey } from "../lib/i18n";
  *
  * Show-while-typed: only reads the project list and the session status — it
  * never opens a microphone or starts a capture. Enter (handled here once the
- * panel has the keyboard, else by the command dispatch) opens the HUD.
+ * panel has the keyboard, else by the command dispatch) opens the HUD; once
+ * a project is selected, Enter opens it in the editor (stage 2).
  * Delete is a TWO-STAGE inline confirm, never `window.confirm`.
  */
 const POLL_MS = 1500;
@@ -39,6 +41,11 @@ export function mmss(ms: number): string {
 /** Error sentinel `record.x_y` → localized text (others pass through). */
 function errText(e: unknown): string {
   const raw = String(e);
+  // Editor sentinels are catalogue keys themselves (`record.editor.no_video`).
+  if (/^record\.editor\.[a-z_]+$/.test(raw)) {
+    const txt = t(raw as MessageKey);
+    if (txt !== raw) return txt;
+  }
   const m = /record\.([a-z_]+)/.exec(raw);
   if (m) {
     const key = `rec2.err.${m[1]}` as MessageKey;
@@ -47,6 +54,9 @@ function errText(e: unknown): string {
   }
   return raw;
 }
+
+/** A finished (or incomplete-with-video) take; failed or still running ones can't be edited. */
+const editable = (p: RecordProjectItem | undefined) => !!p && !p.active && p.status !== "failed";
 
 export function RecordPanel({
   focused,
@@ -98,6 +108,11 @@ export function RecordPanel({
     newRecording();
   }, [openSignal, newRecording]);
 
+  const openEditor = useCallback((dir: string) => {
+    setError(null);
+    editorOpen(dir).catch((e) => setError(errText(e)));
+  }, []);
+
   const remove = useCallback(
     (dir: string) => {
       setArmed(null);
@@ -134,7 +149,9 @@ export function RecordPanel({
         // An armed delete is a question: Enter must not answer it with a
         // new recording — it backs out of the question instead.
         if (armed) setArmed(null);
-        else if (supported && !running) newRecording();
+        else if (item) {
+          if (editable(item)) openEditor(item.dir);
+        } else if (supported && !running) newRecording();
       } else if ((e.key === "Backspace" || e.key === "Delete") && item && !item.active) {
         e.preventDefault();
         if (armed === item.dir) remove(item.dir);
@@ -147,7 +164,7 @@ export function RecordPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focused, list, selIdx, armed, supported, running, newRecording, remove, onExit]);
+  }, [focused, list, selIdx, armed, supported, running, newRecording, openEditor, remove, onExit]);
 
   const chip =
     "md3-press rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:border-[var(--color-accent)] disabled:opacity-40";
@@ -241,6 +258,11 @@ export function RecordPanel({
                     </span>
                   ) : (
                     <span className="flex items-center gap-1.5">
+                      {editable(p) && (
+                        <button type="button" className={chip} onClick={() => openEditor(p.dir)}>
+                          {t("rec2.panel.edit")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={chip}

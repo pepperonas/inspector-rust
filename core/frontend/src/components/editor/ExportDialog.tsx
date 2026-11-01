@@ -5,7 +5,7 @@ import { editorCancelExport, editorExport, type EditorExportOptions, type Record
 import { useT, type MessageKey } from "../../lib/i18n";
 
 const MP4_FPS = [24, 30, 60] as const;
-const GIF_FPS = [15, 20, 24, 30] as const;
+const GIF_FPS = [15, 20, 25, 30] as const;
 const GIF_WIDTHS = [480, 640, 854, 1080] as const;
 const TARGETS: RecordOutputTarget[] = ["p720", "p1080", "source"];
 
@@ -21,7 +21,7 @@ const errText = (t: (k: MessageKey) => string, reason: string) =>
 /**
  * Export settings + progress. Outcome arrives as `record-export-*` events; the dialog can
  * be closed while an export runs (the helper keeps going), re-opening shows the progress.
- * Task 7 extends it (Finder reveal, remembered settings).
+ * On success Rust shows the file in the Finder and raises the toast — the dialog only says where.
  */
 export function ExportDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
@@ -172,6 +172,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col gap-2">
             <div className="h-2 overflow-hidden rounded-full bg-[var(--color-bg)]">
               <div
+                data-testid="export-progress"
                 className="anim-keep h-full origin-left bg-[var(--color-accent)] transition-transform duration-(--duration-fast) ease-sharp"
                 style={{ transform: `scaleX(${pct})` }}
               />

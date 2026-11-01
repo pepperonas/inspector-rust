@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   items: [] as Record<string, unknown>[],
   del: vi.fn(async () => {}),
   open: vi.fn(async (): Promise<void> => {}),
+  edit: vi.fn(async (_dir: string): Promise<unknown> => ({})),
 }));
 vi.mock("../lib/ipc", () => ({
   recordStatus: async () => m.status,
@@ -19,6 +20,7 @@ vi.mock("../lib/ipc", () => ({
   recordRevealProject: async () => {},
   recordOpenHud: m.open,
   recordStop: async () => "",
+  editorOpen: m.edit,
 }));
 import { RecordPanel } from "./RecordPanel";
 
@@ -35,6 +37,8 @@ describe("RecordPanel", () => {
     m.del.mockClear();
     m.open.mockReset();
     m.open.mockImplementation(async () => {});
+    m.edit.mockReset();
+    m.edit.mockImplementation(async () => ({}));
     m.status = { supported: true, reason: null, phase: "idle", elapsedMs: 0, projectDir: null, source: null, lowDiskMinutes: null };
   });
 
@@ -77,8 +81,42 @@ describe("RecordPanel", () => {
     expect(m.open).not.toHaveBeenCalled();
     expect(m.del).not.toHaveBeenCalled();
     expect(screen.queryByText("Delete the project?")).toBeNull();
+    // Stage 2: Enter on the selected project opens it in the editor (a new
+    // recording stays on the button / `record` without a selection).
     await act(async () => { fireEvent.keyDown(window, { key: "Enter" }); });
-    expect(m.open).toHaveBeenCalledTimes(1);
+    expect(m.open).not.toHaveBeenCalled();
+    expect(m.edit).toHaveBeenCalledWith("/p/a");
+  });
+
+  it("Enter on the selected project opens it in the editor", async () => {
+    m.items = [item({ dir: "/p/a", title: "A" }), item({ dir: "/p/b", title: "B" })];
+    await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "ArrowDown" }); });
+    await act(async () => { fireEvent.keyDown(window, { key: "Enter" }); });
+    expect(m.edit).toHaveBeenCalledWith("/p/b");
+    expect(m.open).not.toHaveBeenCalled();
+  });
+
+  it("a failed or running project does not open the editor", async () => {
+    m.items = [item({ status: "failed", failure: "kaputt" })];
+    const r = await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "Enter" }); });
+    expect(m.edit).not.toHaveBeenCalled();
+    expect(m.open).not.toHaveBeenCalled();
+    r.unmount();
+    m.items = [item({ status: "recording", active: true })];
+    await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "Enter" }); });
+    expect(m.edit).not.toHaveBeenCalled();
+  });
+
+  it("the Edit button opens the editor; an editor error is shown in words", async () => {
+    m.items = [item({})];
+    m.edit.mockImplementation(async () => { throw "record.editor.no_video"; });
+    await mount(false);
+    await act(async () => { fireEvent.click(screen.getByText("Edit")); });
+    expect(m.edit).toHaveBeenCalledWith("/p/a");
+    expect(screen.getByText("This recording has no readable video (screen.mp4).")).toBeTruthy();
   });
 
   it("keeps the selection on a real row when the list shrinks", async () => {

@@ -239,14 +239,20 @@ pub fn hide(app: &AppHandle) {
         // Never `app.hide()` while the POPUP is on screen (v0.129.1): the
         // footer's dark-wake toggle announces its toast with the popup kept
         // open — an app-hide here would close it out from under the user.
-        let popup_visible = app
-            .get_webview_window(crate::hotkey::POPUP_LABEL)
-            .map(|w| w.is_visible().unwrap_or(false))
-            .unwrap_or(false);
-        if !passive && !popup_visible {
+        let visible = |label: &str| {
+            app.get_webview_window(label).map(|w| w.is_visible().unwrap_or(false)).unwrap_or(false)
+        };
+        if should_app_hide(passive, visible(crate::hotkey::POPUP_LABEL), visible(crate::record::EDITOR_WINDOW)) {
             let _ = app.hide();
         }
     }
+}
+
+/// Whether dismissing a toast may `app.hide()` (to hand focus back to the prior app): not for
+/// passive HUDs, not while the popup is open, and not while the record editor is open — an
+/// app-hide would take the editor away right after its export toast.
+pub fn should_app_hide(passive: bool, popup_visible: bool, editor_visible: bool) -> bool {
+    !passive && !popup_visible && !editor_visible
 }
 
 // ── Mouse gate for the volume HUD (v0.197.0) ────────────────────────────────
@@ -555,6 +561,14 @@ fn center_native_macos(win: &WebviewWindow) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toast_dismissal_never_hides_a_visible_editor() {
+        assert!(should_app_hide(false, false, false), "plain toast returns focus to the prior app");
+        assert!(!should_app_hide(true, false, false), "passive HUD");
+        assert!(!should_app_hide(false, true, false), "popup open");
+        assert!(!should_app_hide(false, false, true), "the record editor is open — app.hide would take it away");
+    }
 
     /// Regression 2026-09-28: an ordered-out toast webview came back blank, so
     /// gestures showed no HUD. The macOS toast must survive `app.hide()` and

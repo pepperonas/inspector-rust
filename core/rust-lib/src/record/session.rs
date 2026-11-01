@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::project::CursorMode;
+use super::project::{CursorMode, ProjectStatus};
 
 // ---------- pure: phases ----------
 
@@ -118,6 +118,24 @@ pub fn failure_toast(at_start: bool, failed: bool, reason: Option<&str>) -> Opti
     })
 }
 
+/// What happens after a take stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterStop {
+    OpenEditor,
+    Reveal,
+}
+
+/// Only a finished (`ready`) take opens in the editor, and only when the setting is on and this
+/// build has the editor (Apple Silicon). Everything else — a failed take included — shows the
+/// project folder in the Finder, as in stage 1.
+pub fn after_stop(status: ProjectStatus, open_editor: bool, editor_available: bool) -> AfterStop {
+    if status == ProjectStatus::Ready && open_editor && editor_available {
+        AfterStop::OpenEditor
+    } else {
+        AfterStop::Reveal
+    }
+}
+
 /// A deletable project: inside the root (see [`project_dir_inside_root`]) and
 /// carrying a `project.json`. Any other folder there is the user's, so the
 /// panel must never be able to trash it.
@@ -164,6 +182,8 @@ pub struct RecordConfig {
     pub cursor_mode: CursorMode,
     pub system_audio: bool,
     pub mic: bool,
+    /// After a successful take, open the editor instead of the Finder.
+    pub open_editor: bool,
 }
 
 impl Default for RecordConfig {
@@ -174,10 +194,12 @@ impl Default for RecordConfig {
             cursor_mode: CursorMode::EditableOverlay,
             system_audio: true,
             mic: false,
+            open_editor: true,
         }
     }
 }
 
+const K_OPEN_EDITOR: &str = "record.open_editor";
 const K_DIR: &str = "record.project_dir";
 const K_COUNTDOWN: &str = "record.countdown";
 const K_CURSOR: &str = "record.cursor_mode";
@@ -217,6 +239,7 @@ impl RecordConfig {
             cursor_mode: get(K_CURSOR).map(|s| cursor_mode_from_str(&s)).unwrap_or(d.cursor_mode),
             system_audio: parse_bool(get(K_SYSTEM_AUDIO), d.system_audio),
             mic: parse_bool(get(K_MIC), d.mic),
+            open_editor: parse_bool(get(K_OPEN_EDITOR), d.open_editor),
         }
     }
 
@@ -226,6 +249,7 @@ impl RecordConfig {
         crate::settings::set(db, K_CURSOR, cursor_mode_str(self.cursor_mode))?;
         crate::settings::set(db, K_SYSTEM_AUDIO, if self.system_audio { "true" } else { "false" })?;
         crate::settings::set(db, K_MIC, if self.mic { "true" } else { "false" })?;
+        crate::settings::set(db, K_OPEN_EDITOR, if self.open_editor { "true" } else { "false" })?;
         Ok(())
     }
 
@@ -1124,7 +1148,11 @@ mod mac {
         emit_status(app);
         let out = finish(a);
         after_finish(app, &st);
-        crate::commands::reveal_in_file_manager(&out.dir);
+        let open_editor = app.try_state::<crate::db::DbHandle>().map(|db| RecordConfig::load(&db).open_editor).unwrap_or(true);
+        match after_stop(out.status, open_editor, cfg!(target_arch = "aarch64")) {
+            AfterStop::OpenEditor => open_editor_after_take(app, out.dir.clone()),
+            AfterStop::Reveal => crate::commands::reveal_in_file_manager(&out.dir),
+        }
         let dir = out.dir.to_string_lossy().into_owned();
         announce_failure(app, failure_toast(false, out.status == ProjectStatus::Failed, out.failure.as_deref()));
         let _ = app.emit(
@@ -1132,6 +1160,32 @@ mod mac {
             FinishedEvent { dir: dir.clone(), status: status_str(out.status).into(), failure: out.failure },
         );
         Ok(dir)
+    }
+
+    /// Opens the finished take in the editor on a worker (opening blocks on the helper); if the
+    /// editor cannot open it, the folder is shown in the Finder instead, as without the setting.
+    fn open_editor_after_take(app: &AppHandle, dir: PathBuf) {
+        let app = app.clone();
+        let spawned = std::thread::Builder::new().name("ir-record-editor".into()).spawn({
+            let dir = dir.clone();
+            move || open_or_reveal(&app, dir)
+        });
+        if spawned.is_err() {
+            crate::commands::reveal_in_file_manager(&dir);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn open_or_reveal(app: &AppHandle, dir: PathBuf) {
+        if let Err(e) = crate::record::editor_ipc::open_editor(app, dir.clone()) {
+            tracing::warn!("record: editor after the take: {e}");
+            crate::commands::reveal_in_file_manager(&dir);
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    fn open_or_reveal(_app: &AppHandle, dir: PathBuf) {
+        crate::commands::reveal_in_file_manager(&dir);
     }
 
     pub fn cancel(app: &AppHandle) -> Result<(), String> {
@@ -1216,6 +1270,25 @@ mod mac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn after_stop_opens_editor_only_when_ready_and_enabled() {
+        use ProjectStatus::*;
+        assert_eq!(after_stop(Ready, true, true), AfterStop::OpenEditor);
+        assert_eq!(after_stop(Ready, false, true), AfterStop::Reveal, "setting off");
+        assert_eq!(after_stop(Ready, true, false), AfterStop::Reveal, "no editor on this build");
+        assert_eq!(after_stop(Failed, true, true), AfterStop::Reveal, "failed take: Finder");
+        assert_eq!(after_stop(Incomplete, true, true), AfterStop::Reveal);
+        assert_eq!(after_stop(Recording, true, true), AfterStop::Reveal);
+    }
+
+    #[test]
+    fn open_editor_setting_defaults_on() {
+        assert!(RecordConfig::default().open_editor);
+        let c: RecordConfig = serde_json::from_str(r#"{"projectDir":""}"#).unwrap();
+        assert!(c.open_editor, "an older frontend payload without the field must not turn it off");
+        assert!(parse_bool(None, true));
+    }
 
     #[test]
     fn phase_transitions_are_guarded() {

@@ -316,6 +316,13 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(wakelock::WakelockState::default());
             app.manage(cleaner::PlanStore::default());
             app.manage(screen_record::RecordState::default());
+            #[cfg(target_os = "macos")]
+            app.manage(record::session::RecordState::default());
+            // A take still marked `recording` was cut off by a crash/quit.
+            {
+                let root = record::RecordConfig::load(&db_handle).root();
+                std::thread::spawn(move || record::session::mark_interrupted(&root));
+            }
             app.manage(color_loupe::LoupeState::default());
             app.manage(adb::AdbRecordState::default());
             app.manage(alarm::AlarmState::default());
@@ -1198,6 +1205,32 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::resume_screen_record,
             commands::stop_screen_record,
             commands::is_recording,
+            #[cfg(target_os = "macos")]
+            commands::record_status,
+            #[cfg(target_os = "macos")]
+            commands::record_open_hud,
+            #[cfg(target_os = "macos")]
+            commands::record_pick_source,
+            #[cfg(target_os = "macos")]
+            commands::record_start,
+            #[cfg(target_os = "macos")]
+            commands::record_pause,
+            #[cfg(target_os = "macos")]
+            commands::record_resume,
+            #[cfg(target_os = "macos")]
+            commands::record_stop,
+            #[cfg(target_os = "macos")]
+            commands::record_cancel,
+            #[cfg(target_os = "macos")]
+            commands::record_list_projects,
+            #[cfg(target_os = "macos")]
+            commands::record_reveal_project,
+            #[cfg(target_os = "macos")]
+            commands::record_delete_project,
+            #[cfg(target_os = "macos")]
+            commands::get_record_config,
+            #[cfg(target_os = "macos")]
+            commands::set_record_config,
             commands::open_audio_swap_overlay,
             commands::audio_swap_get_selected_video,
             commands::audio_swap_probe,
@@ -1259,6 +1292,9 @@ pub fn run(context: tauri::Context<Wry>) {
         // Tear the boom audio engine down on quit so the system output is
         // never left muted (muted tap = our IOProc is the only path).
         if matches!(event, tauri::RunEvent::Exit) {
+            // A running `record` take is finalised so its files stay usable.
+            #[cfg(target_os = "macos")]
+            record::session::shutdown(_app);
             boom::shutdown();
             live_transcribe::restore_output();
         }

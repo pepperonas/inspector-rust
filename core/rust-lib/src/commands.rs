@@ -7328,8 +7328,122 @@ pub fn is_recording(state: State<'_, crate::screen_record::RecordState>) -> bool
     state.is_recording()
 }
 
+// ── record (stage 1): picker, session, projects ─────────────────────────────
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn record_status(state: State<'_, crate::record::session::RecordState>) -> crate::record::RecordStatus {
+    state.status()
+}
+
+/// Show the recording HUD (built on a worker thread; the popup is hidden first).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_open_hud(app: AppHandle) -> Result<(), String> {
+    crate::record::session::open_hud(&app)
+}
+
+/// Present Apple's content-sharing picker; the answer arrives as
+/// `record-source-picked` / `record-pick-cancelled`.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_pick_source(app: AppHandle, kind: crate::record::project::SourceKind) -> Result<(), String> {
+    crate::record::session::pick_source(&app, kind)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_start(
+    app: AppHandle,
+    opts: crate::record::StartOptions,
+) -> Result<crate::record::RecordStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::record::session::start(&app, opts))
+        .await
+        .map_err(|e| format!("record task: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_pause(app: AppHandle) -> Result<crate::record::RecordStatus, String> {
+    crate::record::session::pause(&app)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_resume(app: AppHandle) -> Result<crate::record::RecordStatus, String> {
+    crate::record::session::resume(&app)
+}
+
+/// Finish the take; returns the project folder.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_stop(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::record::session::stop(&app))
+        .await
+        .map_err(|e| format!("record task: {e}"))?
+}
+
+/// Abort the take and move its folder to the Trash.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_cancel(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::record::session::cancel(&app))
+        .await
+        .map_err(|e| format!("record task: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_list_projects(
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::record::session::RecordState>,
+) -> Result<Vec<crate::record::session::ProjectListItem>, String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    let active = state.active_dir();
+    tauri::async_runtime::spawn_blocking(move || crate::record::session::list_items(&root, active.as_deref()))
+        .await
+        .map_err(|e| format!("record task: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_reveal_project(app: AppHandle, dir: String) -> Result<(), String> {
+    crate::record::session::reveal_project(&app, std::path::Path::new(&dir))
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_delete_project(app: AppHandle, dir: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::record::session::delete_project(&app, std::path::Path::new(&dir))
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))?
+}
+
+/// The stored config; an empty project folder comes back resolved.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn get_record_config(db: State<'_, DbHandle>) -> crate::record::RecordConfig {
+    let mut c = crate::record::RecordConfig::load(&db);
+    if c.project_dir.is_empty() {
+        c.project_dir = c.root().to_string_lossy().into_owned();
+    }
+    c
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn set_record_config(
+    db: State<'_, DbHandle>,
+    config: crate::record::RecordConfig,
+) -> Result<crate::record::RecordConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    Ok(get_record_config(db))
+}
+
 /// Reveal a file in Finder (macOS) / Explorer (Windows) with it selected.
-fn reveal_in_file_manager(path: &std::path::Path) {
+pub(crate) fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("/usr/bin/open")

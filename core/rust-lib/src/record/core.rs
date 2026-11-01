@@ -136,6 +136,16 @@ impl PauseClock {
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
         self.paused_at.unwrap_or(now_ns) - self.offset
     }
+    /// All pauses as host-time intervals; a still-open one ends at `now_ns`.
+    pub fn pauses_until(&self, now_ns: i64) -> Vec<(i64, i64)> {
+        let mut v = self.intervals.clone();
+        if let Some(p) = self.paused_at {
+            if now_ns > p {
+                v.push((p, now_ns));
+            }
+        }
+        v
+    }
 }
 
 /// Decide on CAPTURE time, not delivery time: a sample captured at host
@@ -184,6 +194,9 @@ impl PauseShared {
     }
     pub fn offset_at(&self, pts_ns: i64) -> Option<i64> {
         self.0.lock().offset_at(pts_ns)
+    }
+    pub fn pauses_until(&self, now_ns: i64) -> Vec<(i64, i64)> {
+        self.0.lock().pauses_until(now_ns)
     }
 }
 

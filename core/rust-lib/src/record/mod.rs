@@ -7,12 +7,17 @@ pub mod capture_macos;
 #[cfg(target_os = "macos")]
 pub mod cursor_macos;
 pub mod mic;
+#[cfg(target_os = "macos")]
+pub mod picker_macos;
+pub mod session;
 pub mod project;
 pub mod wav;
 
 // Used by the macOS cursor sampler; unused on other targets.
 #[allow(unused_imports)]
 pub use core::PauseShared;
+#[allow(unused_imports)]
+pub use session::{record_supported, RecordConfig, RecordStatus, StartOptions};
 
 /// Monotonic host time in nanoseconds. On macOS this is the same clock as the
 /// CMSampleBuffer timestamps of the host clock (mach_absolute_time x timebase).

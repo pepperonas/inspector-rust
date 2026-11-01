@@ -4086,5 +4086,20 @@
   "rec2.capture_stop_hangs": "Saving the recording did not finish in time.",
   "rec2.capture_no_content": "Screen content is not available — check the Screen Recording permission.",
   "rec2.capture_no_display": "This display can't be captured.",
-  "rec2.capture_no_window": "This window can't be captured."
+  "rec2.capture_no_window": "This window can't be captured.",
+  "rec2.source_display": "Display ({size})",
+  "rec2.source_window": "Window",
+  "rec2.interrupted": "App was closed during the recording",
+  "rec2.unsupported.intel": "Recording needs a Mac with Apple silicon.",
+  "rec2.unsupported.macos": "Recording needs macOS 14 or later.",
+  "rec2.unsupported.platform": "Recording is only available on macOS.",
+  "rec2.err.busy": "A recording is already running.",
+  "rec2.err.not_recording": "No recording is running.",
+  "rec2.err.invalid_state": "That is not possible right now.",
+  "rec2.err.no_source": "Pick a display or a window first.",
+  "rec2.err.disk_full": "Less than 1 GB free — not enough space to record.",
+  "rec2.err.unsupported": "Recording is not supported on this Mac.",
+  "rec2.err.start_failed": "The recording could not start: {detail}",
+  "rec2.err.cancelled": "The recording was cancelled.",
+  "rec2.err.outside_root": "That folder is not a project in the recordings folder."
 }

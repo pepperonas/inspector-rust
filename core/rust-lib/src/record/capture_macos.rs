@@ -512,7 +512,7 @@ pub fn main_display_id() -> u32 {
 }
 
 /// A window's frame in global top-left points (`kCGWindowBounds`).
-fn cg_window_bounds(window_id: u32) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn cg_window_bounds(window_id: u32) -> Option<(f64, f64, f64, f64)> {
     unsafe {
         // kCGWindowListOptionIncludingWindow
         let arr = CGWindowListCopyWindowInfo(1 << 3, window_id) as *mut AnyObject;

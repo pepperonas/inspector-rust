@@ -7,19 +7,19 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tauri::AppHandle;
 
-/// Start capturing into `sink`. `origin_ns` = timeline ns of video time 0
+/// Start capturing into `sink` (`app: None` = headless, for tests). `origin_ns` = timeline ns of video time 0
 /// (chosen by the session). Chunks arriving while paused are dropped; the
 /// chunk start on the timeline is `timeline(now) - chunk duration`. If the
 /// input device disappears, `start_chunks` re-opens it later and the gap
 /// becomes silence automatically (see `WavSink::push`).
 pub fn start_mic(
-    app: AppHandle,
+    app: Option<AppHandle>,
     sink: Arc<Mutex<WavSink>>,
     clock: Arc<PauseShared>,
     origin_ns: i64,
 ) -> MicStream {
     sink.lock().set_origin(origin_ns);
-    mic_capture::start_chunks(app, move |chunk, rate| {
+    let on_chunk = move |chunk: &[f32], rate: u32| {
         if clock.is_paused() || chunk.is_empty() || rate == 0 {
             return;
         }
@@ -30,5 +30,9 @@ pub fn start_mic(
         if let Err(e) = s.push(at.max(0), chunk) {
             tracing::warn!("record mic write failed: {e}");
         }
-    })
+    };
+    match app {
+        Some(app) => mic_capture::start_chunks(app, on_chunk),
+        None => mic_capture::start_chunks_headless(on_chunk),
+    }
 }

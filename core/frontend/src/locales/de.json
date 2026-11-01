@@ -4086,5 +4086,20 @@
   "rec2.capture_stop_hangs": "Das Speichern der Aufnahme wurde nicht rechtzeitig fertig.",
   "rec2.capture_no_content": "Bildschirminhalte sind nicht verfügbar – bitte die Freigabe „Bildschirmaufnahme“ prüfen.",
   "rec2.capture_no_display": "Dieser Bildschirm kann nicht aufgenommen werden.",
-  "rec2.capture_no_window": "Dieses Fenster kann nicht aufgenommen werden."
+  "rec2.capture_no_window": "Dieses Fenster kann nicht aufgenommen werden.",
+  "rec2.source_display": "Bildschirm ({size})",
+  "rec2.source_window": "Fenster",
+  "rec2.interrupted": "Die App wurde während der Aufnahme beendet",
+  "rec2.unsupported.intel": "Aufnehmen braucht einen Mac mit Apple-Chip.",
+  "rec2.unsupported.macos": "Aufnehmen braucht macOS 14 oder neuer.",
+  "rec2.unsupported.platform": "Aufnehmen gibt es nur unter macOS.",
+  "rec2.err.busy": "Es läuft bereits eine Aufnahme.",
+  "rec2.err.not_recording": "Es läuft keine Aufnahme.",
+  "rec2.err.invalid_state": "Das geht gerade nicht.",
+  "rec2.err.no_source": "Wähle zuerst einen Bildschirm oder ein Fenster.",
+  "rec2.err.disk_full": "Weniger als 1 GB frei – zu wenig Platz für eine Aufnahme.",
+  "rec2.err.unsupported": "Aufnehmen wird auf diesem Mac nicht unterstützt.",
+  "rec2.err.start_failed": "Die Aufnahme konnte nicht starten: {detail}",
+  "rec2.err.cancelled": "Die Aufnahme wurde abgebrochen.",
+  "rec2.err.outside_root": "Dieser Ordner ist kein Projekt im Aufnahmeordner."
 }

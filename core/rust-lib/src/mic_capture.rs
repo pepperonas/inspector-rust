@@ -78,6 +78,16 @@ pub fn start_chunks(
 /// Shared entry point: spawns the worker thread that owns the cpal stream
 /// (`cpal::Stream` isn't `Send`, so it must never leave that thread).
 pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
+    spawn(Some(app), sink)
+}
+
+/// [`start_chunks`] without a Tauri app (no `mic-level` events) — used by the
+/// `record` session's headless live test.
+pub fn start_chunks_headless(on_chunk: impl Fn(&[f32], u32) + Send + 'static) -> MicStream {
+    spawn(None, Sink::Chunks(Box::new(on_chunk)))
+}
+
+fn spawn(app: Option<AppHandle>, sink: Sink) -> MicStream {
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
     std::thread::spawn(move || {
@@ -91,7 +101,7 @@ pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
         // input, with backoff so a missing mic doesn't spin.
         let mut backoff_ms: u64 = 500;
         while !stop2.load(Ordering::SeqCst) {
-            match run(&app, &sink, &stop2) {
+            match run(app.as_ref(), &sink, &stop2) {
                 Ok(true) => break, // clean stop
                 Ok(false) => {
                     tracing::warn!("mic_capture[{label}]: stream died — reopening the input");
@@ -136,7 +146,7 @@ pub(crate) fn chunk_dbfs(chunk: &[f32]) -> f32 {
 
 /// One capture session. `Ok(true)` = stopped by request; `Ok(false)` = the
 /// stream died (device gone/switched) and the caller should reopen.
-fn run(app: &AppHandle, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, String> {
+fn run(app: Option<&AppHandle>, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let host = cpal::default_host();
@@ -219,6 +229,7 @@ fn run(app: &AppHandle, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, Str
         match &sink {
             Sink::Chunks(on_chunk) => on_chunk(&chunk, rate),
             Sink::Pcm(event) => {
+                let Some(app) = app else { continue };
                 // Companion loudness for the `dezibel` meter, computed HERE in
                 // Rust on the raw chunk — the same calibrated `chunk_rms` path
                 // iris uses. The meter therefore never re-derives the level

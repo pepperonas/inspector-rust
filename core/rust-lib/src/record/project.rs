@@ -88,6 +88,9 @@ fn empty_object() -> serde_json::Value {
 #[serde(rename_all = "kebab-case")]
 pub enum CursorProvider {
     Native,
+    /// Our own extension (not in OpenScreen's contracts.ts): positions only,
+    /// no clicks/cursor types, e.g. when Accessibility is not granted.
+    PositionOnly,
     None,
 }
 
@@ -352,6 +355,7 @@ mod tests {
         }
         let bare = CursorSample { time_ms: 1, cx: 0.0, cy: 0.0, visible: None, asset_id: None, cursor_type: None, interaction_type: None };
         assert!(!serde_json::to_string(&bare).unwrap().contains("null"));
+        assert_eq!(serde_json::to_string(&CursorProvider::PositionOnly).unwrap(), "\"position-only\"");
         let a = CursorAsset {
             id: "a".into(), platform: "darwin".into(), image_data_url: "data:image/png;base64,AA".into(),
             width: 1, height: 1, hotspot_x: 0.0, hotspot_y: 0.0, scale_factor: Some(2.0), cursor_type: None,

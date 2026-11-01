@@ -45,7 +45,7 @@ use objc2_core_media::{CMSampleBuffer, CMSampleTimingInfo, CMTime};
 use objc2_foundation::{NSArray, NSDictionary, NSError, NSNumber, NSString, NSURL};
 use objc2_screen_capture_kit::{
     SCContentFilter, SCFrameStatus, SCShareableContent, SCStream, SCStreamConfiguration, SCStreamDelegate,
-    SCStreamFrameInfoStatus, SCStreamOutput, SCStreamOutputType, SCWindow,
+    SCRunningApplication, SCStreamFrameInfoStatus, SCStreamOutput, SCStreamOutputType, SCWindow,
 };
 use parking_lot::{Condvar, Mutex};
 
@@ -53,6 +53,8 @@ use super::core::{capture_output_size, default_video_bitrate, key_frame_interval
 use super::{host_now_ns, PauseShared};
 
 /// Output ceiling (Global Constraints): 4K UHD.
+/// Frame-rate ceiling for the stream and the encoder hint.
+pub const MAX_FPS: u32 = 60;
 pub const MAX_W: u32 = 3840;
 pub const MAX_H: u32 = 2160;
 /// System audio: 48 kHz stereo, AAC 192 kb/s.
@@ -203,8 +205,13 @@ impl Inner {
         if !unsafe { sample.data_is_ready() } {
             return;
         }
-        let (paused, offset) = self.clock.state();
+        let (paused, offset, last_resume) = self.clock.state();
         if paused {
+            return;
+        }
+        // Content captured during a pause but delivered after the resume.
+        let raw = unsafe { sample.presentation_time_stamp() };
+        if captured_during_pause(cmtime_ns(raw.value, raw.timescale, raw.flags.0), last_resume) {
             return;
         }
         let mut guard = self.st.lock();
@@ -269,6 +276,17 @@ impl Inner {
             }
         }
     }
+}
+
+fn clamp_fps(fps: u32) -> u32 {
+    fps.clamp(1, MAX_FPS)
+}
+
+/// A sample whose own capture time (host clock) lies before the latest resume
+/// was captured while paused — drop it. No resume yet / no valid PTS → keep
+/// (an invalid PTS is refused later by the gates anyway).
+fn captured_during_pause(capture_ns: Option<i64>, last_resume_ns: Option<i64>) -> bool {
+    matches!((capture_ns, last_resume_ns), (Some(c), Some(r)) if c < r)
 }
 
 fn self_check(gate: &mut VideoTimestampGate, ns: Option<i64>) -> GateVerdict {
@@ -570,7 +588,7 @@ fn content_bounds(filter: &SCContentFilter) -> (f64, f64, f64, f64) {
     }
 }
 
-fn shareable_content() -> Result<Sendable<Retained<SCShareableContent>>, String> {
+fn shareable_content(on_screen_only: bool) -> Result<Sendable<Retained<SCShareableContent>>, String> {
     let (tx, rx) = mpsc::channel::<Result<Sendable<Retained<SCShareableContent>>, String>>();
     let block = RcBlock::new(move |content: *mut SCShareableContent, err: *mut NSError| {
         let r = if let Some(c) = unsafe { Retained::retain(content) } {
@@ -584,32 +602,53 @@ fn shareable_content() -> Result<Sendable<Retained<SCShareableContent>>, String>
     });
     unsafe {
         SCShareableContent::getShareableContentExcludingDesktopWindows_onScreenWindowsOnly_completionHandler(
-            false, true, &block,
+            false, on_screen_only, &block,
         )
     };
     rx.recv_timeout(Duration::from_secs(5)).map_err(|_| crate::i18n::t("rec2.capture_start_hangs"))?
 }
 
-/// Filter for a whole display, minus our own windows (HUD, bar, countdown,
-/// popup — their window numbers).
-pub fn display_filter(display_id: u32, exclude_window_ids: &[u32]) -> Result<Retained<SCContentFilter>, String> {
-    let content = shareable_content()?;
+/// Filter for a whole display, minus EVERY window of this process (HUD, bar,
+/// countdown, popup) — current and future ones, because the exclusion is by
+/// application, not by window id. Listed with off-screen windows too, so a
+/// hidden popup still makes the process appear in `applications`.
+pub fn display_filter(display_id: u32) -> Result<Retained<SCContentFilter>, String> {
+    let content = shareable_content(false)?;
     unsafe {
         let displays = content.0.displays();
         let d = displays
             .iter()
             .find(|d| d.displayID() == display_id)
             .ok_or_else(|| crate::i18n::t("rec2.capture_no_display"))?;
-        let picked: Vec<Retained<SCWindow>> =
-            content.0.windows().iter().filter(|w| exclude_window_ids.contains(&w.windowID())).collect();
-        let exclude = NSArray::from_retained_slice(&picked);
-        Ok(SCContentFilter::initWithDisplay_excludingWindows(SCContentFilter::alloc(), &d, &exclude))
+        let me = std::process::id() as i32;
+        let own: Vec<Retained<SCRunningApplication>> = content
+            .0
+            .applications()
+            .iter()
+            .filter(|a| {
+                let pid: i32 = msg_send![&**a, processID];
+                pid == me
+            })
+            .collect();
+        if own.is_empty() {
+            // A process without any window is not listed — then it has
+            // nothing that could appear in the recording either.
+            tracing::info!("record: own process not in shareable applications (no windows yet)");
+        }
+        let apps = NSArray::from_retained_slice(&own);
+        let none: Retained<NSArray<SCWindow>> = NSArray::new();
+        Ok(SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
+            SCContentFilter::alloc(),
+            &d,
+            &apps,
+            &none,
+        ))
     }
 }
 
 /// Filter for one window (follows it across Spaces, nothing else in frame).
 pub fn window_filter(window_id: u32) -> Result<Retained<SCContentFilter>, String> {
-    let content = shareable_content()?;
+    let content = shareable_content(true)?;
     unsafe {
         let w = content
             .0
@@ -645,7 +684,7 @@ impl Capture {
         out: &Path,
         clock: Arc<PauseShared>,
     ) -> Result<Capture, String> {
-        let fps = opts.fps.clamp(1, 120);
+        let fps = clamp_fps(opts.fps);
         let bounds = content_bounds(&filter);
         let (width, height) = unsafe {
             let r = filter.contentRect();
@@ -747,7 +786,13 @@ impl Capture {
                     let _ = std::fs::remove_file(out);
                     return Err(e);
                 }
-                Err(_) => return Err(crate::i18n::t("rec2.capture_start_hangs")),
+                Err(_) => {
+                    // Best effort: a start that answers late must not leave a
+                    // running stream behind.
+                    stream.stopCaptureWithCompletionHandler(None);
+                    let _ = std::fs::remove_file(out);
+                    return Err(crate::i18n::t("rec2.capture_start_hangs"));
+                }
             }
             Ok(Capture { inner, stream, _output: output, width, height, bounds, out: out.to_path_buf() })
         }
@@ -919,6 +964,23 @@ mod tests {
     }
 
     #[test]
+    fn samples_captured_before_the_last_resume_are_dropped() {
+        assert!(captured_during_pause(Some(999), Some(1_000)));
+        assert!(!captured_during_pause(Some(1_000), Some(1_000)), "at the resume itself: keep");
+        assert!(!captured_during_pause(Some(1_001), Some(1_000)));
+        assert!(!captured_during_pause(Some(5), None), "never resumed: keep");
+        assert!(!captured_during_pause(None, Some(1_000)), "no PTS: the gates decide");
+    }
+
+    #[test]
+    fn fps_is_clamped_to_1_through_60() {
+        assert_eq!(clamp_fps(0), 1);
+        assert_eq!(clamp_fps(30), 30);
+        assert_eq!(clamp_fps(60), 60);
+        assert_eq!(clamp_fps(120), 60);
+    }
+
+    #[test]
     fn pixel_format_is_420v() {
         assert_eq!(PIXEL_420V, 0x3432_3076);
     }
@@ -938,7 +1000,7 @@ mod live {
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("screen.mp4");
         let clock = Arc::new(PauseShared::new());
-        let filter = display_filter(main_display_id(), &[]).expect("filter");
+        let filter = display_filter(main_display_id()).expect("filter");
         let cap = Capture::start(
             filter,
             CaptureOptions { system_audio: true, show_system_cursor: true, fps: 60 },

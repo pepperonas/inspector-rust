@@ -100,6 +100,7 @@ impl VideoTimestampGate {
 pub struct PauseClock {
     paused_at: Option<i64>,
     offset: i64,
+    last_resume: Option<i64>,
 }
 
 impl PauseClock {
@@ -114,6 +115,7 @@ impl PauseClock {
     pub fn resume(&mut self, now_ns: i64) {
         if let Some(p) = self.paused_at.take() {
             self.offset += (now_ns - p).max(0);
+            self.last_resume = Some(now_ns);
         }
     }
     pub fn is_paused(&self) -> bool {
@@ -121,6 +123,10 @@ impl PauseClock {
     }
     pub fn offset_ns(&self) -> i64 {
         self.offset
+    }
+    /// Host time of the most recent resume (`None` before the first one).
+    pub fn last_resume_ns(&self) -> Option<i64> {
+        self.last_resume
     }
     /// Host time minus total paused time; frozen while paused.
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
@@ -151,11 +157,11 @@ impl PauseShared {
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
         self.0.lock().timeline_ns(now_ns)
     }
-    /// `(is_paused, offset_ns)` read under one lock, so a resume can never
-    /// land between the two answers.
-    pub fn state(&self) -> (bool, i64) {
+    /// `(is_paused, offset_ns, last_resume_ns)` read under one lock, so a
+    /// resume can never land between the answers.
+    pub fn state(&self) -> (bool, i64, Option<i64>) {
         let c = self.0.lock();
-        (c.is_paused(), c.offset_ns())
+        (c.is_paused(), c.offset_ns(), c.last_resume_ns())
     }
 }
 
@@ -382,6 +388,19 @@ mod tests {
         let mut g = VideoTimestampGate::new();
         assert_eq!(g.check(None), GateVerdict::Invalid);
         assert_eq!(g.rejected, 1);
+    }
+    #[test]
+    fn pause_clock_remembers_the_last_resume() {
+        let mut c = PauseClock::new();
+        assert_eq!(c.last_resume_ns(), None);
+        c.resume(50);
+        assert_eq!(c.last_resume_ns(), None, "resume without a pause is not a resume");
+        c.pause(100);
+        c.resume(300);
+        assert_eq!(c.last_resume_ns(), Some(300));
+        c.pause(400);
+        c.resume(700);
+        assert_eq!(c.last_resume_ns(), Some(700));
     }
     #[test]
     fn pause_clock_freezes_and_shifts() {

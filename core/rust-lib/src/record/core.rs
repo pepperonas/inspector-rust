@@ -100,7 +100,8 @@ impl VideoTimestampGate {
 pub struct PauseClock {
     paused_at: Option<i64>,
     offset: i64,
-    last_resume: Option<i64>,
+    /// Completed pauses as host-time intervals `[pause, resume)`.
+    intervals: Vec<(i64, i64)>,
 }
 
 impl PauseClock {
@@ -115,7 +116,9 @@ impl PauseClock {
     pub fn resume(&mut self, now_ns: i64) {
         if let Some(p) = self.paused_at.take() {
             self.offset += (now_ns - p).max(0);
-            self.last_resume = Some(now_ns);
+            if now_ns > p {
+                self.intervals.push((p, now_ns));
+            }
         }
     }
     pub fn is_paused(&self) -> bool {
@@ -124,14 +127,36 @@ impl PauseClock {
     pub fn offset_ns(&self) -> i64 {
         self.offset
     }
-    /// Host time of the most recent resume (`None` before the first one).
-    pub fn last_resume_ns(&self) -> Option<i64> {
-        self.last_resume
+    /// Retiming offset for something CAPTURED at host time `pts_ns` (see
+    /// [`offset_at`]); `None` = captured during a pause.
+    pub fn offset_at(&self, pts_ns: i64) -> Option<i64> {
+        offset_at(&self.intervals, self.paused_at, pts_ns)
     }
     /// Host time minus total paused time; frozen while paused.
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
         self.paused_at.unwrap_or(now_ns) - self.offset
     }
+}
+
+/// Decide on CAPTURE time, not delivery time: a sample captured at host
+/// time `pts_ns` inside a pause (`[pause, resume)`, or at/after the start of
+/// the still-open one) is dropped (`None`); otherwise its offset is the sum
+/// of the pauses that ENDED at or before it — so a pre-pause sample that is
+/// delivered late (during or after the pause) still gets offset 0.
+pub fn offset_at(closed: &[(i64, i64)], open_since: Option<i64>, pts_ns: i64) -> Option<i64> {
+    if open_since.is_some_and(|p| pts_ns >= p) {
+        return None;
+    }
+    let mut off = 0;
+    for &(p, r) in closed {
+        if pts_ns >= p && pts_ns < r {
+            return None;
+        }
+        if r <= pts_ns {
+            off += r - p;
+        }
+    }
+    Some(off)
 }
 
 /// Shared pause clock (capture, microphone and cursor sampler all use one).
@@ -157,11 +182,8 @@ impl PauseShared {
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
         self.0.lock().timeline_ns(now_ns)
     }
-    /// `(is_paused, offset_ns, last_resume_ns)` read under one lock, so a
-    /// resume can never land between the answers.
-    pub fn state(&self) -> (bool, i64, Option<i64>) {
-        let c = self.0.lock();
-        (c.is_paused(), c.offset_ns(), c.last_resume_ns())
+    pub fn offset_at(&self, pts_ns: i64) -> Option<i64> {
+        self.0.lock().offset_at(pts_ns)
     }
 }
 
@@ -390,17 +412,38 @@ mod tests {
         assert_eq!(g.rejected, 1);
     }
     #[test]
-    fn pause_clock_remembers_the_last_resume() {
+    fn offset_at_decides_on_capture_time() {
+        let closed = [(100, 300), (500, 600)];
+        assert_eq!(offset_at(&closed, None, 50), Some(0), "before the first pause");
+        assert_eq!(offset_at(&closed, None, 100), None, "pause start is inside");
+        assert_eq!(offset_at(&closed, None, 299), None, "inside");
+        assert_eq!(offset_at(&closed, None, 300), Some(200), "at the resume: outside");
+        assert_eq!(offset_at(&closed, None, 550), None, "inside the second");
+        assert_eq!(offset_at(&closed, None, 700), Some(300), "after two pauses: sum");
+        // Open pause: a pre-pause sample delivered late keeps offset 0 / 200,
+        // anything captured since the pause started is dropped.
+        assert_eq!(offset_at(&[], Some(1_000), 999), Some(0), "late-delivered pre-pause sample");
+        assert_eq!(offset_at(&closed, Some(1_000), 800), Some(300));
+        assert_eq!(offset_at(&closed, Some(1_000), 1_000), None);
+        assert_eq!(offset_at(&closed, Some(1_000), 5_000), None);
+    }
+    #[test]
+    fn pause_clock_records_intervals_and_keeps_offset_semantics() {
         let mut c = PauseClock::new();
-        assert_eq!(c.last_resume_ns(), None);
-        c.resume(50);
-        assert_eq!(c.last_resume_ns(), None, "resume without a pause is not a resume");
+        c.resume(50); // resume without a pause: nothing
         c.pause(100);
+        assert_eq!(c.offset_at(99), Some(0));
+        assert_eq!(c.offset_at(150), None);
         c.resume(300);
-        assert_eq!(c.last_resume_ns(), Some(300));
-        c.pause(400);
-        c.resume(700);
-        assert_eq!(c.last_resume_ns(), Some(700));
+        c.pause(500);
+        c.pause(520); // double pause keeps the first start
+        c.resume(600);
+        assert_eq!(c.offset_ns(), 300);
+        assert_eq!(c.timeline_ns(1_000), 700);
+        assert_eq!(c.offset_at(200), None);
+        assert_eq!(c.offset_at(400), Some(200));
+        assert_eq!(c.offset_at(510), None);
+        assert_eq!(c.offset_at(1_000), Some(300));
     }
     #[test]
     fn pause_clock_freezes_and_shifts() {

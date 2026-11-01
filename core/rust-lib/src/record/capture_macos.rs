@@ -205,15 +205,13 @@ impl Inner {
         if !unsafe { sample.data_is_ready() } {
             return;
         }
-        let (paused, offset, last_resume) = self.clock.state();
-        if paused {
-            return;
-        }
-        // Content captured during a pause but delivered after the resume.
+        // Pause decisions use the sample's own capture time (host clock),
+        // never the delivery time: pre-pause content arriving during a pause
+        // is kept with its own offset, content captured inside a pause is
+        // dropped even when it arrives after the resume.
         let raw = unsafe { sample.presentation_time_stamp() };
-        if captured_during_pause(cmtime_ns(raw.value, raw.timescale, raw.flags.0), last_resume) {
-            return;
-        }
+        let Some(raw_ns) = cmtime_ns(raw.value, raw.timescale, raw.flags.0) else { return };
+        let Some(offset) = self.clock.offset_at(raw_ns) else { return };
         let mut guard = self.st.lock();
         let st = &mut guard.0;
         if st.stopping || st.error.is_some() {
@@ -280,13 +278,6 @@ impl Inner {
 
 fn clamp_fps(fps: u32) -> u32 {
     fps.clamp(1, MAX_FPS)
-}
-
-/// A sample whose own capture time (host clock) lies before the latest resume
-/// was captured while paused — drop it. No resume yet / no valid PTS → keep
-/// (an invalid PTS is refused later by the gates anyway).
-fn captured_during_pause(capture_ns: Option<i64>, last_resume_ns: Option<i64>) -> bool {
-    matches!((capture_ns, last_resume_ns), (Some(c), Some(r)) if c < r)
 }
 
 fn self_check(gate: &mut VideoTimestampGate, ns: Option<i64>) -> GateVerdict {
@@ -789,7 +780,12 @@ impl Capture {
                 Err(_) => {
                     // Best effort: a start that answers late must not leave a
                     // running stream behind.
-                    stream.stopCaptureWithCompletionHandler(None);
+                    let (stx, srx) = mpsc::channel::<()>();
+                    let stopped = RcBlock::new(move |_err: *mut NSError| {
+                        let _ = stx.send(());
+                    });
+                    stream.stopCaptureWithCompletionHandler(Some(&stopped));
+                    let _ = srx.recv_timeout(Duration::from_secs(1));
                     let _ = std::fs::remove_file(out);
                     return Err(crate::i18n::t("rec2.capture_start_hangs"));
                 }
@@ -964,15 +960,6 @@ mod tests {
     }
 
     #[test]
-    fn samples_captured_before_the_last_resume_are_dropped() {
-        assert!(captured_during_pause(Some(999), Some(1_000)));
-        assert!(!captured_during_pause(Some(1_000), Some(1_000)), "at the resume itself: keep");
-        assert!(!captured_during_pause(Some(1_001), Some(1_000)));
-        assert!(!captured_during_pause(Some(5), None), "never resumed: keep");
-        assert!(!captured_during_pause(None, Some(1_000)), "no PTS: the gates decide");
-    }
-
-    #[test]
     fn fps_is_clamped_to_1_through_60() {
         assert_eq!(clamp_fps(0), 1);
         assert_eq!(clamp_fps(30), 30);
@@ -1043,6 +1030,32 @@ mod live {
             .expect("format duration");
         assert!((fmt_dur - 3.5).abs() <= 0.3, "duration {fmt_dur} not ≈ 3.5 s");
         assert!((res.duration_ms as f64 / 1000.0 - 3.5).abs() <= 0.3);
+
+        // A/V alignment from the packets themselves: if pause holes collapsed
+        // (audio stored back to back), the audio would end early.
+        let last_packet = |sel: &str| -> (f64, f64) {
+            let o = Command::new(crate::ffmpeg_util::ffprobe_path().expect("ffprobe"))
+                .args(["-v", "error", "-select_streams", sel, "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0"])
+                .arg(&out)
+                .output()
+                .expect("ffprobe packets");
+            let text = String::from_utf8_lossy(&o.stdout).to_string();
+            let mut best = (f64::MIN, 0.0);
+            for l in text.lines() {
+                let mut it = l.split(',');
+                let pts: f64 = it.next().and_then(|v| v.trim().parse().ok()).unwrap_or(f64::MIN);
+                let dur: f64 = it.next().and_then(|v| v.trim().parse().ok()).unwrap_or(0.0);
+                if pts > best.0 {
+                    best = (pts, dur);
+                }
+            }
+            best
+        };
+        let (v_pts, _) = last_packet("v:0");
+        let (a_pts, a_dur) = last_packet("a:0");
+        let a_end = a_pts + a_dur;
+        println!("last video packet pts {v_pts:.3} s, last audio packet end {a_end:.3} s, diff {:.3} s", a_end - v_pts);
+        assert!((a_end - v_pts).abs() < 0.15, "audio end {a_end} vs video {v_pts}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

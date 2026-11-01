@@ -57,26 +57,30 @@ export function Preview({ ratio, active, dim, children }: { ratio: number; activ
     return () => window.clearTimeout(id);
   }, [panel, ratio]);
 
+  // Shared across effect runs: toggling `active` off→on while a request is pending must not
+  // start a second one.
+  const inflight = useRef(false);
+  const gen = useRef(0);
   useEffect(() => {
     if (!active) return;
+    // A restarted helper counts generations from 0 again.
+    gen.current = 0;
     let dead = false;
-    let inflight = false;
-    let gen = 0;
     let raf = 0;
     const loop = () => {
       if (dead) return;
-      if (!inflight && document.visibilityState === "visible") {
-        inflight = true;
-        editorFrame(gen)
+      if (!inflight.current && document.visibilityState === "visible") {
+        inflight.current = true;
+        editorFrame(gen.current)
           .then(async (f) => {
             if (f && !dead && canvas.current) {
-              gen = f.gen;
+              gen.current = f.gen;
               await draw(canvas.current, f);
             }
           })
           .catch(() => undefined)
           .finally(() => {
-            inflight = false;
+            inflight.current = false;
           });
       }
       raf = requestAnimationFrame(loop);

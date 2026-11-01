@@ -9,8 +9,11 @@ import {
   editorRestart,
   editorSeek,
   editorThumbs,
+  editorToSource,
   editorUpdate,
   type EditorInit,
+  type EditorPlayback,
+  type EditorSourcePos,
   type RecordEditDoc,
   type RecordEditorView,
 } from "../lib/ipc";
@@ -45,6 +48,7 @@ const THUMB_PX = 96;
 const SAVED_AFTER_MS = 1000;
 /** New speed regions span this much source time from the playhead. */
 const NEW_SPEED_MS = 2000;
+const NOTICE_MS = 4000;
 
 const errText = (t: (k: MessageKey) => string, reason: string) =>
   reason.startsWith("record.editor.") ? t(reason as MessageKey) : reason;
@@ -68,8 +72,15 @@ export function RecordEditor() {
   const [exportOpen, setExportOpen] = useState(false);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [trackWidth, setTrackWidth] = useState(0);
+  const [cue, setCue] = useState<{ source: EditorSourcePos | null; speed: number }>({ source: null, speed: 1 });
+  const [notice, setNotice] = useState<string | null>(null);
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const savedTimer = useRef(0);
+  const noticeTimer = useRef(0);
+  /** Sequence of `editorUpdate` calls; only the newest answer may update the view. */
+  const seq = useRef(0);
+  const seeking = useRef(false);
+  const pendingSeek = useRef<number | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -97,10 +108,45 @@ export function RecordEditor() {
     return () => void off.then((u) => u());
   }, []);
 
+  /** Positions are integral ms — they go to `u64` IPCs. */
   const movePos = useCallback((p: number) => {
-    posRef.current = p;
-    setPos(p);
+    const v = Math.max(0, Math.round(p));
+    posRef.current = v;
+    setPos(v);
   }, []);
+
+  /** IPC failures are shown, never swallowed. */
+  const report = useCallback((e: unknown) => {
+    const msg = String(e);
+    console.error("record editor", msg);
+    setNotice(msg);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
+  }, []);
+
+  const applyPlayback = useCallback(
+    (s: EditorPlayback) => {
+      movePos(s.positionMs);
+      setPlaying(s.playing);
+      setCue({ source: s.source ?? null, speed: s.speed ?? 1 });
+      if (s.helperError) setFatal(s.helperError);
+    },
+    [movePos],
+  );
+
+  /** Reloads the session from Rust (after a restart or a failed update). */
+  const resync = useCallback(async () => {
+    try {
+      const i = await editorCurrent();
+      if (!i) return;
+      seq.current += 1;
+      history.current?.replace(i.view.doc);
+      setView(i.view);
+      setFatal(i.helperError);
+    } catch (e) {
+      report(e);
+    }
+  }, [report]);
 
   // Playhead while playing (the app owns the clock in Rust; it also stops at the end).
   useEffect(() => {
@@ -108,15 +154,12 @@ export function RecordEditor() {
     const id = window.setInterval(() => {
       editorPosition()
         .then((s) => {
-          if (!s) return;
-          movePos(s.positionMs);
-          if (!s.playing) setPlaying(false);
-          if (s.helperError) setFatal(s.helperError);
+          if (s) applyPlayback(s);
         })
-        .catch(() => undefined);
+        .catch(report);
     }, POSITION_POLL_MS);
     return () => window.clearInterval(id);
-  }, [playing, movePos]);
+  }, [playing, applyPlayback, report]);
 
   // Filmstrip: refreshed after edits/resizes settle.
   const programmeMs = view?.programmeMs ?? 0;
@@ -137,21 +180,27 @@ export function RecordEditor() {
     setUndoable({ undo: h.canUndo(), redo: h.canRedo() });
     setSaving(true);
     window.clearTimeout(savedTimer.current);
+    const mine = ++seq.current;
     const next = chain.current.then(async () => {
       try {
         const v = await editorUpdate(doc);
         if (h.present === doc) h.replace(v.doc);
-        setView(v);
+        // A newer edit is on its way: its answer draws the view, this one would flash back.
+        if (mine !== seq.current) return;
+        // Mid mic gesture the slider shows the live gain, not the answer's.
+        setView(micStart.current ? { ...v, doc: { ...v.doc, micGainDb: h.present.micGainDb } } : v);
         if (posRef.current > v.programmeMs) movePos(v.programmeMs);
       } catch (e) {
-        setFatal(String(e));
+        report(e);
+        // Rust may hold the doc even though the preview failed: show what it has.
+        if (mine === seq.current) await resync();
       } finally {
         savedTimer.current = window.setTimeout(() => setSaving(false), SAVED_AFTER_MS);
       }
     });
     chain.current = next;
     return next;
-  }, [movePos]);
+  }, [movePos, report, resync]);
 
   const commit = useCallback((doc: RecordEditDoc) => void send(doc, true), [send]);
 
@@ -164,33 +213,60 @@ export function RecordEditor() {
     if (d) void send(d, false);
   }, [send]);
 
+  /** Moves the playhead; one `editorSeek` in flight, the latest target wins (drags). */
   const seek = useCallback(
     (p: number) => {
-      const clamped = Math.min(programmeMs, Math.max(0, p));
-      movePos(clamped);
-      return editorSeek(clamped).catch(() => null);
+      movePos(Math.min(programmeMs, Math.max(0, p)));
+      if (seeking.current) {
+        pendingSeek.current = posRef.current;
+        return;
+      }
+      seeking.current = true;
+      const run = (target: number) => {
+        editorSeek(target)
+          .then((at) => setCue((c) => ({ ...c, source: at })))
+          .catch(report)
+          .finally(() => {
+            const next = pendingSeek.current;
+            pendingSeek.current = null;
+            if (next != null && next !== target) run(next);
+            else seeking.current = false;
+          });
+      };
+      run(posRef.current);
     },
-    [programmeMs, movePos],
+    [programmeMs, movePos, report],
   );
 
   const togglePlay = useCallback(() => {
     const want = !playing;
     setPlaying(want);
     editorPlay(want)
-      .then((s) => {
-        movePos(s.positionMs);
-        setPlaying(s.playing);
-      })
-      .catch(() => setPlaying(false));
-  }, [playing, movePos]);
+      .then(applyPlayback)
+      .catch((e) => {
+        setPlaying(false);
+        report(e);
+      });
+  }, [playing, applyPlayback, report]);
+
+  /** Source position of the playhead, without moving it. */
+  const sourceHere = useCallback(
+    () =>
+      editorToSource(posRef.current).catch((e) => {
+        report(e);
+        return null;
+      }),
+    [report],
+  );
+  const cur = useCallback(() => history.current?.present, []);
 
   const split = useCallback(async () => {
-    const at = await editorSeek(posRef.current).catch(() => null);
-    const doc = history.current?.present;
+    const at = await sourceHere();
+    const doc = cur();
     if (!at || !doc) return;
     const next = splitAt(doc, at.clip, at.sourceMs);
     if (next !== doc) await send(next, true);
-  }, [send]);
+  }, [send, sourceHere, cur]);
 
   /** The clip edits apply to: the selected one, else the one under `at`. */
   const clipFor = useCallback(
@@ -209,24 +285,29 @@ export function RecordEditor() {
   }, [commit, clipFor]);
 
   const addSpeedHere = useCallback(async () => {
-    const at = await editorSeek(posRef.current).catch(() => null);
-    const doc = history.current?.present;
+    const at = await sourceHere();
+    const doc = cur();
     if (!at || !doc) return;
     const end = Math.min(doc.clips[at.clip]?.endMs ?? at.sourceMs, at.sourceMs + NEW_SPEED_MS);
     if (end - at.sourceMs < 100) return;
     commit(addSpeed(doc, at.clip, at.sourceMs, end, 2));
-  }, [commit]);
+  }, [commit, sourceHere, cur]);
 
   const enterCrop = useCallback(async () => {
     if (playing) togglePlay();
-    const at = await editorSeek(posRef.current).catch(() => null);
+    const at = await sourceHere();
     setCropSourceMs(at?.sourceMs ?? 0);
     setCropMode(true);
-  }, [playing, togglePlay]);
+  }, [playing, togglePlay, sourceHere]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (exportOpen || isTypingTarget(e.target) || !view) return;
+      const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
+      // Held keys repeat only for stepping; a focused slider keeps its own arrows.
+      if (e.repeat && !arrow) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (arrow && target?.tagName === "INPUT") return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       if (mod && k === "z") {
@@ -241,9 +322,11 @@ export function RecordEditor() {
         e.preventDefault();
         setCropMode(false);
       } else if (e.key === " ") {
+        // A focused button activates on Space by itself; crop mode has no playback.
+        if (target?.tagName === "BUTTON" || cropMode) return;
         e.preventDefault();
         togglePlay();
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      } else if (arrow) {
         e.preventDefault();
         const step = e.shiftKey ? 1000 : frameMs;
         void seek(posRef.current + (e.key === "ArrowLeft" ? -step : step));
@@ -289,6 +372,8 @@ export function RecordEditor() {
     } catch (e) {
       setFatal(String(e));
     }
+    // The document and timeline come back from Rust, whatever happened before the crash.
+    await resync();
   };
 
   if (init === undefined) return <div className="h-screen w-screen bg-[var(--color-bg)]" />;
@@ -319,6 +404,11 @@ export function RecordEditor() {
         <span className="text-[11px] text-[var(--color-muted)]" data-testid="ed-save">
           {saving ? t("rec2.ed.saving") : t("rec2.ed.saved")}
         </span>
+        {notice && (
+          <span className="min-w-0 truncate text-[11px] text-red-500" role="alert" data-testid="ed-notice" title={notice}>
+            {errText(t, notice)}
+          </span>
+        )}
         <div className="flex-1" />
         <button className={iconBtn} onClick={undo} disabled={!undoable.undo} title={t("rec2.ed.undo")} aria-label={t("rec2.ed.undo")}>
           <Undo2 size={14} />
@@ -349,11 +439,11 @@ export function RecordEditor() {
             preset={preset}
             onPreset={(p) => {
               const aspect = p === "free" ? "source" : p;
-              const rect = p === "free" ? (doc.crop[cropClip] ?? null) : cropForPreset(p, meta.width, meta.height);
-              commit({ ...setCrop(doc, cropClip, rect), output: { aspect } });
+              const rect = p === "free" ? ((cur() ?? doc).crop[cropClip] ?? null) : cropForPreset(p, meta.width, meta.height);
+              commit({ ...setCrop(cur() ?? doc, cropClip, rect), output: { aspect } });
             }}
-            onCommit={(r) => commit(setCrop(doc, cropClip, r))}
-            onReset={() => commit({ ...setCrop(doc, cropClip, null), output: { aspect: "source" } })}
+            onCommit={(r) => commit(setCrop(cur() ?? doc, cropClip, r))}
+            onReset={() => commit({ ...setCrop(cur() ?? doc, cropClip, null), output: { aspect: "source" } })}
           />
         )}
         {fatal && (
@@ -433,8 +523,9 @@ export function RecordEditor() {
           onSelect={setSelected}
           onSeek={(p) => void seek(p)}
           onChange={commit}
-          onSpeedValue={(i, v) => commit(setSpeedValue(doc, i, v))}
-          onSpeedRemove={(i) => commit(removeSpeed(doc, i))}
+          getDoc={() => cur() ?? doc}
+          onSpeedValue={(i, v) => commit(setSpeedValue(cur() ?? doc, i, v))}
+          onSpeedRemove={(i) => commit(removeSpeed(cur() ?? doc, i))}
           onWidth={setTrackWidth}
         />
       </div>
@@ -443,9 +534,10 @@ export function RecordEditor() {
         screenSrc={meta.systemAudio ? asset("screen.mp4") : null}
         micSrc={meta.mic ? asset("mic.wav") : null}
         micOffsetMs={meta.mic?.offsetMs ?? 0}
-        view={view}
+        micGainDb={doc.micGainDb}
         playing={playing && !fatal}
-        positionMs={pos}
+        source={cue.source}
+        speed={cue.speed}
       />
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
     </div>

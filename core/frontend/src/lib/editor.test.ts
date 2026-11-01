@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RecordEditDoc, RecordEditorView } from "./ipc";
 import {
   History,
@@ -11,8 +11,7 @@ import {
   formatTimecode,
   setCrop,
   setTrim,
-  sourceCueAt,
-  speedAt,
+  trimSourceAt,
   splitAt,
 } from "./editor";
 
@@ -103,13 +102,6 @@ describe("deleteClip / setTrim / addSpeed / setCrop", () => {
     expect(set.crop).toEqual([r]);
     expect(setCrop(set, 0, null).crop).toEqual([null]);
   });
-
-  it("speedAt reads the region covering a source time, else 1", () => {
-    const doc = base({ speed: [{ clip: 0, startMs: 2000, endMs: 6000, speed: 2 }] });
-    expect(speedAt(doc, 0, 3000)).toBe(2);
-    expect(speedAt(doc, 0, 6000)).toBe(1);
-    expect(speedAt(doc, 0, 100)).toBe(1);
-  });
 });
 
 describe("cropForPreset", () => {
@@ -181,18 +173,32 @@ const view: RecordEditorView = {
   speed: [{ index: 0, progStartMs: 2000, progEndMs: 4000 }],
 };
 
-describe("clipAt / sourceCueAt (from Rust spans)", () => {
-  it("clipAt finds the clip span under a programme time", () => {
+describe("clipAt (from Rust spans)", () => {
+  it("finds the clip span under a programme time", () => {
     expect(clipAt(view, 0)).toBe(0);
     expect(clipAt(view, 8000)).toBe(1);
     expect(clipAt(view, 10_000)).toBe(1);
   });
+});
 
-  it("sourceCueAt anchors on the region and clip spans Rust returned", () => {
-    expect(sourceCueAt(view, 1000)).toEqual({ clip: 0, sourceMs: 1000, speed: 1 });
-    expect(sourceCueAt(view, 3000)).toEqual({ clip: 0, sourceMs: 4000, speed: 2 });
-    expect(sourceCueAt(view, 5000)).toEqual({ clip: 0, sourceMs: 7000, speed: 1 });
-    expect(sourceCueAt(view, 9000)).toEqual({ clip: 1, sourceMs: 13_000, speed: 1 });
+describe("trimSourceAt", () => {
+  const span = { progStartMs: 0, progEndMs: 8000 };
+  const bounds = { startMs: 0, endMs: 10_000 };
+  it("asks Rust inside the clip (integer programme ms)", async () => {
+    const toSource = vi.fn(async (p: number) => ({ clip: 0, sourceMs: p === 3000 ? 4000 : -1 }));
+    expect(await trimSourceAt(0, "end", span, bounds, 2999.7, toSource)).toBe(4000);
+    expect(toSource).toHaveBeenCalledWith(3000);
+  });
+  it("past the span the uncovered source runs at 1×, without asking Rust", async () => {
+    const toSource = vi.fn(async () => null);
+    expect(await trimSourceAt(0, "end", span, bounds, 8500, toSource)).toBe(10_500);
+    expect(await trimSourceAt(0, "start", { progStartMs: 1000, progEndMs: 5000 }, { startMs: 3000, endMs: 7000 }, 400, toSource)).toBe(2400);
+    expect(await trimSourceAt(0, "start", span, { startMs: 200, endMs: 5000 }, -900, toSource)).toBe(0);
+    expect(toSource).not.toHaveBeenCalled();
+  });
+  it("an answer in another clip keeps the edge", async () => {
+    const toSource = async () => ({ clip: 1, sourceMs: 12_000 });
+    expect(await trimSourceAt(0, "end", span, bounds, 4000, toSource)).toBe(10_000);
   });
 });
 

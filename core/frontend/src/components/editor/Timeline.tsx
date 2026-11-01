@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { RecordEditDoc, RecordEditorView } from "../../lib/ipc";
-import { MAX_SPEED, MIN_CLIP_MS, MIN_SPEED, SPEED_STEPS, formatTimecode, setTrim, speedAt } from "../../lib/editor";
+import { editorToSource, type RecordEditDoc, type RecordEditorView } from "../../lib/ipc";
+import { MAX_SPEED, MIN_CLIP_MS, MIN_SPEED, SPEED_STEPS, formatTimecode, setTrim, trimSourceAt } from "../../lib/editor";
 import { useT } from "../../lib/i18n";
 
 const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
@@ -8,14 +8,25 @@ const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
 const PX_PER_DOUBLING = 40;
 
 type Drag =
-  | { kind: "trim"; clip: number; edge: "start" | "end"; x0: number; dx: number }
+  | {
+      kind: "trim";
+      clip: number;
+      edge: "start" | "end";
+      x0: number;
+      dx: number;
+      span: { progStartMs: number; progEndMs: number };
+      bounds: { startMs: number; endMs: number };
+      /** The edge's source position as Rust last answered (optimistic label). */
+      sourceMs: number;
+    }
   | { kind: "speed"; index: number; y0: number; value: number; moved: boolean }
   | { kind: "head" };
 
 /**
  * Timeline: filmstrip, clips (with trim handles), speed band and the playhead. All
- * geometry comes from the programme spans Rust returned (`view`); a trim drag converts
- * pixels to source time with the speed at the dragged edge and is normalised by Rust.
+ * geometry comes from the programme spans Rust returned (`view`). A trim drag turns the
+ * pointer into programme ms and asks Rust for the source position (`editor_to_source`, one
+ * request in flight); edits are built from `getDoc()` (the newest document), not `view`.
  */
 export function Timeline({
   view,
@@ -25,6 +36,7 @@ export function Timeline({
   selectedClip,
   onSelect,
   onSeek,
+  getDoc,
   onChange,
   onSpeedValue,
   onSpeedRemove,
@@ -37,6 +49,8 @@ export function Timeline({
   selectedClip: number | null;
   onSelect: (clip: number) => void;
   onSeek: (programmeMs: number) => void;
+  /** The newest document (History's present) — edits must never start from a stale `view`. */
+  getDoc: () => RecordEditDoc;
   onChange: (doc: RecordEditDoc) => void;
   onSpeedValue: (index: number, speed: number) => void;
   onSpeedRemove: (index: number) => void;
@@ -69,16 +83,44 @@ export function Timeline({
     return Math.min(total, Math.max(0, ((clientX - r.left) / r.width) * total));
   };
 
+  const resolving = useRef(false);
+  const pending = useRef<number | null>(null);
+  const edgeProg = (d: Extract<Drag, { kind: "trim" }>) =>
+    (d.edge === "start" ? d.span.progStartMs : d.span.progEndMs) + (scale > 0 ? d.dx / scale : 0);
+  const resolveTrim = (d: Extract<Drag, { kind: "trim" }>, prog: number) =>
+    trimSourceAt(d.clip, d.edge, d.span, d.bounds, prog, (p) => editorToSource(p));
+  /** Optimistic source label while dragging: one request in flight, the latest wins. */
+  const requestResolve = (d: Extract<Drag, { kind: "trim" }>, prog: number) => {
+    if (resolving.current) {
+      pending.current = prog;
+      return;
+    }
+    resolving.current = true;
+    resolveTrim(d, prog)
+      .then((src) => setDrag((cur) => (cur?.kind === "trim" && cur.clip === d.clip ? { ...cur, sourceMs: src } : cur)))
+      .catch(() => undefined)
+      .finally(() => {
+        resolving.current = false;
+        const next = pending.current;
+        pending.current = null;
+        if (next != null) requestResolve(d, next);
+      });
+  };
+
   const capture = (e: ReactPointerEvent) => (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
 
   const onMove = (e: ReactPointerEvent) => {
     if (!drag) return;
     if (drag.kind === "head") onSeek(progAt(e.clientX));
-    else if (drag.kind === "trim") setDrag({ ...drag, dx: e.clientX - drag.x0 });
+    else if (drag.kind === "trim") {
+      const next = { ...drag, dx: e.clientX - drag.x0 };
+      setDrag(next);
+      requestResolve(next, edgeProg(next));
+    }
     else {
       const dy = drag.y0 - e.clientY;
       if (Math.abs(dy) < 3 && !drag.moved) return;
-      const base = doc.speed[drag.index]?.speed ?? 1;
+      const base = getDoc().speed[drag.index]?.speed ?? 1;
       const v = Math.min(MAX_SPEED, Math.max(MIN_SPEED, base * 2 ** (dy / PX_PER_DOUBLING)));
       setDrag({ ...drag, value: Math.round(v * 4) / 4 || MIN_SPEED, moved: true });
     }
@@ -89,14 +131,19 @@ export function Timeline({
     setDrag(null);
     if (!d) return;
     if (d.kind === "trim" && d.dx !== 0 && scale > 0) {
-      const c = doc.clips[d.clip];
-      const edgeMs = d.edge === "start" ? c.startMs : Math.max(c.startMs, c.endMs - 1);
-      const deltaMs = (d.dx / scale) * speedAt(doc, d.clip, edgeMs);
-      if (d.edge === "start") {
-        onChange(setTrim(doc, d.clip, Math.min(c.endMs - MIN_CLIP_MS, Math.max(0, c.startMs + deltaMs)), c.endMs));
-      } else {
-        onChange(setTrim(doc, d.clip, c.startMs, Math.max(c.startMs + MIN_CLIP_MS, Math.min(durationMs, c.endMs + deltaMs))));
-      }
+      pending.current = null;
+      void resolveTrim(d, edgeProg(d))
+        .then((src) => {
+          const cur = getDoc();
+          const c = cur.clips[d.clip];
+          if (!c) return;
+          if (d.edge === "start") {
+            onChange(setTrim(cur, d.clip, Math.min(c.endMs - MIN_CLIP_MS, Math.max(0, src)), c.endMs));
+          } else {
+            onChange(setTrim(cur, d.clip, c.startMs, Math.max(c.startMs + MIN_CLIP_MS, Math.min(durationMs, src))));
+          }
+        })
+        .catch(() => undefined);
     } else if (d.kind === "speed") {
       if (d.moved) onSpeedValue(d.index, d.value);
       else setMenu(menu === d.index ? null : d.index);
@@ -157,7 +204,11 @@ export function Timeline({
                 style={{ left, width: Math.max(4, w - 2) }}
                 title={`${formatTimecode(doc.clips[i]?.startMs ?? 0)} – ${formatTimecode(doc.clips[i]?.endMs ?? 0)}`}
               >
-                <span className="truncate">{formatTimecode(span.progEndMs - span.progStartMs)}</span>
+                <span className="truncate">
+                  {drag?.kind === "trim" && drag.clip === i
+                    ? formatTimecode(drag.sourceMs)
+                    : formatTimecode(span.progEndMs - span.progStartMs)}
+                </span>
                 {(["start", "end"] as const).map((edge) => (
                   <span
                     key={edge}
@@ -166,7 +217,17 @@ export function Timeline({
                       e.stopPropagation();
                       capture(e);
                       onSelect(i);
-                      setDrag({ kind: "trim", clip: i, edge, x0: e.clientX, dx: 0 });
+                      const b = doc.clips[i];
+                      setDrag({
+                        kind: "trim",
+                        clip: i,
+                        edge,
+                        x0: e.clientX,
+                        dx: 0,
+                        span,
+                        bounds: { startMs: b.startMs, endMs: b.endMs },
+                        sourceMs: edge === "start" ? b.startMs : b.endMs,
+                      });
                     }}
                     className={
                       "absolute top-0 h-full w-2 cursor-ew-resize bg-[var(--color-accent)]/60 opacity-0 transition-opacity duration-(--duration-fast) ease-sharp hover:opacity-100 " +

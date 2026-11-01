@@ -32,7 +32,14 @@ function dragRect(r: RecordCropRect, h: Handle, dx: number, dy: number, lock: nu
   by = by < ay ? ay - hh : ay + hh;
   const x = clamp01(Math.min(ax, bx));
   const y = clamp01(Math.min(ay, by));
-  return { x, y, w: Math.min(w, 1 - x), h: Math.min(hh, 1 - y) };
+  let fw = Math.min(w, 1 - x);
+  let fh = Math.min(hh, 1 - y);
+  // Clamping one side must not break a locked ratio: shrink the other to match.
+  if (lock) {
+    if (fw / fh > lock) fw = fh * lock;
+    else fh = fw / lock;
+  }
+  return { x, y, w: fw, h: fh };
 }
 
 /**
@@ -67,6 +74,13 @@ export function CropOverlay({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [live, setLive] = useState<RecordCropRect | null>(null);
   const [drag, setDrag] = useState<{ h: Handle; x: number; y: number; start: RecordCropRect } | null>(null);
+  // The dragged rect stays on screen until the document answers with the new one (no flash
+  // back to the old rect between pointer-up and Rust's normalised doc).
+  const [seenRect, setSeenRect] = useState(rect);
+  if (seenRect !== rect) {
+    setSeenRect(rect);
+    setLive(null);
+  }
   const shown = live ?? rect ?? { x: 0, y: 0, w: 1, h: 1 };
   // Locked ratio in normalised units (w/h of the rect as fractions of the frame).
   const lock = preset === "free" ? null : (ASPECT_RATIO[preset] * srcH) / srcW;
@@ -107,7 +121,6 @@ export function CropOverlay({
   const up = () => {
     if (drag && live) onCommit(live);
     setDrag(null);
-    setLive(null);
   };
 
   return (

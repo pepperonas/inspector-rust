@@ -1236,6 +1236,10 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_seek,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_to_source,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_to_programme,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_play,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_position,

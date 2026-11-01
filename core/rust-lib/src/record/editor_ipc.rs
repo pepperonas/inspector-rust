@@ -225,10 +225,19 @@ pub struct PlaybackState {
     pub exporting: bool,
     /// The helper's death reason while it is dead (until the next command restarts it).
     pub helper_error: Option<String>,
+    /// Where the playhead is in the recording (the audio preview cues from this).
+    pub source: Option<SourcePos>,
+    /// Playback speed at `source` (1 when there is none).
+    pub speed: f64,
 }
 
 fn locate(doc: &EditDoc, prog_ms: u64) -> Option<SourcePos> {
     editor::programme_to_source(doc, prog_ms).map(|(clip, source_ms)| SourcePos { clip, source_ms })
+}
+
+/// Speed at a mapped position (1 without one).
+fn speed_of(doc: &EditDoc, pos: Option<SourcePos>) -> f64 {
+    pos.map_or(1.0, |p| editor::speed_at(doc, p.clip, p.source_ms))
 }
 
 fn sec(ms: u64) -> f64 {
@@ -639,11 +648,29 @@ pub fn seek(app: &AppHandle, programme_ms: u64) -> Result<Option<SourcePos>, Str
     Ok(pos)
 }
 
+/// Programme → source on the open document, without moving the playhead (trim drags).
+pub fn to_source(programme_ms: u64) -> Result<Option<SourcePos>, String> {
+    let guard = session();
+    let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
+    Ok(locate(&s.doc, programme_ms))
+}
+
+/// Source → programme on the open document, without moving the playhead.
+pub fn to_programme(clip: usize, source_ms: u64) -> Result<u64, String> {
+    let guard = session();
+    let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
+    Ok(editor::source_to_programme(&s.doc, clip, source_ms))
+}
+
 fn playback(s: &Session) -> PlaybackState {
     let client = HOST.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let position_ms = s.transport.position(now_ms());
+    let source = locate(&s.doc, position_ms);
     PlaybackState {
         playing: s.transport.playing(),
-        position_ms: s.transport.position(now_ms()),
+        position_ms,
+        source,
+        speed: speed_of(&s.doc, source),
         programme_ms: s.transport.programme_ms(),
         exporting: client.as_ref().is_some_and(|c| c.exporting()),
         helper_error: client.and_then(|c| match c.state() {
@@ -835,7 +862,7 @@ pub fn shutdown(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::record::editor::{EditClip, OutputShape, EDITOR_VERSION};
+    use crate::record::editor::{EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
     use chrono::NaiveDate;
 
     fn doc(clips: &[(u64, u64)]) -> EditDoc {
@@ -847,6 +874,25 @@ mod tests {
             output: OutputShape::default(),
             mic_gain_db: 0.0,
         }
+    }
+
+    #[test]
+    fn mapping_queries_and_speed_follow_the_document() {
+        // Clip 0 source 0–10 s with 2× over 2–6 s (programme 8 s), clip 1 source 12–14 s.
+        let mut d = doc(&[(0, 10_000), (12_000, 14_000)]);
+        d.speed.push(SpeedRegion { clip: 0, start_ms: 2_000, end_ms: 6_000, speed: 2.0 });
+        assert_eq!(locate(&d, 3_000), Some(SourcePos { clip: 0, source_ms: 4_000 }));
+        assert_eq!(locate(&d, 9_000), Some(SourcePos { clip: 1, source_ms: 13_000 }));
+        assert_eq!(editor::source_to_programme(&d, 0, 4_000), 3_000);
+        assert_eq!(editor::source_to_programme(&d, 1, 13_000), 9_000);
+        assert_eq!(speed_of(&d, locate(&d, 3_000)), 2.0);
+        assert_eq!(speed_of(&d, locate(&d, 5_000)), 1.0);
+        assert_eq!(speed_of(&d, locate(&d, 1_000)), 1.0);
+        assert_eq!(speed_of(&d, None), 1.0);
+        // The end of the region belongs to the region (last segment end too).
+        assert_eq!(editor::speed_at(&d, 0, 6_000), 1.0);
+        assert_eq!(editor::speed_at(&d, 0, 10_000), 1.0);
+        assert_eq!(editor::speed_at(&d, 5, 0), 1.0);
     }
 
     #[test]

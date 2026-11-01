@@ -4,8 +4,8 @@
  * The programme ↔ source mapping lives in Rust (`record/editor.rs`, ruling R3): every
  * document change goes through `editor_update`, which answers with the normalised doc and
  * the programme spans of each clip and speed region. Nothing here re-derives those spans;
- * the edits below work in SOURCE time, and the two readers (`clipAt`, `sourceCueAt`) only
- * interpolate between the anchors Rust returned.
+ * the edits below work in SOURCE time; `clipAt` only reads the clip spans Rust returned, and
+ * the audio preview cues from the source position Rust reports with the playhead.
  */
 import type { RecordAspect, RecordCropRect, RecordEditDoc, RecordEditorView } from "./ipc";
 
@@ -107,12 +107,6 @@ export function setMicGain(doc: RecordEditDoc, db: number): RecordEditDoc {
   return { ...doc, micGainDb: Math.min(MAX_MIC_DB, Math.max(MIN_MIC_DB, db)) };
 }
 
-/** Speed of the region of `clip` covering `sourceMs` (half-open), else 1. */
-export function speedAt(doc: RecordEditDoc, clip: number, sourceMs: number): number {
-  const r = doc.speed.find((s) => s.clip === clip && s.startMs <= sourceMs && sourceMs < s.endMs);
-  return r ? r.speed : 1;
-}
-
 /** The largest centred rect of `aspect` inside a srcW×srcH frame, normalised to 0…1. */
 export function cropForPreset(aspect: RecordAspect, srcW: number, srcH: number): RecordCropRect {
   if (aspect === "source" || srcW <= 0 || srcH <= 0) return { x: 0, y: 0, w: 1, h: 1 };
@@ -185,33 +179,27 @@ export function clipAt(view: RecordEditorView, t: number): number {
   return found;
 }
 
-export interface SourceCue { clip: number; sourceMs: number; speed: number }
-
 /**
- * Where the audio preview should be at programme time `t`: interpolated between the
- * anchors of `view` (clip spans and region spans from Rust) — gaps between regions play
- * at 1×. Used to cue the `<audio>` elements, never to edit the document.
+ * Source position of a trim handle dragged to programme time `prog` (ruling R12: the mapping
+ * is Rust's). Inside the clip's programme span `toSource` (`editor_to_source`) answers. Past
+ * the span the handle uncovers source the clip does not play yet; Rust's `normalize` keeps
+ * every speed region inside its clip, so uncovered source has no region and runs at 1× —
+ * the overshoot in programme ms is the overshoot in source ms.
  */
-export function sourceCueAt(view: RecordEditorView, t: number): SourceCue {
-  const clip = clipAt(view, t);
-  const span = view.clips[clip];
-  const c = view.doc.clips[clip];
-  if (!span || !c) return { clip: 0, sourceMs: 0, speed: 1 };
-  const regions = view.speed
-    .filter((s) => view.doc.speed[s.index]?.clip === clip)
-    .sort((a, b) => a.progStartMs - b.progStartMs);
-  let prog = span.progStartMs;
-  let src = c.startMs;
-  for (const s of regions) {
-    const r = view.doc.speed[s.index];
-    if (t < s.progStartMs) break;
-    if (t < s.progEndMs) {
-      return { clip, sourceMs: Math.min(r.endMs, Math.round(r.startMs + (t - s.progStartMs) * r.speed)), speed: r.speed };
-    }
-    prog = s.progEndMs;
-    src = r.endMs;
-  }
-  return { clip, sourceMs: Math.min(c.endMs, Math.round(src + (t - prog))), speed: 1 };
+export async function trimSourceAt(
+  clip: number,
+  edge: "start" | "end",
+  span: { progStartMs: number; progEndMs: number },
+  bounds: { startMs: number; endMs: number },
+  prog: number,
+  toSource: (programmeMs: number) => Promise<{ clip: number; sourceMs: number } | null>,
+): Promise<number> {
+  const p = Math.round(prog);
+  if (p <= span.progStartMs) return Math.max(0, bounds.startMs - (span.progStartMs - p));
+  if (p >= span.progEndMs) return bounds.endMs + (p - span.progEndMs);
+  const at = await toSource(p);
+  if (at && at.clip === clip) return at.sourceMs;
+  return edge === "start" ? bounds.startMs : bounds.endMs;
 }
 
 /** Preview render size: `ratio` fitted into the panel, scaled down to the cap. */

@@ -5244,6 +5244,9 @@ export interface EditorPlayback {
   programmeMs: number;
   exporting: boolean;
   helperError: string | null;
+  /** Where the playhead is in the recording (Rust's mapping) and the speed there. */
+  source: EditorSourcePos | null;
+  speed: number;
 }
 export interface EditorExportOptions {
   kind: "mp4" | "gif";
@@ -5275,8 +5278,18 @@ export function editorCurrent(): Promise<EditorInit | null> {
 export function editorUpdate(doc: RecordEditDoc): Promise<RecordEditorView> {
   return invoke("editor_update", { doc });
 }
+/** Millisecond positions cross the IPC as `u64`: a fraction would be rejected by serde. */
+const ms = (v: number) => Math.max(0, Math.round(Number.isFinite(v) ? v : 0));
 export function editorSeek(programmeMs: number): Promise<EditorSourcePos | null> {
-  return invoke("editor_seek", { programmeMs });
+  return invoke("editor_seek", { programmeMs: ms(programmeMs) });
+}
+/** Programme → source on the open document; does not move the playhead. */
+export function editorToSource(programmeMs: number): Promise<EditorSourcePos | null> {
+  return invoke("editor_to_source", { programmeMs: ms(programmeMs) });
+}
+/** Source → programme on the open document; does not move the playhead. */
+export function editorToProgramme(clip: number, sourceMs: number): Promise<number> {
+  return invoke("editor_to_programme", { clip, sourceMs: ms(sourceMs) });
 }
 export function editorPlay(playing: boolean): Promise<EditorPlayback> {
   return invoke("editor_play", { playing });

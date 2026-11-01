@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { decodeEditorFrame } from "./ipc";
+// The editor's millisecond IPCs take `u64` in Rust: serde rejects `1234.56`, and the old seek
+// swallowed that error — clicks on the timeline moved only the local playhead (review C1).
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+import { invoke } from "@tauri-apps/api/core";
+import { decodeEditorFrame, editorSeek, editorToProgramme, editorToSource } from "./ipc";
 
 function frame(gen: bigint, w: number, h: number, px: number[]): ArrayBuffer {
   const buf = new ArrayBuffer(16 + px.length);
@@ -26,5 +32,30 @@ describe("decodeEditorFrame (editor_frame's raw layout)", () => {
 
   it("refuses a body whose pixel count does not match its size", () => {
     expect(decodeEditorFrame(frame(1n, 2, 2, [0, 0, 0, 0]))).toBeNull();
+  });
+});
+
+const mockInvoke = vi.mocked(invoke);
+
+beforeEach(() => {
+  mockInvoke.mockReset();
+  mockInvoke.mockResolvedValue(null);
+});
+
+describe("editor ms IPCs send integers", () => {
+  it("a fractional seek (1000/30 per frame, pointer px) is rounded", async () => {
+    await editorSeek(1234.56);
+    expect(mockInvoke).toHaveBeenCalledWith("editor_seek", { programmeMs: 1235 });
+    await editorSeek(1000 / 30);
+    expect(mockInvoke).toHaveBeenLastCalledWith("editor_seek", { programmeMs: 33 });
+    await editorSeek(-4.2);
+    expect(mockInvoke).toHaveBeenLastCalledWith("editor_seek", { programmeMs: 0 });
+  });
+
+  it("the mapping queries round too", async () => {
+    await editorToSource(99.5);
+    expect(mockInvoke).toHaveBeenCalledWith("editor_to_source", { programmeMs: 100 });
+    await editorToProgramme(1, 4000.4);
+    expect(mockInvoke).toHaveBeenLastCalledWith("editor_to_programme", { clip: 1, sourceMs: 4000 });
   });
 });

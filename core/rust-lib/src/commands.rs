@@ -7213,6 +7213,20 @@ pub async fn editor_seek(app: AppHandle, programme_ms: u64) -> Result<Option<cra
     editor_blocking(move || crate::record::editor_ipc::seek(&app, programme_ms)).await
 }
 
+/// Programme → source on the open document (no side effects; trim drags).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_to_source(programme_ms: u64) -> Result<Option<crate::record::editor_ipc::SourcePos>, String> {
+    editor_blocking(move || crate::record::editor_ipc::to_source(programme_ms)).await
+}
+
+/// Source → programme on the open document (no side effects).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_to_programme(clip: usize, source_ms: u64) -> Result<u64, String> {
+    editor_blocking(move || crate::record::editor_ipc::to_programme(clip, source_ms)).await
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_play(app: AppHandle, playing: bool) -> Result<crate::record::editor_ipc::PlaybackState, String> {

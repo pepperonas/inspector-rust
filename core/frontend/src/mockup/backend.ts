@@ -922,8 +922,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
     case "editor_update": edDoc = args.doc as EdDoc; return edView(edDoc);
     case "editor_seek": edPos = Number(args.programmeMs); return { clip: 0, sourceMs: edPos };
-    case "editor_play": edPlaying = Boolean(args.playing); return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null };
-    case "editor_position": if (edPlaying) edPos += 66; return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null };
+    case "editor_play": edPlaying = Boolean(args.playing); return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null, source: { clip: 0, sourceMs: edPos }, speed: 1 };
+    case "editor_position": if (edPlaying) edPos += 66; return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null, source: { clip: 0, sourceMs: edPos }, speed: 1 };
+    case "editor_to_source": return { clip: 0, sourceMs: Number(args.programmeMs) };
+    case "editor_to_programme": return Number(args.sourceMs);
     case "editor_frame": return Number(args.sinceGen) > 0 ? new ArrayBuffer(0) : edFrame();
     case "editor_resize": return null;
     case "editor_thumbs": return Array.from({ length: Number(args.count) || 8 }, (_, i) => edThumb(i));

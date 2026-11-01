@@ -36,6 +36,16 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>({ kind: "setup" });
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
     const offs: Promise<() => void>[] = [
       listen<{ frames: number; total: number }>("record-export-progress", (e) =>
         setPhase({ kind: "running", frames: e.payload.frames, total: e.payload.total }),

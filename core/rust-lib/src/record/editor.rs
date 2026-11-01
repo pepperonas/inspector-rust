@@ -349,6 +349,17 @@ pub fn source_to_programme(doc: &EditDoc, clip: usize, source_ms: u64) -> u64 {
     round_ms(acc)
 }
 
+/// Playback speed at `source_ms` in `clip` (the segment holding it; its end belongs to the
+/// segment before). Outside the clip: 1.
+pub fn speed_at(doc: &EditDoc, clip: usize, source_ms: u64) -> f64 {
+    let t = source_ms as f64;
+    let segs = segments(doc, clip);
+    segs.iter()
+        .find(|(s, e, _)| *s <= t && t < *e)
+        .or_else(|| segs.last().filter(|(_, e, _)| t == *e))
+        .map_or(1.0, |(_, _, v)| *v)
+}
+
 /// The timeline geometry the editor UI draws: clip and speed spans in programme ms.
 pub fn view(doc: &EditDoc) -> EditorView {
     // Each clip starts exactly where the previous one ended (no second float sum per edge).

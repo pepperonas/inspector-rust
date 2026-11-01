@@ -1236,6 +1236,13 @@ mod mac {
                 return Err(ERR_BUSY.into());
             }
         }
+        // The editor still decodes it and would save into a trashed folder.
+        #[cfg(target_arch = "aarch64")]
+        if let Some(open) = crate::record::editor_ipc::open_dir() {
+            if std::fs::canonicalize(open).ok().as_deref() == Some(dir.as_path()) {
+                return Err(crate::record::editor_ipc::ERR_DELETE_OPEN.into());
+            }
+        }
         trash::delete(&dir).map_err(|e| format!("{ERR_INVALID}:{e}"))
     }
 

@@ -4154,6 +4154,8 @@
   "record.editor.export_busy": "Es läuft bereits ein Export.",
   "record.editor.bad_export": "Diese Export-Einstellungen werden nicht unterstützt.",
   "record.editor.no_downloads": "Der Ordner „Downloads“ wurde nicht gefunden.",
+  "record.editor.open_exporting": "Ein Export läuft. Öffne die Aufnahme, wenn er fertig ist.",
+  "record.editor.delete_open": "Diese Aufnahme ist im Editor geöffnet. Schließe zuerst den Editor.",
   "rec2.ed.saving": "Wird gespeichert…",
   "rec2.ed.saved": "Gespeichert",
   "rec2.ed.undo": "Rückgängig (⌘Z)",

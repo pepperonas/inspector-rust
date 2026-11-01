@@ -915,6 +915,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "speedtest_history": return SPEED_RUNS;
     case "speedtest_clear_history": return null;
     case "editor_current": return {
+        sessionId: 1,
         project: { dir: "/Users/ana/Movies/Inspector Rust/2026-11-02 Demo", title: "Onboarding walkthrough", createdAt: 0, durationMs: 24_000, status: "ready", failure: null },
         meta: { source: "display", sourceLabel: "Studio Display", width: 3024, height: 1964, fps: 60, durationMs: 24_000, systemAudio: true, mic: { offsetMs: 0, sampleRate: 48_000 }, cursorMode: "system", pauses: [] },
         view: edView(edDoc),

@@ -4154,6 +4154,8 @@
   "record.editor.export_busy": "An export is already running.",
   "record.editor.bad_export": "These export settings are not supported.",
   "record.editor.no_downloads": "The Downloads folder was not found.",
+  "record.editor.open_exporting": "An export is running. Open the recording when it has finished.",
+  "record.editor.delete_open": "This recording is open in the editor. Close the editor first.",
   "rec2.ed.saving": "Saving…",
   "rec2.ed.saved": "Saved",
   "rec2.ed.undo": "Undo (⌘Z)",

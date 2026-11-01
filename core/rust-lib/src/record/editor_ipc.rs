@@ -46,6 +46,9 @@ pub const GIF_FPS: std::ops::RangeInclusive<u32> = 15..=30;
 pub const GIF_WIDTHS: [u32; 4] = [480, 640, 854, 1080];
 
 pub const EV_FATAL: &str = "record-editor-fatal";
+/// `{ sessionId }` after `open_editor` replaced the session: an editor window that already
+/// shows another project reloads (it must never send that project's doc to the new one).
+pub const EV_OPENED: &str = "record-editor-opened";
 pub const EV_EXPORT_PROGRESS: &str = "record-export-progress";
 pub const EV_EXPORT_DONE: &str = "record-export-done";
 pub const EV_EXPORT_FAILED: &str = "record-export-failed";
@@ -55,6 +58,11 @@ pub const ERR_UNREADABLE: &str = "record.editor.unreadable";
 pub const ERR_NO_VIDEO: &str = "record.editor.no_video";
 pub const ERR_BAD_EXPORT: &str = "record.editor.bad_export";
 pub const ERR_NO_DOWNLOADS: &str = "record.editor.no_downloads";
+/// Opening a project while an export runs: the helper's render thread is busy until the
+/// export ends, an `Open` behind it would time out and kill the export.
+pub const ERR_OPEN_EXPORTING: &str = "record.editor.open_exporting";
+/// Deleting the project that is open in the editor.
+pub const ERR_DELETE_OPEN: &str = "record.editor.delete_open";
 
 // ── pure parts ──────────────────────────────────────────────────────────────
 
@@ -364,6 +372,8 @@ impl Transport {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorInit {
+    /// The session this view belongs to; every `editor_update` names it.
+    pub session_id: u64,
     pub project: ProjectSummary,
     pub meta: RecordingMeta,
     pub view: EditorView,
@@ -407,6 +417,7 @@ impl Session {
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
         EditorInit {
+            session_id: self.id,
             project: self.summary(),
             meta: self.project.recording.clone(),
             view: editor::view(&self.doc),
@@ -504,7 +515,13 @@ fn send_all(client: &RenderClient, cmds: &[Command]) -> Result<(), String> {
 
 fn flush_save() {
     let mut s = session();
-    let Some(s) = s.as_mut() else { return };
+    if let Some(s) = s.as_mut() {
+        save_session(s);
+    }
+}
+
+/// Writes the session's document into ITS project dir (never another one), if it changed.
+fn save_session(s: &mut Session) {
     s.save_pending = false;
     if !s.dirty {
         return;
@@ -532,6 +549,24 @@ fn schedule_save(s: &mut Session) {
     }
 }
 
+/// `hotkey::hide_popup` ends in `app.hide()`, which hides EVERY window of the process —
+/// dismissing the popup (Esc, click-away, Ctrl+Space to paste) would take the editor with it,
+/// and an Accessory app has no Dock icon to bring it back. Same opt-out as the iris overlays.
+#[cfg(target_os = "macos")]
+fn keep_on_app_hide(win: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    if let Ok(ns) = win.ns_window() {
+        let w = ns as *mut AnyObject;
+        if !w.is_null() {
+            // SAFETY: `w` is this window's live NSWindow; we are on the main thread.
+            unsafe {
+                let _: () = msg_send![w, setCanHide: false];
+            }
+        }
+    }
+}
+
 /// Builds (or re-shows) the editor window on the main thread. Safe from any thread.
 fn show_window(app: &AppHandle) {
     let handle = app.clone();
@@ -553,6 +588,7 @@ fn show_window(app: &AppHandle) {
             .build();
         match built {
             Ok(win) => {
+                keep_on_app_hide(&win);
                 let app = handle.clone();
                 let gen = WINDOW_GEN.fetch_add(1, Ordering::SeqCst) + 1;
                 win.on_window_event(move |ev| {
@@ -575,6 +611,7 @@ fn show_window(app: &AppHandle) {
 /// Blocking (the helper's `Open` takes a moment) — call it from a worker thread. Used by the
 /// `editor_open` IPC and by the recording session after a take (Task 7).
 pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> {
+    open_allowed()?;
     let project = project::read_project(&dir).map_err(|e| {
         tracing::warn!(target: "record::editor", "{}: {e}", dir.display());
         ERR_UNREADABLE.to_string()
@@ -601,6 +638,10 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         let preview = preview_size(new.output(OutputTarget::P1080));
         let new = Session { preview, ..new };
         let out = (new.preview_scene(), preview, new.init(None));
+        // An edit that reached the old session after the flush above goes into ITS project.
+        if let Some(old) = s.as_mut() {
+            save_session(old);
+        }
         *s = Some(new);
         out
     };
@@ -611,7 +652,24 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     if let Some(e) = &helper_error {
         tracing::warn!(target: "record::editor", "preview did not start: {e}");
     }
+    // A window that already existed still shows the previous project: it reloads on this.
+    let _ = app.emit(EV_OPENED, serde_json::json!({ "sessionId": init.session_id }));
     Ok(EditorInit { helper_error, ..init })
+}
+
+/// Refuses an open while the helper exports (see [`ERR_OPEN_EXPORTING`]).
+pub fn open_refusal(exporting: bool) -> Result<(), String> {
+    if exporting { Err(ERR_OPEN_EXPORTING.into()) } else { Ok(()) }
+}
+
+/// [`open_refusal`] for the live helper — checked before anything (popup, session) changes.
+pub fn open_allowed() -> Result<(), String> {
+    open_refusal(current_client().is_some_and(|c| c.exporting()))
+}
+
+/// The project dir open in the editor, if any.
+pub fn open_dir() -> Option<PathBuf> {
+    session().as_ref().map(|s| s.dir.clone())
 }
 
 /// The open session, for a window that mounts after `open_editor` ran.
@@ -627,15 +685,30 @@ pub fn current() -> Option<EditorInit> {
     session().as_ref().map(|s| s.init(helper_error))
 }
 
-pub fn update(app: &AppHandle, doc: EditDoc) -> Result<EditorView, String> {
+/// Applies `doc` to the session it was made for. A doc from another session (an old
+/// window's in-flight edit after a project switch) is refused and changes nothing.
+fn apply_update(
+    slot: &mut Option<Session>,
+    session_id: u64,
+    doc: EditDoc,
+    now: u64,
+) -> Result<(EditorView, Value, Vec<Command>), String> {
+    let s = slot.as_mut().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    s.doc = editor::normalize(doc, s.project.recording.duration_ms);
+    let cmds = s.transport.set_doc(&s.doc, now);
+    s.last_frame_ms = now;
+    s.dirty = true;
+    Ok((editor::view(&s.doc), s.preview_scene(), cmds))
+}
+
+pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorView, String> {
     let (view, scene, cmds) = {
         let mut guard = session();
-        let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
-        s.doc = editor::normalize(doc, s.project.recording.duration_ms);
-        let cmds = s.transport.set_doc(&s.doc, now_ms());
-        s.last_frame_ms = now_ms();
-        schedule_save(s);
-        (editor::view(&s.doc), s.preview_scene(), cmds)
+        let out = apply_update(&mut guard, session_id, doc, now_ms())?;
+        if let Some(s) = guard.as_mut() {
+            schedule_save(s);
+        }
+        out
     };
     let client = ensure_client(app, true)?;
     client.send(&Command::SetScene { scene })?;
@@ -900,6 +973,102 @@ mod tests {
         }
     }
 
+    fn tmp_project(name: &str, id: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ir-editor-ipc-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Project {
+            schema: 1,
+            id: id.into(),
+            title: id.into(),
+            created_at: 0,
+            updated_at: 0,
+            status: ProjectStatus::Ready,
+            failure: None,
+            recording: RecordingMeta { width: 1920, height: 1080, fps: 30, duration_ms: 10_000, ..Default::default() },
+            editor: serde_json::json!({}),
+        };
+        project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
+        dir
+    }
+
+    fn session_for(dir: &Path, id: u64) -> Session {
+        let project = project::read_project(dir).unwrap();
+        let doc = editor::load(&project);
+        Session {
+            id,
+            dir: dir.to_path_buf(),
+            transport: Transport::new(&doc),
+            preview: (640, 360),
+            project,
+            doc,
+            last_frame_ms: 0,
+            dirty: false,
+            save_pending: false,
+        }
+    }
+
+    #[test]
+    fn an_update_after_a_project_switch_lands_only_in_the_new_project() {
+        let a = tmp_project("switch-a", "a");
+        let b = tmp_project("switch-b", "b");
+        let a_before = std::fs::read(a.join(PROJECT_FILE)).unwrap();
+        // The editor showed A (session 1), then B was opened (session 2).
+        let mut slot = Some(session_for(&b, 2));
+        let b_doc = slot.as_ref().unwrap().doc.clone();
+        // An edit the old window made for A arrives late: refused, B untouched.
+        let stale = doc(&[(0, 2_000), (6_000, 9_000)]);
+        assert_eq!(apply_update(&mut slot, 1, stale.clone(), 0).unwrap_err(), ERR_NO_SESSION);
+        let s = slot.as_mut().unwrap();
+        assert_eq!(s.doc, b_doc);
+        assert!(!s.dirty, "a refused update schedules no save");
+        save_session(s);
+        assert_eq!(project::read_project(&b).unwrap().editor, serde_json::json!({}), "B's project.json untouched");
+        // B's own edit is stored into B — and only B.
+        apply_update(&mut slot, 2, stale.clone(), 0).unwrap();
+        save_session(slot.as_mut().unwrap());
+        assert_eq!(editor::load(&project::read_project(&b).unwrap()).clips, stale.clips);
+        assert_eq!(std::fs::read(a.join(PROJECT_FILE)).unwrap(), a_before, "A's project.json untouched");
+        // No session at all: refused too.
+        assert_eq!(apply_update(&mut None, 2, stale, 0).unwrap_err(), ERR_NO_SESSION);
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn the_opened_event_and_init_carry_the_session_id() {
+        let b = tmp_project("init", "b");
+        let s = session_for(&b, 7);
+        let v = serde_json::to_value(s.init(None)).unwrap();
+        assert_eq!(v["sessionId"], 7);
+        let src = include_str!("editor_ipc.rs");
+        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        assert!(open.contains("app.emit(EV_OPENED"), "open_editor announces the new session");
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn opening_is_refused_while_an_export_runs() {
+        assert_eq!(open_refusal(true), Err(ERR_OPEN_EXPORTING.to_string()));
+        assert_eq!(open_refusal(false), Ok(()));
+        // The guard runs before the session is touched (the export must not lose its scene).
+        let src = include_str!("editor_ipc.rs");
+        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        let guard = open.find("open_allowed()?").expect("open_editor checks for a running export");
+        assert!(guard < open.find("flush_save").unwrap() && guard < open.find("session()").unwrap());
+    }
+
+    #[test]
+    fn the_editor_window_survives_app_hide() {
+        let src = include_str!("editor_ipc.rs");
+        let code: String = src.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+        let body = |name: &str| code.split(&format!("fn {name}(")).nth(1).unwrap().split("\n}\n").next().unwrap().to_string();
+        assert!(body("show_window").contains("keep_on_app_hide(&win)"), "every built editor window opts out");
+        // Needle assembled at runtime so this test can't find its own text.
+        let needle = format!("{}: false]", "setCanHide");
+        assert!(body("keep_on_app_hide").contains(&needle), "the editor must opt out of app.hide() (popup dismissal)");
+    }
+
     #[test]
     fn mapping_queries_and_speed_follow_the_document() {
         // Clip 0 source 0–10 s with 2× over 2–6 s (programme 8 s), clip 1 source 12–14 s.
@@ -913,7 +1082,7 @@ mod tests {
         assert_eq!(speed_of(&d, locate(&d, 5_000)), 1.0);
         assert_eq!(speed_of(&d, locate(&d, 1_000)), 1.0);
         assert_eq!(speed_of(&d, None), 1.0);
-        // The end of the region belongs to the region (last segment end too).
+        // Regions are half-open: their end already plays at the speed after them.
         assert_eq!(editor::speed_at(&d, 0, 6_000), 1.0);
         assert_eq!(editor::speed_at(&d, 0, 10_000), 1.0);
         assert_eq!(editor::speed_at(&d, 5, 0), 1.0);

@@ -355,6 +355,11 @@ impl RenderClient {
 
     /// `Open` → `Ready`.
     pub fn open(&self, scene: Value, preview_w: u32, preview_h: u32) -> Result<(), String> {
+        // The render thread is busy until the export ends: an `Open` would wait behind it,
+        // time out and kill the helper — and the export with it.
+        if self.exporting() {
+            return Err("record.editor.open_exporting".into());
+        }
         let rx = self.replies.lock().unwrap_or_else(|p| p.into_inner());
         let rx = self.begin(rx, &Command::Open { scene, preview_w, preview_h })?;
         let deadline = Instant::now() + self.timeouts.open;
@@ -707,6 +712,22 @@ mod tests {
         assert!(seen.iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: true, .. })), "{seen:?}");
         assert!(!seen.iter().any(|n| matches!(n, Notice::Dead { .. })), "an orderly close is not a death");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_during_an_export_is_refused_without_killing_the_helper() {
+        // A helper busy exporting never answers Open; waiting would time out and kill it.
+        let busy = script("open-busy", "sleep 3");
+        let (sink, _seen) = collecting();
+        let client = RenderClient::spawn_with(busy, Vec::new(), sink).unwrap();
+        let kind = ExportKind::Gif { w: 2, h: 2, fps: 15, loop_forever: true };
+        client.export(serde_json::json!({}), kind, "/tmp/ir-open-busy.gif".into()).unwrap();
+        let started = Instant::now();
+        assert_eq!(client.open(serde_json::json!({}), 64, 36).unwrap_err(), "record.editor.open_exporting");
+        assert!(started.elapsed() < Duration::from_millis(500), "refused at once, not after a timeout");
+        assert!(!client.is_dead(), "the export keeps running");
+        assert!(client.exporting());
+        client.abandon("test over".into());
     }
 
     #[test]

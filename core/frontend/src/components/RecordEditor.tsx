@@ -53,8 +53,32 @@ const NOTICE_MS = 4000;
 const errText = (t: (k: MessageKey) => string, reason: string) =>
   reason.startsWith("record.editor.") ? t(reason as MessageKey) : reason;
 
-/** The `record-editor` window: preview, transport, timeline, crop mode, undo, export. */
+/**
+ * The `record-editor` window. Opening a project while the window already exists replaces
+ * the Rust session (`record-editor-opened`); the whole editor then remounts, so no state of
+ * the previous project survives — its doc must never be sent to the new one, and the
+ * preview's frame generation restarts at 0 with the new helper scene.
+ */
 export function RecordEditor() {
+  const [mountKey, setMountKey] = useState(0);
+  /** Session the mounted editor shows (set once its `editorCurrent` answered). */
+  const shown = useRef<number | null>(null);
+  useEffect(() => {
+    const off = listen<{ sessionId: number }>("record-editor-opened", (e) => {
+      if (e.payload.sessionId === shown.current) return;
+      shown.current = e.payload.sessionId;
+      setMountKey((k) => k + 1);
+    });
+    return () => void off.then((u) => u());
+  }, []);
+  const onSession = useCallback((id: number) => {
+    shown.current = id;
+  }, []);
+  return <EditorSession key={mountKey} onSession={onSession} />;
+}
+
+/** One editor session: preview, transport, timeline, crop mode, undo, export. */
+function EditorSession({ onSession }: { onSession: (sessionId: number) => void }) {
   const t = useT();
   const [init, setInit] = useState<EditorInit | null | undefined>(undefined);
   const [view, setView] = useState<RecordEditorView | null>(null);
@@ -80,6 +104,8 @@ export function RecordEditor() {
   /** Sequence of `editorUpdate` calls; only the newest answer may update the view. */
   const seq = useRef(0);
   const seeking = useRef(false);
+  /** The session this editor was mounted for; every update names it. */
+  const sessionId = useRef(0);
   const pendingSeek = useRef<number | null>(null);
 
   useEffect(() => {
@@ -89,6 +115,8 @@ export function RecordEditor() {
         if (dead) return;
         setInit(i);
         if (i) {
+          sessionId.current = i.sessionId;
+          onSession(i.sessionId);
           history.current = new History(i.view.doc);
           setView(i.view);
           setFatal(i.helperError);
@@ -98,7 +126,7 @@ export function RecordEditor() {
     return () => {
       dead = true;
     };
-  }, []);
+  }, [onSession]);
 
   useEffect(() => {
     const off = listen<{ reason: string }>("record-editor-fatal", (e) => {
@@ -138,7 +166,8 @@ export function RecordEditor() {
   const resync = useCallback(async () => {
     try {
       const i = await editorCurrent();
-      if (!i) return;
+      // Another project was opened meanwhile: the remount shows it, never merge it in here.
+      if (!i || i.sessionId !== sessionId.current) return;
       seq.current += 1;
       history.current?.replace(i.view.doc);
       setView(i.view);
@@ -183,7 +212,7 @@ export function RecordEditor() {
     const mine = ++seq.current;
     const next = chain.current.then(async () => {
       try {
-        const v = await editorUpdate(doc);
+        const v = await editorUpdate(sessionId.current, doc);
         if (h.present === doc) h.replace(v.doc);
         // A newer edit is on its way: its answer draws the view, this one would flash back.
         if (mine !== seq.current) return;

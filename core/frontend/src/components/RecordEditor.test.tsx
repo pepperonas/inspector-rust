@@ -16,7 +16,7 @@ const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
 vi.mock("../lib/ipc", () => ({
   editorCurrent: () => editorCurrent(),
-  editorUpdate: (d: RecordEditDoc) => editorUpdate(d),
+  editorUpdate: (id: number, d: RecordEditDoc) => editorUpdate(d, id),
   // Like serde on the Rust side: a fractional u64 is an error, not a value.
   editorSeek: (t: number) => (Number.isInteger(t) ? editorSeek(t) : Promise.reject(new Error(`float ${t}`))),
   editorToSource: (t: number) =>
@@ -59,13 +59,14 @@ const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   const speed = doc.speed.map((r, index) => ({ index, progStartMs: r.startMs, progEndMs: r.endMs }));
   return { doc, programmeMs: t, clips, speed };
 };
-const init = (helperError: string | null = null): EditorInit => ({
-  project: { dir: "/m/take", title: "Take", createdAt: 0, durationMs: 10_000, status: "ready", failure: null },
+const init = (helperError: string | null = null, sessionId = 1, title = "Take", view = viewOf(doc0)): EditorInit => ({
+  sessionId,
+  project: { dir: "/m/take", title, createdAt: 0, durationMs: 10_000, status: "ready", failure: null },
   meta: {
     source: "display", sourceLabel: "D", width: 1920, height: 1080, fps: 30, durationMs: 10_000,
     systemAudio: true, mic: { offsetMs: 0, sampleRate: 48_000 }, cursorMode: "hidden" as never, pauses: [],
   },
-  view: viewOf(doc0),
+  view,
   helperError,
 });
 const playback = (playing: boolean, positionMs = 0) => ({
@@ -104,6 +105,51 @@ afterEach(() => {
 });
 
 describe("RecordEditor", () => {
+  it("opening another project into the open window reloads the view and restarts frame tracking", async () => {
+    editorCurrent.mockResolvedValue(init(null, 1, "Take A"));
+    editorFrame.mockResolvedValueOnce({ gen: 5, width: 2, height: 2, rgba: new Uint8Array(16) });
+    const { getByText, getAllByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(editorFrame.mock.calls.some((c) => c[0] === 5), "A's frame generation is tracked").toBe(true);
+    expect(getByText("Take A")).toBeTruthy();
+
+    // B is opened (a new Rust session; its helper scene counts frames from 0 again).
+    const docB: RecordEditDoc = { ...doc0, clips: [{ startMs: 0, endMs: 3000 }, { startMs: 5000, endMs: 9000 }], crop: [null, null] };
+    editorCurrent.mockResolvedValue(init(null, 2, "Take B", viewOf(docB)));
+    await act(async () => {
+      listeners.get("record-editor-opened")?.({ payload: { sessionId: 2 } });
+    });
+    const before = editorFrame.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(getByText("Take B")).toBeTruthy();
+    expect(getAllByTestId("ed-clip")).toHaveLength(2);
+    const after = editorFrame.mock.calls.slice(before);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((c) => c[0] === 0), "frame tracking restarts at 0").toBe(true);
+
+    // Edits now go to B's session, with B's doc.
+    editorToSource.mockResolvedValue({ clip: 1, sourceMs: 6000 });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const [sent, id] = editorUpdate.mock.calls[editorUpdate.mock.calls.length - 1];
+    expect(id).toBe(2);
+    expect((sent as RecordEditDoc).clips.length).toBe(3);
+
+    // The same session announced again changes nothing.
+    const reads = editorCurrent.mock.calls.length;
+    await act(async () => {
+      listeners.get("record-editor-opened")?.({ payload: { sessionId: 2 } });
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(editorCurrent.mock.calls.length).toBe(reads);
+  });
+
   it("Space starts playback", async () => {
     await mount();
     await act(async () => {

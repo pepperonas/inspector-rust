@@ -6,15 +6,19 @@ pub mod core;
 pub mod capture_macos;
 #[cfg(target_os = "macos")]
 pub mod cursor_macos;
+// Only the Apple-Silicon editor IPC uses these three; elsewhere they are compiled but unused.
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod editor;
 pub mod mic;
 #[cfg(target_os = "macos")]
 pub mod picker_macos;
 pub mod session;
 pub mod project;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod render_client;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod editor_ipc;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod scene_json;
 pub mod wav;
 

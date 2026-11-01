@@ -5232,6 +5232,8 @@ export interface RecordingMeta {
   pauses: [number, number][];
 }
 export interface EditorInit {
+  /** The session this view belongs to; `editorUpdate` names it (a foreign one is refused). */
+  sessionId: number;
   project: { dir: string; title: string; createdAt: number; durationMs: number; status: RecordProjectStatus; failure: string | null };
   meta: RecordingMeta;
   view: RecordEditorView;
@@ -5276,8 +5278,8 @@ export function editorOpen(dir: string): Promise<EditorInit> {
 export function editorCurrent(): Promise<EditorInit | null> {
   return invoke("editor_current");
 }
-export function editorUpdate(doc: RecordEditDoc): Promise<RecordEditorView> {
-  return invoke("editor_update", { doc });
+export function editorUpdate(sessionId: number, doc: RecordEditDoc): Promise<RecordEditorView> {
+  return invoke("editor_update", { sessionId, doc });
 }
 /** Millisecond positions cross the IPC as `u64`: a fraction would be rejected by serde. */
 const ms = (v: number) => Math.max(0, Math.round(Number.isFinite(v) ? v : 0));

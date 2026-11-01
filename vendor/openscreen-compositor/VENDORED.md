@@ -131,6 +131,19 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      stereo clip audio → 0.5 peak in both channels ±1 %) and
      `mic_shorter_than_clip_pads_silence` (same length, silent tail).
 
+10. **Build metadata for dependents (stage 2, Task 4 — the `ir-record-render` helper).**
+   - `Cargo.toml`: `links = "openscreen_ffmpeg"`, so dependents' build scripts can read
+     `DEP_OPENSCREEN_FFMPEG_*`.
+   - `build.rs`: after bindgen succeeded (next to `cfg(openscreen_ffmpeg)`) it emits
+     `cargo:enabled=1` and `cargo:lib_dir=<ffmpeg lib dir>`.
+   - Why: without an ffmpeg tree this crate is an empty library. The helper's `build.rs` panics
+     with a clear message when `DEP_OPENSCREEN_FFMPEG_ENABLED` is missing on macOS/arm64,
+     instead of failing on dozens of unresolved imports (or shipping a helper that can do
+     nothing). `lib_dir` is for bundling (Task 8).
+   - Caveat (Task 1 behaviour, unchanged): the "tree found" decision is cached by cargo. A tree
+     that appears AFTER an empty build needs `touch third_party/ffmpeg/8.1.2/.ir-ffmpeg-stamp`
+     (the script writes that stamp, so a fresh script run does it).
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 

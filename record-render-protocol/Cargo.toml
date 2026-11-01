@@ -1,0 +1,13 @@
+[package]
+name = "record-render-protocol"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Wire protocol between Inspector Rust and its `ir-record-render` helper process"
+
+# Platform-free on purpose: the app (every OS) and the helper (macOS Apple Silicon) share it.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

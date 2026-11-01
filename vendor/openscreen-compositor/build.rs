@@ -121,6 +121,10 @@ mod macos_host {
             .expect("writing ffi.rs");
 
         println!("cargo:rustc-cfg=openscreen_ffmpeg");
+        // Inspector Rust: tell dependents (the `ir-record-render` helper) that the library is
+        // real, and where its dylibs are (DEP_OPENSCREEN_FFMPEG_ENABLED / _LIB_DIR).
+        println!("cargo:enabled=1");
+        println!("cargo:lib_dir={}", lib_dir.display());
     }
 
     /// `<repo>/third_party/ffmpeg/8.1.2` (vendor/openscreen-compositor → ../../).

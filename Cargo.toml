@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core/rust-lib", "ocr-helper", "win/src-tauri", "macos/src-tauri", "linux/src-tauri", "vendor/openscreen-compositor"]
+members = ["core/rust-lib", "ocr-helper", "win/src-tauri", "macos/src-tauri", "linux/src-tauri", "vendor/openscreen-compositor", "record-render-protocol", "record-render"]
 
 [workspace.package]
 version = "0.228.0"

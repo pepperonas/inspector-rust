@@ -10,6 +10,9 @@ version = "2.1.2"
 edition = "2021"
 license = "MIT"
 publish = false
+# Inspector Rust: `links` only so dependents can read `DEP_OPENSCREEN_FFMPEG_*` (whether the
+# library was built with ffmpeg, and where its dylibs live). See VENDORED.md patch 10.
+links = "openscreen_ffmpeg"
 description = "OpenScreen's native compositor (Metal + VideoToolbox via LGPL ffmpeg), vendored for Inspector Rust's record editor."
 
 [lib]

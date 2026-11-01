@@ -1,0 +1,23 @@
+[package]
+name = "record-render"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "The `ir-record-render` helper: owns the vendored OpenScreen compositor (preview, thumbnails, MP4/GIF export) in its own process"
+
+[[bin]]
+name = "ir-record-render"
+path = "src/main.rs"
+
+[dependencies]
+record-render-protocol = { path = "../record-render-protocol" }
+serde_json = { workspace = true }
+
+# The compositor (Metal + VideoToolbox through LGPL ffmpeg) exists only on Apple Silicon.
+# Everywhere else the helper is a stub that reports "unsupported".
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+openscreen-compositor = { path = "../vendor/openscreen-compositor", default-features = false }
+objc = "0.2"
+anyhow = { workspace = true }

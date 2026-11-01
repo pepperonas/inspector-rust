@@ -1402,7 +1402,10 @@ mod live {
         assert!((wav_s - video_s).abs() <= 0.05, "mic {wav_s} vs video {video_s}");
         // 5 s of recording; the 0.7 s pause is cut out (wall clock ≈ 5.7 s).
         assert!((video_s - 5.0).abs() <= 0.5, "video {video_s}");
-        let _ = std::fs::remove_dir_all(&root);
+        // `IR_RECORD_KEEP=1` keeps the project (stage 2 uses it as a real fixture).
+        if std::env::var_os("IR_RECORD_KEEP").is_none() {
+            let _ = std::fs::remove_dir_all(&root);
+        }
     }
 
     const PROJECT_FILE_NAME: &str = crate::record::project::PROJECT_FILE;

@@ -30,6 +30,8 @@
 // Inspector Rust (VENDORED.md): the crate only exists on macOS/arm64 with an ffmpeg tree;
 // everywhere else it is an empty library.
 #![cfg(all(target_os = "macos", target_arch = "aarch64", openscreen_ffmpeg))]
+// Inspector Rust patch 11 (VENDORED.md): upstream code is not held to this repo's lint bar.
+#![cfg_attr(clippy, allow(warnings, clippy::all))]
 
 pub mod audio;
 pub mod audio_jobs;

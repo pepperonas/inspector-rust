@@ -59,6 +59,11 @@ env -u CARGO_TARGET_DIR cargo build --release --target "${TRIPLE}" \
   -p ir-ocr-helper --bin ir-ocr --manifest-path "${REPO_ROOT}/Cargo.toml"
 cp "${REPO_ROOT}/target/${TRIPLE}/release/ir-ocr" "${APP}/Contents/MacOS/ir-ocr"
 
+# The record editor's render helper + LGPL ffmpeg dylibs (Apple Silicon only;
+# for the x86_64 DMG the script is a no-op and the editor reports the helper
+# as missing). Before signing, like the ir-ocr helper.
+bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${APP}" "${TRIPLE}"
+
 echo "▸ Sealing ${APP} (ad-hoc deep sign)…"
 
 # Same Info.plist keys install-macos.sh injects — needed for Automation /

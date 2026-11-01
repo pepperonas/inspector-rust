@@ -63,6 +63,7 @@ export function AboutContent({ version }: Props) {
             <Tech label={t("about.tech_image")} value="image 0.25 · ort (ONNX) · Apple Vision" />
             <Tech label={t("about.tech_displays")} value="ddc-hi (DDC/CI brightness)" />
             <Tech label={t("about.tech_formats")} value="PNG · JPEG · WebP · GIF · BMP" />
+            <Tech label={t("about.tech_video")} value="OpenScreen compositor (MIT) · FFmpeg 8.1.2 (LGPL 2.1+)" />
           </tbody>
         </table>
       </div>

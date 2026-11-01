@@ -117,7 +117,7 @@
    "Text expander with abbreviations, hotkeys and placeholders such as date, clipboard and cursor",
    "77 search-bar commands, each with built-in help (type a command followed by ?)",
    "Calculator, unit, currency and base converter, live translation",
-   "Screenshots with annotation editor, OCR of any screen region, screen recording of a display or window (macOS)",
+   "Screenshots with annotation editor, OCR of any screen region, screen recording of a display or window with an editor and MP4/GIF export (macOS)",
    "Colour picker with magnifier, QR codes, password generator, 2FA codes",
    "Markdown to paginated A4 PDF next to the source file (code, math, diagrams), never overwriting",
    "System tools: brightness, audio output, disk usage, cache clean-up, system stats",
@@ -225,11 +225,11 @@
      "fr": "Outils d’écran"
     },
     "p": {
-     "en": "Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording of a display or window (macOS) and a colour picker with a magnifier.",
-     "de": "Screenshots mit Anmerkungs-Editor, Texterkennung (OCR) aus jedem Bildschirmbereich, Bildschirmaufnahme von Bildschirm oder Fenster (macOS) und eine Pipette mit Lupe.",
-     "es": "Capturas con editor de anotaciones, reconocimiento de texto (OCR) de cualquier zona de la pantalla, grabación de una pantalla o ventana (macOS) y un cuentagotas con lupa.",
-     "it": "Screenshot con editor di annotazioni, riconoscimento del testo (OCR) da qualsiasi area dello schermo, registrazione di uno schermo o di una finestra (macOS) e un contagocce con lente.",
-     "fr": "Captures avec éditeur d’annotations, reconnaissance de texte (OCR) sur n’importe quelle zone, enregistrement d’un écran ou d’une fenêtre (macOS) et pipette avec loupe."
+     "en": "Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording of a display or window with an editor and MP4/GIF export (macOS) and a colour picker with a magnifier.",
+     "de": "Screenshots mit Anmerkungs-Editor, Texterkennung (OCR) aus jedem Bildschirmbereich, Bildschirmaufnahme von Bildschirm oder Fenster mit Editor und MP4/GIF-Export (macOS) und eine Pipette mit Lupe.",
+     "es": "Capturas con editor de anotaciones, reconocimiento de texto (OCR) de cualquier zona de la pantalla, grabación de una pantalla o ventana con editor y exportación MP4/GIF (macOS) y un cuentagotas con lupa.",
+     "it": "Screenshot con editor di annotazioni, riconoscimento del testo (OCR) da qualsiasi area dello schermo, registrazione di uno schermo o di una finestra con editor ed esportazione MP4/GIF (macOS) e un contagocce con lente.",
+     "fr": "Captures avec éditeur d’annotations, reconnaissance de texte (OCR) sur n’importe quelle zone, enregistrement d’un écran ou d’une fenêtre avec éditeur et export MP4/GIF (macOS) et pipette avec loupe."
     }
    },
    {

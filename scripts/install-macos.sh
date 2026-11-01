@@ -108,7 +108,9 @@ source_sha256() {
            core/frontend/src core/frontend/index.html \
            core/frontend/package.json core/frontend/tsconfig.json \
            core/frontend/vite.config.ts \
-           ocr-helper \
+           ocr-helper record-render record-render-protocol \
+           vendor/openscreen-compositor vendor/ffmpeg-licence \
+           scripts/bundle-record-render.sh scripts/build-ffmpeg-macos.sh \
            macos/src-tauri/src macos/src-tauri/Cargo.toml \
            macos/src-tauri/tauri.conf.json macos/src-tauri/entitlements.plist \
            macos/src-tauri/build.rs macos/src-tauri/capabilities \
@@ -116,7 +118,8 @@ source_sha256() {
            -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \
                    -o -name '*.json' -o -name '*.html' -o -name '*.toml' \
                    -o -name '*.lock' -o -name '*.yaml' -o -name '*.css' \
-                   -o -name 'entitlements.plist' \) \
+                   -o -name 'entitlements.plist' -o -name '*.c' -o -name '*.h' \
+                   -o -name '*.sh' -o -name '*.md' -o -name 'COPYING*' -o -name 'LICENSE' \) \
            2>/dev/null
     } | LC_ALL=C sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1
   )
@@ -479,6 +482,13 @@ else
   echo "  ⚠ ir-ocr helper build failed — OCR runs in-process (slow first OCR after updates)"
 fi
 
+# Bundle the `record` editor's render helper (ir-record-render) and the LGPL
+# ffmpeg dylibs it links (Contents/Frameworks, @rpath install names), plus the
+# licence notices — before signing so the deep sign seals them. Fatal on
+# failure: a bundle whose helper points at a build-machine path must not ship.
+# See scripts/bundle-record-render.sh.
+bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${INSTALL_PATH}"
+
 # Stamp the source hash *before* signing so the file is covered by the
 # code signature's resource seal. Writing it afterwards adds an unsealed
 # file to Contents/Resources/ — `codesign --verify` then fails with "a
@@ -503,7 +513,7 @@ if [[ "${DO_RESET}" -eq 1 ]]; then
 fi
 
 echo "▸ Verifying signature…"
-if codesign --verify --strict "${INSTALL_PATH}" 2>&1 | sed 's/^/  /'; then
+if codesign --verify --deep --strict "${INSTALL_PATH}" 2>&1 | sed 's/^/  /'; then
   echo "  ✓ signature verifies (seal intact)"
 else
   echo "  ⚠ codesign --verify failed — the TCC grant may not stick"
@@ -516,6 +526,13 @@ if [[ "${SIGN_ID}" != "-" ]]; then
   DR="$(codesign -d -r- "${INSTALL_PATH}" 2>&1 | sed -n 's/^designated => //p')"
   echo "  designated req:    ${DR}"
   echo "  → this requirement is cdhash-free — the TCC grant survives rebuilds"
+fi
+
+# The app binary itself must never link ffmpeg — only the helper does (an
+# accidental dependency would load libav into every popup start).
+if otool -L "${INSTALL_PATH}/Contents/MacOS/inspector-rust" | grep -q libav; then
+  echo "✘ the app binary links libav — ffmpeg belongs to ir-record-render only" >&2
+  exit 1
 fi
 
 echo "▸ Launching…"

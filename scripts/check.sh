@@ -7,12 +7,15 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
 
 if cargo clippy --version >/dev/null 2>&1; then
-  echo "▶ cargo clippy (workspace)"
-  cargo clippy --workspace --all-targets -- -D warnings
+  # The vendored OpenScreen compositor is upstream code (~158 clippy findings in
+  # its tests) and is not held to this repo's lint bar; its own tests stay
+  # runnable on demand — see CLAUDE.md "record — stage 2".
+  echo "▶ cargo clippy (workspace, without the vendored openscreen-compositor)"
+  cargo clippy --workspace --exclude openscreen-compositor --all-targets -- -D warnings
 else
   echo "▶ cargo check (workspace) — clippy not installed"
   echo "  (install via: rustup component add clippy)"
-  cargo check --workspace --all-targets
+  cargo check --workspace --exclude openscreen-compositor --all-targets
 fi
 
 echo "▶ pnpm typecheck"

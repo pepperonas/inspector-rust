@@ -30,7 +30,7 @@
       "Text expander with abbreviations, hotkeys and placeholders such as date, clipboard and cursor",
       "77 search-bar commands, each with built-in help (type a command followed by ?)",
       "Calculator, unit, currency and base converter, live translation",
-      "Screenshots with annotation editor, OCR of any screen region, screen recording of a display or window (macOS)",
+      "Screenshots with annotation editor, OCR of any screen region, screen recording of a display or window with an editor and MP4/GIF export (macOS)",
       "Colour picker with magnifier, QR codes, password generator, 2FA codes",
       "Markdown to paginated A4 PDF next to the source file (code, math, diagrams), never overwriting",
       "System tools: brightness, audio output, disk usage, cache clean-up, system stats",

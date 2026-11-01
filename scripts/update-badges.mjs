@@ -122,7 +122,11 @@ function run(cmd, args, cwd) {
 }
 
 function rustTests() {
-  const res = run("cargo", ["test", "--workspace"], ROOT);
+  // The vendored OpenScreen compositor (vendor/openscreen-compositor) is
+  // upstream code: its tests are not ours to advertise, and its doctests do not
+  // build outside upstream. Its own suite stays runnable on demand
+  // (CLAUDE.md "record — stage 2").
+  const res = run("cargo", ["test", "--workspace", "--exclude", "openscreen-compositor"], ROOT);
   const out = typeof res === "string" ? res : res.out;
   if (typeof res !== "string" && res.failed) {
     console.error(out.split("\n").slice(-30).join("\n"));
@@ -471,7 +475,7 @@ const metrics = countMetrics();
 writeMetricBadges(metrics, { locK, rustK: Math.round(rLoc / 1000), tsK: Math.round(fLoc / 1000) });
 writeStats({ ...metrics, loc, loc_rust: rLoc, loc_ts: fLoc });
 
-console.log("── Running cargo test --workspace…");
+console.log("── Running cargo test --workspace --exclude openscreen-compositor…");
 const rust = rustTests();
 console.log(`   Rust: ${rust} passed`);
 

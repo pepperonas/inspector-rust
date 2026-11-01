@@ -144,6 +144,13 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      that appears AFTER an empty build needs `touch third_party/ffmpeg/8.1.2/.ir-ffmpeg-stamp`
      (the script writes that stamp, so a fresh script run does it).
 
+11. **No clippy on upstream code (stage 2, Task 8 — ruling R13).** `src/lib.rs` carries
+   `#![cfg_attr(clippy, allow(warnings, clippy::all))]`. Why: `scripts/check.sh` runs
+   `cargo clippy --workspace --exclude openscreen-compositor --all-targets -- -D warnings`, but
+   `--exclude` only drops the crate as a TARGET — clippy still lints it as a path dependency of
+   `ir-record-render` and fails on ~136 upstream findings. The attribute applies only under
+   clippy; normal builds keep upstream's compiler warnings visible.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 

@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.229.0] - 2026-11-01
+
+### Added
+- **`record` — editor and export (Apple Silicon).** A finished take now opens in an editor window (switchable in Settings → Recording; Enter or "Edit" on a project in the `record` panel opens it too): a live preview, play/pause, frame and second steps, a timeline with a filmstrip, split, delete and trim clips, speed regions from 0.25× to 16×, crop with free, 16:9, 9:16, 1:1, 4:3, 3:4 and 21:9 presets, a microphone level from −60 to +12 dB, and undo/redo. Edits are saved into the project. Export writes an MP4 (720p, 1080p or source size; 24, 30 or 60 fps; H.264 or HEVC) or a GIF (15–30 fps, 480–1080 px wide, optional loop) to `~/Downloads`, with progress and cancel; a cancelled export leaves no partial file. The microphone is mixed in at its own level and stretched with the speed, so it stays in sync.
+- **Render helper.** Preview and export are rendered by the vendored OpenScreen compositor (MIT, Metal + VideoToolbox) in a separate helper process, `ir-record-render`, started the first time the editor opens. If it crashes, the editor shows the reason and offers a restart; the app keeps running.
+
+### Changed
+- **The macOS app bundles FFmpeg 8.1.2 as an LGPL build.** The helper links FFmpeg's shared libraries from `Contents/Frameworks/` (built from source without GPL or non-free components). The app binary itself does not link FFmpeg. The licence texts, the source location and the exact build flags are in `Contents/Resources/THIRD-PARTY/`, together with the OpenScreen and Recordly (MIT) notices. The Intel DMG ships without the helper; there the editor reports that it is unavailable.
+
 ## [0.228.0] - 2026-11-01
 
 ### Added

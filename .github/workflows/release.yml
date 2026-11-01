@@ -196,8 +196,22 @@ jobs:
         # signature that Gatekeeper reports as "damaged".
         run: pnpm --filter inspector-rust-macos tauri build --target ${{ matrix.target }}
 
+      - name: Cache LGPL ffmpeg (record editor helper)
+        # scripts/bundle-record-render.sh (called by the seal step) builds
+        # ffmpeg 8.1.2 from source for the ir-record-render helper — ~5 min.
+        # The key covers the version and the build script, which holds the
+        # tarball hash and every configure flag; a changed flag rebuilds.
+        # Apple Silicon only (the Intel DMG ships without the helper).
+        if: matrix.arch == 'aarch64'
+        uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg/8.1.2
+          key: ffmpeg-8.1.2-${{ matrix.target }}-${{ hashFiles('scripts/build-ffmpeg-macos.sh') }}
+
       - name: Seal .app + rebuild DMG
         # Deep ad-hoc codesign (Info.plist + Resources sealed) + fresh DMG.
+        # Also bundles the ir-ocr helper and (aarch64) the ir-record-render
+        # helper with its ffmpeg dylibs in Contents/Frameworks.
         # Without this, macOS shows "InspectorRust.app is damaged and can't
         # be opened" for every GitHub-release download. See
         # scripts/pack-macos-release-dmg.sh.

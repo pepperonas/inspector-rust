@@ -321,7 +321,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // A take still marked `recording` was cut off by a crash/quit.
             {
                 let root = record::RecordConfig::load(&db_handle).root();
-                std::thread::spawn(move || record::session::mark_interrupted(&root));
+                record::session::mark_interrupted(&root);
             }
             app.manage(color_loupe::LoupeState::default());
             app.manage(adb::AdbRecordState::default());

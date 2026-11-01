@@ -141,6 +141,24 @@ impl WavSink {
         self.write_silence_to(at_ns - origin)
     }
 
+    /// Cut everything after timeline `at_ns` (no-op if the file is shorter):
+    /// samples that arrived after the video ended.
+    pub fn truncate_to(&mut self, at_ns: i64) -> io::Result<()> {
+        let origin = *self.origin_ns.get_or_insert(at_ns);
+        let target = ((at_ns - origin).max(0) as i128 * OUT_RATE as i128 / 1_000_000_000) as u64;
+        if self.samples <= target {
+            return Ok(());
+        }
+        self.w.flush()?;
+        let f = self.w.get_mut();
+        f.set_len(44 + target * 2)?;
+        f.seek(SeekFrom::End(0))?;
+        self.samples = target;
+        self.carry.clear();
+        self.phase = 0.0;
+        Ok(())
+    }
+
     pub fn push(&mut self, at_ns: i64, mono_f32: &[f32]) -> io::Result<()> {
         let origin = *self.origin_ns.get_or_insert(at_ns);
         let expected_ns = (self.samples as i64) * 1_000_000_000 / OUT_RATE as i64;
@@ -191,6 +209,20 @@ mod tests {
         assert_eq!(u16::from_le_bytes(h[32..34].try_into().unwrap()), 2);
         assert_eq!(&h[36..40], b"data");
         assert_eq!(u32::from_le_bytes(h[40..44].try_into().unwrap()), 1000);
+    }
+
+    #[test]
+    fn truncate_cuts_samples_after_the_end() {
+        let p = tmp("trunc");
+        let mut s = WavSink::create(&p, 48_000).unwrap();
+        s.set_origin(1_000_000_000);
+        s.push(1_000_000_000, &vec![0.2f32; 4_800]).unwrap(); // 100 ms
+        s.truncate_to(1_060_000_000).unwrap(); // keep 60 ms
+        s.truncate_to(1_090_000_000).unwrap(); // longer than file: no-op
+        s.push(1_060_000_000, &vec![0.2f32; 480]).unwrap(); // appends after the cut
+        let ms = s.finish().unwrap();
+        assert_eq!(ms, 70);
+        assert_eq!(std::fs::metadata(&p).unwrap().len(), 44 + 70 * 48 * 2);
     }
 
     #[test]

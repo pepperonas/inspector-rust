@@ -626,7 +626,9 @@ mod mac {
             };
             match owned {
                 Some(mut w) => {
-                    let res = w.pad_to(end_ns).and_then(|_| w.finish());
+                    // Exactly the video's length: silence up to the end,
+                    // chunks that arrived after it cut off.
+                    let res = w.pad_to(end_ns).and_then(|_| w.truncate_to(end_ns)).and_then(|_| w.finish());
                     match res {
                         Ok(ms) => {
                             mic_ms = Some(ms);
@@ -725,8 +727,17 @@ mod mac {
 
     fn build_window(app: &AppHandle, label: &'static str) -> Result<(), String> {
         use tauri::{WebviewUrl, WebviewWindowBuilder};
+        // Idempotent: a window with this label is reused (close() is async,
+        // rebuilding right after it fails with "label already exists").
         if let Some(w) = app.get_webview_window(label) {
-            let _ = w.close();
+            if label == HUD_LABEL {
+                let _ = w.show();
+                let _ = w.set_focus();
+                harden_window(app, label, false);
+            } else {
+                harden_window(app, label, true);
+            }
+            return Ok(());
         }
         let mon = cursor_monitor(app);
         let b = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
@@ -818,6 +829,16 @@ mod mac {
                     if let Some(id) = window_id {
                         follow_window(&app, id);
                     }
+                    if let Some(reason) = capture_failure(&app) {
+                        tracing::warn!("record: capture failed mid-take: {reason}");
+                        let app2 = app.clone();
+                        std::thread::spawn(move || {
+                            if let Err(e) = crate::record::session::stop(&app2) {
+                                tracing::warn!("record: stopping after a failure: {e}");
+                            }
+                        });
+                        break;
+                    }
                     n += 1;
                     if n.is_multiple_of(2) {
                         emit_status(&app);
@@ -825,6 +846,12 @@ mod mac {
                 }
             })
             .ok();
+    }
+
+    fn capture_failure(app: &AppHandle) -> Option<String> {
+        let st = app.try_state::<RecordState>()?;
+        let g = st.inner.lock();
+        g.active.as_ref().and_then(|a| a.capture.failure())
     }
 
     /// Keep the cursor sampler's bounds on a moving window.
@@ -1282,7 +1309,7 @@ mod live {
         let wav_s = data / 2.0 / 48_000.0;
         let video_s = out.video_ms as f64 / 1000.0;
         println!("mic.wav {wav_s:.3} s, video {video_s:.3} s, diff {:.3} s", wav_s - video_s);
-        assert!((wav_s - video_s).abs() <= 0.2, "mic {wav_s} vs video {video_s}");
+        assert!((wav_s - video_s).abs() <= 0.05, "mic {wav_s} vs video {video_s}");
         // 5 s of recording; the 0.7 s pause is cut out (wall clock ≈ 5.7 s).
         assert!((video_s - 5.0).abs() <= 0.5, "video {video_s}");
         let _ = std::fs::remove_dir_all(&root);

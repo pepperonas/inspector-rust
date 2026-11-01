@@ -52,7 +52,7 @@ pub struct Picked {
     pub content_h_pt: f64,
     pub scale: f64,
     filter: Sendable<Retained<SCContentFilter>>,
-    /// The picker config listed our own bundle id (excludes the whole app).
+    /// The picker config listed our own bundle id (informational).
     excludes_app: bool,
 }
 
@@ -148,18 +148,19 @@ impl Picked {
         Ok(p)
     }
 
-    /// The filter to record with. A picked display is rebuilt as our own
-    /// display filter (excludes every window of this app, also later ones)
-    /// when Screen Recording is granted — the picker's filter otherwise.
+    /// The filter to record with. A picked display with a KNOWN id is
+    /// rebuilt as our own display filter (excludes every window of this
+    /// process by PID — popup, toasts, HUD, also later ones) when Screen
+    /// Recording is granted; the picker's own filter only if that fails, or
+    /// when the display id is unknown (macOS 14.0–15.1: never guess the main
+    /// display).
     pub fn filter_for_capture(&self) -> Retained<SCContentFilter> {
-        if self.kind == SourceKind::Display
-            && !self.excludes_app
-            && crate::screen_recording::screen_recording_granted()
-        {
-            let id = self.display_id.unwrap_or_else(capture_macos::main_display_id);
-            match capture_macos::display_filter(id) {
-                Ok(f) => return f,
-                Err(e) => tracing::warn!("record: own display filter failed ({e}); using the picker's"),
+        if self.kind == SourceKind::Display && crate::screen_recording::screen_recording_granted() {
+            if let Some(id) = self.display_id {
+                match capture_macos::display_filter(id) {
+                    Ok(f) => return f,
+                    Err(e) => tracing::warn!("record: own display filter failed ({e}); using the picker's"),
+                }
             }
         }
         self.filter.0.clone()

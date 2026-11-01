@@ -809,6 +809,14 @@ impl Capture {
         *self.inner.first.0.lock()
     }
 
+    /// A writer error or a stream that stopped on its own, mid-take.
+    pub fn failure(&self) -> Option<String> {
+        if let Some(e) = self.inner.stream_error.lock().clone() {
+            return Some(e);
+        }
+        self.inner.st.lock().0.error.clone().map(|e| crate::i18n::tf("rec2.capture_writer_failed", &[("reason", &e)]))
+    }
+
     /// Block until the first video frame is written, at most `timeout`.
     pub fn wait_for_first_frame(&self, timeout: Duration) -> Option<i64> {
         let (lock, cv) = &self.inner.first;

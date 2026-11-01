@@ -185,14 +185,22 @@ pub struct ProjectSummary {
     pub failure: Option<String>,
 }
 
-/// List all projects below `root`, newest first. Broken folders appear as `Failed`.
+/// A folder is a project exactly when it holds a `project.json` — even an
+/// unparseable one (that is a broken project, listed as `Failed`). Any other
+/// folder in the recordings root belongs to the user, not to us.
+pub fn is_project_dir(dir: &Path) -> bool {
+    dir.join(PROJECT_FILE).is_file()
+}
+
+/// List all projects below `root`, newest first. Broken projects appear as
+/// `Failed`; folders without a `project.json` are not listed at all.
 pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
     let Ok(rd) = std::fs::read_dir(root) else { return Vec::new() };
     let mut out = Vec::new();
     for entry in rd.flatten() {
         let dir = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || !dir.is_dir() {
+        if name.starts_with('.') || !dir.is_dir() || !is_project_dir(&dir) {
             continue;
         }
         let created_fallback = entry
@@ -312,14 +320,14 @@ mod tests {
         std::fs::write(root.join("file.txt"), "x").unwrap();
 
         let list = list_projects(&root);
-        assert_eq!(list.len(), 4);
+        assert_eq!(list.len(), 3, "a folder without project.json is not a project");
         let by = |n: &str| list.iter().find(|s| s.dir.ends_with(n)).unwrap();
         assert_eq!(by("a").status, ProjectStatus::Incomplete);
         assert!(by("a").failure.is_some());
         assert_eq!(by("b").status, ProjectStatus::Failed);
         assert!(by("b").failure.is_some());
         assert_eq!(by("c").status, ProjectStatus::Incomplete); // ready but no screen.mp4
-        assert_eq!(by("d").status, ProjectStatus::Failed); // no project.json
+        assert!(list.iter().all(|s| !s.dir.ends_with("d")), "no project.json → not listed");
         std::fs::write(c.join(SCREEN_FILE), b"x").unwrap();
         assert_eq!(list_projects(&root).iter().find(|s| s.dir.ends_with("c")).unwrap().status, ProjectStatus::Ready);
         let _ = std::fs::remove_dir_all(&root);

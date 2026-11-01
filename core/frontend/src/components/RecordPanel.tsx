@@ -21,6 +21,11 @@ import { locale, t, useT, type MessageKey } from "../lib/i18n";
  * Delete is a TWO-STAGE inline confirm, never `window.confirm`.
  */
 const POLL_MS = 1500;
+/** Rows the list renders; the keyboard selection never leaves them. */
+export const MAX_ROWS = 20;
+
+/** Last dispatch signal handled — module-level so a remount never replays it. */
+let lastOpenSignal = 0;
 
 export function mmss(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -45,10 +50,13 @@ function errText(e: unknown): string {
 
 export function RecordPanel({
   focused,
+  openSignal = 0,
   onRequestFocus,
   onExit,
 }: {
   focused: boolean;
+  /** Bumped by the `record` command dispatch: open the HUD once per bump. */
+  openSignal?: number;
   /** ↓ in the search bar asks for the keyboard (to select a project). */
   onRequestFocus: () => void;
   onExit: () => void;
@@ -71,13 +79,24 @@ export function RecordPanel({
     return () => window.clearInterval(id);
   }, [refresh]);
 
-  const list = useMemo(() => items ?? [], [items]);
+  const list = useMemo(() => (items ?? []).slice(0, MAX_ROWS), [items]);
+  // The list can shrink under the selection (a delete, another poll): clamp
+  // at render time so the highlight and the keys always name a real row.
+  const selIdx = Math.min(sel, Math.max(0, list.length - 1));
   const supported = status ? status.supported : true;
   const running = !!status && status.phase !== "idle" && status.phase !== "picking";
 
   const newRecording = useCallback(() => {
     recordOpenHud().catch((e) => setError(errText(e)));
   }, []);
+
+  // `record` + Enter from the search bar: open the HUD, or show in this
+  // panel why not (a take already runs → "already running").
+  useEffect(() => {
+    if (openSignal <= lastOpenSignal) return;
+    lastOpenSignal = openSignal;
+    newRecording();
+  }, [openSignal, newRecording]);
 
   const remove = useCallback(
     (dir: string) => {
@@ -102,17 +121,20 @@ export function RecordPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      const item = list[sel];
+      const item = list[selIdx];
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         setArmed(null);
-        setSel((s) => Math.max(0, Math.min(list.length - 1, s + (e.key === "ArrowDown" ? 1 : -1))));
+        setSel(Math.max(0, Math.min(list.length - 1, selIdx + (e.key === "ArrowDown" ? 1 : -1))));
       } else if (e.key === "Enter" && e.metaKey && item) {
         e.preventDefault();
         recordRevealProject(item.dir).catch((err) => setError(errText(err)));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (supported && !running) newRecording();
+        // An armed delete is a question: Enter must not answer it with a
+        // new recording — it backs out of the question instead.
+        if (armed) setArmed(null);
+        else if (supported && !running) newRecording();
       } else if ((e.key === "Backspace" || e.key === "Delete") && item && !item.active) {
         e.preventDefault();
         if (armed === item.dir) remove(item.dir);
@@ -125,7 +147,7 @@ export function RecordPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focused, list, sel, armed, supported, running, newRecording, remove, onExit]);
+  }, [focused, list, selIdx, armed, supported, running, newRecording, remove, onExit]);
 
   const chip =
     "md3-press rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:border-[var(--color-accent)] disabled:opacity-40";
@@ -185,8 +207,8 @@ export function RecordPanel({
           )}
 
           <div className="rounded-md border border-[var(--color-border)] empty:hidden">
-            {list.slice(0, 20).map((p, i) => {
-              const selected = focused && i === sel;
+            {list.map((p, i) => {
+              const selected = focused && i === selIdx;
               const isArmed = armed === p.dir;
               return (
                 <div

@@ -15,7 +15,7 @@ import {
   Volume,
   Volume1,
   Volume2,
-  VolumeX, Siren } from "lucide-react";
+  VolumeX, Siren, Video } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -210,6 +210,8 @@ export function StatusToast() {
       ? ClipboardCheck
       : payload.kind === "iris"
       ? Siren
+      : payload.kind === "record"
+        ? Video
       : payload.kind === "boom"
         ? AudioLines
       : payload.kind === "timer"

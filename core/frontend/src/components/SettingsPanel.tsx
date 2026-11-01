@@ -3074,11 +3074,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <RepositoriesSection />
         </div>
     ),
-    "record": (
+    /* record — ScreenCaptureKit recorder (macOS only) */
+    "record": IS_MAC ? (
         <div className="mb-6">
           <RecordSettingsSection />
         </div>
-    ),
+    ) : null,
     "github": (
         <div className="mb-6">
           <GithubSettingsSection />

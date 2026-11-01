@@ -97,6 +97,38 @@ pub fn project_dir_inside_root(root: &Path, dir: &Path) -> Result<PathBuf, &'sta
     Ok(dir)
 }
 
+/// The on-screen notice for a take that went wrong — at start (the HUD is
+/// already closed by then, so there is nowhere else to say it), mid-take
+/// (the capture died and the take was stopped) or at stop (the writer
+/// failed). `None` when the take ended fine: a normal stop says nothing.
+pub fn failure_toast(at_start: bool, failed: bool, reason: Option<&str>) -> Option<crate::status_toast::StatusToast> {
+    if !failed {
+        return None;
+    }
+    let title = if at_start { "rec2.toast.start_failed" } else { "rec2.toast.failed" };
+    let subtitle = match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => r.to_string(),
+        None => crate::i18n::t("rec2.toast.no_reason"),
+    };
+    Some(crate::status_toast::StatusToast {
+        kind: "record".into(),
+        on: false,
+        title: crate::i18n::t(title),
+        subtitle,
+    })
+}
+
+/// A deletable project: inside the root (see [`project_dir_inside_root`]) and
+/// carrying a `project.json`. Any other folder there is the user's, so the
+/// panel must never be able to trash it.
+pub fn project_dir_for_delete(root: &Path, dir: &Path) -> Result<PathBuf, &'static str> {
+    let dir = project_dir_inside_root(root, dir)?;
+    if !super::project::is_project_dir(&dir) {
+        return Err(ERR_OUTSIDE_ROOT);
+    }
+    Ok(dir)
+}
+
 /// Pauses in video time: `(position_ms, paused_ms)` — where in the file the
 /// cut sits and how long the pause lasted. `intervals` are host-time
 /// `[pause, resume)` pairs in order; `origin_ns` is the timeline ns of video
@@ -410,6 +442,14 @@ mod mac {
         pub fn active_dir(&self) -> Option<PathBuf> {
             self.inner.lock().dir.clone()
         }
+    }
+
+    /// Show a failure toast passively (no focus steal, popup untouched) —
+    /// the user is usually in another app while a take runs.
+    fn announce_failure(app: &AppHandle, toast: Option<crate::status_toast::StatusToast>) {
+        let Some(toast) = toast else { return };
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || crate::status_toast::show_passive(&app2, toast));
     }
 
     fn emit_status(app: &AppHandle) {
@@ -982,6 +1022,7 @@ mod mac {
                     },
                 );
                 emit_status(app);
+                announce_failure(app, failure_toast(true, true, Some(&reason)));
                 return Err(format!("{ERR_START_FAILED}:{reason}"));
             }
         };
@@ -1085,6 +1126,7 @@ mod mac {
         after_finish(app, &st);
         crate::commands::reveal_in_file_manager(&out.dir);
         let dir = out.dir.to_string_lossy().into_owned();
+        announce_failure(app, failure_toast(false, out.status == ProjectStatus::Failed, out.failure.as_deref()));
         let _ = app.emit(
             "record-finished",
             FinishedEvent { dir: dir.clone(), status: status_str(out.status).into(), failure: out.failure },
@@ -1134,7 +1176,7 @@ mod mac {
             .try_state::<crate::db::DbHandle>()
             .map(|db| RecordConfig::load(&db).root())
             .unwrap_or_else(|| resolve_root(""));
-        let dir = project_dir_inside_root(&root, dir).map_err(str::to_string)?;
+        let dir = project_dir_for_delete(&root, dir).map_err(str::to_string)?;
         if let Some(active) = st.active_dir() {
             if std::fs::canonicalize(active).ok().as_deref() == Some(dir.as_path()) {
                 return Err(ERR_BUSY.into());
@@ -1202,6 +1244,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn failures_get_a_toast_and_a_clean_stop_does_not() {
+        assert!(failure_toast(false, false, None).is_none(), "a normal stop says nothing");
+        assert!(failure_toast(false, false, Some("ignored")).is_none());
+        let mid = failure_toast(false, true, Some("The video file could not be written (x).")).unwrap();
+        assert_eq!(mid.kind, "record");
+        assert_eq!(mid.subtitle, "The video file could not be written (x).");
+        let start = failure_toast(true, true, Some("no frame")).unwrap();
+        assert_ne!(start.title, mid.title, "start and mid-take failures read differently");
+        assert!(!start.title.starts_with("rec2."), "title is translated, not a raw key");
+        let blank = failure_toast(false, true, Some("  ")).unwrap();
+        assert!(!blank.subtitle.trim().is_empty() && !blank.subtitle.starts_with("rec2."), "fallback reason");
+    }
+
+    #[test]
+    fn delete_refuses_folders_without_project_json() {
+        let base = tmp("del-noproj");
+        let root = base.join("root");
+        let user = root.join("My holiday clips");
+        let broken = root.join("2026-11-01 10.00.00 Broken");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join(super::super::project::PROJECT_FILE), "{ not json").unwrap();
+        assert!(project_dir_inside_root(&root, &user).is_ok(), "inside the root");
+        assert_eq!(project_dir_for_delete(&root, &user), Err(ERR_OUTSIDE_ROOT), "no project.json");
+        assert!(project_dir_for_delete(&root, &broken).is_ok(), "an unparseable project is still a project");
+        assert_eq!(project_dir_for_delete(&root, &base.join("x")), Err(ERR_OUTSIDE_ROOT));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

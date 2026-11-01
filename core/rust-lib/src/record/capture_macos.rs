@@ -9,10 +9,12 @@
 //! * H.264 with `AllowFrameReordering = false` (a reordered stream needs
 //!   negative composition offsets that a fragmented MP4 can't carry) and a
 //!   keyframe every second (by count AND by duration).
-//! * Pauses are cut out of the timeline: while [`PauseShared`] says paused,
-//!   samples are dropped; afterwards every timestamp is shifted back by the
-//!   total paused time (`CMSampleBufferCreateCopyWithNewTiming`), so the
-//!   file has no gap.
+//! * Pauses are cut out of the timeline by each sample's CAPTURE time (its
+//!   host-clock PTS), never its delivery time: [`PauseShared::offset_at`]
+//!   drops a sample captured inside a pause and otherwise shifts it back by
+//!   the pauses that ended before it (`CMSampleBufferCreateCopyWithNewTiming`).
+//!   So pre-pause frames delivered late keep their place, frames captured in
+//!   a pause never appear, and the file has no gap.
 //! * Video goes through [`VideoTimestampGate`] (a non-advancing PTS kills the
 //!   writer one append later); only `SCFrameStatus::Complete` frames are used.
 //! * The session starts at the first admitted video frame; audio before it

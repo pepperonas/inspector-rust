@@ -954,6 +954,14 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
 /// at startup and after a settings change. **Never call from inside a
 /// global-shortcut handler** (plugin-mutex re-entrancy → deadlock) — only from
 /// startup / a Settings IPC.
+/// Whether `id`'s global shortcut is registered on `os` (`std::env::consts::OS`).
+/// `record` only exists on macOS: elsewhere its key combo must stay free for
+/// other apps instead of being swallowed by a no-op (the action and its
+/// setting stay, so the binding survives a later port).
+pub fn action_registers_on(id: ActionId, os: &str) -> bool {
+    !(id == ActionId::Record && os != "macos")
+}
+
 pub fn apply_action_hotkeys(app: &AppHandle) {
     use tauri::Manager as _;
     let Some(db) = app.try_state::<crate::db::DbHandle>() else {
@@ -969,6 +977,9 @@ pub fn apply_action_hotkeys(app: &AppHandle) {
     // The 3-s touch buffer only runs while its hotkey is bound.
     crate::gestures::set_unintended_armed(false);
     for id in ActionId::ALL {
+        if !action_registers_on(id, std::env::consts::OS) {
+            continue;
+        }
         let spec = effective_action_spec(&db, id);
         if spec.trim().is_empty() {
             continue; // disabled by the user
@@ -1428,6 +1439,16 @@ pub fn register_direct_slots(
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn record_hotkey_registers_only_on_macos() {
+        assert!(action_registers_on(ActionId::Record, "macos"));
+        assert!(!action_registers_on(ActionId::Record, "windows"));
+        assert!(!action_registers_on(ActionId::Record, "linux"));
+        for id in ActionId::ALL.into_iter().filter(|&i| i != ActionId::Record) {
+            assert!(action_registers_on(id, "linux"), "{} stays registered", id.key());
+        }
+    }
 
     #[test]
     fn rect_contains_is_half_open() {

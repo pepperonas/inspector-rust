@@ -7069,6 +7069,7 @@ pub async fn record_close_notes(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RecordNotes {

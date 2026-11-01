@@ -198,6 +198,12 @@ impl PauseShared {
     pub fn pauses_until(&self, now_ns: i64) -> Vec<(i64, i64)> {
         self.0.lock().pauses_until(now_ns)
     }
+    /// Timeline time of something CAPTURED at host time `at_ns` (a click,
+    /// a frame): `at_ns` minus the pauses that ended before it, `None` when
+    /// it happened inside a pause — the same rule as the video ([`offset_at`]).
+    pub fn timeline_of(&self, at_ns: i64) -> Option<i64> {
+        self.offset_at(at_ns).map(|o| at_ns - o)
+    }
 }
 
 // ---------- cursor ----------
@@ -424,6 +430,23 @@ mod tests {
         assert_eq!(g.check(None), GateVerdict::Invalid);
         assert_eq!(g.rejected, 1);
     }
+    #[test]
+    fn timeline_of_retimes_by_capture_time() {
+        let c = PauseShared::new();
+        c.pause(100);
+        c.resume(150);
+        c.pause(300);
+        // A click at 90 handled after the 2nd pause began keeps offset 0 —
+        // retiming by the drain time would shift it back by 50.
+        assert_eq!(c.timeline_of(90), Some(90));
+        assert_eq!(c.timeline_of(120), None, "inside the closed pause");
+        assert_eq!(c.timeline_of(200), Some(150));
+        assert_eq!(c.timeline_of(310), None, "inside the open pause");
+        c.resume(400);
+        assert_eq!(c.timeline_of(250), Some(200), "pre-pause click drained after the resume");
+        assert_eq!(c.timeline_of(450), Some(300));
+    }
+
     #[test]
     fn offset_at_decides_on_capture_time() {
         let closed = [(100, 300), (500, 600)];

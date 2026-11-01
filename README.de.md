@@ -173,7 +173,7 @@
   [![objc2](.github/badges/objc2-ffi-000000-05c8a133.svg)](https://github.com/madsmtm/objc2)
   [![windows-rs](.github/badges/windows-rs-win32-0078d4-a7192328.svg)](https://github.com/microsoft/windows-rs)
   [![CoreAudio](.github/badges/coreaudio-system-eq-000000-b5042676.svg)](#)
-  [![ffmpeg](.github/badges/ffmpeg-record-trim-007808-8dfac5cb.svg)](https://ffmpeg.org)
+  [![ffmpeg](.github/badges/ffmpeg-trim-swap-007808-7e116d47.svg)](https://ffmpeg.org)
   [![yt-dlp](.github/badges/yt-dlp-social-dl-ff0000-61f358cc.svg)](https://github.com/yt-dlp/yt-dlp)
   [![oxipng](.github/badges/oxipng-png-optim-orange-33b79f25.svg)](https://github.com/shssoichiro/oxipng)
   [![BlackHole](.github/badges/blackhole-audio-loopback-1db954-541ced65.svg)](https://github.com/ExistentialAudio/BlackHole)
@@ -244,7 +244,7 @@
   [![Tauri events](https://img.shields.io/badge/events-68-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-110-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](.github/badges/ai-prompts-27-bundled-blueviolet-3f4859ed.svg)](./docs/ai-prompts.md)
-  [![Media](.github/badges/media-record-download-trim-swap-ce422b-b9dff908.svg)](#)
+  [![Media](.github/badges/media-download-trim-swap-ce422b-3b415ca7.svg)](#)
   [![Motion](.github/badges/motion-material-3-expressive-blueviolet-8a8ecfba.svg)](#)
   [![Tabs](.github/badges/popup-tabs-6-blueviolet-15b9fb59.svg)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-29-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
@@ -269,7 +269,7 @@
   [![Power commands](.github/badges/search-bar-power-commands-e11d48-a007b87a.svg)](#)
   [![Text expander](.github/badges/snippets-text-expander-1f6feb-a74785dd.svg)](#)
   [![Screen OCR](.github/badges/ocr-screen-region-000000-a307045b.svg)](#)
-  [![Screen recording](.github/badges/screen-record-trim-e11d48-8afb7f42.svg)](#)
+  [![Screen recording](.github/badges/screen-record-screencapturekit-e11d48-f09e7160.svg)](#)
   [![System EQ](.github/badges/boom-system-audio-eq-1db954-eec4ae56.svg)](#)
   [![2FA / TOTP](.github/badges/2fa-totp-rfc-6238-darkgreen-e90c60ee.svg)](#)
   [![Eyedropper](.github/badges/color-eyedropper-loupe-blueviolet-aa80792f.svg)](#)
@@ -852,8 +852,10 @@ Jedes Banner:
 - **Annotations-Editor** — Stift öffnet ein separates Tauri-Fenster mit fünf Tools: **Pfeil / Text / Rect / Highlight / Blur** (Mosaik-Pixelung, sampled aus der Quelle, also Undo non-destruktiv). 4 Farb-Presets, 2–16 px Stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` speichern, `Esc` abbrechen, Tool-Switches per Einzel-Taste (`A`/`T`/`R`/`H`/`B`). Canvas ist in nativer Pixel-Auflösung des Screenshots, das gespeicherte PNG also full-resolution.
 - **Pin-Verhalten** — solange gepinnt, schreibt der nächste Screenshot zwar weiterhin in Clipboard + History, ersetzt aber nicht die sichtbare Vorschau. Nützlich für Batch-Capture-and-Annotate-Workflows.
 
-### Media-Tools — aufnehmen · downloaden · trimmen · tauschen (v0.81.0 → v0.84.x, ffmpeg)
+### Bildschirmaufnahme — `record` (v0.228.0, ScreenCaptureKit)
 - **Bildschirmaufnahme** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ auf Apple Silicon) — ScreenCaptureKit nimmt einen Bildschirm oder ein einzelnes Fenster samt Systemton auf; das Mikrofon landet in einer eigenen WAV-Spur, der Zeiger (Position, Klicks, Zeigerform) in einer `cursor.json`, alles auf einer Zeitachse, die sauber pausiert. Jede Aufnahme ist ein nachbearbeitbares Projekt in `~/Movies/Inspector Rust/`; HUD, Leiste und Notizfenster der App sind von der Aufnahme ausgeschlossen. Etappe 1 eines Rekorders nach OpenScreen-Vorbild (Bearbeiten und Export folgen).
+
+### Media-Tools — downloaden · trimmen · tauschen (v0.81.0 → v0.84.x, ffmpeg)
 - **Audio ersetzen / überlagern** (`Ctrl+Shift+Alt+M`, macOS) — Video im Finder wählen → Overlay zum **Ersetzen** der Tonspur oder **Mischen** einer neuen darüber, an gewählter Startposition mit optionalem Trim + Lautstärke pro Spur. Die neue Audio ist eine lokale Datei oder ein **yt-dlp-YouTube-Track**. Video wird stream-kopiert (schnell/verlustfrei), Ausgabe ist ein `-audioswap.mp4` daneben.
 - **Social-Media-Download** — **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren; auto-erkannt (in Clip oder Suchleiste), die Preview bietet **Video laden** (alle) + **Audio laden** (YouTube). H.264 wird bevorzugt, damit die Datei in QuickTime spielt; bei YouTubes „confirm you're not a bot"-Sperre wird transparent mit deinen Browser-Cookies (Chrome / Firefox / Brave / Edge) erneut versucht. Dateien landen in `~/Downloads` mit dem **Download-Zeitstempel** (sortieren also neueste-zuerst). Per yt-dlp.
 - **Trimmen** (`trim`-Command) — lokale Audio-/Videodatei wählen, Start/Ende auf einer Timeline setzen, und schneiden — **verlustfrei & schnell** (`-c copy`, snapt auf Keyframes) oder **frame-genau** (re-encode). Speichert eine `-trim`-Kopie.

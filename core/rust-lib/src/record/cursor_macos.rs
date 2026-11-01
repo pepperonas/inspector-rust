@@ -718,17 +718,16 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
             break;
         }
         let work_start = Instant::now();
-        // Drain every tick. The tap callback already drops clicks that happen
-        // while paused, so anything queued here happened before the pause
-        // began (or after the resume): its timeline time is `at - offset`.
-        // Known edge: a click queued just before a pause+resume that both fit
-        // into one tick gets the post-resume offset, i.e. a slightly early
-        // time; `SampleSink` keeps it ordered.
+        // Drain every tick. Each click is retimed by its own CAPTURE time
+        // (`timeline_of`, the rule the video uses): a click queued before a
+        // pause keeps its pre-pause offset even when drained during or after
+        // it, and one that falls inside a pause is dropped.
         let events: Vec<TapEvent> = std::mem::take(&mut *ctx.queue.lock());
         if clock.is_paused() {
-            let off = clock.offset_ns();
             for ev in &events {
-                emit(&mut sink, &mut visibility, ev.at_ns - off, (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+                if let Some(at) = clock.timeline_of(ev.at_ns) {
+                    emit(&mut sink, &mut visibility, at, (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+                }
             }
             continue;
         }
@@ -762,7 +761,9 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
                 ax_paused_until = (t0.elapsed() > AX_SLOW).then(|| Instant::now() + AX_BACKOFF);
             }
             for ev in &events {
-                emit(&mut sink, &mut visibility, clock.timeline_ns(ev.at_ns), (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+                if let Some(at) = clock.timeline_of(ev.at_ns) {
+                    emit(&mut sink, &mut visibility, at, (ev.x, ev.y), Some(ev.kind), &asset_id, cursor_type);
+                }
             }
             emit(&mut sink, &mut visibility, clock.timeline_ns(host_now_ns()), pt, None, &asset_id, cursor_type);
         });

@@ -1,4 +1,4 @@
-import { appVersion, recordOpenHud, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg } from "./lib/transcribe";
@@ -1718,6 +1718,9 @@ function App() {
   const isRecordCmd = parsedCommand?.spec.kind === "record";
   const [recordMode, setRecordMode] = useState(false);
   const [recordFocus, setRecordFocus] = useState(false);
+  // Bumped by each `record` dispatch; the panel opens the HUD (or explains
+  // why it can't — e.g. a take is already running) once per bump.
+  const [recordOpenSignal, setRecordOpenSignal] = useState(0);
   useEffect(() => {
     if (isRecordCmd && !recordMode) setRecordMode(true);
     else if (!isRecordCmd && recordMode) {
@@ -4494,7 +4497,7 @@ function App() {
       }
       if (commandKind === "record") {
         setRecordMode(true);
-        recordOpenHud().catch((e) => console.warn("record hud:", e));
+        setRecordOpenSignal((n) => n + 1);
         return true;
       }
       if (commandKind === "bluetooth") {
@@ -6349,6 +6352,7 @@ function App() {
                   <div className="md3-pop-in h-full">
                     <RecordPanel
                       focused={recordFocus}
+                      openSignal={recordOpenSignal}
                       onRequestFocus={() => setRecordFocus(true)}
                       onExit={() => {
                         setRecordFocus(false);

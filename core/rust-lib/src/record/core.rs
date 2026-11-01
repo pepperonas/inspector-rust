@@ -151,6 +151,12 @@ impl PauseShared {
     pub fn timeline_ns(&self, now_ns: i64) -> i64 {
         self.0.lock().timeline_ns(now_ns)
     }
+    /// `(is_paused, offset_ns)` read under one lock, so a resume can never
+    /// land between the two answers.
+    pub fn state(&self) -> (bool, i64) {
+        let c = self.0.lock();
+        (c.is_paused(), c.offset_ns())
+    }
 }
 
 // ---------- cursor ----------

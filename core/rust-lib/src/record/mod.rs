@@ -3,6 +3,8 @@
 
 pub mod core;
 #[cfg(target_os = "macos")]
+pub mod capture_macos;
+#[cfg(target_os = "macos")]
 pub mod cursor_macos;
 pub mod mic;
 pub mod project;

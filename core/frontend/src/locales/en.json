@@ -4079,5 +4079,12 @@
   "set.changelog.count": "{shown} of {total} releases",
   "set.changelog.older": "Older releases",
   "set.changelog.installed": "installed",
-  "rec2.default_title": "Recording"
+  "rec2.default_title": "Recording",
+  "rec2.capture_writer_failed": "The video file could not be written ({reason}).",
+  "rec2.capture_no_frame": "The recording stopped before its first frame was written.",
+  "rec2.capture_start_hangs": "ScreenCaptureKit did not respond — the capture could not start.",
+  "rec2.capture_stop_hangs": "Saving the recording did not finish in time.",
+  "rec2.capture_no_content": "Screen content is not available — check the Screen Recording permission.",
+  "rec2.capture_no_display": "This display can't be captured.",
+  "rec2.capture_no_window": "This window can't be captured."
 }

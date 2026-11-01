@@ -2,7 +2,9 @@
 #![allow(dead_code)]
 
 pub mod core;
+pub mod mic;
 pub mod project;
+pub mod wav;
 
 pub use core::PauseShared;
 

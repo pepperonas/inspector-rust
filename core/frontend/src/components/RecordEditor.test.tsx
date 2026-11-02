@@ -12,6 +12,9 @@ const editorFrame = vi.fn();
 const editorResize = vi.fn();
 const editorThumbs = vi.fn();
 const editorRestart = vi.fn();
+const editorAssets = vi.fn();
+const editorImportAsset = vi.fn();
+const openDialog = vi.fn();
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
 vi.mock("../lib/ipc", () => ({
@@ -27,6 +30,8 @@ vi.mock("../lib/ipc", () => ({
   editorResize: (w: number, h: number) => editorResize(w, h),
   editorThumbs: (n: number) => editorThumbs(n),
   editorRestart: () => editorRestart(),
+  editorAssets: () => editorAssets(),
+  editorImportAsset: (id: number, src: string, kind: string) => editorImportAsset(id, src, kind),
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
 }));
@@ -37,6 +42,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `asset://${p}` }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (o: unknown) => openDialog(o) }));
 
 import { RecordEditor } from "./RecordEditor";
 
@@ -83,7 +89,7 @@ const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   });
   // Spans for the mock only (1× everywhere): the component never computes them itself.
   const speed = doc.speed.map((r, index) => ({ index, progStartMs: r.startMs, progEndMs: r.endMs }));
-  return { doc, programmeMs: t, clips, speed };
+  return { doc, programmeMs: t, clips, speed, outputSize: [1920, 1080] };
 };
 const init = (helperError: string | null = null, sessionId = 1, title = "Take", view = viewOf(doc0)): EditorInit => ({
   sessionId,
@@ -111,6 +117,7 @@ async function mount() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.useFakeTimers();
   editorCurrent.mockResolvedValue(init());
   editorUpdate.mockImplementation(async (d: RecordEditDoc) => viewOf(d));
@@ -122,6 +129,9 @@ beforeEach(() => {
   editorResize.mockResolvedValue(undefined);
   editorThumbs.mockResolvedValue([]);
   editorRestart.mockResolvedValue(playback(false));
+  editorAssets.mockResolvedValue({ wallpapers: [], themes: [], hasCursorData: true });
+  editorImportAsset.mockResolvedValue("img.png");
+  openDialog.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -371,5 +381,100 @@ describe("RecordEditor", () => {
     });
     expect(editorUpdate).not.toHaveBeenCalled();
     expect(editorPlay).not.toHaveBeenCalled();
+  });
+
+  it("the preview box and its render size follow Rust's output size, not the source shape", async () => {
+    // Auto with padding: Rust answers a square output for a 16:9 source.
+    const square = { ...viewOf({ ...doc0, output: { aspect: "auto" } }), outputSize: [1080, 1080] as [number, number] };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", square));
+    const observed: ((e: { contentRect: { width: number; height: number } }[]) => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: (e: { contentRect: { width: number; height: number } }[]) => void) {
+          observed.push(cb);
+        }
+        observe() {
+          observed.forEach((cb) => cb([{ contentRect: { width: 800, height: 500 } }]));
+        }
+        disconnect() {}
+      },
+    );
+    try {
+      const { getByTestId } = await mount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      const box = getByTestId("ed-canvas").parentElement as HTMLElement;
+      expect(box.style.width).toBe("500px");
+      expect(box.style.height).toBe("500px");
+      const [w, h] = editorResize.mock.calls[editorResize.mock.calls.length - 1];
+      expect(w).toBe(h);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("an inspector slider previews live and is one undo step on release", async () => {
+    const { getByRole } = await mount();
+    await act(async () => {
+      fireEvent.click(getByRole("tab", { name: "Frame" }));
+    });
+    const pad = getByRole("slider", { name: "Padding" }) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(pad, { target: { value: "10" } });
+      fireEvent.change(pad, { target: { value: "20" } });
+      fireEvent.change(pad, { target: { value: "30" } });
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    expect(editorUpdate).not.toHaveBeenCalled();
+    expect(pad.value).toBe("30");
+    // Rust answers the live send late, after the finger moved on: the slider must not jump back.
+    let answer: (v: RecordEditorView) => void = () => {};
+    editorUpdate.mockImplementationOnce((d: RecordEditDoc) => new Promise((r) => (answer = () => r(viewOf(d)))));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(editorUpdate).toHaveBeenCalledTimes(1);
+    expect((lastSent() as RecordEditDoc).appearance.padding).toBe(30);
+    await act(async () => {
+      fireEvent.change(pad, { target: { value: "35" } });
+      answer(viewOf(doc0));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(pad.value).toBe("35");
+    await act(async () => {
+      fireEvent.change(pad, { target: { value: "40" } });
+      fireEvent.pointerUp(pad);
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate).toHaveBeenCalledTimes(2);
+    expect((lastSent() as RecordEditDoc).appearance.padding).toBe(40);
+    // One ⌘Z goes back to before the drag.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).appearance.padding).toBe(0);
+  });
+
+  it("an own image is picked, copied into the project and set as the background", async () => {
+    openDialog.mockResolvedValue("/Users/x/Pictures/beach.png");
+    const { getByRole } = await mount();
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Choose image…" }));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorImportAsset).toHaveBeenCalledWith(1, "/Users/x/Pictures/beach.png", "image");
+    expect((lastSent() as RecordEditDoc).appearance.background).toEqual({ kind: "image", file: "img.png" });
+  });
+
+  it("the settings column folds away", async () => {
+    const { getByTestId, queryByTestId } = await mount();
+    expect(queryByTestId("ed-inspector")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-inspector-toggle"));
+    });
+    expect(queryByTestId("ed-inspector")).toBeNull();
   });
 });

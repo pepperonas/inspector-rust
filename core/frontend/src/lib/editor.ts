@@ -10,6 +10,7 @@
 import type {
   RecordAppearance,
   RecordAspect,
+  RecordBackground,
   RecordCropRect,
   RecordCursorStyle,
   RecordEditDoc,
@@ -276,6 +277,17 @@ export function fitPreview(pw: number, ph: number, ratio: number, maxW: number, 
   return { w: Math.max(16, Math.round(w)), h: Math.max(16, Math.round(h)) };
 }
 
+/**
+ * Shape of the preview box and of the helper's render size: Rust's 1080p output size
+ * (`EditorView.outputSize`). Under `auto` padding, frame and crop change that shape — the UI
+ * never re-derives it (Rust is the only owner of the rule). Without a size: the source shape.
+ */
+export function previewRatio(view: Pick<RecordEditorView, "outputSize">, srcW: number, srcH: number): number {
+  const [w, h] = view.outputSize ?? [0, 0];
+  if (w > 0 && h > 0) return w / h;
+  return srcH > 0 ? srcW / srcH : 16 / 9;
+}
+
 /** Output aspect as a number (`source` = the recording's). */
 export function aspectRatio(aspect: RecordAspect, srcW: number, srcH: number): number {
   return aspect === "source" || aspect === "auto" ? (srcH > 0 ? srcW / srcH : 16 / 9) : ASPECT_RATIO[aspect];
@@ -296,4 +308,122 @@ export function isTypingTarget(t: EventTarget | null): boolean {
     return type !== "range" && type !== "checkbox" && type !== "radio" && type !== "button";
   }
   return false;
+}
+
+// ── inspector (stage 3) ─────────────────────────────────────────────────────
+
+/** Slider ranges; they mirror the clamps of Rust's `normalize` (a test pins them). */
+export const INSPECTOR_RANGES = {
+  padding: { min: 0, max: 100, step: 1 },
+  radiusPx: { min: 0, max: 64, step: 1 },
+  shadow: { min: 0, max: 1, step: 0.05 },
+  backgroundBlur: { min: 0, max: 1, step: 0.05 },
+  motionBlur: { min: 0, max: 1, step: 0.05 },
+  cursorSize: { min: 1.5, max: 6, step: 0.1 },
+  smoothing: { min: 0, max: 1, step: 0.05 },
+  cursorMotionBlur: { min: 0, max: 1, step: 0.05 },
+  clickBounce: { min: 0, max: 2, step: 1 },
+  clickSoundGainDb: { min: -24, max: 0, step: 1 },
+  hotspot: { min: 0, max: 1, step: 0.01 },
+} as const;
+export type InspectorSetting = keyof typeof INSPECTOR_RANGES;
+
+/** `v` inside the setting's range; a non-number becomes the minimum. */
+export function clampSetting(key: InspectorSetting, v: number): number {
+  const r = INSPECTOR_RANGES[key];
+  if (!Number.isFinite(v)) return r.min;
+  return Math.min(r.max, Math.max(r.min, v));
+}
+
+/** Named shadow levels (upstream chips). */
+export const SHADOW_LEVELS = [0, 0.3, 0.6, 0.9] as const;
+/** Named click-bounce levels. */
+export const BOUNCE_LEVELS = [0, 1, 2] as const;
+
+/** The 16 upstream gradient presets, `linear-gradient(135deg, a, b)`. */
+export const GRADIENT_PRESETS: readonly Extract<RecordBackground, { kind: "gradient" }>[] = (
+  [
+    ["#eaebed", "#bcc0c6"],
+    ["#3b82f6", "#8b5cf6"],
+    ["#8b5cf6", "#ec4899"],
+    ["#f97316", "#ec4899"],
+    ["#f59e0b", "#f97316"],
+    ["#10b981", "#3b82f6"],
+    ["#22c55e", "#10b981"],
+    ["#6b7280", "#16171d"],
+    ["#ec4899", "#ef4444"],
+    ["#3b82f6", "#22c55e"],
+    ["#8b5cf6", "#3b82f6"],
+    ["#f59e0b", "#ef4444"],
+    ["#16171d", "#1e293b"],
+    ["#34d399", "#3b82f6"],
+    ["#ef4444", "#8b5cf6"],
+    ["#bcc0c6", "#eaebed"],
+  ] as const
+).map(([a, b]) => ({ kind: "gradient" as const, angleDeg: 135, stops: [a, b] }));
+
+/** The 16 upstream solid colours. */
+export const COLOR_PRESETS = [
+  "#16171d", "#6b7280", "#bcc0c6", "#eaebed", "#ffffff", "#10b981", "#0ea371", "#34d399",
+  "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#ec4899", "#f97316", "#22c55e", "#1e293b",
+] as const;
+
+/** Background motion only animates wallpapers, gradients and images (the compositor rule). */
+export function motionAllowed(bg: RecordBackground): boolean {
+  return bg.kind !== "color";
+}
+
+/** Live slider updates reach Rust at most this often (like the mic level). */
+export const LIVE_SEND_MS = 150;
+
+/**
+ * One slider gesture: every move replaces the present document (no undo step) and reaches
+ * Rust debounced; the release records ONE step from the document before the drag.
+ */
+export class LiveGesture {
+  private start: RecordEditDoc | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private sentLive = false;
+  constructor(
+    private history: () => History | null,
+    private send: (doc: RecordEditDoc, record: boolean) => void,
+    private delayMs: number = LIVE_SEND_MS,
+  ) {}
+  get active(): boolean {
+    return this.start != null;
+  }
+  move(next: RecordEditDoc): void {
+    const h = this.history();
+    if (!h) return;
+    this.start ??= h.present;
+    h.replace(next);
+    if (this.timer != null) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.sentLive = true;
+      this.send(h.present, false);
+    }, this.delayMs);
+  }
+  /** Drops a pending live send (the editor unmounts). */
+  cancel(): void {
+    if (this.timer != null) clearTimeout(this.timer);
+    this.timer = null;
+    this.start = null;
+    this.sentLive = false;
+  }
+  end(): void {
+    if (this.timer != null) clearTimeout(this.timer);
+    this.timer = null;
+    const h = this.history();
+    const start = this.start;
+    const sentLive = this.sentLive;
+    this.start = null;
+    this.sentLive = false;
+    if (!h || !start) return;
+    const final = h.present;
+    h.replace(start);
+    if (JSON.stringify(final) !== JSON.stringify(start)) this.send(final, true);
+    // Rust saw a live value: put it back to where the drag began.
+    else if (sentLive) this.send(start, false);
+  }
 }

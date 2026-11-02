@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Crop, Download, Gauge, Pause, Play, Redo2, RotateCcw, Scissors, Trash2, Undo2 } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  Crop,
+  Download,
+  Gauge,
+  PanelRightClose,
+  PanelRightOpen,
+  Pause,
+  Play,
+  Redo2,
+  RotateCcw,
+  Scissors,
+  Trash2,
+  Undo2,
+} from "lucide-react";
+import {
+  editorAssets,
   editorCurrent,
+  editorImportAsset,
   editorPlay,
   editorPosition,
   editorRestart,
@@ -11,6 +27,7 @@ import {
   editorThumbs,
   editorToSource,
   editorUpdate,
+  type EditorAssets,
   type EditorInit,
   type EditorPlayback,
   type EditorSourcePos,
@@ -19,15 +36,16 @@ import {
 } from "../lib/ipc";
 import {
   History,
+  LiveGesture,
   MAX_MIC_DB,
   MIN_MIC_DB,
   addSpeed,
-  aspectRatio,
   clipAt,
   cropForPreset,
   deleteClip,
   formatTimecode,
   isTypingTarget,
+  previewRatio,
   removeSpeed,
   setCrop,
   setMicGain,
@@ -41,6 +59,7 @@ import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
 import { ExportDialog } from "./editor/ExportDialog";
 import { AudioPreview } from "./editor/AudioPreview";
+import { Inspector } from "./editor/Inspector";
 
 const POSITION_POLL_MS = 66;
 const THUMB_DEBOUNCE_MS = 600;
@@ -49,6 +68,19 @@ const SAVED_AFTER_MS = 1000;
 /** New speed regions span this much source time from the playhead. */
 const NEW_SPEED_MS = 2000;
 const NOTICE_MS = 4000;
+/** Per-viewer: whether the settings column is open (default open). */
+const INSPECTOR_KEY = "ir.record-editor.inspector-open";
+
+function readInspectorOpen(): boolean {
+  try {
+    return localStorage.getItem(INSPECTOR_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** A shipped asset's path → URL (a `data:` URL, as the mockup sends, passes unchanged). */
+const shippedUrl = (p: string) => (p.startsWith("data:") ? p : convertFileSrc(p));
 
 const errText = (t: (k: MessageKey) => string, reason: string) =>
   reason.startsWith("record.editor.") ? t(reason as MessageKey) : reason;
@@ -107,6 +139,16 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   /** The session this editor was mounted for; every update names it. */
   const sessionId = useRef(0);
   const pendingSeek = useRef<number | null>(null);
+  const [assets, setAssets] = useState<EditorAssets | null>(null);
+  /** Inspector sliders: live preview (debounced), one undo step on release. */
+  const sendRef = useRef<((doc: RecordEditDoc, record: boolean) => Promise<unknown>) | null>(null);
+  const liveRef = useRef<LiveGesture | null>(null);
+  /** Created on first use (event time, never during render). */
+  const gesture = useCallback(
+    () => (liveRef.current ??= new LiveGesture(() => history.current, (doc, record) => void sendRef.current?.(doc, record))),
+    [],
+  );
+  const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
 
   useEffect(() => {
     let dead = false;
@@ -120,6 +162,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           history.current = new History(i.view.doc);
           setView(i.view);
           setFatal(i.helperError);
+          editorAssets()
+            .then((a) => !dead && setAssets(a))
+            .catch((e) => console.error("record editor assets", e));
         }
       })
       .catch(() => !dead && setInit(null));
@@ -216,8 +261,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         if (h.present === doc) h.replace(v.doc);
         // A newer edit is on its way: its answer draws the view, this one would flash back.
         if (mine !== seq.current) return;
-        // Mid mic gesture the slider shows the live gain, not the answer's.
-        setView(micStart.current ? { ...v, doc: { ...v.doc, micGainDb: h.present.micGainDb } } : v);
+        // Mid gesture (mic or an inspector slider) the controls show the live document, not
+        // the answer's, which may already be a step behind the finger.
+        if (micStart.current) setView({ ...v, doc: { ...v.doc, micGainDb: h.present.micGainDb } });
+        else if (liveRef.current?.active) setView({ ...v, doc: h.present });
+        else setView(v);
         if (posRef.current > v.programmeMs) movePos(v.programmeMs);
       } catch (e) {
         report(e);
@@ -232,6 +280,52 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   }, [movePos, report, resync]);
 
   const commit = useCallback((doc: RecordEditDoc) => void send(doc, true), [send]);
+
+  useEffect(() => {
+    sendRef.current = send;
+  }, [send]);
+  useEffect(() => () => liveRef.current?.cancel(), []);
+  const inspectorLive = useCallback(
+    (next: RecordEditDoc) => {
+      gesture().move(next);
+      setView((v) => (v ? { ...v, doc: next } : v));
+    },
+    [gesture],
+  );
+  const inspectorLiveEnd = useCallback(() => liveRef.current?.end(), []);
+
+  const importAsset = useCallback(
+    async (kind: "image" | "cursor") => {
+      try {
+        const picked = await openDialog({
+          multiple: false,
+          directory: false,
+          filters:
+            kind === "cursor"
+              ? [{ name: t("rec3.insp.filter_png"), extensions: ["png"] }]
+              : [{ name: t("rec3.insp.filter_images"), extensions: ["png", "jpg", "jpeg"] }],
+        });
+        if (typeof picked !== "string") return null;
+        return await editorImportAsset(sessionId.current, picked, kind);
+      } catch (e) {
+        report(e);
+        return null;
+      }
+    },
+    [report, t],
+  );
+
+  const toggleInspector = useCallback(() => {
+    setInspectorOpen((o) => {
+      const next = !o;
+      try {
+        localStorage.setItem(INSPECTOR_KEY, next ? "1" : "0");
+      } catch {
+        /* per-viewer convenience only */
+      }
+      return next;
+    });
+  }, []);
 
   const undo = useCallback(() => {
     const d = history.current?.undo();
@@ -417,7 +511,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const doc = view.doc;
   const meta = init.meta;
   const dir = init.project.dir;
-  const ratio = aspectRatio(doc.output.aspect, meta.width, meta.height);
+  // The box shape is Rust's output size (padding/frame change it under Auto), never a TS copy.
+  const ratio = previewRatio(view, meta.width, meta.height);
   const cropClip = clipFor(pos);
   const preset: CropPreset = doc.output.aspect === "source" || doc.output.aspect === "auto" ? "free" : doc.output.aspect;
   const asset = (f: string) => convertFileSrc(`${dir}/${f}`);
@@ -456,7 +551,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         </button>
       </header>
 
-      {/* Preview */}
+      {/* Preview + settings column */}
+      <div className="flex min-h-0 flex-1">
       <Preview ratio={ratio} active={!fatal && !cropMode} dim={!!fatal}>
         {cropMode && !fatal && (
           <CropOverlay
@@ -488,6 +584,39 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </div>
         )}
       </Preview>
+      <aside
+        className={
+          "flex min-h-0 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] " +
+          (inspectorOpen ? "w-72" : "w-10")
+        }
+      >
+        <div className={"flex items-center px-2 pt-2 " + (inspectorOpen ? "justify-between" : "justify-center")}>
+          {inspectorOpen && <span className="pl-1 text-[12px] font-medium">{t("rec3.insp.title")}</span>}
+          <button
+            className="rounded-md p-1.5 text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
+            onClick={toggleInspector}
+            aria-label={inspectorOpen ? t("rec3.insp.hide") : t("rec3.insp.show")}
+            title={inspectorOpen ? t("rec3.insp.hide") : t("rec3.insp.show")}
+            aria-expanded={inspectorOpen}
+            data-testid="ed-inspector-toggle"
+          >
+            {inspectorOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+          </button>
+        </div>
+        {inspectorOpen && (
+          <Inspector
+            doc={doc}
+            assets={assets}
+            assetUrl={shippedUrl}
+            projectAssetUrl={(f) => asset(`assets/${f}`)}
+            onCommit={commit}
+            onLive={inspectorLive}
+            onLiveEnd={inspectorLiveEnd}
+            onImport={importAsset}
+          />
+        )}
+      </aside>
+      </div>
 
       {/* Transport + tools */}
       <div className="flex items-center gap-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">

@@ -572,13 +572,37 @@ const mockLanguage = () => ({
 // ── record editor (stage 2) — invented 24-s take, spans computed here only for the mockup ──
 type EdDoc = { clips: { startMs: number; endMs: number }[]; speed: { clip: number; startMs: number; endMs: number; speed: number }[] } & Record<string, unknown>;
 let edDoc: EdDoc = {
-  version: 1,
+  version: 2,
   clips: [{ startMs: 0, endMs: 9_000 }, { startMs: 11_000, endMs: 24_000 }],
   speed: [{ clip: 1, startMs: 14_000, endMs: 20_000, speed: 3 }],
   crop: [null, null],
-  output: { aspect: "source" },
+  output: { aspect: "auto" },
   micGainDb: -3,
+  appearance: {
+    background: { kind: "wallpaper", id: "01" }, backgroundMotion: "none", padding: 50, radiusPx: 40,
+    shadow: 0.6, backgroundBlur: 0, motionBlur: 0.2, frame: "none", frameTheme: "light",
+  },
+  cursor: {
+    show: true, autoHide: false, theme: "default", custom: null, size: 3.6, smoothing: 0.3, motionBlur: 0.35,
+    clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0,
+  },
+  zooms: [],
+  autoZoomDone: true,
 };
+/** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
+const ED_WALL_HUES: [number, number][] = [[220, 280], [200, 160], [20, 340], [40, 10], [180, 230], [260, 300], [100, 150], [0, 30]];
+const edSvg = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+const edWallpaper = ([a, b]: [number, number]) =>
+  edSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${a} 70% 55%)"/><stop offset="1" stop-color="hsl(${b} 65% 35%)"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/></svg>`);
+const ED_THEMES: [string, string][] = [["default", "#111"], ["studio-ink", "#1e293b"], ["prism-glow", "#8b5cf6"], ["pop-coral", "#f97316"], ["pixel-candy", "#ec4899"], ["star-sprout", "#22c55e"], ["glass-lens", "#3b82f6"]];
+const edArrow = (fill: string) =>
+  edSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><path d="M6 3 L6 25 L12 19 L16 28 L20 26 L16 17 L24 17 Z" fill="${fill}" stroke="#fff" stroke-width="1.5"/></svg>`);
+function edOutputSize(doc: EdDoc): [number, number] {
+  const a = (doc.output as { aspect: string }).aspect;
+  const fixed: Record<string, number> = { "16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1, "4:3": 4 / 3, "3:4": 3 / 4, "21:9": 21 / 9 };
+  const r = fixed[a] ?? 3024 / 1964;
+  return r >= 1 ? [1920, Math.round(1920 / r / 2) * 2] : [Math.round(1920 * r / 2) * 2, 1920];
+}
 let edPlaying = false;
 let edPos = 3_400;
 function edView(doc: EdDoc) {
@@ -601,7 +625,7 @@ function edView(doc: EdDoc) {
     t += c.endMs - src;
     return { progStartMs: Math.round(start), progEndMs: Math.round(t) };
   });
-  return { doc, programmeMs: Math.round(t), clips, speed };
+  return { doc, programmeMs: Math.round(t), clips, speed, outputSize: edOutputSize(doc) };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -930,6 +954,12 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "editor_frame": return Number(args.sinceGen) > 0 ? new ArrayBuffer(0) : edFrame();
     case "editor_resize": return null;
     case "editor_thumbs": return Array.from({ length: Number(args.count) || 8 }, (_, i) => edThumb(i));
+    case "editor_assets": return {
+        wallpapers: ED_WALL_HUES.map((h, i) => ({ id: `0${i + 1}`, thumb: edWallpaper(h) })),
+        themes: ED_THEMES.map(([id, fill]) => ({ id, preview: edArrow(fill) })),
+        hasCursorData: true,
+      };
+    case "editor_import_asset": return "6f1c2a8e-4b1d-4c5e-9a3f-2d7b8e0c1a44.png";
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

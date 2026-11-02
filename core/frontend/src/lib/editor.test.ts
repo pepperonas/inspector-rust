@@ -202,6 +202,7 @@ const view: RecordEditorView = {
     speed: [{ clip: 0, startMs: 2000, endMs: 6000, speed: 2 }],
     crop: [null, null],
   }),
+  outputSize: [1920, 1080],
   programmeMs: 10_000,
   clips: [{ progStartMs: 0, progEndMs: 8000 }, { progStartMs: 8000, progEndMs: 10_000 }],
   speed: [{ index: 0, progStartMs: 2000, progEndMs: 4000 }],

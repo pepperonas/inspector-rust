@@ -7277,6 +7277,25 @@ pub async fn editor_thumbs(app: AppHandle, count: u32) -> Result<Vec<String>, St
     editor_blocking(move || crate::record::editor_ipc::thumbs(&app, count)).await
 }
 
+/// The inspector's wallpapers, pointer themes and whether the take has pointer data.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_assets(app: AppHandle) -> Result<crate::record::editor_ipc::EditorAssets, String> {
+    editor_blocking(move || crate::record::editor_ipc::assets(&app)).await
+}
+
+/// Copies a picked image (`kind` "image") or pointer ("cursor") into the open project's
+/// `assets/`; returns the file name the document refers to.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_import_asset(
+    session_id: u64,
+    src: String,
+    kind: crate::record::editor_ipc::AssetKind,
+) -> Result<String, String> {
+    editor_blocking(move || crate::record::editor_ipc::import_asset(session_id, std::path::Path::new(&src), kind)).await
+}
+
 /// Start an export into ~/Downloads; returns the target path. Progress and the outcome
 /// arrive as `record-export-progress` / `record-export-done` / `record-export-failed`.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -65,6 +65,131 @@ pub const ERR_OPEN_EXPORTING: &str = "record.editor.open_exporting";
 /// Deleting the project that is open in the editor.
 pub const ERR_DELETE_OPEN: &str = "record.editor.delete_open";
 
+/// An imported background image is not a PNG or JPEG.
+pub const ERR_IMPORT_TYPE: &str = "record.editor.import_type";
+/// An imported pointer is not a PNG (a pointer needs transparency).
+pub const ERR_IMPORT_CURSOR_TYPE: &str = "record.editor.import_cursor_type";
+pub const ERR_IMPORT_TOO_BIG: &str = "record.editor.import_too_big";
+pub const ERR_IMPORT_FAILED: &str = "record.editor.import_failed";
+/// Imported images and pointers are copied into the project up to this size.
+pub const MAX_IMPORT_BYTES: u64 = 25 * 1024 * 1024;
+
+// ── assets (inspector) ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WallpaperAsset {
+    pub id: String,
+    /// Absolute path of the picker thumbnail (the editor shows it through the asset protocol).
+    pub thumb: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ThemeAsset {
+    pub id: String,
+    /// Absolute path of the theme's `arrow.png`.
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorAssets {
+    pub wallpapers: Vec<WallpaperAsset>,
+    pub themes: Vec<ThemeAsset>,
+    /// False when the take has no pointer telemetry: the inspector shows no pointer settings.
+    pub has_cursor_data: bool,
+}
+
+/// What the inspector offers: the shipped wallpapers and pointer themes (only those whose
+/// files exist) and whether the take can draw a pointer.
+pub fn editor_assets_for(assets: &AssetRoot, cursor: Option<&CursorRecording>) -> EditorAssets {
+    let wallpapers = AssetRoot::wallpaper_ids()
+        .iter()
+        .filter_map(|id| assets.wallpaper_thumb(id).map(|p| WallpaperAsset { id: (*id).to_string(), thumb: p.to_string_lossy().into_owned() }))
+        .collect();
+    let themes = assets
+        .cursor_theme_ids()
+        .into_iter()
+        .filter_map(|id| {
+            let t = assets.cursor_theme(&id)?;
+            let arrow = t.sprites.into_iter().find(|s| s.0 == "arrow")?.1;
+            arrow.is_file().then(|| ThemeAsset { id, preview: arrow.to_string_lossy().into_owned() })
+        })
+        .collect();
+    EditorAssets { wallpapers, themes, has_cursor_data: super::scene_json::has_cursor_data(cursor) }
+}
+
+/// What a file is imported as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AssetKind {
+    Image,
+    Cursor,
+}
+
+fn sniff_image(path: &Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut head = [0u8; 8];
+    let mut f = std::fs::File::open(path).ok()?;
+    let n = f.read(&mut head).ok()?;
+    if n >= 8 && head == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+        Some("png")
+    } else if n >= 3 && head[..3] == [0xFF, 0xD8, 0xFF] {
+        Some("jpeg")
+    } else {
+        None
+    }
+}
+
+/// A fresh v4-shaped id for an imported file.
+fn random_id() -> String {
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0F) | 0x40;
+    b[8] = (b[8] & 0x3F) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// Copies `src` into `<project>/assets/<uuid>.<ext>` and returns the file name (the plain
+/// name the scene builder accepts). Only PNG and JPEG (pointers: only PNG), checked by
+/// extension AND content, at most [`MAX_IMPORT_BYTES`]. The project keeps its own copy, so it
+/// stays complete when moved.
+pub fn import_asset_into(project_dir: &Path, src: &Path, kind: AssetKind) -> Result<String, String> {
+    let ext = src.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let wrong = || match kind {
+        AssetKind::Image => ERR_IMPORT_TYPE.to_string(),
+        AssetKind::Cursor => ERR_IMPORT_CURSOR_TYPE.to_string(),
+    };
+    let allowed: &[&str] = match kind {
+        AssetKind::Image => &["png", "jpg", "jpeg"],
+        AssetKind::Cursor => &["png"],
+    };
+    if !allowed.contains(&ext.as_str()) {
+        return Err(wrong());
+    }
+    let meta = std::fs::metadata(src).map_err(|_| ERR_IMPORT_FAILED.to_string())?;
+    if !meta.is_file() {
+        return Err(ERR_IMPORT_FAILED.into());
+    }
+    if meta.len() > MAX_IMPORT_BYTES {
+        return Err(ERR_IMPORT_TOO_BIG.into());
+    }
+    let content_ok = matches!((sniff_image(src), ext.as_str()), (Some("png"), "png") | (Some("jpeg"), "jpg" | "jpeg"));
+    if !content_ok {
+        return Err(wrong());
+    }
+    let dir = project_dir.join(super::scene_json::PROJECT_ASSETS_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        tracing::warn!(target: "record::editor", "import: {}: {e}", dir.display());
+        ERR_IMPORT_FAILED.to_string()
+    })?;
+    let name = format!("{}.{ext}", random_id());
+    std::fs::copy(src, dir.join(&name)).map_err(|e| {
+        tracing::warn!(target: "record::editor", "import: {}: {e}", src.display());
+        ERR_IMPORT_FAILED.to_string()
+    })?;
+    Ok(name)
+}
+
 // ── pure parts ──────────────────────────────────────────────────────────────
 
 /// `editor_frame`'s raw response: `gen u64 LE`, `w u32 LE`, `h u32 LE`, RGBA — or nothing at
@@ -963,6 +1088,33 @@ pub fn should_close(current: Option<u64>, expected: Option<u64>) -> bool {
     }
 }
 
+/// The inspector's wallpapers, pointer themes and whether the take has pointer data. The
+/// asset folders are added to the asset-protocol scope (they live in the app bundle, or in
+/// the source tree in dev builds), so the editor can show the thumbnails.
+pub fn assets(app: &AppHandle) -> Result<EditorAssets, String> {
+    let (out, root) = {
+        let guard = session();
+        let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
+        (editor_assets_for(&s.assets, s.cursor.as_ref()), s.assets.dir.clone())
+    };
+    let scope = app.asset_protocol_scope();
+    for (dir, recursive) in [(root.join("wallpapers").join("thumbs"), false), (root.join("cursors"), true)] {
+        if let Err(e) = scope.allow_directory(&dir, recursive) {
+            tracing::warn!(target: "record::editor", "asset scope {}: {e}", dir.display());
+        }
+    }
+    Ok(out)
+}
+
+/// Copies an image or pointer into the open project (see [`import_asset_into`]).
+pub fn import_asset(session_id: u64, src: &Path, kind: AssetKind) -> Result<String, String> {
+    let dir = {
+        let guard = session();
+        guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?.dir.clone()
+    };
+    import_asset_into(&dir, src, kind)
+}
+
 /// App exit (`RunEvent::Exit`): save and stop the helper.
 pub fn shutdown(app: &AppHandle) {
     close(app, false, None);
@@ -990,6 +1142,81 @@ mod tests {
     }
     use crate::record::editor::{Aspect, EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
     use chrono::NaiveDate;
+
+    fn import_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ir-editor-import-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const PNG_BYTES: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, b'I', b'H', b'D', b'R'];
+    const JPEG_BYTES: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0, 16, b'J', b'F', b'I', b'F', 0];
+
+    #[test]
+    fn import_rejects_non_image() {
+        let dir = import_dir("reject");
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let txt = dir.join("notes.txt");
+        std::fs::write(&txt, b"hello").unwrap();
+        assert_eq!(import_asset_into(&project, &txt, AssetKind::Image).unwrap_err(), ERR_IMPORT_TYPE);
+        // A text file renamed to .png is still not an image.
+        let fake = dir.join("fake.png");
+        std::fs::write(&fake, b"not a png at all").unwrap();
+        assert_eq!(import_asset_into(&project, &fake, AssetKind::Image).unwrap_err(), ERR_IMPORT_TYPE);
+        // A pointer must be a PNG (it needs transparency).
+        let jpg = dir.join("photo.jpg");
+        std::fs::write(&jpg, JPEG_BYTES).unwrap();
+        assert_eq!(import_asset_into(&project, &jpg, AssetKind::Cursor).unwrap_err(), ERR_IMPORT_CURSOR_TYPE);
+        // Too big.
+        let big = dir.join("big.png");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(MAX_IMPORT_BYTES + 1).unwrap();
+        drop(f);
+        let mut head = std::fs::OpenOptions::new().write(true).open(&big).unwrap();
+        std::io::Write::write_all(&mut head, PNG_BYTES).unwrap();
+        drop(head);
+        assert_eq!(import_asset_into(&project, &big, AssetKind::Image).unwrap_err(), ERR_IMPORT_TOO_BIG);
+        assert!(!project.join(crate::record::scene_json::PROJECT_ASSETS_DIR).exists(), "nothing was copied");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_copies_into_project_assets() {
+        let dir = import_dir("copy");
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let jpg = dir.join("Holiday Photo.JPEG");
+        std::fs::write(&jpg, JPEG_BYTES).unwrap();
+        let name = import_asset_into(&project, &jpg, AssetKind::Image).unwrap();
+        assert!(name.ends_with(".jpeg"), "{name}");
+        assert!(!name.contains('/') && !name.starts_with('.'));
+        let copied = crate::record::scene_json::project_asset(&project, &name).expect("a plain name the scene builder accepts");
+        assert_eq!(std::fs::read(copied).unwrap(), JPEG_BYTES);
+        let png = dir.join("arrow.png");
+        std::fs::write(&png, PNG_BYTES).unwrap();
+        let a = import_asset_into(&project, &png, AssetKind::Cursor).unwrap();
+        let b = import_asset_into(&project, &png, AssetKind::Cursor).unwrap();
+        assert_ne!(a, b, "every import gets its own file");
+        assert!(a.ends_with(".png"));
+        assert!(std::fs::read(&png).is_ok(), "the source stays where it was");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn editor_assets_list_wallpapers_themes_and_cursor_data() {
+        let a = editor_assets_for(&AssetRoot::dev(), None);
+        assert_eq!(a.wallpapers.len(), 8);
+        assert_eq!(a.wallpapers[0].id, "01");
+        assert!(a.wallpapers.iter().all(|w| Path::new(&w.thumb).is_file()), "{:?}", a.wallpapers);
+        assert_eq!(a.themes.len(), 7);
+        assert_eq!(a.themes[0].id, "default");
+        assert!(a.themes.iter().all(|t| t.preview.ends_with("arrow.png") && Path::new(&t.preview).is_file()));
+        assert!(!a.has_cursor_data);
+        let json = serde_json::to_value(&a).unwrap();
+        assert!(json.get("hasCursorData").is_some(), "{json}");
+    }
 
     fn doc(clips: &[(u64, u64)]) -> EditDoc {
         EditDoc {

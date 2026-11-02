@@ -5274,6 +5274,8 @@ export interface RecordEditorView {
   programmeMs: number;
   clips: { progStartMs: number; progEndMs: number }[];
   speed: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Rust's 1080p output size `[w, h]` — the preview's shape (never re-derived in TS). */
+  outputSize: [number, number];
 }
 export interface RecordingMeta {
   source: "display" | "window";
@@ -5367,6 +5369,19 @@ export function editorThumbs(count: number): Promise<string[]> {
   return invoke("editor_thumbs", { count });
 }
 /** Resolves with the target path; the outcome arrives as `record-export-*` events. */
+/** Wallpapers and pointer themes of the inspector (paths for `convertFileSrc`). */
+export interface EditorAssets {
+  wallpapers: { id: string; thumb: string }[];
+  themes: { id: string; preview: string }[];
+  hasCursorData: boolean;
+}
+export function editorAssets(): Promise<EditorAssets> {
+  return invoke("editor_assets");
+}
+/** Copies a picked file into the project's `assets/`; resolves to the file name. */
+export function editorImportAsset(sessionId: number, src: string, kind: "image" | "cursor"): Promise<string> {
+  return invoke("editor_import_asset", { sessionId, src, kind });
+}
 export function editorExport(opts: EditorExportOptions): Promise<string> {
   return invoke("editor_export", { opts });
 }

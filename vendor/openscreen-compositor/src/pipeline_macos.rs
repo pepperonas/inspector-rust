@@ -753,6 +753,8 @@ pub struct ClipSource {
     pub has_audio: bool,
     /// Inspector Rust: extra audio (mic) mixed before the speed stretch; see `SceneClip`.
     pub extra_audio: Option<crate::scene::ExtraAudio>,
+    /// Inspector Rust: explicit cursor telemetry path; `None` = `{screen}.cursor.json`.
+    pub cursor_path: Option<String>
 }
 
 /// Codec cible pour l'export. Identique à `pipeline_windows::ExportCodec`.

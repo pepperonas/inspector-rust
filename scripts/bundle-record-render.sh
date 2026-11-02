@@ -13,6 +13,7 @@
 #   Contents/Frameworks/libav*.N.dylib, libsw*.N.dylib   install_name @rpath/<name>
 #   Contents/Resources/THIRD-PARTY/ffmpeg/          LGPL text, FFmpeg LICENSE.md, SOURCE.txt
 #   Contents/Resources/THIRD-PARTY/openscreen/      OpenScreen LICENSE (MIT), notices (Recordly MIT)
+#   Contents/Resources/record/                      cursor themes, click sounds, wallpapers + thumbs
 #
 # Apple Silicon only: the compositor is Metal + VideoToolbox on arm64. For an
 # x86_64 triple (the Intel DMG) this script does nothing and exits 0 — the
@@ -157,5 +158,12 @@ stamp="${FF_DIR}/.ir-ffmpeg-stamp"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/LICENSE" "${TP}/openscreen/LICENSE"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/THIRD-PARTY-NOTICES.md" "${TP}/openscreen/THIRD-PARTY-NOTICES.md"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/VENDORED.md" "${TP}/openscreen/VENDORED.md"
+
+# Editor assets (cursor sprites + hotspots, click sounds, wallpapers with their picker
+# thumbnails). Read at runtime by record::assets::AssetRoot::resolve.
+REC_ASSETS="${REPO_ROOT}/core/rust-lib/assets/record"
+rm -rf "${APP}/Contents/Resources/record"
+mkdir -p "${APP}/Contents/Resources/record"
+cp -R "${REC_ASSETS}/." "${APP}/Contents/Resources/record/"
 
 echo "▸ Bundled ${HELPER} + ${#copied[@]} ffmpeg dylibs (${copied[*]})"

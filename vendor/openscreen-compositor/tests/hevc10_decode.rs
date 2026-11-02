@@ -49,6 +49,7 @@ fn render_frame_10(source: &str) -> RenderedFrame {
         webcam_offset_sec: 0.0,
         has_audio: false,
         extra_audio: None,
+        cursor_path: None,
     }];
     let mut cfg = config::all().pop().expect("C8");
     cfg.zoom = false;

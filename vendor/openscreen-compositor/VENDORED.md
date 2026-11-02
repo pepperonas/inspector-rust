@@ -151,6 +151,22 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    `ir-record-render` and fails on ~136 upstream findings. The attribute applies only under
    clippy; normal builds keep upstream's compiler warnings visible.
 
+12. **Explicit cursor telemetry path (stage 3, Task 1).** Upstream loads the cursor sidecar from
+   `{screenPath}.cursor.json` only; Inspector Rust keeps `cursor.json` in the project directory.
+   - `src/scene.rs`: `SceneClip.cursor_path: Option<String>` (`#[serde(default)]`, JSON
+     `cursorPath`); new `pub fn cursor_sidecar(screen_path, cursor_path)` = the explicit path when
+     given and non-empty, else `{screen_path}.cursor.json` (old behaviour). Test
+     `cursor_path_overrides_sidecar_location`.
+   - `src/pipeline_{macos,windows,linux}.rs`: `ClipSource.cursor_path: Option<String>`;
+     `src/timeline_walk.rs` (export walk) loads and caches cursor tracks by the resolved
+     telemetry file, not by video path.
+   - `src/live.rs`: `open_and_seek_clip` gained a `cursor_path` argument (prefetch passes the
+     next clip's; the explicit-request paths pass `None` because the render loop reloads from the
+     scene); `advance_to_next_scene_clip` and the active-clip-request branch resolve through
+     `cursor_sidecar` using the scene clip. `LiveView::create` still takes a full telemetry path.
+   - `tests/*.rs`: `ClipSource` literals gained `cursor_path: None`. `record-render/src/session.rs`
+     `clip_sources` forwards the field.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -162,6 +178,7 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-01: 484 passed, 0 failed, 3 ignored (Metal tests ran on an M1 Pro)
 # 2026-11-01 after patch 8: 491 passed, 0 failed, 3 ignored
 # 2026-11-01 after patch 9: 493 passed, 0 failed, 3 ignored
+# 2026-11-02 after patch 12: 494 passed, 0 failed, 3 ignored
 ```
 
 ## Updating from upstream

@@ -6,6 +6,15 @@
 
 use serde::Deserialize;
 
+/// Inspector Rust: the cursor telemetry file for a clip — its explicit `cursor_path`, else the
+/// upstream sidecar `{screen_path}.cursor.json`.
+pub fn cursor_sidecar(screen_path: &str, cursor_path: Option<&str>) -> String {
+    match cursor_path {
+        Some(p) if !p.is_empty() => p.to_string(),
+        _ => format!("{screen_path}.cursor.json"),
+    }
+}
+
 /// Un clip de la timeline (fichiers screen+webcam + fenêtre source). = `CompositorClipInput` (TS).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +32,11 @@ pub struct SceneClip {
     /// audio BEFORE the speed stretch, so it stays in sync with the picture. `None` = none.
     #[serde(default)]
     pub extra_audio: Option<ExtraAudio>,
+    /// Inspector Rust: where this clip's cursor telemetry lives. `None` = the upstream
+    /// convention, `{screenPath}.cursor.json` next to the video. A project that keeps its
+    /// telemetry elsewhere (e.g. a re-timed copy) names it here.
+    #[serde(default)]
+    pub cursor_path: Option<String>,
 }
 
 /// Inspector Rust: an extra audio file for one clip. Its time runs alongside the clip's
@@ -1186,6 +1200,22 @@ mod tests {
         // And a scene from before the field reads as no hits, not as a parse failure.
         assert!(SceneClickSound::default().hits.is_empty());
         assert!(serde_json::from_str::<SceneClickSound>("{}").unwrap().hits.is_empty());
+    }
+
+    #[test]
+    fn cursor_path_overrides_sidecar_location() {
+        let clip = |extra: &str| -> SceneClip {
+            serde_json::from_str(&format!(
+                r#"{{"screenPath":"/p/screen.mp4","webcamPath":"","sourceStartSec":0,"sourceEndSec":1,"webcamOffsetSec":0{extra}}}"#
+            ))
+            .unwrap()
+        };
+        let with = clip(r#","cursorPath":"/p/cursor.retimed.json""#);
+        assert_eq!(with.cursor_path.as_deref(), Some("/p/cursor.retimed.json"));
+        assert_eq!(cursor_sidecar(&with.screen_path, with.cursor_path.as_deref()), "/p/cursor.retimed.json");
+        let without = clip("");
+        assert_eq!(without.cursor_path, None);
+        assert_eq!(cursor_sidecar(&without.screen_path, without.cursor_path.as_deref()), "/p/screen.mp4.cursor.json");
     }
 
     #[test]

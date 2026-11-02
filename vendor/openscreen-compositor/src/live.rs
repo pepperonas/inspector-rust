@@ -161,6 +161,7 @@ unsafe fn open_and_seek_clip(
     webcam_path: &str,
     webcam_offset_sec: f64,
     source_time_sec: f64,
+    cursor_path: Option<&str>,
     gpu: &Gpu,
 ) -> Result<PrefetchedClip> {
     let source_time_sec = source_time_sec.max(0.0);
@@ -176,7 +177,7 @@ unsafe fn open_and_seek_clip(
         anyhow::bail!("clip préchargé vide au temps source {source_time_sec:.3}s (screen=\"{screen_path}\")");
     }
     let idx = (source_time_sec * sdec.fps()).round().max(0.0) as u32;
-    let cursor_track = CursorTrack::load(&format!("{screen_path}.cursor.json"), 0.0, 24.0 * 3600.0).ok();
+    let cursor_track = CursorTrack::load(&crate::scene::cursor_sidecar(screen_path, cursor_path), 0.0, 24.0 * 3600.0).ok();
     Ok(PrefetchedClip { sdec, wdec, webcam_decoder_is_real, webcam_offset_sec, idx, cursor_track })
 }
 
@@ -354,7 +355,7 @@ impl Player {
         source_time_sec: f64,
     ) -> Result<()> {
         let prefetched =
-            open_and_seek_clip(screen_path, webcam_path, webcam_offset_sec, source_time_sec, &self.gpu)?;
+            open_and_seek_clip(screen_path, webcam_path, webcam_offset_sec, source_time_sec, None, &self.gpu)?;
         self.apply_prefetched(prefetched);
         Ok(())
     }
@@ -446,7 +447,7 @@ impl Player {
         webcam_offset_sec: f64,
         source_time_sec: f64,
     ) -> Result<PrefetchedClip> {
-        open_and_seek_clip(screen, webcam, webcam_offset_sec, source_time_sec, &self.gpu)
+        open_and_seek_clip(screen, webcam, webcam_offset_sec, source_time_sec, None, &self.gpu)
     }
 
     /// Le décodeur webcam ACTIF est-il la vraie caméra ? `false` quand c'est le remplaçant
@@ -1422,6 +1423,7 @@ unsafe fn maybe_start_prefetch(
                 &next_clip.webcam_path,
                 next_clip.webcam_offset_sec,
                 next_clip.source_start_sec,
+                next_clip.cursor_path.as_deref(),
                 &gpu_clone,
             )
         };
@@ -1524,7 +1526,7 @@ unsafe fn advance_to_next_scene_clip(
             // Réutilise le curseur préchargé s'il est disponible (voir plus haut) — sinon
             // (préchargement pas encore prêt / raté) on retombe sur la lecture synchrone
             // habituelle, comme avant cette optimisation.
-            let cursor_path = format!("{}.cursor.json", active_screen_path);
+            let cursor_path = crate::scene::cursor_sidecar(active_screen_path, next_clip.cursor_path.as_deref());
             *raw_cursor = match prefetched_cursor {
                 Some(track) => track,
                 None => CursorTrack::load(&cursor_path, 0.0, 24.0 * 3600.0).ok(),
@@ -1748,7 +1750,13 @@ unsafe fn render_thread(
                     // compris quand seul le segment changeait, où le chemin est par
                     // construction identique. Mesuré : 66 bascules sur un scrub de deux clips,
                     // donc 66 relectures du même fichier.
-                    let cursor_path = format!("{}.cursor.json", active_screen_path);
+                    let cursor_path = crate::scene::cursor_sidecar(
+                        &active_screen_path,
+                        full_scene
+                            .as_ref()
+                            .and_then(|s| s.clips.get(active_clip_index))
+                            .and_then(|c| c.cursor_path.as_deref()),
+                    );
                     if cursor_path != loaded_cursor_path {
                         loaded_cursor_path = cursor_path.clone();
                         raw_cursor = CursorTrack::load(&cursor_path, 0.0, 24.0 * 3600.0).ok();

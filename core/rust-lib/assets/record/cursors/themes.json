@@ -1,0 +1,131 @@
+{
+ "_comment": "Hotspots as fractions of the sprite image. Transcribed from OpenScreen cursorThemes.ts (MIT). Themes override arrow/pointer over the default set.",
+ "default": {
+  "arrow": [
+   0.1205,
+   0.0881
+  ],
+  "text": [
+   0.4355,
+   0.5369
+  ],
+  "pointer": [
+   0.3874,
+   0.0032
+  ],
+  "crosshair": [
+   0.4667,
+   0.4667
+  ],
+  "open-hand": [
+   0.4375,
+   0.1724
+  ],
+  "closed-hand": [
+   0.3889,
+   0.4455
+  ],
+  "resize-ew": [
+   0.485,
+   0.4706
+  ],
+  "resize-ns": [
+   0.5,
+   0.5
+  ],
+  "resize-nesw": [
+   0.5,
+   0.5
+  ],
+  "resize-nwse": [
+   0.5,
+   0.5
+  ],
+  "move": [
+   0.4437,
+   0.4437
+  ],
+  "not-allowed": [
+   0.5,
+   0.5
+  ],
+  "wait": [
+   0.5,
+   0.5
+  ],
+  "app-starting": [
+   0.05,
+   0.0537
+  ],
+  "help": [
+   0.0515,
+   0.0572
+  ],
+  "up-arrow": [
+   0.5,
+   0.069
+  ]
+ },
+ "themes": {
+  "studio-ink": {
+   "arrow": [
+    0.1947,
+    0.0656
+   ],
+   "pointer": [
+    0.4015,
+    0.0647
+   ]
+  },
+  "prism-glow": {
+   "arrow": [
+    0.1983,
+    0.0646
+   ],
+   "pointer": [
+    0.374,
+    0.0636
+   ]
+  },
+  "pop-coral": {
+   "arrow": [
+    0.3274,
+    0.0681
+   ],
+   "pointer": [
+    0.3858,
+    0.0625
+   ]
+  },
+  "pixel-candy": {
+   "arrow": [
+    0.203125,
+    0.0625
+   ],
+   "pointer": [
+    0.335938,
+    0.0625
+   ]
+  },
+  "star-sprout": {
+   "arrow": [
+    0.1476,
+    0.0661
+   ],
+   "pointer": [
+    0.4116,
+    0.0637
+   ]
+  },
+  "glass-lens": {
+   "arrow": [
+    0.3045,
+    0.0255
+   ],
+   "pointer": [
+    0.40225,
+    0.0255
+   ]
+  }
+ }
+}

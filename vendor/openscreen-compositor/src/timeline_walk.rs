@@ -494,18 +494,21 @@ unsafe fn walk_timeline(
         }
 
         if cursor_enabled {
-            if !cursor_tracks.contains_key(&clip.screen) {
-                let path = format!("{}.cursor.json", clip.screen);
+            // Keyed by the telemetry file, not the video: two clips may share a video and
+            // name different telemetry (`SceneClip::cursor_path`).
+            let cursor_file = crate::scene::cursor_sidecar(&clip.screen, clip.cursor_path.as_deref());
+            if !cursor_tracks.contains_key(&cursor_file) {
+                let path = cursor_file.clone();
                 if let Ok(raw) = CursorTrack::load(&path, 0.0, 24.0 * 3600.0) {
-                    cursor_tracks.insert(clip.screen.clone(), raw.smoothed(cursor_smoothing));
+                    cursor_tracks.insert(cursor_file.clone(), raw.smoothed(cursor_smoothing));
                 }
                 // absente/illisible → pas d'entrée : ce clip s'exporte sans curseur (visible,
                 // pas masqué en un curseur fantôme d'un autre clip).
             }
-            if cursor_active_path.as_deref() != Some(clip.screen.as_str()) {
-                if let Some(track) = cursor_tracks.get(&clip.screen) {
+            if cursor_active_path.as_deref() != Some(cursor_file.as_str()) {
+                if let Some(track) = cursor_tracks.get(&cursor_file) {
                     comp.set_cursor(track.clone());
-                    cursor_active_path = Some(clip.screen.clone());
+                    cursor_active_path = Some(cursor_file.clone());
                 } else {
                     comp.clear_cursor();
                     comp.set_cursor_time(None);

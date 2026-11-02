@@ -1322,6 +1322,8 @@ pub struct ClipSource {
     pub source_end_sec: f64,
     pub webcam_offset_sec: f64,
     pub has_audio: bool,
+    /// Inspector Rust: explicit cursor telemetry path; `None` = `{screen}.cursor.json`.
+    pub cursor_path: Option<String>
 }
 
 /// Export **multiclip** : rend la timeline (clips ordonnés, avec trims) en un seul MP4.

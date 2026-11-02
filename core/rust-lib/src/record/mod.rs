@@ -1,6 +1,7 @@
 //! `record` — screen/window recording into editable projects (stage 1).
 #![allow(dead_code)]
 
+pub mod assets;
 pub mod core;
 #[cfg(target_os = "macos")]
 pub mod capture_macos;

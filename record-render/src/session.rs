@@ -508,6 +508,7 @@ fn clip_sources(scene: &Scene) -> Vec<ClipSource> {
             webcam_offset_sec: c.webcam_offset_sec,
             has_audio: c.has_audio,
             extra_audio: c.extra_audio.clone(),
+            cursor_path: c.cursor_path.clone(),
         })
         .collect()
 }

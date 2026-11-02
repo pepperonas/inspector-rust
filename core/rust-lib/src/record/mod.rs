@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod assets;
+pub mod click_cues;
 pub mod core;
 #[cfg(target_os = "macos")]
 pub mod capture_macos;
@@ -10,6 +11,7 @@ pub mod cursor_macos;
 // Only the Apple-Silicon editor IPC uses these three; elsewhere they are compiled but unused.
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod editor;
+pub mod layout;
 pub mod mic;
 #[cfg(target_os = "macos")]
 pub mod picker_macos;

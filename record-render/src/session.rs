@@ -592,6 +592,32 @@ mod tests {
         assert!(clips.iter().all(|c| c.has_audio));
     }
 
+    /// Stage 3: the styled golden (every effect, cursor sprites, zooms, click sound) parses too.
+    #[test]
+    fn styled_golden_scene_parses_into_the_compositor_scene() {
+        use openscreen_compositor::scene::{SceneBackground, SceneFrame, WallpaperMotion};
+        let json = include_str!("../../core/rust-lib/src/record/fixtures/scene-golden-styled.json");
+        let scene = Scene::from_json(json).expect("styled golden parses");
+        assert!(matches!(scene.effects.frame, SceneFrame::Window));
+        assert!((scene.effects.padding - 0.4).abs() < 1e-6);
+        match &scene.background {
+            SceneBackground::Image { path, motion } => {
+                assert!(path.ends_with("wallpapers/03.jpg"), "{path}");
+                assert_eq!(*motion, WallpaperMotion::Drift);
+            }
+            _ => panic!("expected an image background"),
+        }
+        assert_eq!(scene.zoom_regions.len(), 2);
+        assert_eq!(scene.zoom_regions[1].clip_index, Some(1));
+        assert!(scene.zoom_regions[1].hide_cursor);
+        assert!(scene.cursor.show && scene.cursor.auto_hide && scene.cursor.click_impact);
+        assert_eq!(scene.cursor.cursor_sprites.len(), 16);
+        assert!(!scene.click_sound.hits.is_empty() && !scene.click_sound.down_path.is_empty());
+        assert!(scene.layout.screen_rect.is_some());
+        assert_eq!(scene.layout.layout_by_clip.len(), 2);
+        assert_eq!(scene.clips[0].cursor_path.as_deref(), Some("<PROJECT>/cursor.json"));
+    }
+
     #[test]
     fn expected_frames_follows_speed() {
         let json = include_str!("../../core/rust-lib/src/record/fixtures/scene-golden.json");

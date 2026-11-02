@@ -15,10 +15,11 @@
 //! Errors returned to the UI are `record.editor.*` sentinels (en+de locale keys) or the
 //! helper's own message.
 
-use super::editor::{self, Aspect, EditDoc, EditorView, OutputTarget};
-use super::project::{self, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
+use super::assets::AssetRoot;
+use super::editor::{self, EditDoc, EditorView, OutputTarget};
+use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
-use super::scene_json::scene_json;
+use super::scene_json::{read_cursor, scene_json_with};
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
 use serde::{Deserialize, Serialize};
@@ -194,21 +195,21 @@ pub type ExportPlan = (ExportKind, (u32, u32), u32, &'static str);
 pub fn export_plan(
     opts: &ExportOptions,
     meta: &RecordingMeta,
-    aspect: Aspect,
+    doc: &EditDoc,
 ) -> Result<ExportPlan, String> {
     match opts.kind {
         ExportFormat::Mp4 => {
             if !MP4_FPS.contains(&opts.fps) {
                 return Err(ERR_BAD_EXPORT.into());
             }
-            let (w, h) = editor::output_size(meta, aspect, opts.target);
+            let (w, h) = editor::output_size(meta, doc, opts.target);
             Ok((ExportKind::Mp4 { w, h, fps: opts.fps, codec: opts.codec }, (w, h), opts.fps, "mp4"))
         }
         ExportFormat::Gif => {
             if !GIF_FPS.contains(&opts.fps) || !GIF_WIDTHS.contains(&opts.gif_width) {
                 return Err(ERR_BAD_EXPORT.into());
             }
-            let (sw, sh) = editor::output_size(meta, aspect, OutputTarget::Source);
+            let (sw, sh) = editor::output_size(meta, doc, OutputTarget::Source);
             let w = opts.gif_width;
             let h = ((((w as f64 * sh as f64 / sw.max(1) as f64) / 2.0).round() as u32) * 2).max(2);
             Ok((ExportKind::Gif { w, h, fps: opts.fps, loop_forever: opts.loop_forever }, (w, h), opts.fps, "gif"))
@@ -387,6 +388,9 @@ struct Session {
     dir: PathBuf,
     project: Project,
     doc: EditDoc,
+    /// Resolved once per session: the bundle's asset root and the take's cursor telemetry.
+    assets: AssetRoot,
+    cursor: Option<CursorRecording>,
     transport: Transport,
     preview: (u32, u32),
     /// Stall-watchdog anchor (`now_ms` clock), see [`stall_check`].
@@ -408,11 +412,15 @@ impl Session {
     }
 
     fn output(&self, target: OutputTarget) -> (u32, u32) {
-        editor::output_size(&self.project.recording, self.doc.output.aspect, target)
+        editor::output_size(&self.project.recording, &self.doc, target)
+    }
+
+    fn scene(&self, out: (u32, u32), fps: u32) -> Value {
+        scene_json_with(&self.dir, &self.project, &self.doc, out, fps, &self.assets, self.cursor.as_ref())
     }
 
     fn preview_scene(&self) -> Value {
-        scene_json(&self.dir, &self.project, &self.doc, self.output(OutputTarget::P1080), PREVIEW_FPS)
+        self.scene(self.output(OutputTarget::P1080), PREVIEW_FPS)
     }
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
@@ -620,6 +628,8 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         return Err(ERR_NO_VIDEO.into());
     }
     let doc = editor::load(&project);
+    let assets = AssetRoot::resolve(app);
+    let cursor = read_cursor(&dir);
     // A different project open before: its edits are saved first.
     flush_save();
     let (scene, preview, init) = {
@@ -628,6 +638,8 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             id: NEXT_SESSION.fetch_add(1, Ordering::SeqCst),
             transport: Transport::new(&doc),
             preview: (0, 0),
+            assets,
+            cursor,
             dir,
             project,
             doc,
@@ -834,7 +846,7 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
         let out = s.output(OutputTarget::P720);
         let frames = thumb_frames(editor::programme_duration_ms(&s.doc), count, THUMB_FPS);
-        (scene_json(&s.dir, &s.project, &s.doc, out, THUMB_FPS), frames)
+        (s.scene(out, THUMB_FPS), frames)
     };
     let client = ensure_client(app, true)?;
     let rendered = client.thumbs(scene, THUMB_FPS, frames.clone(), THUMB_WIDTH);
@@ -863,7 +875,7 @@ pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
     let (scene, kind, path) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, s.doc.output.aspect)?;
+        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.doc)?;
         let downloads = dirs::download_dir()
             .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
             .filter(|d| d.is_dir())
@@ -874,7 +886,7 @@ pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
             s.project.title.clone()
         };
         let path = export_path(&downloads, &title, chrono::Local::now().naive_local(), ext, |p| p.exists());
-        (scene_json(&s.dir, &s.project, &s.doc, size, fps), kind, path)
+        (s.scene(size, fps), kind, path)
     };
     let client = ensure_client(app, true)?;
     let out = path.to_string_lossy().into_owned();
@@ -959,7 +971,7 @@ mod tests {
         assert_eq!(arm.matches("reveal_in_file_manager").count(), 1);
         assert!(arm.contains("announce_keeping_popup(&app, export_done_toast(&path))"));
     }
-    use crate::record::editor::{EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
+    use crate::record::editor::{Aspect, EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
     use chrono::NaiveDate;
 
     fn doc(clips: &[(u64, u64)]) -> EditDoc {
@@ -1004,6 +1016,8 @@ mod tests {
             dir: dir.to_path_buf(),
             transport: Transport::new(&doc),
             preview: (640, 360),
+            assets: AssetRoot::dev(),
+            cursor: None,
             project,
             doc,
             last_frame_ms: 0,
@@ -1234,17 +1248,19 @@ mod tests {
     fn export_plan_presets() {
         let meta = RecordingMeta { width: 3342, height: 2160, fps: 60, duration_ms: 5_000, ..RecordingMeta::default() };
         let mp4 = ExportOptions { target: OutputTarget::P720, fps: 60, codec: Codec::Hevc, ..ExportOptions::default() };
-        let (kind, size, fps, ext) = export_plan(&mp4, &meta, Aspect::W16H9).unwrap();
+        let mut d = doc(&[(0, 5_000)]);
+        d.output.aspect = Aspect::W16H9;
+        let (kind, size, fps, ext) = export_plan(&mp4, &meta, &d).unwrap();
         assert_eq!(kind, ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc });
         assert_eq!((size, fps, ext), ((1280, 720), 60, "mp4"));
-        assert_eq!(export_plan(&ExportOptions { fps: 25, ..mp4.clone() }, &meta, Aspect::W16H9).unwrap_err(), ERR_BAD_EXPORT);
+        assert_eq!(export_plan(&ExportOptions { fps: 25, ..mp4.clone() }, &meta, &d).unwrap_err(), ERR_BAD_EXPORT);
 
         let gif = ExportOptions { kind: ExportFormat::Gif, fps: 15, gif_width: 480, loop_forever: false, ..ExportOptions::default() };
-        let (kind, size, _, ext) = export_plan(&gif, &meta, Aspect::W16H9).unwrap();
+        let (kind, size, _, ext) = export_plan(&gif, &meta, &d).unwrap();
         assert_eq!(kind, ExportKind::Gif { w: 480, h: 270, fps: 15, loop_forever: false });
         assert_eq!((size, ext), ((480, 270), "gif"));
-        assert!(export_plan(&ExportOptions { gif_width: 500, ..gif.clone() }, &meta, Aspect::W16H9).is_err());
-        assert!(export_plan(&ExportOptions { fps: 60, ..gif }, &meta, Aspect::W16H9).is_err());
+        assert!(export_plan(&ExportOptions { gif_width: 500, ..gif.clone() }, &meta, &d).is_err());
+        assert!(export_plan(&ExportOptions { fps: 60, ..gif }, &meta, &d).is_err());
         // Wire shape the UI sends.
         let o: ExportOptions =
             serde_json::from_str(r#"{"kind":"gif","target":"p1080","fps":20,"codec":"h264","gifWidth":854,"loopForever":true}"#)
@@ -1273,8 +1289,10 @@ mod tests {
         let dir = PathBuf::from(std::env::var("IR_EDITOR_PROJECT").expect("IR_EDITOR_PROJECT"));
         let project = project::read_project(&dir).unwrap();
         let doc = editor::load(&project);
-        let out = editor::output_size(&project.recording, doc.output.aspect, OutputTarget::P1080);
-        let scene = scene_json(&dir, &project, &doc, out, PREVIEW_FPS);
+        let out = editor::output_size(&project.recording, &doc, OutputTarget::P1080);
+        let assets = AssetRoot::dev();
+        let cursor = read_cursor(&dir);
+        let scene = scene_json_with(&dir, &project, &doc, out, PREVIEW_FPS, &assets, cursor.as_ref());
         let client = RenderClient::spawn(Arc::new(|n| eprintln!("notice: {n:?}"))).unwrap();
         let (w, h) = preview_size(out);
         client.open(scene.clone(), w, h).unwrap();
@@ -1289,7 +1307,7 @@ mod tests {
         let f = got.expect("a preview frame");
         eprintln!("frame gen {} {}x{}", f.gen, f.w, f.h);
         let frames = thumb_frames(editor::programme_duration_ms(&doc), 4, THUMB_FPS);
-        let t = client.thumbs(scene_json(&dir, &project, &doc, (640, 360), THUMB_FPS), THUMB_FPS, frames.clone(), THUMB_WIDTH).unwrap();
+        let t = client.thumbs(scene_json_with(&dir, &project, &doc, (640, 360), THUMB_FPS, &assets, cursor.as_ref()), THUMB_FPS, frames.clone(), THUMB_WIDTH).unwrap();
         eprintln!("thumbs {:?}", t.iter().map(|(i, j)| (*i, j.len())).collect::<Vec<_>>());
         assert_eq!(t.len(), frames.len());
         let started = Instant::now();

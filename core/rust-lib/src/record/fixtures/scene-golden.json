@@ -5,6 +5,7 @@
   },
   "clips": [
     {
+      "cursorPath": "<PROJECT>/cursor.json",
       "extraAudio": {
         "gainDb": -6.0,
         "offsetSec": 0.12,
@@ -18,6 +19,7 @@
       "webcamPath": ""
     },
     {
+      "cursorPath": "<PROJECT>/cursor.json",
       "extraAudio": {
         "gainDb": -6.0,
         "offsetSec": 0.12,
@@ -41,12 +43,96 @@
     }
   ],
   "cursor": {
-    "clickBounce": 0.0,
+    "autoHide": false,
+    "clickBounce": 1.0,
     "clipToBounds": false,
-    "motionBlur": 0.0,
+    "cursorSprites": {
+      "app-starting": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "arrow": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "closed-hand": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "crosshair": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "help": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "move": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "not-allowed": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "open-hand": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "pointer": {
+        "hotspotX": 0.3874,
+        "hotspotY": 0.0032,
+        "path": "<ASSETS>/cursors/default/pointer.png"
+      },
+      "resize-ew": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "resize-nesw": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "resize-ns": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "resize-nwse": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "text": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "up-arrow": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      },
+      "wait": {
+        "hotspotX": 0.1205,
+        "hotspotY": 0.0881,
+        "path": "<ASSETS>/cursors/default/arrow.png"
+      }
+    },
+    "model3d": false,
+    "motionBlur": 0.35,
     "show": false,
-    "size": 1.0,
-    "smoothing": 0.0,
+    "size": 3.6,
+    "smoothing": 0.3,
     "theme": "default"
   },
   "effects": {
@@ -58,7 +144,31 @@
     "shadow": 0.0
   },
   "layout": {
+    "layoutByClip": [
+      {
+        "screenRect": {
+          "height": 1.0,
+          "width": 0.8661458333333333,
+          "x": 0.06666666666666667,
+          "y": 0.0
+        }
+      },
+      {
+        "screenRect": {
+          "height": 1.0,
+          "width": 0.4328125,
+          "x": 0.2833333333333333,
+          "y": 0.0
+        }
+      }
+    ],
     "preset": "no-webcam",
+    "screenRect": {
+      "height": 1.0,
+      "width": 0.8661458333333333,
+      "x": 0.06666666666666667,
+      "y": 0.0
+    },
     "webcamMirror": false,
     "webcamPosition": null,
     "webcamReactiveZoom": false,

@@ -724,14 +724,59 @@ fn even_floor(v: f64) -> u32 {
     (((v / 2.0).floor() as u32) * 2).max(2)
 }
 
-/// Export frame size. Even on both axes (H.264/HEVC need it). For 720p/1080p the SHORT side
-/// is 720/1080; at source resolution it is the largest rect of the aspect inside the source.
-pub fn output_size(meta: &RecordingMeta, aspect: Aspect, target: OutputTarget) -> (u32, u32) {
-    let (sw, sh) = if meta.width > 0 && meta.height > 0 {
+/// The source frame's size (1920×1080 when unknown).
+fn source_dims(meta: &RecordingMeta) -> (f64, f64) {
+    if meta.width > 0 && meta.height > 0 {
         (meta.width as f64, meta.height as f64)
     } else {
         (1920.0, 1080.0)
+    }
+}
+
+/// Clip `clip`'s screen source in px: the recording × its crop (`screenSourceSize`).
+pub fn clip_source_size(meta: &RecordingMeta, doc: &EditDoc, clip: usize) -> (u32, u32) {
+    let (sw, sh) = source_dims(meta);
+    let c = doc.crop.get(clip).copied().flatten();
+    let (cw, ch) = c.map_or((1.0, 1.0), |c| (c.w, c.h));
+    (((sw * cw).round() as u32).max(1), ((sh * ch).round() as u32).max(1))
+}
+
+/// The Auto shape (width / height): `layout::auto_aspect` over the first clip's screen
+/// (crop included), the padding and the frame (OpenScreen `autoAspectRatioValue`).
+pub fn auto_ratio(meta: &RecordingMeta, doc: &EditDoc) -> f64 {
+    let (w, h) = clip_source_size(meta, doc, 0);
+    super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame)
+}
+
+/// Export frame size of `doc` for `target`. `Aspect::Auto` takes `auto_ratio`; its LONG side
+/// is the target's (1280 / 1920 / the source's long side), the other derived and even
+/// (`toEvenPx = max(2, round(v/2)·2)`, OpenScreen `pickOutputDims`). Every other aspect:
+/// [`aspect_output_size`].
+pub fn output_size(meta: &RecordingMeta, doc: &EditDoc, target: OutputTarget) -> (u32, u32) {
+    if doc.output.aspect != Aspect::Auto {
+        return aspect_output_size(meta, doc.output.aspect, target);
+    }
+    let ratio = auto_ratio(meta, doc);
+    let (sw, sh) = source_dims(meta);
+    let long = match target {
+        OutputTarget::P720 => 1280.0,
+        OutputTarget::P1080 => 1920.0,
+        OutputTarget::Source => sw.max(sh),
     };
+    let long = even_round(long) as f64;
+    if ratio >= 1.0 {
+        (long as u32, even_round(long / ratio))
+    } else {
+        (even_round(long * ratio), long as u32)
+    }
+}
+
+/// Export frame size for a fixed aspect. Even on both axes (H.264/HEVC need it). For 720p/1080p
+/// the SHORT side is 720/1080; at source resolution it is the largest rect of the aspect inside
+/// the source. `Auto` has no fixed ratio — it needs the document, see [`output_size`]; here it
+/// falls back to the source's shape.
+pub fn aspect_output_size(meta: &RecordingMeta, aspect: Aspect, target: OutputTarget) -> (u32, u32) {
+    let (sw, sh) = source_dims(meta);
     let ratio = aspect.ratio().unwrap_or(sw / sh);
     let short = match target {
         OutputTarget::P720 => 720.0,
@@ -1036,28 +1081,49 @@ mod tests {
     #[test]
     fn output_size_presets() {
         let m = meta(1_000);
-        assert_eq!(output_size(&m, Aspect::W16H9, OutputTarget::P1080), (1920, 1080));
-        assert_eq!(output_size(&m, Aspect::W9H16, OutputTarget::P1080), (1080, 1920));
-        assert_eq!(output_size(&m, Aspect::Source, OutputTarget::Source), (3024, 1964));
-        assert_eq!(output_size(&m, Aspect::W16H9, OutputTarget::P720), (1280, 720));
-        assert_eq!(output_size(&m, Aspect::W1H1, OutputTarget::P720), (720, 720));
-        assert_eq!(output_size(&m, Aspect::W21H9, OutputTarget::P1080), (2520, 1080));
+        assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::P1080), (1920, 1080));
+        assert_eq!(aspect_output_size(&m, Aspect::W9H16, OutputTarget::P1080), (1080, 1920));
+        assert_eq!(aspect_output_size(&m, Aspect::Source, OutputTarget::Source), (3024, 1964));
+        assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::P720), (1280, 720));
+        assert_eq!(aspect_output_size(&m, Aspect::W1H1, OutputTarget::P720), (720, 720));
+        assert_eq!(aspect_output_size(&m, Aspect::W21H9, OutputTarget::P1080), (2520, 1080));
         // Source aspect at 1080p: short side 1080, long side scaled and even.
-        assert_eq!(output_size(&m, Aspect::Source, OutputTarget::P1080), (1662, 1080));
+        assert_eq!(aspect_output_size(&m, Aspect::Source, OutputTarget::P1080), (1662, 1080));
         // A fixed aspect at source resolution: the largest such rect inside the source.
-        assert_eq!(output_size(&m, Aspect::W9H16, OutputTarget::Source), (1104, 1964));
-        assert_eq!(output_size(&m, Aspect::W16H9, OutputTarget::Source), (3024, 1700));
+        assert_eq!(aspect_output_size(&m, Aspect::W9H16, OutputTarget::Source), (1104, 1964));
+        assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::Source), (3024, 1700));
         // Every size is even (H.264/HEVC need it).
         let odd = RecordingMeta { width: 1001, height: 777, ..m.clone() };
         for a in [Aspect::Source, Aspect::W16H9, Aspect::W9H16, Aspect::W4H3, Aspect::W3H4, Aspect::W21H9] {
             for t in [OutputTarget::P720, OutputTarget::P1080, OutputTarget::Source] {
-                let (w, h) = output_size(&odd, a, t);
+                let (w, h) = aspect_output_size(&odd, a, t);
                 assert!(w % 2 == 0 && h % 2 == 0 && w >= 2 && h >= 2, "{a:?} {t:?} → {w}×{h}");
             }
         }
         // An unknown source size falls back to 16:9 rather than dividing by zero.
         let unknown = RecordingMeta { width: 0, height: 0, ..m };
-        assert_eq!(output_size(&unknown, Aspect::Source, OutputTarget::P1080), (1920, 1080));
+        assert_eq!(aspect_output_size(&unknown, Aspect::Source, OutputTarget::P1080), (1920, 1080));
+    }
+
+    #[test]
+    fn output_size_auto_follows_layout() {
+        let m = meta(1_000);
+        let mut d = default_doc(&m); // Auto, 50 % padding, no frame
+        // e' = 0.8 · 3024/1964 + 0.2 = 1.4318; the long side is the target's.
+        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1340));
+        assert_eq!(output_size(&m, &d, OutputTarget::P720), (1280, 894));
+        assert_eq!(output_size(&m, &d, OutputTarget::Source), (3024, 2112));
+        // No padding: the screen's own shape.
+        d.appearance.padding = 0.0;
+        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1246));
+        // The first clip's crop decides the shape (a vertical strip → portrait, long side tall).
+        d.crop[0] = Some(CropRect { x: 0.25, y: 0.0, w: 0.25, h: 1.0 });
+        let (w, h) = output_size(&m, &d, OutputTarget::P1080);
+        assert_eq!(h, 1920);
+        assert!(w < h && w % 2 == 0, "{w}x{h}");
+        // A fixed aspect ignores the layout.
+        d.output.aspect = Aspect::W16H9;
+        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1080));
     }
 
     // ── v2: appearance, cursor, zooms ───────────────────────────────────────────

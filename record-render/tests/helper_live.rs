@@ -43,7 +43,9 @@ fn recording(dir: &Path) -> (u64, i64) {
 fn scene(dir: &Path, speed: &[(f64, f64, f64)], out: (u32, u32)) -> Value {
     let (dur_ms, mic_ms) = recording(dir);
     let template = include_str!("../../core/rust-lib/src/record/fixtures/scene-golden.json");
-    let mut s: Value = serde_json::from_str(&template.replace("<PROJECT>", &dir.display().to_string())).unwrap();
+    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../core/rust-lib/assets/record");
+    let mut s: Value =
+        serde_json::from_str(&template.replace("<PROJECT>", &dir.display().to_string()).replace("<ASSETS>", assets)).unwrap();
     let mut clip = s["clips"][0].clone();
     clip["sourceStartSec"] = json!(0.0);
     clip["sourceEndSec"] = json!(dur_ms as f64 / 1000.0);
@@ -51,6 +53,7 @@ fn scene(dir: &Path, speed: &[(f64, f64, f64)], out: (u32, u32)) -> Value {
     clip["extraAudio"]["gainDb"] = json!(0.0);
     s["clips"] = json!([clip]);
     s["cropByClip"] = json!([null]);
+    s["layout"]["layoutByClip"] = json!([s["layout"]["layoutByClip"][0].clone()]);
     s["speedRegions"] = json!(speed
         .iter()
         .map(|(a, b, v)| json!({"clipIndex": 0, "startSec": a, "endSec": b, "speed": v}))

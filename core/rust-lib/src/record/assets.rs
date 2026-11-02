@@ -80,6 +80,10 @@ impl AssetRoot {
                 return AssetRoot { dir };
             }
         }
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!("record assets: the bundle has no record/ directory, using the source tree");
+        });
         AssetRoot::dev()
     }
 

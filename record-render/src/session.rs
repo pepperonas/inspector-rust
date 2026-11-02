@@ -505,6 +505,13 @@ pub(crate) struct LiveParamSet {
     pub strs: Vec<(&'static str, String)>,
 }
 
+/// `LiveParams::default().bg_color` as `#rrggbb` (the colour the export falls back to).
+fn default_background_hex(s: &Scene) -> String {
+    let c = live_params_from_scene(s).bg_color;
+    let b = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", b(c[0]), b(c[1]), b(c[2]))
+}
+
 /// The LiveView parameters that give the preview the values the export takes from `scene`
 /// (`frame_geometry::live_params_from_scene`, the export `Cfg` and its cursor smoothing).
 /// Keys and units are those of `LiveView::set_param_*`. An unparsable scene gives nothing.
@@ -514,9 +521,15 @@ pub(crate) fn live_params(scene: &Value) -> LiveParamSet {
     };
     let f = |v: f32| v as f64;
     let mut strs = vec![("webcamShape", s.layout.webcam_shape.clone())];
-    if let SceneBackground::Color { color } = &s.background {
-        strs.push(("backgroundColor", color.clone()));
-    }
+    // The compositor falls back to this colour for an unreadable gradient stop or a corrupt
+    // image, in the export (`live_params_from_scene`) and in the LiveView. A colour
+    // background pushes its own; any other kind pushes the compositor's default, so a stale
+    // colour from an earlier colour background never lingers.
+    let bg = match &s.background {
+        SceneBackground::Color { color } => color.clone(),
+        _ => default_background_hex(&s),
+    };
+    strs.push(("backgroundColor", bg));
     LiveParamSet {
         nums: vec![
             ("shadow", f(s.effects.shadow)),
@@ -902,8 +915,13 @@ mod tests {
         assert!(flag(&p, "webcamMirror"));
         assert_eq!(text(&p, "backgroundColor"), Some("#123456"));
         assert_eq!(text(&p, "webcamShape"), Some("circle"));
-        // Not a colour background: no colour is pushed.
-        assert_eq!(text(&live_params(&styled()), "backgroundColor"), None);
+        // Not a colour background: the compositor's default is pushed, replacing a stale colour.
+        let binding = live_params(&styled());
+        let d = text(&binding, "backgroundColor").expect("a default colour");
+        assert!(d.starts_with('#') && d.len() == 7);
+        let want = live_params_from_scene(&parse_scene(&styled()).unwrap()).bg_color;
+        let q = |c: [f32; 4]| c.map(|v| (v * 255.0).round() as u8);
+        assert_eq!(q(hex(d).unwrap())[..3], q(want)[..3]);
     }
 
     /// Test mirror of the LiveView's inspector state: `set_param_*` (live.rs:1131-1181) and

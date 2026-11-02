@@ -919,8 +919,10 @@ pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorVi
         out
     };
     let client = ensure_client(app, true)?;
-    client.send(&Command::SetScene { scene })?;
+    // Commands first: a `Resize` (put first by `apply_update`) must reach the helper before the
+    // scene, so no frame shows the new scene on the old canvas size.
     send_all(&client, &cmds)?;
+    client.send(&Command::SetScene { scene })?;
     Ok(view)
 }
 

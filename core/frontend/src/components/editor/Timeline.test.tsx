@@ -70,6 +70,7 @@ const view0 = (doc: RecordEditDoc): RecordEditorView => ({
 function setup(doc: RecordEditDoc, over: { positionMs?: number; selectedZoom?: string | null } = {}) {
   const onChange = vi.fn();
   const onSelectZoom = vi.fn();
+  const onError = vi.fn();
   const view = view0(doc);
   render(
     <Timeline
@@ -82,6 +83,7 @@ function setup(doc: RecordEditDoc, over: { positionMs?: number; selectedZoom?: s
       onSeek={() => undefined}
       getDoc={() => doc}
       onChange={onChange}
+      onError={onError}
       onSpeedValue={() => undefined}
       onSpeedRemove={() => undefined}
       onWidth={() => undefined}
@@ -89,7 +91,7 @@ function setup(doc: RecordEditDoc, over: { positionMs?: number; selectedZoom?: s
       onSelectZoom={onSelectZoom}
     />,
   );
-  return { onChange, onSelectZoom };
+  return { onChange, onSelectZoom, onError };
 }
 
 beforeEach(() => {
@@ -160,6 +162,18 @@ describe("Timeline zoom track", () => {
     expect(z.endMs).toBe(5_000);
     expect(z.startMs).toBe(4_000);
     for (const [p] of toSource.mock.calls) expect(p).toBeLessThan(5_000);
+  });
+
+  it("a failing source lookup during a zoom drag is reported, not swallowed", async () => {
+    const { onChange, onError } = setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]));
+    toSource.mockRejectedValue("boom");
+    const block = screen.getByTestId("ed-zoom");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerUp(block, { clientX: 250, pointerId: 1 });
+    await flush();
+    expect(onError).toHaveBeenCalledWith("boom");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("moving or trimming a planned zoom makes it the user's", async () => {

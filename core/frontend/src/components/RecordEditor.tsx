@@ -160,6 +160,15 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const [info, setInfo] = useState<string | null>(null);
   const infoTimer = useRef(0);
 
+  /** IPC failures are shown, never swallowed. */
+  const report = useCallback((e: unknown) => {
+    const msg = String(e);
+    console.error("record editor", msg);
+    setNotice(msg);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
+  }, []);
+
   useEffect(() => {
     let dead = false;
     void editorCurrent()
@@ -174,14 +183,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           setFatal(i.helperError);
           editorAssets()
             .then((a) => !dead && setAssets(a))
-            .catch((e) => console.error("record editor assets", e));
+            .catch((e) => !dead && report(e));
         }
       })
       .catch(() => !dead && setInit(null));
     return () => {
       dead = true;
     };
-  }, [onSession]);
+  }, [onSession, report]);
 
   useEffect(() => {
     const off = listen<{ reason: string }>("record-editor-fatal", (e) => {
@@ -196,15 +205,6 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     const v = Math.max(0, Math.round(p));
     posRef.current = v;
     setPos(v);
-  }, []);
-
-  /** IPC failures are shown, never swallowed. */
-  const report = useCallback((e: unknown) => {
-    const msg = String(e);
-    console.error("record editor", msg);
-    setNotice(msg);
-    window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), NOTICE_MS);
   }, []);
 
   const applyPlayback = useCallback(
@@ -763,6 +763,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onSelect={setSelected}
           onSeek={(p) => void seek(p)}
           onChange={commit}
+          onError={report}
           getDoc={() => cur() ?? doc}
           onSpeedValue={(i, v) => commit(setSpeedValue(cur() ?? doc, i, v))}
           onSpeedRemove={(i) => commit(removeSpeed(cur() ?? doc, i))}

@@ -67,6 +67,7 @@ export function Timeline({
   onSeek,
   getDoc,
   onChange,
+  onError,
   onSpeedValue,
   onSpeedRemove,
   onWidth,
@@ -84,6 +85,8 @@ export function Timeline({
   /** The newest document (History's present) — edits must never start from a stale `view`. */
   getDoc: () => RecordEditDoc;
   onChange: (doc: RecordEditDoc) => void;
+  /** A failed source lookup (zoom drag) goes to the editor's notice path. */
+  onError: (e: unknown) => void;
   onSpeedValue: (index: number, speed: number) => void;
   onSpeedRemove: (index: number) => void;
   onWidth: (px: number) => void;
@@ -251,7 +254,7 @@ export function Timeline({
         })
         .catch(() => undefined);
     } else if (d.kind === "zoom") {
-      if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitZoom(d).catch(() => undefined);
+      if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitZoom(d).catch(onError);
     } else if (d.kind === "speed") {
       if (d.moved) onSpeedValue(d.index, d.value);
       else setMenu(menu === d.index ? null : d.index);

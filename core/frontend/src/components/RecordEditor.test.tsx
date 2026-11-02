@@ -142,6 +142,16 @@ afterEach(() => {
 });
 
 describe("RecordEditor", () => {
+  it("a failing asset listing is shown as a notice", async () => {
+    editorCurrent.mockResolvedValue(init(null, 1, "Take A"));
+    editorAssets.mockRejectedValue("no assets");
+    const { getByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(getByTestId("ed-notice").getAttribute("title")).toBe("no assets");
+  });
+
   it("opening another project into the open window reloads the view and restarts frame tracking", async () => {
     editorCurrent.mockResolvedValue(init(null, 1, "Take A"));
     editorFrame.mockResolvedValueOnce({ gen: 5, width: 2, height: 2, rgba: new Uint8Array(16) });

@@ -7,7 +7,15 @@
  * the edits below work in SOURCE time; `clipAt` only reads the clip spans Rust returned, and
  * the audio preview cues from the source position Rust reports with the playhead.
  */
-import type { RecordAspect, RecordCropRect, RecordEditDoc, RecordEditorView } from "./ipc";
+import type {
+  RecordAppearance,
+  RecordAspect,
+  RecordCropRect,
+  RecordCursorStyle,
+  RecordEditDoc,
+  RecordEditorView,
+  RecordZoomRegion,
+} from "./ipc";
 
 /** Clips shorter than this are dropped by Rust's `normalize` — a split never makes one. */
 export const MIN_CLIP_MS = 100;
@@ -16,13 +24,18 @@ export const MAX_SPEED = 16;
 export const MIN_MIC_DB = -60;
 export const MAX_MIC_DB = 12;
 export const HISTORY_MAX = 50;
+/** Zoom depth 1…6 → scale (mirrors `ZOOM_DEPTHS` in record/editor.rs; a test pins it). */
+export const ZOOM_DEPTHS = [1.25, 1.5, 1.8, 2.2, 3.5, 5.0] as const;
+export const DEFAULT_ZOOM_DEPTH = 3;
+export const MIN_ZOOM_MS = 250;
+export const NEW_ZOOM_MS = 2000;
 /** Speed values offered in the band menu. */
 export const SPEED_STEPS = [0.25, 0.5, 0.75, 1.5, 2, 4, 8, 16] as const;
 /** Crop presets in chip order; `free` keeps the output at the source aspect. */
 export const CROP_PRESETS = ["free", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
 export type CropPreset = (typeof CROP_PRESETS)[number];
 
-export const ASPECT_RATIO: Record<Exclude<RecordAspect, "source">, number> = {
+export const ASPECT_RATIO: Record<Exclude<RecordAspect, "source" | "auto">, number> = {
   "16:9": 16 / 9,
   "9:16": 9 / 16,
   "1:1": 1,
@@ -54,10 +67,16 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
       { ...r, clip: clip + 1, startMs: at },
     ];
   });
+  // A zoom belongs to the half holding its start and is cut at the edge (Rust re-clamps).
+  const zooms = doc.zooms.map((z) => {
+    if (z.clip < clip) return z;
+    if (z.clip > clip) return { ...z, clip: z.clip + 1 };
+    return z.startMs >= at ? { ...z, clip: clip + 1 } : { ...z, endMs: Math.min(z.endMs, at) };
+  });
   const crop = [...doc.crop];
   while (crop.length < doc.clips.length) crop.push(null);
   crop.splice(clip + 1, 0, crop[clip] ?? null);
-  return { ...doc, clips, speed, crop };
+  return { ...doc, clips, speed, crop, zooms };
 }
 
 /** Removes a clip with its regions and crop. The last clip is never removed. */
@@ -68,6 +87,7 @@ export function deleteClip(doc: RecordEditDoc, clip: number): RecordEditDoc {
     clips: doc.clips.filter((_, i) => i !== clip),
     speed: doc.speed.filter((r) => r.clip !== clip).map((r) => (r.clip > clip ? { ...r, clip: r.clip - 1 } : r)),
     crop: doc.crop.filter((_, i) => i !== clip),
+    zooms: doc.zooms.filter((z) => z.clip !== clip).map((z) => (z.clip > clip ? { ...z, clip: z.clip - 1 } : z)),
   };
 }
 
@@ -103,13 +123,56 @@ export function setCrop(doc: RecordEditDoc, clip: number, rect: RecordCropRect |
   return { ...doc, crop };
 }
 
+/** A new manual zoom: 2 s from `sourceMs`, clamped into the clip; Rust drops it if under 250 ms. */
+export function addZoom(doc: RecordEditDoc, clip: number, sourceMs: number): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c) return doc;
+  const startMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)));
+  const zoom: RecordZoomRegion = {
+    id: crypto.randomUUID(),
+    clip,
+    startMs,
+    endMs: Math.min(c.endMs, startMs + NEW_ZOOM_MS),
+    depth: DEFAULT_ZOOM_DEPTH,
+    customScale: null,
+    focusX: 0.5,
+    focusY: 0.5,
+    focusMode: "auto",
+    origin: "manual",
+    hideCursor: false,
+  };
+  return { ...doc, zooms: [...doc.zooms, zoom] };
+}
+
+export function updateZoom(doc: RecordEditDoc, id: string, patch: Partial<Omit<RecordZoomRegion, "id">>): RecordEditDoc {
+  if (!doc.zooms.some((z) => z.id === id)) return doc;
+  return { ...doc, zooms: doc.zooms.map((z) => (z.id === id ? { ...z, ...patch } : z)) };
+}
+
+export function removeZoom(doc: RecordEditDoc, id: string): RecordEditDoc {
+  return { ...doc, zooms: doc.zooms.filter((z) => z.id !== id) };
+}
+
+/** Removes the planner's zooms; the ones the user made stay. */
+export function removeAutoZooms(doc: RecordEditDoc): RecordEditDoc {
+  return { ...doc, zooms: doc.zooms.filter((z) => z.origin !== "auto") };
+}
+
+export function setAppearance(doc: RecordEditDoc, patch: Partial<RecordAppearance>): RecordEditDoc {
+  return { ...doc, appearance: { ...doc.appearance, ...patch } };
+}
+
+export function setCursorStyle(doc: RecordEditDoc, patch: Partial<RecordCursorStyle>): RecordEditDoc {
+  return { ...doc, cursor: { ...doc.cursor, ...patch } };
+}
+
 export function setMicGain(doc: RecordEditDoc, db: number): RecordEditDoc {
   return { ...doc, micGainDb: Math.min(MAX_MIC_DB, Math.max(MIN_MIC_DB, db)) };
 }
 
 /** The largest centred rect of `aspect` inside a srcW×srcH frame, normalised to 0…1. */
 export function cropForPreset(aspect: RecordAspect, srcW: number, srcH: number): RecordCropRect {
-  if (aspect === "source" || srcW <= 0 || srcH <= 0) return { x: 0, y: 0, w: 1, h: 1 };
+  if (aspect === "source" || aspect === "auto" || srcW <= 0 || srcH <= 0) return { x: 0, y: 0, w: 1, h: 1 };
   const r = ASPECT_RATIO[aspect];
   if (r >= srcW / srcH) {
     const h = srcW / r / srcH;
@@ -215,7 +278,7 @@ export function fitPreview(pw: number, ph: number, ratio: number, maxW: number, 
 
 /** Output aspect as a number (`source` = the recording's). */
 export function aspectRatio(aspect: RecordAspect, srcW: number, srcH: number): number {
-  return aspect === "source" ? (srcH > 0 ? srcW / srcH : 16 / 9) : ASPECT_RATIO[aspect];
+  return aspect === "source" || aspect === "auto" ? (srcH > 0 ? srcW / srcH : 16 / 9) : ASPECT_RATIO[aspect];
 }
 
 /** Mic gain in dB as an `<audio>` volume (the element cannot boost above 1). */

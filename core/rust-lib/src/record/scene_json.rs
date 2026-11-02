@@ -142,6 +142,10 @@ mod tests {
             crop: vec![None, Some(CropRect { x: 0.25, y: 0.0, w: 0.5, h: 1.0 })],
             output: OutputShape { aspect: Aspect::W16H9 },
             mic_gain_db: -6.0,
+            appearance: crate::record::editor::Appearance::plain(),
+            cursor: crate::record::editor::CursorStyle::plain(),
+            zooms: Vec::new(),
+            auto_zoom_done: true,
         }
     }
 

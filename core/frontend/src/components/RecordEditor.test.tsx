@@ -41,12 +41,38 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `asset:/
 import { RecordEditor } from "./RecordEditor";
 
 const doc0: RecordEditDoc = {
-  version: 1,
+  version: 2,
   clips: [{ startMs: 0, endMs: 10_000 }],
   speed: [],
   crop: [null],
   output: { aspect: "source" },
   micGainDb: 0,
+  appearance: {
+    background: { kind: "color", color: "#000000" },
+    backgroundMotion: "none",
+    padding: 0,
+    radiusPx: 0,
+    shadow: 0,
+    backgroundBlur: 0,
+    motionBlur: 0,
+    frame: "none",
+    frameTheme: "light",
+  },
+  cursor: {
+    show: false,
+    autoHide: false,
+    theme: "default",
+    custom: null,
+    size: 3.6,
+    smoothing: 0.3,
+    motionBlur: 0.35,
+    clickBounce: 1,
+    clickImpact: false,
+    clickSound: false,
+    clickSoundGainDb: 0,
+  },
+  zooms: [],
+  autoZoomDone: true,
 };
 const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   let t = 0;

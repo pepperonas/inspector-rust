@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import EDITOR_RS from "../../../rust-lib/src/record/editor.rs?raw";
 import type { RecordEditDoc, RecordEditorView } from "./ipc";
 import {
   History,
+  ZOOM_DEPTHS,
+  addZoom,
+  removeAutoZooms,
+  removeZoom,
+  setAppearance,
+  setCursorStyle,
+  updateZoom,
   HISTORY_MAX,
   addSpeed,
   clipAt,
@@ -16,12 +24,38 @@ import {
 } from "./editor";
 
 const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
-  version: 1,
+  version: 2,
   clips: [{ startMs: 0, endMs: 10_000 }],
   speed: [],
   crop: [null],
   output: { aspect: "source" },
   micGainDb: 0,
+  appearance: {
+    background: { kind: "color", color: "#000000" },
+    backgroundMotion: "none",
+    padding: 0,
+    radiusPx: 0,
+    shadow: 0,
+    backgroundBlur: 0,
+    motionBlur: 0,
+    frame: "none",
+    frameTheme: "light",
+  },
+  cursor: {
+    show: false,
+    autoHide: false,
+    theme: "default",
+    custom: null,
+    size: 3.6,
+    smoothing: 0.3,
+    motionBlur: 0.35,
+    clickBounce: 1,
+    clickImpact: false,
+    clickSound: false,
+    clickSoundGainDb: 0,
+  },
+  zooms: [],
+  autoZoomDone: true,
   ...over,
 });
 
@@ -207,5 +241,54 @@ describe("fitPreview", () => {
     expect(fitPreview(800, 800, 16 / 9, 1280, 720)).toEqual({ w: 800, h: 450 });
     expect(fitPreview(4000, 3000, 16 / 9, 1280, 720)).toEqual({ w: 1280, h: 720 });
     expect(fitPreview(0, 0, 1, 1280, 720)).toEqual({ w: 16, h: 16 });
+  });
+});
+
+describe("zoom regions", () => {
+  it("addZoom takes 2 s from the playhead and clamps at the clip end", () => {
+    const doc = base();
+    const a = addZoom(doc, 0, 3000);
+    expect(a.zooms).toHaveLength(1);
+    expect(a.zooms[0]).toMatchObject({
+      clip: 0, startMs: 3000, endMs: 5000, depth: 3, focusX: 0.5, focusY: 0.5,
+      focusMode: "auto", origin: "manual", customScale: null, hideCursor: false,
+    });
+    expect(a.zooms[0].id).toMatch(/[0-9a-f-]{36}/);
+    const b = addZoom(doc, 0, 9000);
+    expect([b.zooms[0].startMs, b.zooms[0].endMs]).toEqual([9000, 10_000]);
+    expect(addZoom(doc, 5, 0)).toBe(doc);
+  });
+
+  it("removeAutoZooms keeps the manual ones", () => {
+    let doc = addZoom(base(), 0, 1000);
+    doc = addZoom(doc, 0, 5000);
+    doc = updateZoom(doc, doc.zooms[0].id, { origin: "auto" });
+    const out = removeAutoZooms(doc);
+    expect(out.zooms.map((z) => z.startMs)).toEqual([5000]);
+    expect(removeZoom(out, out.zooms[0].id).zooms).toEqual([]);
+  });
+
+  it("splitAt gives a zoom to the half holding its start and cuts it; deleteClip re-indexes", () => {
+    let doc = addZoom(base(), 0, 1000); // 1000–3000
+    doc = addZoom(doc, 0, 6000); // 6000–8000
+    const out = splitAt(doc, 0, 2000);
+    expect(out.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([[0, 1000, 2000], [1, 6000, 8000]]);
+    const del = deleteClip(out, 0);
+    expect(del.zooms.map((z) => [z.clip, z.startMs])).toEqual([[0, 6000]]);
+  });
+
+  it("setAppearance / setCursorStyle merge a patch", () => {
+    const doc = setCursorStyle(setAppearance(base(), { padding: 50 }), { show: true });
+    expect(doc.appearance.padding).toBe(50);
+    expect(doc.appearance.frame).toBe("none");
+    expect(doc.cursor.show).toBe(true);
+    expect(doc.cursor.size).toBe(3.6);
+  });
+
+  it("ZOOM_DEPTHS mirrors the constant in record/editor.rs", () => {
+    const m = /pub const ZOOM_DEPTHS: \[f64; 6\] = \[([^\]]+)\];/.exec(EDITOR_RS);
+    expect(m).not.toBeNull();
+    const rust = m![1].split(",").map((v) => Number(v.trim()));
+    expect([...ZOOM_DEPTHS]).toEqual(rust);
   });
 });

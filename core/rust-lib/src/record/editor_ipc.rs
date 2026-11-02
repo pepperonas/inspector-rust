@@ -970,6 +970,10 @@ mod tests {
             crop: vec![None; clips.len()],
             output: OutputShape::default(),
             mic_gain_db: 0.0,
+            appearance: crate::record::editor::Appearance::plain(),
+            cursor: crate::record::editor::CursorStyle::plain(),
+            zooms: Vec::new(),
+            auto_zoom_done: true,
         }
     }
 

@@ -419,7 +419,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const dir = init.project.dir;
   const ratio = aspectRatio(doc.output.aspect, meta.width, meta.height);
   const cropClip = clipFor(pos);
-  const preset: CropPreset = doc.output.aspect === "source" ? "free" : doc.output.aspect;
+  const preset: CropPreset = doc.output.aspect === "source" || doc.output.aspect === "auto" ? "free" : doc.output.aspect;
   const asset = (f: string) => convertFileSrc(`${dir}/${f}`);
 
   const iconBtn =

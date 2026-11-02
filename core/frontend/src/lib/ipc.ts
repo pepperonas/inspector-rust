@@ -5200,11 +5200,63 @@ export function setRecordNotes(notes: RecordNotes): Promise<void> {
 }
 
 // ── record (stage 2): editor ────────────────────────────────────────────────
-export type RecordAspect = "source" | "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
+export type RecordAspect = "source" | "auto" | "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
 export type RecordOutputTarget = "p720" | "p1080" | "source";
 export interface RecordEditClip { startMs: number; endMs: number }
 export interface RecordSpeedRegion { clip: number; startMs: number; endMs: number; speed: number }
 export interface RecordCropRect { x: number; y: number; w: number; h: number }
+export type RecordBackground =
+  | { kind: "wallpaper"; id: string }
+  | { kind: "gradient"; angleDeg: number; stops: string[] }
+  | { kind: "color"; color: string }
+  | { kind: "image"; file: string };
+export type RecordWallpaperMotion = "none" | "drift" | "aurora" | "waves";
+export type RecordFrame = "none" | "window" | "laptop" | "phone" | "monitor";
+export type RecordFrameTheme = "light" | "dark";
+export interface RecordAppearance {
+  background: RecordBackground;
+  backgroundMotion: RecordWallpaperMotion;
+  /** Percent, 0…100. */
+  padding: number;
+  /** px, 0…64. */
+  radiusPx: number;
+  shadow: number;
+  backgroundBlur: number;
+  motionBlur: number;
+  frame: RecordFrame;
+  frameTheme: RecordFrameTheme;
+}
+export interface RecordCustomCursor { file: string; hotspotX: number; hotspotY: number }
+export interface RecordCursorStyle {
+  show: boolean;
+  autoHide: boolean;
+  theme: string;
+  custom: RecordCustomCursor | null;
+  size: number;
+  smoothing: number;
+  motionBlur: number;
+  clickBounce: number;
+  clickImpact: boolean;
+  clickSound: boolean;
+  clickSoundGainDb: number;
+}
+export type RecordFocusMode = "manual" | "auto";
+export type RecordZoomOrigin = "manual" | "auto";
+export interface RecordZoomRegion {
+  id: string;
+  clip: number;
+  /** SOURCE ms of the clip, like speed regions. */
+  startMs: number;
+  endMs: number;
+  /** 1…6, see `ZOOM_DEPTHS` in lib/editor. */
+  depth: number;
+  customScale: number | null;
+  focusX: number;
+  focusY: number;
+  focusMode: RecordFocusMode;
+  origin: RecordZoomOrigin;
+  hideCursor: boolean;
+}
 export interface RecordEditDoc {
   version: number;
   clips: RecordEditClip[];
@@ -5212,6 +5264,10 @@ export interface RecordEditDoc {
   crop: (RecordCropRect | null)[];
   output: { aspect: RecordAspect };
   micGainDb: number;
+  appearance: RecordAppearance;
+  cursor: RecordCursorStyle;
+  zooms: RecordZoomRegion[];
+  autoZoomDone: boolean;
 }
 export interface RecordEditorView {
   doc: RecordEditDoc;

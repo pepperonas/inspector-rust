@@ -10,7 +10,7 @@
 use super::project::{Project, RecordingMeta};
 use serde::{Deserialize, Serialize};
 
-pub const EDITOR_VERSION: u32 = 1;
+pub const EDITOR_VERSION: u32 = 2;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -19,6 +19,18 @@ pub const MAX_SPEED: f64 = 16.0;
 pub const MIN_CROP_EDGE: f64 = 0.05;
 pub const MIN_MIC_GAIN_DB: f64 = -60.0;
 pub const MAX_MIC_GAIN_DB: f64 = 12.0;
+/// Zoom depth 1..=6 → scale factor (OpenScreen v2.1.2 `zoom-scale.ts`).
+pub const ZOOM_DEPTHS: [f64; 6] = [1.25, 1.5, 1.8, 2.2, 3.5, 5.0];
+pub const DEFAULT_ZOOM_DEPTH: u8 = 3;
+/// Zoom regions shorter than this are dropped by `normalize`.
+pub const MIN_ZOOM_MS: u64 = 250;
+/// Length of a freshly added zoom region.
+pub const NEW_ZOOM_MS: u64 = 2000;
+pub const MIN_ZOOM_SCALE: f64 = 1.0;
+pub const MAX_ZOOM_SCALE: f64 = 5.0;
+/// Our first own wallpaper — the default background of a new document.
+pub const DEFAULT_WALLPAPER: &str = "01";
+pub const DEFAULT_CURSOR_THEME: &str = "default";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,9 +61,13 @@ pub struct CropRect {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Aspect {
+    /// Missing `output` in a stored document (v1) means "as the source".
     #[default]
     #[serde(rename = "source")]
     Source,
+    /// Standard of a NEW document; the real size is computed from the layout (Task 4).
+    #[serde(rename = "auto")]
+    Auto,
     #[serde(rename = "16:9")]
     W16H9,
     #[serde(rename = "9:16")]
@@ -70,7 +86,7 @@ impl Aspect {
     /// Width / height, or `None` for "as the source".
     pub fn ratio(self) -> Option<f64> {
         let (w, h) = match self {
-            Aspect::Source => return None,
+            Aspect::Source | Aspect::Auto => return None,
             Aspect::W16H9 => (16.0, 9.0),
             Aspect::W9H16 => (9.0, 16.0),
             Aspect::W1H1 => (1.0, 1.0),
@@ -97,6 +113,196 @@ pub struct OutputShape {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Background {
+    Wallpaper { id: String },
+    Gradient {
+        #[serde(rename = "angleDeg")]
+        angle_deg: f64,
+        stops: Vec<String>,
+    },
+    Color { color: String },
+    /// File relative to `<project>/assets`.
+    Image { file: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WallpaperMotion {
+    #[default]
+    None,
+    Drift,
+    Aurora,
+    Waves,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Frame {
+    #[default]
+    None,
+    Window,
+    Laptop,
+    Phone,
+    Monitor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FrameTheme {
+    #[default]
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Appearance {
+    pub background: Background,
+    pub background_motion: WallpaperMotion,
+    /// Percent of the frame, 0..=100.
+    pub padding: f64,
+    /// Corner radius in px, 0..=64.
+    pub radius_px: f64,
+    pub shadow: f64,
+    pub background_blur: f64,
+    pub motion_blur: f64,
+    pub frame: Frame,
+    pub frame_theme: FrameTheme,
+}
+
+impl Default for Appearance {
+    /// OpenScreen's defaults with our own first wallpaper.
+    fn default() -> Self {
+        Appearance {
+            background: Background::Wallpaper { id: DEFAULT_WALLPAPER.into() },
+            background_motion: WallpaperMotion::None,
+            padding: 50.0,
+            radius_px: 40.0,
+            shadow: 0.6,
+            background_blur: 0.0,
+            motion_blur: 0.2,
+            frame: Frame::None,
+            frame_theme: FrameTheme::Light,
+        }
+    }
+}
+
+impl Appearance {
+    /// The look of a v1 document: black, edge to edge, no effects.
+    pub fn plain() -> Self {
+        Appearance {
+            background: Background::Color { color: "#000000".into() },
+            background_motion: WallpaperMotion::None,
+            padding: 0.0,
+            radius_px: 0.0,
+            shadow: 0.0,
+            background_blur: 0.0,
+            motion_blur: 0.0,
+            frame: Frame::None,
+            frame_theme: FrameTheme::Light,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomCursor {
+    /// File relative to `<project>/assets`.
+    pub file: String,
+    pub hotspot_x: f64,
+    pub hotspot_y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CursorStyle {
+    pub show: bool,
+    pub auto_hide: bool,
+    pub theme: String,
+    pub custom: Option<CustomCursor>,
+    pub size: f64,
+    pub smoothing: f64,
+    pub motion_blur: f64,
+    pub click_bounce: f64,
+    pub click_impact: bool,
+    pub click_sound: bool,
+    pub click_sound_gain_db: f64,
+}
+
+impl Default for CursorStyle {
+    fn default() -> Self {
+        CursorStyle {
+            show: true,
+            auto_hide: false,
+            theme: DEFAULT_CURSOR_THEME.into(),
+            custom: None,
+            size: 3.6,
+            smoothing: 0.3,
+            motion_blur: 0.35,
+            click_bounce: 1.0,
+            click_impact: false,
+            click_sound: false,
+            click_sound_gain_db: 0.0,
+        }
+    }
+}
+
+impl CursorStyle {
+    /// A v1 document showed no pointer.
+    pub fn plain() -> Self {
+        CursorStyle { show: false, ..CursorStyle::default() }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum FocusMode {
+    Manual,
+    #[default]
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ZoomOrigin {
+    #[default]
+    Manual,
+    Auto,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomRegion {
+    pub id: String,
+    /// Index into `EditDoc::clips`. Times are SOURCE ms of that clip's recording.
+    pub clip: usize,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    /// 1..=6, see `ZOOM_DEPTHS`.
+    pub depth: u8,
+    #[serde(default)]
+    pub custom_scale: Option<f64>,
+    /// Focus point in fractions (0..1) of the source frame.
+    pub focus_x: f64,
+    pub focus_y: f64,
+    #[serde(default)]
+    pub focus_mode: FocusMode,
+    #[serde(default)]
+    pub origin: ZoomOrigin,
+    #[serde(default)]
+    pub hide_cursor: bool,
+}
+
+/// The scale a region zooms to: its custom scale (clamped to 1..5) or its depth's table value.
+pub fn zoom_scale(z: &ZoomRegion) -> f64 {
+    match z.custom_scale {
+        Some(s) if s.is_finite() => s.clamp(MIN_ZOOM_SCALE, MAX_ZOOM_SCALE),
+        _ => ZOOM_DEPTHS[(z.depth.clamp(1, 6) - 1) as usize],
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditDoc {
     pub version: u32,
@@ -110,6 +316,16 @@ pub struct EditDoc {
     pub output: OutputShape,
     #[serde(default)]
     pub mic_gain_db: f64,
+    #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default)]
+    pub cursor: CursorStyle,
+    #[serde(default)]
+    pub zooms: Vec<ZoomRegion>,
+    /// The automatic first planning of zooms already ran (a v1 document counts as done,
+    /// so an old project never gets zooms added behind the user's back).
+    #[serde(default)]
+    pub auto_zoom_done: bool,
 }
 
 /// One clip on the programme timeline.
@@ -146,8 +362,33 @@ pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
         clips: vec![EditClip { start_ms: 0, end_ms: meta.duration_ms }],
         speed: Vec::new(),
         crop: vec![None],
-        output: OutputShape::default(),
+        output: OutputShape { aspect: Aspect::Auto },
         mic_gain_db: 0.0,
+        appearance: Appearance::default(),
+        cursor: CursorStyle::default(),
+        zooms: Vec::new(),
+        auto_zoom_done: false,
+    }
+}
+
+/// Reads a stored editor block: v2 as is, v1 upgraded with the look it always had
+/// (`Appearance::plain`, no pointer, no zooms, aspect as saved). Anything else is `None`.
+pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
+    let mut doc = serde_json::from_value::<EditDoc>(value).ok()?;
+    if doc.clips.is_empty() {
+        return None;
+    }
+    match doc.version {
+        1 => {
+            doc.version = EDITOR_VERSION;
+            doc.appearance = Appearance::plain();
+            doc.cursor = CursorStyle::plain();
+            doc.zooms = Vec::new();
+            doc.auto_zoom_done = true;
+            Some(doc)
+        }
+        EDITOR_VERSION => Some(doc),
+        _ => None,
     }
 }
 
@@ -155,11 +396,9 @@ pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
 /// to `default_doc` — an editor that cannot read its block must still open the recording.
 pub fn load(project: &Project) -> EditDoc {
     let meta = &project.recording;
-    match serde_json::from_value::<EditDoc>(project.editor.clone()) {
-        Ok(doc) if doc.version == EDITOR_VERSION && !doc.clips.is_empty() => {
-            normalize(doc, meta.duration_ms)
-        }
-        _ => default_doc(meta),
+    match migrate(project.editor.clone()) {
+        Some(doc) => normalize(doc, meta.duration_ms),
+        None => default_doc(meta),
     }
 }
 
@@ -185,7 +424,7 @@ fn normalize_crop(c: CropRect) -> Option<CropRect> {
 /// clamp speed regions into their clip and resolve overlaps (a later region in the list
 /// cuts its range out of earlier ones). Regions come out sorted by (clip, start).
 pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
-    let EditDoc { clips, speed, mut crop, output, mic_gain_db, .. } = doc;
+    let EditDoc { clips, speed, mut crop, output, mic_gain_db, appearance, cursor, zooms, auto_zoom_done, .. } = doc;
     crop.resize(clips.len(), None);
 
     // Clamp clips into the source; remember each survivor's old index.
@@ -251,6 +490,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
     }
     resolved.sort_by_key(|r| (r.clip, r.start_ms));
 
+    let zooms = normalize_zooms(zooms, &new_clips, new_index);
+
     EditDoc {
         version: EDITOR_VERSION,
         clips: new_clips,
@@ -258,7 +499,94 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
         crop: new_crop,
         output,
         mic_gain_db: finite_or(mic_gain_db, 0.0).clamp(MIN_MIC_GAIN_DB, MAX_MIC_GAIN_DB),
+        appearance: normalize_appearance(appearance),
+        cursor: normalize_cursor(cursor),
+        zooms,
+        auto_zoom_done,
     }
+}
+
+fn clamp_or(v: f64, lo: f64, hi: f64, fallback: f64) -> f64 {
+    finite_or(v, fallback).clamp(lo, hi)
+}
+
+fn normalize_appearance(a: Appearance) -> Appearance {
+    let d = Appearance::default();
+    Appearance {
+        padding: clamp_or(a.padding, 0.0, 100.0, d.padding),
+        radius_px: clamp_or(a.radius_px, 0.0, 64.0, d.radius_px),
+        shadow: clamp_or(a.shadow, 0.0, 1.0, d.shadow),
+        background_blur: clamp_or(a.background_blur, 0.0, 1.0, d.background_blur),
+        motion_blur: clamp_or(a.motion_blur, 0.0, 1.0, d.motion_blur),
+        ..a
+    }
+}
+
+fn normalize_cursor(c: CursorStyle) -> CursorStyle {
+    let d = CursorStyle::default();
+    CursorStyle {
+        size: clamp_or(c.size, 1.5, 6.0, d.size),
+        smoothing: clamp_or(c.smoothing, 0.0, 1.0, d.smoothing),
+        motion_blur: clamp_or(c.motion_blur, 0.0, 1.0, d.motion_blur),
+        click_bounce: clamp_or(c.click_bounce, 0.0, 2.0, d.click_bounce),
+        click_sound_gain_db: clamp_or(c.click_sound_gain_db, -24.0, 0.0, d.click_sound_gain_db),
+        custom: c.custom.map(|k| CustomCursor {
+            hotspot_x: clamp_or(k.hotspot_x, 0.0, 1.0, 0.0),
+            hotspot_y: clamp_or(k.hotspot_y, 0.0, 1.0, 0.0),
+            ..k
+        }),
+        ..c
+    }
+}
+
+/// Re-index onto the surviving clips, clamp into the clip (a region belongs to the clip
+/// part holding its start; a cut shortens it at the edge), later-wins overlap resolution,
+/// then drop slivers under `MIN_ZOOM_MS`.
+fn normalize_zooms(
+    zooms: Vec<ZoomRegion>,
+    clips: &[EditClip],
+    new_index: impl Fn(usize) -> Option<usize>,
+) -> Vec<ZoomRegion> {
+    let mut resolved: Vec<ZoomRegion> = Vec::new();
+    for z in zooms {
+        let Some(clip) = new_index(z.clip) else { continue };
+        let c = clips[clip];
+        let start = z.start_ms.clamp(c.start_ms, c.end_ms);
+        let end = z.end_ms.clamp(c.start_ms, c.end_ms);
+        if end <= start {
+            continue;
+        }
+        let custom_scale = z
+            .custom_scale
+            .filter(|s| s.is_finite())
+            .map(|s| s.clamp(MIN_ZOOM_SCALE, MAX_ZOOM_SCALE));
+        let new = ZoomRegion {
+            clip,
+            start_ms: start,
+            end_ms: end,
+            depth: z.depth.clamp(1, 6),
+            custom_scale,
+            focus_x: clamp_or(z.focus_x, 0.0, 1.0, 0.5),
+            focus_y: clamp_or(z.focus_y, 0.0, 1.0, 0.5),
+            ..z
+        };
+        let mut next = Vec::with_capacity(resolved.len() + 1);
+        for e in resolved {
+            if e.clip != clip || e.end_ms <= start || e.start_ms >= end {
+                next.push(e);
+            } else if e.start_ms < start {
+                // The later region cuts the earlier one's tail (or its middle: the head stays).
+                next.push(ZoomRegion { end_ms: start, ..e });
+            } else if e.end_ms > end {
+                next.push(ZoomRegion { start_ms: end, ..e });
+            }
+        }
+        next.push(new);
+        resolved = next;
+    }
+    resolved.retain(|z| z.end_ms - z.start_ms >= MIN_ZOOM_MS);
+    resolved.sort_by_key(|z| (z.clip, z.start_ms));
+    resolved
 }
 
 /// One clip's source window cut into speed segments `(start_ms, end_ms, speed)` — the port
@@ -468,6 +796,26 @@ mod tests {
             crop: vec![None; n],
             output: OutputShape::default(),
             mic_gain_db: 0.0,
+            appearance: Appearance::plain(),
+            cursor: CursorStyle::plain(),
+            zooms: Vec::new(),
+            auto_zoom_done: true,
+        }
+    }
+
+    fn zoom(clip: usize, start_ms: u64, end_ms: u64) -> ZoomRegion {
+        ZoomRegion {
+            id: format!("z{clip}-{start_ms}"),
+            clip,
+            start_ms,
+            end_ms,
+            depth: DEFAULT_ZOOM_DEPTH,
+            custom_scale: None,
+            focus_x: 0.5,
+            focus_y: 0.5,
+            focus_mode: FocusMode::Auto,
+            origin: ZoomOrigin::Manual,
+            hide_cursor: false,
         }
     }
 
@@ -483,7 +831,7 @@ mod tests {
         assert_eq!(d.clips, vec![clip(0, 7_500)]);
         assert!(d.speed.is_empty());
         assert_eq!(d.crop, vec![None]);
-        assert_eq!(d.output.aspect, Aspect::Source);
+        assert_eq!(d.output.aspect, Aspect::Auto);
         assert_eq!(d.mic_gain_db, 0.0);
     }
 
@@ -495,7 +843,8 @@ mod tests {
             serde_json::json!(null),
             serde_json::json!("garbage"),
             serde_json::json!({"version": 1, "clips": "nope"}),
-            serde_json::json!({"version": 2, "clips": [{"startMs": 0, "endMs": 5000}]}),
+            serde_json::json!({"version": 3, "clips": [{"startMs": 0, "endMs": 5000}]}),
+            serde_json::json!({"version": 0, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 1, "clips": []}),
         ] {
             assert_eq!(load(&project_with(editor.clone())), def, "{editor}");
@@ -510,7 +859,7 @@ mod tests {
         d.output.aspect = Aspect::W9H16;
         d.mic_gain_db = -6.0;
         store(&mut p, &d);
-        assert_eq!(p.editor["version"], 1);
+        assert_eq!(p.editor["version"], 2);
         assert_eq!(p.editor["output"]["aspect"], "9:16");
         assert_eq!(p.editor["micGainDb"], -6.0);
         assert_eq!(load(&p), d);
@@ -709,5 +1058,190 @@ mod tests {
         // An unknown source size falls back to 16:9 rather than dividing by zero.
         let unknown = RecordingMeta { width: 0, height: 0, ..m };
         assert_eq!(output_size(&unknown, Aspect::Source, OutputTarget::P1080), (1920, 1080));
+    }
+
+    // ── v2: appearance, cursor, zooms ───────────────────────────────────────────
+
+    /// A stage-2 document as it sits in a project file.
+    fn v1_json() -> serde_json::Value {
+        serde_json::json!({
+            "version": 1,
+            "clips": [{"startMs": 0, "endMs": 8000}],
+            "speed": [{"clip": 0, "startMs": 1000, "endMs": 2000, "speed": 2.0}],
+            "crop": [{"x": 0.1, "y": 0.2, "w": 0.5, "h": 0.5}],
+            "output": {"aspect": "9:16"},
+            "micGainDb": -3.0
+        })
+    }
+
+    #[test]
+    fn v1_doc_migrates_without_visual_change() {
+        let d = load(&project_with(v1_json()));
+        assert_eq!(d.version, EDITOR_VERSION);
+        assert_eq!(d.appearance, Appearance::plain());
+        assert!(!d.cursor.show);
+        assert!(d.zooms.is_empty());
+        assert!(d.auto_zoom_done, "an old project must not get zooms planned afterwards");
+        assert_eq!(d.output.aspect, Aspect::W9H16);
+        assert_eq!(d.clips, vec![clip(0, 8_000)]);
+        assert_eq!(d.speed, vec![sr(0, 1_000, 2_000, 2.0)]);
+        assert_eq!(d.mic_gain_db, -3.0);
+        // A v1 block without any `output` keeps meaning "as the source".
+        let bare = serde_json::json!({"version": 1, "clips": [{"startMs": 0, "endMs": 5000}]});
+        assert_eq!(load(&project_with(bare)).output.aspect, Aspect::Source);
+    }
+
+    #[test]
+    fn new_doc_gets_upstream_defaults() {
+        let d = default_doc(&meta(5_000));
+        assert_eq!(d.output.aspect, Aspect::Auto);
+        let a = &d.appearance;
+        assert_eq!((a.padding, a.radius_px, a.shadow, a.background_blur, a.motion_blur), (50.0, 40.0, 0.6, 0.0, 0.2));
+        assert_eq!(a.background, Background::Wallpaper { id: "01".into() });
+        assert_eq!((a.frame, a.frame_theme, a.background_motion), (Frame::None, FrameTheme::Light, WallpaperMotion::None));
+        let c = &d.cursor;
+        assert!(c.show && !c.auto_hide && !c.click_impact && !c.click_sound);
+        assert_eq!((c.size, c.smoothing, c.motion_blur, c.click_bounce, c.click_sound_gain_db), (3.6, 0.3, 0.35, 1.0, 0.0));
+        assert_eq!(c.theme, "default");
+        assert!(d.zooms.is_empty() && !d.auto_zoom_done);
+    }
+
+    #[test]
+    fn unknown_version_falls_back_to_default() {
+        let json = serde_json::json!({"version": 99, "clips": [{"startMs": 0, "endMs": 5000}]});
+        assert!(migrate(json.clone()).is_none());
+        assert_eq!(load(&project_with(json)), default_doc(&meta(10_000)));
+    }
+
+    #[test]
+    fn zoom_scale_table() {
+        for (i, want) in ZOOM_DEPTHS.iter().enumerate() {
+            let z = ZoomRegion { depth: i as u8 + 1, ..zoom(0, 0, 1_000) };
+            assert_eq!(zoom_scale(&z), *want);
+        }
+        assert_eq!(ZOOM_DEPTHS, [1.25, 1.5, 1.8, 2.2, 3.5, 5.0]);
+        assert_eq!(zoom_scale(&ZoomRegion { custom_scale: Some(7.0), ..zoom(0, 0, 1_000) }), 5.0);
+        assert_eq!(zoom_scale(&ZoomRegion { custom_scale: Some(0.5), ..zoom(0, 0, 1_000) }), 1.0);
+        assert_eq!(zoom_scale(&ZoomRegion { custom_scale: Some(2.5), ..zoom(0, 0, 1_000) }), 2.5);
+    }
+
+    fn with_zooms(clips: Vec<EditClip>, zooms: Vec<ZoomRegion>) -> EditDoc {
+        EditDoc { zooms, ..doc(clips, vec![]) }
+    }
+
+    #[test]
+    fn normalize_zoom_follows_split() {
+        // What the TS split leaves behind: two clips, the zoom still reaching across the cut.
+        let d = with_zooms(vec![clip(0, 3_000), clip(3_000, 10_000)], vec![zoom(0, 1_000, 5_000)]);
+        let n = normalize(d, 10_000);
+        assert_eq!(n.zooms.len(), 1);
+        assert_eq!((n.zooms[0].clip, n.zooms[0].start_ms, n.zooms[0].end_ms), (0, 1_000, 3_000));
+    }
+
+    #[test]
+    fn normalize_drops_zoom_of_deleted_clip() {
+        // Clip 0 is a sliver and goes; its zoom goes with it, clip 1's zoom moves to index 0.
+        let d = with_zooms(vec![clip(0, 50), clip(2_000, 9_000)], vec![zoom(0, 0, 50), zoom(1, 3_000, 5_000)]);
+        let n = normalize(d, 10_000);
+        assert_eq!(n.clips, vec![clip(2_000, 9_000)]);
+        assert_eq!(n.zooms.len(), 1);
+        assert_eq!((n.zooms[0].clip, n.zooms[0].start_ms), (0, 3_000));
+    }
+
+    #[test]
+    fn normalize_drops_short_zoom() {
+        let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 1_000, 1_200), zoom(0, 4_000, 4_250)]);
+        let n = normalize(d, 10_000);
+        assert_eq!(n.zooms.iter().map(|z| z.start_ms).collect::<Vec<_>>(), vec![4_000]);
+        // A trim that leaves under 250 ms of a zoom removes it too.
+        let d = with_zooms(vec![clip(0, 1_100)], vec![zoom(0, 1_000, 5_000)]);
+        assert!(normalize(d, 10_000).zooms.is_empty());
+    }
+
+    #[test]
+    fn normalize_zoom_overlap_later_wins() {
+        let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 1_000, 5_000), zoom(0, 3_000, 7_000)]);
+        let n = normalize(d, 10_000);
+        let spans: Vec<_> = n.zooms.iter().map(|z| (z.start_ms, z.end_ms)).collect();
+        assert_eq!(spans, vec![(1_000, 3_000), (3_000, 7_000)]);
+        // The later one eating the earlier one's head.
+        let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 3_000, 7_000), zoom(0, 1_000, 5_000)]);
+        let spans: Vec<_> = normalize(d, 10_000).zooms.iter().map(|z| (z.start_ms, z.end_ms)).collect();
+        assert_eq!(spans, vec![(1_000, 5_000), (5_000, 7_000)]);
+    }
+
+    #[test]
+    fn normalize_clamps_zoom_numbers() {
+        let z = ZoomRegion { depth: 9, focus_x: 1.7, focus_y: f64::NAN, custom_scale: Some(40.0), ..zoom(0, 0, 2_000) };
+        let n = normalize(with_zooms(vec![clip(0, 10_000)], vec![z]), 10_000);
+        let z = &n.zooms[0];
+        assert_eq!((z.depth, z.focus_x, z.focus_y, z.custom_scale), (6, 1.0, 0.5, Some(5.0)));
+        let z0 = ZoomRegion { depth: 0, ..zoom(0, 0, 2_000) };
+        assert_eq!(normalize(with_zooms(vec![clip(0, 10_000)], vec![z0]), 10_000).zooms[0].depth, 1);
+    }
+
+    #[test]
+    fn normalize_clamps_appearance() {
+        let mut d = example();
+        d.appearance = Appearance {
+            padding: 150.0,
+            radius_px: -3.0,
+            shadow: 2.0,
+            background_blur: f64::NAN,
+            motion_blur: -1.0,
+            ..Appearance::default()
+        };
+        d.cursor = CursorStyle {
+            size: 99.0,
+            smoothing: -1.0,
+            motion_blur: 5.0,
+            click_bounce: 9.0,
+            click_sound_gain_db: 6.0,
+            custom: Some(CustomCursor { file: "c.png".into(), hotspot_x: 3.0, hotspot_y: -1.0 }),
+            ..CursorStyle::default()
+        };
+        let n = normalize(d, 10_000);
+        let a = &n.appearance;
+        assert_eq!((a.padding, a.radius_px, a.shadow, a.background_blur, a.motion_blur), (100.0, 0.0, 1.0, 0.0, 0.0));
+        let c = &n.cursor;
+        assert_eq!((c.size, c.smoothing, c.motion_blur, c.click_bounce, c.click_sound_gain_db), (6.0, 0.0, 1.0, 2.0, 0.0));
+        let k = c.custom.as_ref().unwrap();
+        assert_eq!((k.hotspot_x, k.hotspot_y), (1.0, 0.0));
+    }
+
+    #[test]
+    fn serde_roundtrip_v2() {
+        let mut d = default_doc(&meta(10_000));
+        d.appearance.background = Background::Gradient { angle_deg: 135.0, stops: vec!["#111111".into(), "#eeeeee".into()] };
+        d.appearance.frame = Frame::Laptop;
+        d.appearance.frame_theme = FrameTheme::Dark;
+        d.appearance.background_motion = WallpaperMotion::Aurora;
+        d.cursor.custom = Some(CustomCursor { file: "cursor.png".into(), hotspot_x: 0.25, hotspot_y: 0.5 });
+        d.zooms = vec![ZoomRegion { origin: ZoomOrigin::Auto, focus_mode: FocusMode::Manual, hide_cursor: true, custom_scale: Some(2.0), ..zoom(0, 1_000, 3_000) }];
+        d.auto_zoom_done = true;
+        let j = serde_json::to_value(&d).unwrap();
+        assert_eq!(j["version"], 2);
+        assert_eq!(j["appearance"]["background"]["kind"], "gradient");
+        assert_eq!(j["appearance"]["background"]["angleDeg"], 135.0);
+        assert_eq!(j["appearance"]["frame"], "laptop");
+        assert_eq!(j["appearance"]["frameTheme"], "dark");
+        assert_eq!(j["appearance"]["backgroundMotion"], "aurora");
+        assert_eq!(j["output"]["aspect"], "auto");
+        assert_eq!(j["cursor"]["clickSoundGainDb"], 0.0);
+        assert_eq!(j["zooms"][0]["focusMode"], "manual");
+        assert_eq!(j["autoZoomDone"], true);
+        let back: EditDoc = serde_json::from_value(j).unwrap();
+        assert_eq!(back, d);
+        let mut p = project_with(serde_json::json!({}));
+        store(&mut p, &d);
+        assert_eq!(load(&p), d);
+        for b in [
+            Background::Wallpaper { id: "03".into() },
+            Background::Color { color: "#fff".into() },
+            Background::Image { file: "bg.png".into() },
+        ] {
+            let v = serde_json::to_value(&b).unwrap();
+            assert_eq!(serde_json::from_value::<Background>(v).unwrap(), b);
+        }
     }
 }

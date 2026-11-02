@@ -7230,6 +7230,48 @@ pub async fn editor_auto_zoom(app: AppHandle, session_id: u64) -> Result<crate::
     editor_blocking(move || crate::record::editor_ipc::auto_zoom(&app, session_id)).await
 }
 
+/// Moves clip `from` to position `to` with everything on it; the UI records the answer.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_move_clip(
+    app: AppHandle,
+    session_id: u64,
+    from: usize,
+    to: usize,
+) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::move_clip(&app, session_id, from, to)).await
+}
+
+/// A copy of clip `index` right behind it; the UI records the answer.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_duplicate_clip(
+    app: AppHandle,
+    session_id: u64,
+    index: usize,
+) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::duplicate_clip(&app, session_id, index)).await
+}
+
+/// Copies another finished project of the recordings folder into the open one and appends it
+/// as a clip. Only direct children of the recordings root are accepted.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_import_take(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    session_id: u64,
+    project_dir: String,
+) -> Result<crate::record::editor::EditorView, String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    editor_blocking(move || {
+        let src = crate::record::session::project_dir_inside_root(&root, std::path::Path::new(&project_dir))
+            .map_err(|_| crate::record::session::ERR_TAKE_NOT_PROJECT.to_string())?;
+        crate::record::editor_ipc::import_take(&app, session_id, &src)
+    })
+    .await
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_seek(app: AppHandle, programme_ms: u64) -> Result<Option<crate::record::editor_ipc::SourcePos>, String> {

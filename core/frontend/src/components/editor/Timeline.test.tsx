@@ -209,3 +209,79 @@ describe("Timeline zoom track", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe("Timeline clip reorder", () => {
+  /** Three clips: 0–3 s, 3–6 s, 6–10 s (1 px = 10 ms). */
+  function setup3() {
+    const doc = {
+      ...doc0(),
+      clips: [
+        { startMs: 0, endMs: 3_000 },
+        { startMs: 3_000, endMs: 6_000 },
+        { startMs: 6_000, endMs: 10_000 },
+      ],
+      crop: [null, null, null],
+    } as RecordEditDoc;
+    const view: RecordEditorView = {
+      ...view0(doc),
+      clips: [
+        { progStartMs: 0, progEndMs: 3_000 },
+        { progStartMs: 3_000, progEndMs: 6_000 },
+        { progStartMs: 6_000, progEndMs: 10_000 },
+      ],
+    };
+    const onMoveClip = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <Timeline
+        view={view}
+        thumbs={[]}
+        positionMs={0}
+        durationMs={10_000}
+        selectedClip={null}
+        onSelect={onSelect}
+        onSeek={() => undefined}
+        getDoc={() => doc}
+        onChange={() => undefined}
+        onError={() => undefined}
+        onSpeedValue={() => undefined}
+        onSpeedRemove={() => undefined}
+        onWidth={() => undefined}
+        onMoveClip={onMoveClip}
+      />,
+    );
+    return { onMoveClip, onSelect, clips: screen.getAllByTestId("ed-clip") };
+  }
+
+  it("dragging the first clip over the two others moves it to the end", () => {
+    const { onMoveClip, clips } = setup3();
+    // Middle at 1.5 s + 800 px (8 s) = 9.5 s: past the middles of clip 1 (4.5 s) and 2 (8 s).
+    fireEvent.pointerDown(clips[0], { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(clips[0], { clientX: 950, pointerId: 1 });
+    expect(screen.getByTestId("ed-clip-drop")).toBeTruthy();
+    fireEvent.pointerUp(clips[0], { clientX: 950, pointerId: 1 });
+    expect(onMoveClip).toHaveBeenCalledTimes(1);
+    expect(onMoveClip).toHaveBeenCalledWith(0, 2);
+  });
+
+  it("dragging the last clip to the front moves it to index 0", () => {
+    const { onMoveClip, clips } = setup3();
+    fireEvent.pointerDown(clips[2], { clientX: 800, pointerId: 1 });
+    fireEvent.pointerMove(clips[2], { clientX: 50, pointerId: 1 });
+    fireEvent.pointerUp(clips[2], { clientX: 50, pointerId: 1 });
+    expect(onMoveClip).toHaveBeenCalledWith(2, 0);
+  });
+
+  it("a drop into its own gap or a click moves nothing", () => {
+    const { onMoveClip, onSelect, clips } = setup3();
+    fireEvent.pointerDown(clips[1], { clientX: 450, pointerId: 1 });
+    fireEvent.pointerMove(clips[1], { clientX: 480, pointerId: 1 });
+    expect(screen.queryByTestId("ed-clip-drop")).toBeNull();
+    fireEvent.pointerUp(clips[1], { clientX: 480, pointerId: 1 });
+    fireEvent.pointerDown(clips[1], { clientX: 450, pointerId: 1 });
+    fireEvent.pointerUp(clips[1], { clientX: 450, pointerId: 1 });
+    expect(onMoveClip).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith(1);
+  });
+});
+

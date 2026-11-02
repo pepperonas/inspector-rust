@@ -3,8 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  Copy,
   Crop,
   Download,
+  FilePlus2,
   Gauge,
   PanelRightClose,
   PanelRightOpen,
@@ -22,7 +24,10 @@ import {
   editorAssets,
   editorAutoZoom,
   editorCurrent,
+  editorDuplicateClip,
   editorImportAsset,
+  editorImportTake,
+  editorMoveClip,
   editorPlay,
   editorPosition,
   editorRestart,
@@ -63,6 +68,7 @@ import { Preview } from "./editor/Preview";
 import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
 import { ExportDialog } from "./editor/ExportDialog";
+import { TakePicker } from "./editor/TakePicker";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
 import { FocusOverlay } from "./editor/FocusOverlay";
@@ -461,6 +467,53 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     chain.current = next;
   }, [report, t]);
 
+  /**
+   * A clip operation Rust performs on its document (`editor_move_clip`, `…_duplicate_clip`,
+   * `…_import_take`): queued behind pending edits like auto-zoom, the answer is one undo step.
+   */
+  const rustEdit = useCallback(
+    (op: () => Promise<RecordEditorView>, after?: (v: RecordEditorView) => void) => {
+      const h = history.current;
+      if (!h) return;
+      const next = chain.current.then(async () => {
+        try {
+          const v = await op();
+          seq.current += 1;
+          h.push(v.doc);
+          setUndoable({ undo: h.canUndo(), redo: h.canRedo() });
+          setView(v);
+          after?.(v);
+        } catch (e) {
+          report(e);
+        }
+      });
+      chain.current = next;
+    },
+    [report],
+  );
+
+  const moveClip = useCallback(
+    (from: number, to: number) => rustEdit(() => editorMoveClip(sessionId.current, from, to), () => setSelected(to)),
+    [rustEdit],
+  );
+
+  const duplicateClip = useCallback(() => {
+    const index = clipFor(posRef.current);
+    rustEdit(() => editorDuplicateClip(sessionId.current, index), () => setSelected(index + 1));
+  }, [rustEdit, clipFor]);
+
+  const [takePicker, setTakePicker] = useState(false);
+  const importTake = useCallback(
+    (projectDir: string) => {
+      setTakePicker(false);
+      rustEdit(
+        () => editorImportTake(sessionId.current, projectDir),
+        (v) => setSelected(v.doc.clips.length - 1),
+      );
+    },
+    [rustEdit],
+  );
+
   const enterCrop = useCallback(async () => {
     if (playing) togglePlay();
     const at = await sourceHere();
@@ -483,6 +536,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
+        return;
+      }
+      if (mod && k === "d" && !e.shiftKey && !cropMode) {
+        e.preventDefault();
+        duplicateClip();
         return;
       }
       if (mod || e.altKey) return;
@@ -513,7 +571,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, init, exportOpen, cropMode, togglePlay, seek, split, removeClip, enterCrop, undo, redo]);
+  }, [view, init, exportOpen, cropMode, togglePlay, seek, split, removeClip, enterCrop, undo, redo, duplicateClip]);
 
   // Mic gain: live while dragging (preview volume only), one undo step per gesture.
   const micLive = (db: number) => {
@@ -565,6 +623,20 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const zoomSel = selectedZoom ? (doc.zooms.find((z) => z.id === selectedZoom) ?? null) : null;
   const zoomRect = zoomSel ? (view.screenRects?.[zoomSel.clip] ?? ([0, 0, 1, 1] as [number, number, number, number])) : null;
   const hasCursorData = !!assets?.hasCursorData;
+  // The audio of the clip under the playhead: the project's own take or an inserted one.
+  const takeId = cue.source ? (doc.clips[cue.source.clip]?.source ?? null) : null;
+  const take = takeId ? view.takes?.[takeId] : undefined;
+  const audio = take
+    ? {
+        screen: take.systemAudio ? asset(`takes/${takeId}/screen.mp4`) : null,
+        mic: take.hasMic ? asset(`takes/${takeId}/mic.wav`) : null,
+        micOffsetMs: take.micOffsetMs,
+      }
+    : {
+        screen: meta.systemAudio ? asset("screen.mp4") : null,
+        mic: meta.mic ? asset("mic.wav") : null,
+        micOffsetMs: meta.mic?.offsetMs ?? 0,
+      };
 
   const iconBtn =
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
@@ -709,6 +781,21 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <button className={iconBtn} onClick={removeClip} disabled={doc.clips.length <= 1} title={`${t("rec2.ed.delete")} (⌫)`}>
           <Trash2 size={14} /> {t("rec2.ed.delete")}
         </button>
+        <button className={iconBtn} onClick={duplicateClip} title={`${t("rec4.clip.duplicate")} (⌘D)`} data-testid="ed-duplicate">
+          <Copy size={14} /> {t("rec4.clip.duplicate")}
+        </button>
+        <div className="relative">
+          <button
+            className={iconBtn + (takePicker ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")}
+            onClick={() => setTakePicker((o) => !o)}
+            title={t("rec4.take.insert_hint")}
+            aria-expanded={takePicker}
+            data-testid="ed-insert-take"
+          >
+            <FilePlus2 size={14} /> {t("rec4.take.insert")}
+          </button>
+          {takePicker && <TakePicker currentDir={dir} onPick={importTake} onClose={() => setTakePicker(false)} onError={report} />}
+        </div>
         <button className={iconBtn} onClick={() => void addSpeedHere()} title={t("rec2.ed.speed_add_hint")}>
           <Gauge size={14} /> {t("rec2.ed.speed_add")}
         </button>
@@ -771,13 +858,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           selectedZoom={zoomSel?.id ?? null}
           onSelectZoom={setSelectedZoom}
           keysEnabled={!exportOpen && !cropMode}
+          onMoveClip={moveClip}
         />
       </div>
 
       <AudioPreview
-        screenSrc={meta.systemAudio ? asset("screen.mp4") : null}
-        micSrc={meta.mic ? asset("mic.wav") : null}
-        micOffsetMs={meta.mic?.offsetMs ?? 0}
+        screenSrc={audio.screen}
+        micSrc={audio.mic}
+        micOffsetMs={audio.micOffsetMs}
         micGainDb={doc.micGainDb}
         playing={playing && !fatal}
         source={cue.source}

@@ -33,6 +33,8 @@ import {
   HISTORY_MAX,
   addSpeed,
   clipAt,
+  clipDropGap,
+  clipMoveTarget,
   cropForPreset,
   deleteClip,
   fitPreview,
@@ -430,3 +432,29 @@ describe("annotations + audio tracks (v3)", () => {
     expect(rust).toEqual(DEFAULT_FREEHAND_POINTS.map(([x, y]) => [x, y]));
   });
 });
+
+describe("clip reorder targets", () => {
+  const spans = [
+    { progStartMs: 0, progEndMs: 3_000 },
+    { progStartMs: 3_000, progEndMs: 6_000 },
+    { progStartMs: 6_000, progEndMs: 10_000 },
+  ];
+  it("the gap follows the clip middles", () => {
+    expect(clipDropGap(spans, 0)).toBe(0);
+    expect(clipDropGap(spans, 1_499)).toBe(0);
+    expect(clipDropGap(spans, 1_500)).toBe(1);
+    expect(clipDropGap(spans, 4_600)).toBe(2);
+    expect(clipDropGap(spans, 9_999)).toBe(3);
+  });
+  it("a gap becomes the remove-then-insert index; its own gaps are no move", () => {
+    expect(clipMoveTarget(0, 3, 3)).toBe(2);
+    expect(clipMoveTarget(0, 2, 3)).toBe(1);
+    expect(clipMoveTarget(2, 0, 3)).toBe(0);
+    expect(clipMoveTarget(2, 1, 3)).toBe(1);
+    expect(clipMoveTarget(1, 1, 3)).toBeNull();
+    expect(clipMoveTarget(1, 2, 3)).toBeNull();
+    expect(clipMoveTarget(5, 0, 3)).toBeNull();
+    expect(clipMoveTarget(0, 4, 3)).toBeNull();
+  });
+});
+

@@ -6,6 +6,8 @@ import {
   MIN_SPEED,
   SPEED_STEPS,
   addZoom,
+  clipDropGap,
+  clipMoveTarget,
   fmtZoom,
   formatTimecode,
   isTypingTarget,
@@ -46,6 +48,7 @@ type Drag =
       span: { progStartMs: number; progEndMs: number };
       clipSpan: { progStartMs: number; progEndMs: number };
     }
+  | { kind: "clip"; from: number; x0: number; dx: number }
   | { kind: "head" };
 
 /** A pointer moved less than this many px: a click (select), not a drag. */
@@ -74,6 +77,7 @@ export function Timeline({
   selectedZoom = null,
   onSelectZoom = () => undefined,
   keysEnabled = true,
+  onMoveClip,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -95,6 +99,8 @@ export function Timeline({
   onSelectZoom?: (id: string | null) => void;
   /** Z (new zoom) and Delete (selected zoom) — off while a dialog or crop mode owns the keys. */
   keysEnabled?: boolean;
+  /** A clip dragged into another gap: Rust reorders (`editor_move_clip`). Off: no drag. */
+  onMoveClip?: (from: number, to: number) => void;
 }) {
   const t = useT();
   const track = useRef<HTMLDivElement>(null);
@@ -217,10 +223,25 @@ export function Timeline({
     onChange(updateZoom(getDoc(), d.id, { startMs, endMs, origin: "manual" }));
   };
 
+  /** Where a clip drag would drop (`null`: nowhere new, or still a click). */
+  const clipGap = (d: Extract<Drag, { kind: "clip" }>) => {
+    if (Math.abs(d.dx) < CLICK_SLOP_PX || scale <= 0) return null;
+    const span = view.clips[d.from];
+    if (!span) return null;
+    // The dragged clip's middle, moved with the pointer, decides the gap.
+    return clipDropGap(view.clips, (span.progStartMs + span.progEndMs) / 2 + d.dx / scale);
+  };
+  const clipTarget = (d: Extract<Drag, { kind: "clip" }>) => {
+    const gap = clipGap(d);
+    return gap == null ? null : clipMoveTarget(d.from, gap, view.clips.length);
+  };
+  const clipDrag = drag?.kind === "clip" ? drag : null;
+  const dropGap = clipDrag && clipTarget(clipDrag) != null ? clipGap(clipDrag) : null;
+
   const onMove = (e: ReactPointerEvent) => {
     if (!drag) return;
     if (drag.kind === "head") onSeek(progAt(e.clientX));
-    else if (drag.kind === "zoom") setDrag({ ...drag, dx: e.clientX - drag.x0 });
+    else if (drag.kind === "zoom" || drag.kind === "clip") setDrag({ ...drag, dx: e.clientX - drag.x0 });
     else if (drag.kind === "trim") {
       const next = { ...drag, dx: e.clientX - drag.x0 };
       setDrag(next);
@@ -255,6 +276,9 @@ export function Timeline({
         .catch(() => undefined);
     } else if (d.kind === "zoom") {
       if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitZoom(d).catch(onError);
+    } else if (d.kind === "clip") {
+      const to = clipTarget(d);
+      if (to != null) onMoveClip?.(d.from, to);
     } else if (d.kind === "speed") {
       if (d.moved) onSpeedValue(d.index, d.value);
       else setMenu(menu === d.index ? null : d.index);
@@ -302,18 +326,30 @@ export function Timeline({
               <div
                 key={i}
                 data-testid="ed-clip"
+                data-dragging={clipDrag?.from === i && Math.abs(clipDrag.dx) >= CLICK_SLOP_PX ? "" : undefined}
                 onPointerDown={(e) => {
                   e.stopPropagation();
                   onSelect(i);
+                  if (onMoveClip && view.clips.length > 1) {
+                    capture(e);
+                    setDrag({ kind: "clip", from: i, x0: e.clientX, dx: 0 });
+                  }
                 }}
                 className={
                   "absolute top-0 flex h-full items-center overflow-hidden rounded-md border px-3 text-[11px] tabular-nums " +
+                  (onMoveClip && view.clips.length > 1 ? "cursor-grab data-[dragging]:z-10 data-[dragging]:cursor-grabbing data-[dragging]:opacity-70 " : "") +
                   (sel
                     ? "border-[var(--color-accent)] bg-[var(--color-accent)]/25 text-[var(--color-fg)]"
                     : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]")
                 }
-                style={{ left, width: Math.max(4, w - 2) }}
-                title={`${formatTimecode(doc.clips[i]?.startMs ?? 0)} – ${formatTimecode(doc.clips[i]?.endMs ?? 0)}`}
+                style={{
+                  left,
+                  width: Math.max(4, w - 2),
+                  transform: clipDrag?.from === i && Math.abs(clipDrag.dx) >= CLICK_SLOP_PX ? `translateX(${clipDrag.dx}px)` : undefined,
+                }}
+                title={`${formatTimecode(doc.clips[i]?.startMs ?? 0)} – ${formatTimecode(doc.clips[i]?.endMs ?? 0)}${
+                  doc.clips[i]?.source ? ` · ${t("rec4.clip.take")}` : ""
+                }`}
               >
                 <span className="truncate">
                   {drag?.kind === "trim" && drag.clip === i
@@ -349,6 +385,19 @@ export function Timeline({
               </div>
             );
           })}
+          {dropGap != null && (
+            <div
+              data-testid="ed-clip-drop"
+              aria-hidden
+              className="pointer-events-none absolute -bottom-0.5 -top-0.5 z-20 w-0.5 rounded-full bg-[var(--color-accent)]"
+              style={{
+                left:
+                  (dropGap < view.clips.length ? view.clips[dropGap].progStartMs : view.clips[view.clips.length - 1].progEndMs) *
+                    scale -
+                  1,
+              }}
+            />
+          )}
         </div>
 
         {/* Speed band */}

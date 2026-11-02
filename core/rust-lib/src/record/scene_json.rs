@@ -14,13 +14,14 @@
 //! never the helper.
 
 use super::assets::{AssetRoot, CURSOR_KINDS, AS_ARROW_DEFAULT};
-use super::click_cues::click_hits;
+use super::click_cues::click_hits_by_source;
 use super::editor::{
-    self, zoom_scale, Aspect, Background, EditDoc, FocusMode, Frame, FrameTheme, WallpaperMotion, DEFAULT_CURSOR_THEME,
-    DEFAULT_WALLPAPER,
+    self, take_dir, valid_take_id, zoom_scale, Aspect, Background, EditDoc, FocusMode, Frame, FrameTheme, TakeMeta,
+    TakeMetas, WallpaperMotion, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, TAKES_DIR,
 };
 use super::layout;
-use super::project::{CursorProvider, CursorRecording, Project, RecordingMeta, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
+use super::project::{read_project, CursorProvider, CursorRecording, Project, RecordingMeta, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
+use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 use std::path::{Component, Path, PathBuf};
 
@@ -39,15 +40,52 @@ pub fn read_cursor(project_dir: &Path) -> Option<CursorRecording> {
     serde_json::from_slice(&raw).ok()
 }
 
+/// An inserted take as the scene needs it: its recording metadata and pointer telemetry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TakeSource {
+    pub meta: RecordingMeta,
+    pub cursor: Option<CursorRecording>,
+}
+
+/// The inserted takes of a project by id (`<project>/takes/<id>/`).
+pub type TakeSources = BTreeMap<String, TakeSource>;
+
+/// What the editor document needs of each take (lengths and sizes).
+pub fn take_metas(takes: &TakeSources) -> TakeMetas {
+    takes
+        .iter()
+        .map(|(id, t)| (id.clone(), TakeMeta::from_recording(&t.meta, has_cursor_data(t.cursor.as_ref()))))
+        .collect()
+}
+
+/// Reads every inserted take under `<project>/takes/`: a folder with a plain id, a readable
+/// `project.json` and a `screen.mp4`. Anything else is skipped (a clip naming it is dropped by
+/// `editor::normalize`).
+pub fn load_takes(project_dir: &Path) -> TakeSources {
+    let Ok(rd) = std::fs::read_dir(project_dir.join(TAKES_DIR)) else { return TakeSources::new() };
+    let mut out = TakeSources::new();
+    for e in rd.flatten() {
+        let id = e.file_name().to_string_lossy().into_owned();
+        let dir = e.path();
+        if !valid_take_id(&id) || !dir.is_dir() || !dir.join(SCREEN_FILE).is_file() {
+            continue;
+        }
+        if let Ok(p) = read_project(&dir) {
+            out.insert(id, TakeSource { meta: p.recording, cursor: read_cursor(&dir) });
+        }
+    }
+    out
+}
+
 /// One screen box per clip (fractions of `out`) with the clip's source size: the screen's
-/// shape is the recording × the clip's crop. The scene and the editor's focus crosshair both
+/// shape is the clip's recording × its crop. The scene and the editor's focus crosshair both
 /// take it from here.
-pub fn screen_boxes(meta: &RecordingMeta, doc: &EditDoc, out: (u32, u32)) -> Vec<(layout::Rect, (u32, u32))> {
+pub fn screen_boxes(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, out: (u32, u32)) -> Vec<(layout::Rect, (u32, u32))> {
     let a = &doc.appearance;
     let even_border = doc.output.aspect == Aspect::Auto;
     (0..doc.clips.len())
         .map(|i| {
-            let src = editor::clip_source_size(meta, doc, i);
+            let src = editor::clip_source_size(meta, takes, doc, i);
             (layout::screen_rect(out, src.0 as f64 / src.1 as f64, a.padding, a.frame, even_border), src)
         })
         .collect()
@@ -175,13 +213,16 @@ fn cursor_sprites(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Map<
 
 /// The compositor scene for `doc`, reading the project's `cursor.json`. Paths are absolute.
 pub fn scene_json(project_dir: &Path, project: &Project, doc: &EditDoc, out: (u32, u32), fps: u32, assets: &AssetRoot) -> Value {
-    scene_json_with(project_dir, project, doc, out, fps, assets, read_cursor(project_dir).as_ref())
+    let takes = load_takes(project_dir);
+    scene_json_with(project_dir, project, doc, out, fps, assets, read_cursor(project_dir).as_ref(), &takes)
 }
 
 /// [`scene_json`] with the cursor telemetry already read (the editor session reads it once).
 /// The mic rides along each clip as `extraAudio` (ruling R1: mic time = source time − offset,
 /// so `offsetSec = mic.offset_ms / 1000`) and only when the recording has one. Without pointer
-/// data the cursor is off and there is no click sound.
+/// data the cursor is off and there is no click sound. Each clip names the files of its own
+/// recording: the project's, or an inserted take's under `takes/<id>/` (from `takes`).
+#[allow(clippy::too_many_arguments)]
 pub fn scene_json_with(
     project_dir: &Path,
     project: &Project,
@@ -190,32 +231,37 @@ pub fn scene_json_with(
     fps: u32,
     assets: &AssetRoot,
     cursor: Option<&CursorRecording>,
+    takes: &TakeSources,
 ) -> Value {
     let meta = &project.recording;
-    let screen = path_str(&project_dir.join(SCREEN_FILE));
-    let cursor_path = path_str(&project_dir.join(CURSOR_FILE));
-    let mic = meta.mic.as_ref().map(|m| {
-        json!({
-            "path": project_dir.join(MIC_FILE).to_string_lossy(),
-            "offsetSec": m.offset_ms as f64 / 1000.0,
-            "gainDb": doc.mic_gain_db,
-        })
-    });
+    // A clip's recording: its folder, metadata and telemetry. A take that is not in `takes`
+    // (normalize drops such clips) falls back to the project's own files.
+    let source_of = |source: Option<&str>| -> (PathBuf, &RecordingMeta, Option<&CursorRecording>) {
+        match source.and_then(|id| takes.get(id).map(|t| (id, t))) {
+            Some((id, t)) => (take_dir(project_dir, Some(id)), &t.meta, t.cursor.as_ref()),
+            None => (project_dir.to_path_buf(), meta, cursor),
+        }
+    };
     let clips: Vec<Value> = doc
         .clips
         .iter()
         .map(|c| {
+            let (dir, m, _) = source_of(c.source.as_deref());
             let mut clip = json!({
-                "screenPath": screen,
+                "screenPath": path_str(&dir.join(SCREEN_FILE)),
                 "webcamPath": "",
                 "sourceStartSec": ms_to_sec(c.start_ms),
                 "sourceEndSec": ms_to_sec(c.end_ms),
                 "webcamOffsetSec": 0.0,
-                "hasAudio": meta.system_audio,
-                "cursorPath": cursor_path,
+                "hasAudio": m.system_audio,
+                "cursorPath": path_str(&dir.join(CURSOR_FILE)),
             });
-            if let Some(m) = &mic {
-                clip["extraAudio"] = m.clone();
+            if let Some(mic) = &m.mic {
+                clip["extraAudio"] = json!({
+                    "path": dir.join(MIC_FILE).to_string_lossy(),
+                    "offsetSec": mic.offset_ms as f64 / 1000.0,
+                    "gainDb": doc.mic_gain_db,
+                });
             }
             clip
         })
@@ -239,7 +285,8 @@ pub fn scene_json_with(
         })
         .collect();
 
-    let rects = screen_boxes(meta, doc, out);
+    let metas = take_metas(takes);
+    let rects = screen_boxes(meta, &metas, doc, out);
     let rect_json = |r: &layout::Rect| json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height});
     let layout_by_clip: Vec<Value> = rects.iter().map(|(r, _)| json!({"screenRect": rect_json(r)})).collect();
 
@@ -268,7 +315,8 @@ pub fn scene_json_with(
         .collect();
 
     let c = &doc.cursor;
-    let show = c.show && has_cursor_data(cursor);
+    // Drawn when any clip's recording has pointer data (a clip without plays none).
+    let show = c.show && doc.clips.iter().any(|clip| has_cursor_data(source_of(clip.source.as_deref()).2));
     let mut cursor_block = json!({
         "show": show,
         "autoHide": c.auto_hide,
@@ -308,9 +356,7 @@ pub fn scene_json_with(
 
     if show && c.click_sound {
         let level = 10f64.powf(c.click_sound_gain_db / 20.0);
-        let hits: Vec<Value> = cursor
-            .map(|rec| click_hits(doc, rec))
-            .unwrap_or_default()
+        let hits: Vec<Value> = click_hits_by_source(doc, |source| source_of(source).2.filter(|r| has_cursor_data(Some(r))))
             .iter()
             .map(|h| json!({"timeSec": ms_to_sec(h.prog_ms), "gain": h.gain * level, "release": h.release}))
             .collect();
@@ -457,7 +503,7 @@ mod tests {
             },
         ];
         d.auto_zoom_done = true;
-        editor::normalize(d, 10_000)
+        editor::normalize(d, 10_000, &TakeMetas::new())
     }
 
     /// Recursively sorted keys + pretty print, so the text does not depend on whether
@@ -508,8 +554,8 @@ mod tests {
     #[test]
     fn styled_scene_matches_golden() {
         let d = styled_doc();
-        let out = editor::output_size(&project().recording, &d, OutputTarget::P1080);
-        let v = scene_json_with(Path::new(DIR), &project(), &d, out, 30, &assets(), Some(&cursor_rec()));
+        let out = editor::output_size(&project().recording, &TakeMetas::new(), &d, OutputTarget::P1080);
+        let v = scene_json_with(Path::new(DIR), &project(), &d, out, 30, &assets(), Some(&cursor_rec()), &TakeSources::new());
         check_golden(&placeholders(&v), GOLDEN_STYLED, "scene-golden-styled.json");
         // The parts the golden pins, spelled out.
         assert_eq!(v["effects"]["frame"], "window");
@@ -615,7 +661,7 @@ mod tests {
         let empty = CursorRecording { provider: CursorProvider::Native, ..none.clone() };
         let with_none_provider = CursorRecording { provider: CursorProvider::None, ..cursor_rec() };
         for rec in [None, Some(&none), Some(&empty), Some(&with_none_provider)] {
-            let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), rec);
+            let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), rec, &TakeSources::new());
             assert_eq!(v["cursor"]["show"], false, "{rec:?}");
             assert!(v.get("clickSound").is_none(), "{rec:?}");
             // Zooms keep their focus mode; the compositor stays on the focus point.
@@ -623,7 +669,7 @@ mod tests {
         }
         // Position-only data still draws a pointer (no clicks → no click sound).
         let pos = CursorRecording { provider: CursorProvider::PositionOnly, samples: vec![sample(0, 0.5, 0.5, None)], ..none };
-        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), Some(&pos));
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), Some(&pos), &TakeSources::new());
         assert_eq!(v["cursor"]["show"], true);
         assert!(v.get("clickSound").is_none());
     }
@@ -646,7 +692,7 @@ mod tests {
             let mut d = styled_doc();
             d.appearance.background = Background::Image { file: file.into() };
             d.appearance.background_motion = motion;
-            scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None)["background"].clone()
+            scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new())["background"].clone()
         };
         assert_eq!(bg_for("bg.png", WallpaperMotion::Waves), json!({"kind": "image", "path": path_str(&dir.join("assets/bg.png")), "motion": "waves"}));
         for bad in ["gone.png", "../outside.png", "/etc/passwd", "sub/bg.png", "..\\outside.png", "", ".", ".."] {
@@ -657,16 +703,16 @@ mod tests {
             let mut d = styled_doc();
             d.appearance.background = Background::Wallpaper { id: id.into() };
             d.appearance.background_motion = WallpaperMotion::None;
-            let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None);
+            let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
             assert_eq!(v["background"], json!({"kind": "image", "path": default}), "{id:?}");
         }
         // A gradient and a colour pass through; a colour never carries motion.
         let mut d = styled_doc();
         d.appearance.background = Background::Gradient { angle_deg: f64::NAN, stops: vec!["#3b82f6".into(), "#8b5cf6".into()] };
-        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None);
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
         assert_eq!(v["background"], json!({"kind": "gradient", "angleDeg": 135.0, "stops": ["#3b82f6", "#8b5cf6"], "motion": "drift"}));
         d.appearance.background = Background::Color { color: "#16171d".into() };
-        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None);
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
         assert_eq!(v["background"], json!({"kind": "color", "color": "#16171d"}));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -680,7 +726,7 @@ mod tests {
             let mut d = styled_doc();
             d.cursor.theme = theme.into();
             d.cursor.custom = custom.map(|f| CustomCursor { file: f.into(), hotspot_x: 0.25, hotspot_y: 0.1 });
-            scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), Some(&cursor_rec()))["cursor"]["cursorSprites"].clone()
+            scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), Some(&cursor_rec()), &TakeSources::new())["cursor"]["cursorSprites"].clone()
         };
         let themed = sprites(None, "studio-ink");
         assert_eq!(themed.as_object().unwrap().len(), 16);
@@ -721,12 +767,70 @@ mod tests {
         let scale_with = |crop: Option<CropRect>| {
             let mut d = styled_doc();
             d.crop = vec![None, crop];
-            let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None);
+            let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
             v["zoomRegions"][1]["scale"].as_f64().unwrap()
         };
         let full = scale_with(None);
         let quarter = scale_with(Some(CropRect { x: 0.0, y: 0.0, w: 0.25, h: 0.25 }));
         assert!(full > 4.0, "a 3024 px source barely bounds 5× at 1080p: {full}");
         assert!((1.0..1.5).contains(&quarter), "{quarter}");
+    }
+
+    #[test]
+    fn scene_clip_paths_follow_source() {
+        let mut d = doc();
+        d.cursor = crate::record::editor::CursorStyle { show: true, click_sound: true, ..crate::record::editor::CursorStyle::default() };
+        d.clips[1].source = Some("t1".into());
+        d.crop[1] = None;
+        let take = TakeSource {
+            meta: RecordingMeta { width: 1280, height: 720, duration_ms: 20_000, system_audio: false, mic: None, ..RecordingMeta::default() },
+            cursor: Some(cursor_rec()),
+        };
+        let takes = TakeSources::from([("t1".to_string(), take)]);
+        // The project's own take has no telemetry: only the take's clip shows clicks.
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &takes);
+        let clips = v["clips"].as_array().unwrap();
+        assert_eq!(clips[0]["screenPath"], format!("{DIR}/screen.mp4"));
+        assert_eq!(clips[0]["cursorPath"], format!("{DIR}/cursor.json"));
+        assert_eq!(clips[0]["hasAudio"], true);
+        assert_eq!(clips[0]["extraAudio"]["path"], format!("{DIR}/mic.wav"));
+        assert_eq!(clips[1]["screenPath"], format!("{DIR}/takes/t1/screen.mp4"));
+        assert_eq!(clips[1]["cursorPath"], format!("{DIR}/takes/t1/cursor.json"));
+        assert_eq!(clips[1]["hasAudio"], false);
+        assert!(clips[1].get("extraAudio").is_none(), "the take has no mic");
+        assert_eq!(v["cursor"]["show"], true);
+        // The take's clip covers 6.5–10 s of the take; its click at 7.5 s is a hit, the
+        // project's clip (0–4 s) contributes none (it has no telemetry).
+        let hits = v["clickSound"]["hits"].as_array().expect("hits");
+        assert!(!hits.is_empty());
+        let first = hits[0]["timeSec"].as_f64().unwrap();
+        assert!(first >= 3.0, "first hit {first} must lie in the second clip");
+        // The screen box of the take's clip has the take's 16:9 shape.
+        let metas = take_metas(&takes);
+        let boxes = screen_boxes(&project().recording, &metas, &d, (1920, 1080));
+        assert_eq!(boxes[1].1, (1280, 720));
+    }
+
+    #[test]
+    fn load_takes_reads_only_plain_complete_takes() {
+        let dir = std::env::temp_dir().join(format!("ir-takes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mk = |id: &str, screen: bool| {
+            let d = dir.join(TAKES_DIR).join(id);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut p = project();
+            p.recording.duration_ms = 7_000;
+            crate::record::project::write_atomic(&d, crate::record::project::PROJECT_FILE, &p).unwrap();
+            if screen {
+                std::fs::write(d.join(SCREEN_FILE), b"x").unwrap();
+            }
+        };
+        mk("good", true);
+        mk("noscreen", false);
+        mk("bad id", true);
+        let takes = load_takes(&dir);
+        assert_eq!(takes.keys().collect::<Vec<_>>(), vec!["good"]);
+        assert_eq!(take_metas(&takes)["good"].duration_ms, 7_000);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -600,3 +600,147 @@ fn export_scene_file() {
     );
     assert!(helper.shutdown().success());
 }
+
+fn project2() -> Option<PathBuf> {
+    match std::env::var_os("IR_RECORD_PROJECT2") {
+        Some(p) => Some(PathBuf::from(p)),
+        None => {
+            eprintln!("skipped: set IR_RECORD_PROJECT2=<a second, different project dir>");
+            None
+        }
+    }
+}
+
+/// Stage 4 (Task 2): a scene with two sources — clip 0 = 0–2 s of project A, clip 1 = all of
+/// project B (each clip names its own files, like `scene_json` builds for an inserted take).
+fn two_source_scene(a: &Path, b: &Path) -> Value {
+    let mut s = scene(a, &[], (1280, 720));
+    let mut first = s["clips"][0].clone();
+    first["sourceEndSec"] = json!(2.0);
+    let (b_ms, b_mic) = recording(b);
+    let bp: Value = serde_json::from_str(&std::fs::read_to_string(b.join("project.json")).unwrap()).unwrap();
+    let mut second = first.clone();
+    second["screenPath"] = json!(b.join("screen.mp4").display().to_string());
+    second["cursorPath"] = json!(b.join("cursor.json").display().to_string());
+    second["sourceStartSec"] = json!(0.0);
+    second["sourceEndSec"] = json!(b_ms as f64 / 1000.0);
+    second["hasAudio"] = bp["recording"]["systemAudio"].clone();
+    if bp["recording"]["mic"].is_null() {
+        second.as_object_mut().unwrap().remove("extraAudio");
+    } else {
+        second["extraAudio"]["path"] = json!(b.join("mic.wav").display().to_string());
+        second["extraAudio"]["offsetSec"] = json!(b_mic as f64 / 1000.0);
+    }
+    s["clips"] = json!([first, second]);
+    s["cropByClip"] = json!([null, null]);
+    let rect = s["layout"]["layoutByClip"][0].clone();
+    s["layout"]["layoutByClip"] = json!([rect.clone(), rect]);
+    s
+}
+
+fn still(h: &mut Helper, scene: &Value, frame: u64, out: &Path, name: &str) -> (u32, u32, Vec<u8>) {
+    h.send(&Command::Thumbs { scene: scene.clone(), out_fps: 30, frames: vec![frame], max_width: 960 });
+    let jpeg = match h.next(Duration::from_secs(120)) {
+        Msg::Thumb(i, jpeg) if i == frame => jpeg,
+        _ => panic!("expected the still"),
+    };
+    assert_eq!(h.event(Duration::from_secs(10)), Event::ThumbsDone);
+    let p = out.join(name);
+    std::fs::write(&p, &jpeg).unwrap();
+    jpeg_rgb(&p)
+}
+
+/// The newest frame after letting the render thread settle for `secs`.
+fn settled(h: &mut Helper, since: u64, secs: f64) -> PreviewFrame {
+    let mut f = h.frame_after(since);
+    let until = Instant::now() + Duration::from_secs_f64(secs);
+    while Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(250));
+        h.send(&Command::Frame { since_gen: f.gen });
+        if let Msg::Preview(p) = h.next(Duration::from_secs(5)) {
+            if !p.is_empty() {
+                f = p;
+            }
+        }
+    }
+    f
+}
+
+/// (mean abs diff, worst 32-px block) between a preview frame (RGBA) and a still (RGB).
+fn diff(f: &PreviewFrame, still: &[u8]) -> (f64, f64) {
+    let (w, h) = (f.w, f.h);
+    let mut sum = 0u64;
+    for (px, rgb) in f.rgba.as_chunks::<4>().0.iter().zip(still.as_chunks::<3>().0) {
+        for c in 0..3 {
+            sum += (px[c] as i64 - rgb[c] as i64).unsigned_abs();
+        }
+    }
+    let block = |bx: u32, by: u32| -> f64 {
+        let mut s = 0u64;
+        for y in by..by + 32 {
+            for x in bx..bx + 32 {
+                let (i, j) = (((y * w + x) * 4) as usize, ((y * w + x) * 3) as usize);
+                for c in 0..3 {
+                    s += (f.rgba[i + c] as i64 - still[j + c] as i64).unsigned_abs();
+                }
+            }
+        }
+        s as f64 / (32.0 * 32.0 * 3.0)
+    };
+    let worst = (0..=(h - 32) / 16)
+        .flat_map(|by| (0..=(w - 32) / 16).map(move |bx| (bx * 16, by * 16)))
+        .map(|(bx, by)| block(bx, by))
+        .fold(0.0, f64::max);
+    (sum as f64 / (w as f64 * h as f64 * 3.0), worst)
+}
+
+/// Stage 4 (Task 2): the preview plays across a clip boundary into ANOTHER recording, and a
+/// still in the second clip shows the second recording (preview vs. the export's still path).
+/// Needs `IR_RECORD_PROJECT` and `IR_RECORD_PROJECT2` (two different recordings).
+#[test]
+#[ignore]
+fn two_sources_preview_crosses_into_second_take() {
+    let (Some(a), Some(b)) = (project(), project2()) else { return };
+    let out = out_dir("two-sources");
+    let mut h = Helper::start();
+    let scene = two_source_scene(&a, &b);
+    // Programme: clip 0 = 0–2 s, clip 1 starts at 2 s. Stills at 1 s (A) and 3 s (B at 1 s).
+    let (w, hgt, still_a) = still(&mut h, &scene, 30, &out, "still-a.jpg");
+    let (_, _, still_b) = still(&mut h, &scene, 90, &out, "still-b.jpg");
+
+    h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
+    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    let opened = settled(&mut h, 0, 1.0);
+
+    // Jump from clip 0 (take A) straight into clip 1 (take B) at 1 s: a switch to another file,
+    // the same frame as the still of programme 3 s.
+    h.send(&Command::SetActiveClip { clip: 1, source_sec: 1.0 });
+    let f = settled(&mut h, opened.gen, 3.0);
+    assert_eq!((f.w, f.h), (w, hgt));
+    let (mae, worst) = diff(&f, &still_b);
+    let raw = out.join("preview-b.rgba");
+    std::fs::write(&raw, &f.rgba).unwrap();
+    let _ = Proc::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{hgt}"), "-i"])
+        .arg(&raw)
+        .arg(out.join("preview-b.png"))
+        .status();
+    println!("second take: {w}x{hgt}, mean abs diff {mae:.2} / 255, worst 32-px block {worst:.2} (files in {})", out.display());
+    assert!(mae < 3.0, "preview in clip 1 differs from the still: {mae:.2}");
+    assert!(worst < 20.0, "a part of the preview in clip 1 differs: worst block {worst:.2}");
+
+    // Back into take A, then cross the boundary by playing: 0.4 s before clip 0's end, play
+    // ~1.4 s, pause — the render thread advances into the other file by itself.
+    h.send(&Command::SetActiveClip { clip: 0, source_sec: 1.6 });
+    let before = settled(&mut h, f.gen, 1.5);
+    let (back_a, _) = diff(&before, &still_a);
+    h.send(&Command::SetPlaying { playing: true });
+    std::thread::sleep(Duration::from_millis(1400));
+    h.send(&Command::SetPlaying { playing: false });
+    let crossed = settled(&mut h, before.gen, 1.0);
+    let (to_a, _) = diff(&crossed, &still_a);
+    let (to_b, _) = diff(&crossed, &still_b);
+    println!("back in A: diff to A {back_a:.2}; after crossing: diff to A {to_a:.2}, to B {to_b:.2}");
+    assert!(to_b < to_a, "after playing over the boundary the preview must show take B (A {to_a:.2}, B {to_b:.2})");
+    assert!(h.shutdown().success());
+}

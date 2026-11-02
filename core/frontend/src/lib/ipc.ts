@@ -5362,6 +5362,18 @@ export interface RecordEditorView {
   screenRects: [number, number, number, number][];
   /** Rust's 1080p output size `[w, h]` — the preview's shape (never re-derived in TS). */
   outputSize: [number, number];
+  /** Inserted takes by id (what a clip's `source` names), for the audio preview. */
+  takes?: Record<string, RecordTakeMeta>;
+}
+/** An inserted take (`<project>/takes/<id>/`). */
+export interface RecordTakeMeta {
+  durationMs: number;
+  width: number;
+  height: number;
+  systemAudio: boolean;
+  hasMic: boolean;
+  micOffsetMs: number;
+  hasCursor: boolean;
 }
 export interface RecordClickHit {
   progMs: number;
@@ -5443,6 +5455,18 @@ export function editorToSource(programmeMs: number): Promise<EditorSourcePos | n
 /** Appends the auto-zoom planner's zooms; the caller records the answer as one undo step. */
 export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
   return invoke("editor_auto_zoom", { sessionId });
+}
+/** Clip `from` to position `to` (with everything on it); Rust answers with the new view. */
+export function editorMoveClip(sessionId: number, from: number, to: number): Promise<RecordEditorView> {
+  return invoke("editor_move_clip", { sessionId, from, to });
+}
+/** A copy of clip `index` right behind it. */
+export function editorDuplicateClip(sessionId: number, index: number): Promise<RecordEditorView> {
+  return invoke("editor_duplicate_clip", { sessionId, index });
+}
+/** Copies another finished project into the open one and appends it as a clip. */
+export function editorImportTake(sessionId: number, projectDir: string): Promise<RecordEditorView> {
+  return invoke("editor_import_take", { sessionId, projectDir });
 }
 /** Source → programme on the open document; does not move the playhead. */
 export function editorToProgramme(clip: number, sourceMs: number): Promise<number> {

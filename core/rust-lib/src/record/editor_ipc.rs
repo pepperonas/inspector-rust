@@ -16,11 +16,11 @@
 //! helper's own message.
 
 use super::assets::AssetRoot;
-use super::editor::{self, EditDoc, EditorView, OutputTarget};
+use super::editor::{self, EditDoc, EditorView, OutputTarget, TakeMetas};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
-use super::click_cues::click_hits;
-use super::scene_json::{has_cursor_data, read_cursor, scene_json_with, screen_boxes};
+use super::click_cues::click_hits_by_source;
+use super::scene_json::{has_cursor_data, load_takes, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
 use super::zoom_plan::plan_auto_zooms;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
@@ -333,6 +333,7 @@ pub type ExportPlan = (ExportKind, (u32, u32), u32, &'static str);
 pub fn export_plan(
     opts: &ExportOptions,
     meta: &RecordingMeta,
+    takes: &TakeMetas,
     doc: &EditDoc,
 ) -> Result<ExportPlan, String> {
     match opts.kind {
@@ -340,14 +341,14 @@ pub fn export_plan(
             if !MP4_FPS.contains(&opts.fps) {
                 return Err(ERR_BAD_EXPORT.into());
             }
-            let (w, h) = editor::output_size(meta, doc, opts.target);
+            let (w, h) = editor::output_size(meta, takes, doc, opts.target);
             Ok((ExportKind::Mp4 { w, h, fps: opts.fps, codec: opts.codec }, (w, h), opts.fps, "mp4"))
         }
         ExportFormat::Gif => {
             if !GIF_FPS.contains(&opts.fps) || !GIF_WIDTHS.contains(&opts.gif_width) {
                 return Err(ERR_BAD_EXPORT.into());
             }
-            let (sw, sh) = editor::output_size(meta, doc, OutputTarget::Source);
+            let (sw, sh) = editor::output_size(meta, takes, doc, OutputTarget::Source);
             let w = opts.gif_width;
             let h = ((((w as f64 * sh as f64 / sw.max(1) as f64) / 2.0).round() as u32) * 2).max(2);
             Ok((ExportKind::Gif { w, h, fps: opts.fps, loop_forever: opts.loop_forever }, (w, h), opts.fps, "gif"))
@@ -529,6 +530,8 @@ struct Session {
     /// Resolved once per session: the bundle's asset root and the take's cursor telemetry.
     assets: AssetRoot,
     cursor: Option<CursorRecording>,
+    /// The inserted takes (`<project>/takes/<id>/`), read at open and after an import.
+    takes: TakeSources,
     transport: Transport,
     preview: (u32, u32),
     /// Stall-watchdog anchor (`now_ms` clock), see [`stall_check`].
@@ -550,11 +553,15 @@ impl Session {
     }
 
     fn output(&self, target: OutputTarget) -> (u32, u32) {
-        editor::output_size(&self.project.recording, &self.doc, target)
+        editor::output_size(&self.project.recording, &self.metas(), &self.doc, target)
+    }
+
+    fn metas(&self) -> TakeMetas {
+        take_metas(&self.takes)
     }
 
     fn scene(&self, out: (u32, u32), fps: u32) -> Value {
-        scene_json_with(&self.dir, &self.project, &self.doc, out, fps, &self.assets, self.cursor.as_ref())
+        scene_json_with(&self.dir, &self.project, &self.doc, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
     }
 
     fn preview_scene(&self) -> Value {
@@ -563,7 +570,7 @@ impl Session {
 
     /// The timeline view plus the preview scene's output size, the clicks and screen boxes.
     fn view(&self) -> EditorView {
-        session_view(&self.project.recording, &self.doc, self.cursor.as_ref(), self.output(OutputTarget::P1080))
+        session_view(&self.project.recording, &self.doc, self.cursor.as_ref(), &self.takes, self.output(OutputTarget::P1080))
     }
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
@@ -579,34 +586,48 @@ impl Session {
 
 /// [`editor::view`] plus what only the session knows: the output size, the recorded clicks
 /// on the programme clock and each clip's screen box in the output.
-pub fn session_view(meta: &RecordingMeta, doc: &EditDoc, cursor: Option<&CursorRecording>, out: (u32, u32)) -> EditorView {
-    let click_hits = cursor.filter(|_| has_cursor_data(cursor)).map(|c| click_hits(doc, c)).unwrap_or_default();
-    let screen_rects = screen_boxes(meta, doc, out).iter().map(|(r, _)| [r.x, r.y, r.width, r.height]).collect();
-    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, ..editor::view(doc) }
+pub fn session_view(
+    meta: &RecordingMeta,
+    doc: &EditDoc,
+    cursor: Option<&CursorRecording>,
+    takes: &TakeSources,
+    out: (u32, u32),
+) -> EditorView {
+    let cursor_of = |source: Option<&str>| match source {
+        None => cursor,
+        Some(id) => takes.get(id).and_then(|t| t.cursor.as_ref()),
+    };
+    let click_hits = click_hits_by_source(doc, |s| cursor_of(s).filter(|r| has_cursor_data(Some(r))));
+    let screen_rects = screen_boxes(meta, &take_metas(takes), doc, out).iter().map(|(r, _)| [r.x, r.y, r.width, r.height]).collect();
+    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, takes: take_metas(takes), ..editor::view(doc) }
 }
 
 /// The document with the planner's zooms appended (`plan_auto_zooms`: new auto regions only,
 /// the existing ones — manual or auto — are reserved and stay), marked as planned, normalised.
-/// `None` without pointer data: nothing to plan, nothing changes.
-pub fn with_auto_zooms(doc: &EditDoc, cursor: Option<&CursorRecording>, duration_ms: u64) -> Option<EditDoc> {
+/// `None` without pointer data: nothing to plan, nothing changes. `cursor` is the project's
+/// own take; clips of inserted takes get no planned zooms (their clicks are not in it).
+pub fn with_auto_zooms(doc: &EditDoc, cursor: Option<&CursorRecording>, duration_ms: u64, takes: &TakeMetas) -> Option<EditDoc> {
     let rec = cursor.filter(|_| has_cursor_data(cursor))?;
     let mut next = doc.clone();
-    next.zooms.extend(plan_auto_zooms(doc, rec));
+    let planned = plan_auto_zooms(doc, rec)
+        .into_iter()
+        .filter(|z| doc.clips.get(z.clip).is_some_and(|c| c.source.is_none()));
+    next.zooms.extend(planned);
     next.auto_zoom_done = true;
-    Some(editor::normalize(next, duration_ms))
+    Some(editor::normalize(next, duration_ms, takes))
 }
 
 /// The stored document for an open. The first time a v2 document is opened (`auto_zoom_done`
 /// unset) it gets the planner's zooms once when `auto_zoom` (`record.auto_zoom`) is on and the
 /// take has pointer data — and is marked done either way, so zooms are never added behind the
 /// user's back later (deleting them all and reopening plans nothing). `true` = changed (save).
-pub fn doc_for_open(project: &Project, cursor: Option<&CursorRecording>, auto_zoom: bool) -> (EditDoc, bool) {
-    let doc = editor::load(project);
+pub fn doc_for_open(project: &Project, cursor: Option<&CursorRecording>, auto_zoom: bool, takes: &TakeMetas) -> (EditDoc, bool) {
+    let doc = editor::load(project, takes);
     if doc.auto_zoom_done {
         return (doc, false);
     }
     let duration = project.recording.duration_ms;
-    let planned = if auto_zoom { with_auto_zooms(&doc, cursor, duration) } else { None };
+    let planned = if auto_zoom { with_auto_zooms(&doc, cursor, duration, takes) } else { None };
     let next = planned.unwrap_or(editor::EditDoc { auto_zoom_done: true, ..doc });
     (next, true)
 }
@@ -806,11 +827,12 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     }
     let assets = AssetRoot::resolve(app);
     let cursor = read_cursor(&dir);
+    let takes = load_takes(&dir);
     let auto_zoom = app
         .try_state::<crate::db::DbHandle>()
         .map(|db| super::RecordConfig::load(&db).auto_zoom)
         .unwrap_or(true);
-    let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom);
+    let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom, &take_metas(&takes));
     // A different project open before: its edits are saved first.
     flush_save();
     let (scene, preview, init) = {
@@ -821,6 +843,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             preview: (0, 0),
             assets,
             cursor,
+            takes,
             dir,
             project,
             doc,
@@ -892,7 +915,7 @@ fn apply_update(
 ) -> Result<(EditorView, Value, Vec<Command>), String> {
     let s = slot.as_mut().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
     let before = s.output(OutputTarget::P1080);
-    s.doc = editor::normalize(doc, s.project.recording.duration_ms);
+    s.doc = editor::normalize(doc, s.project.recording.duration_ms, &s.metas());
     let mut cmds = s.transport.set_doc(&s.doc, now);
     // Under `Auto` padding, frame and crop change the output's shape, not only an aspect
     // switch: every shape change reshapes the preview (the same size `open_editor` picks), so
@@ -932,10 +955,53 @@ pub fn auto_zoom(app: &AppHandle, session_id: u64) -> Result<EditorView, String>
     let next = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
-        match with_auto_zooms(&s.doc, s.cursor.as_ref(), s.project.recording.duration_ms) {
+        match with_auto_zooms(&s.doc, s.cursor.as_ref(), s.project.recording.duration_ms, &s.metas()) {
             Some(doc) => doc,
             None => return Ok(s.view()),
         }
+    };
+    update(app, session_id, next)
+}
+
+/// `editor_move_clip`: clip `from` to position `to` with everything on it (one undo step in
+/// the UI, which records the returned doc).
+pub fn move_clip(app: &AppHandle, session_id: u64, from: usize, to: usize) -> Result<EditorView, String> {
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        editor::move_clip(&s.doc, from, to)
+    };
+    update(app, session_id, next)
+}
+
+/// `editor_duplicate_clip`: a copy of clip `index` right behind it (one undo step in the UI).
+pub fn duplicate_clip(app: &AppHandle, session_id: u64, index: usize) -> Result<EditorView, String> {
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        editor::duplicate_clip(&s.doc, index)
+    };
+    update(app, session_id, next)
+}
+
+/// `editor_import_take`: copies the finished project at `src` into the open project
+/// (`takes/<id>/`, see [`super::session::import_take_into`]) and appends one clip over all of
+/// it. The copy runs without the session lock (it can take a moment); a session switched in
+/// the meantime refuses the result (`ERR_NO_SESSION`), the copied folder stays unused.
+pub fn import_take(app: &AppHandle, session_id: u64, src: &Path) -> Result<EditorView, String> {
+    let dir = {
+        let guard = session();
+        guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?.dir.clone()
+    };
+    let (id, meta) = super::session::import_take_into(&dir, src)?;
+    let next = {
+        let mut guard = session();
+        let s = guard.as_mut().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        s.takes = load_takes(&s.dir);
+        if !s.takes.contains_key(&id) {
+            return Err(super::session::ERR_TAKE_COPY.into());
+        }
+        editor::append_take(&s.doc, &id, &meta)
     };
     update(app, session_id, next)
 }
@@ -1087,7 +1153,7 @@ pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
     let (scene, kind, path) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.doc)?;
+        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc)?;
         let downloads = dirs::download_dir()
             .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
             .filter(|d| d.is_dir())
@@ -1331,7 +1397,7 @@ mod tests {
 
     fn session_for(dir: &Path, id: u64) -> Session {
         let project = project::read_project(dir).unwrap();
-        let doc = editor::load(&project);
+        let doc = editor::load(&project, &TakeMetas::new());
         Session {
             id,
             dir: dir.to_path_buf(),
@@ -1339,6 +1405,7 @@ mod tests {
             preview: (640, 360),
             assets: AssetRoot::dev(),
             cursor: None,
+            takes: load_takes(dir),
             project,
             doc,
             last_frame_ms: 0,
@@ -1393,7 +1460,7 @@ mod tests {
         let mut d = doc(&[(0, 20_000)]);
         d.zooms = vec![manual_zoom(18_000, 19_500)];
         let rec = clicks_take();
-        let next = with_auto_zooms(&d, Some(&rec), 20_000).expect("pointer data: planned");
+        let next = with_auto_zooms(&d, Some(&rec), 20_000, &TakeMetas::new()).expect("pointer data: planned");
         assert!(next.auto_zoom_done);
         assert_eq!(next.zooms.iter().filter(|z| z.origin == ZoomOrigin::Manual).count(), 1);
         assert_eq!(next.zooms.iter().find(|z| z.id == "mine"), d.zooms.first(), "the manual zoom is untouched");
@@ -1402,18 +1469,18 @@ mod tests {
         assert!(autos[0].start_ms <= 5_000 && autos[0].end_ms > 5_000);
         assert!(autos[1].start_ms <= 12_000 && autos[1].end_ms > 12_000);
         // Pressing it again plans nothing new: every existing zoom is reserved.
-        let again = with_auto_zooms(&next, Some(&rec), 20_000).unwrap();
+        let again = with_auto_zooms(&next, Some(&rec), 20_000, &TakeMetas::new()).unwrap();
         assert_eq!(again.zooms, next.zooms);
     }
 
     #[test]
     fn auto_zoom_without_cursor_data_is_noop() {
         let d = doc(&[(0, 20_000)]);
-        assert_eq!(with_auto_zooms(&d, None, 20_000), None);
+        assert_eq!(with_auto_zooms(&d, None, 20_000, &TakeMetas::new()), None);
         let empty = CursorRecording { samples: vec![], ..clicks_take() };
-        assert_eq!(with_auto_zooms(&d, Some(&empty), 20_000), None);
+        assert_eq!(with_auto_zooms(&d, Some(&empty), 20_000, &TakeMetas::new()), None);
         let none = CursorRecording { provider: crate::record::project::CursorProvider::None, ..clicks_take() };
-        assert_eq!(with_auto_zooms(&d, Some(&none), 20_000), None);
+        assert_eq!(with_auto_zooms(&d, Some(&none), 20_000, &TakeMetas::new()), None);
     }
 
     #[test]
@@ -1423,10 +1490,10 @@ mod tests {
         p.recording.duration_ms = 20_000;
         let rec = clicks_take();
         // Off: no zooms, but the open still marks it done.
-        let (off, changed) = doc_for_open(&p, Some(&rec), false);
+        let (off, changed) = doc_for_open(&p, Some(&rec), false, &TakeMetas::new());
         assert!(changed && off.auto_zoom_done && off.zooms.is_empty());
         // On: the first open plans.
-        let (first, changed) = doc_for_open(&p, Some(&rec), true);
+        let (first, changed) = doc_for_open(&p, Some(&rec), true, &TakeMetas::new());
         assert!(changed && first.auto_zoom_done);
         assert_eq!(first.zooms.len(), 2);
         // Saved, every zoom deleted, reopened: nothing comes back.
@@ -1434,13 +1501,13 @@ mod tests {
         editor::store(&mut p, &cleared);
         project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
         let p2 = project::read_project(&dir).unwrap();
-        let (second, changed) = doc_for_open(&p2, Some(&rec), true);
+        let (second, changed) = doc_for_open(&p2, Some(&rec), true, &TakeMetas::new());
         assert!(!changed);
         assert!(second.zooms.is_empty(), "a second open never plans again");
         // A v1 project never gets zooms either.
         let mut old = p2.clone();
         old.editor = serde_json::json!({"version": 1, "clips": [{"startMs": 0, "endMs": 20000}]});
-        let (v1, changed) = doc_for_open(&old, Some(&rec), true);
+        let (v1, changed) = doc_for_open(&old, Some(&rec), true, &TakeMetas::new());
         assert!(!changed && v1.zooms.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1450,7 +1517,7 @@ mod tests {
         let meta = RecordingMeta { width: 1920, height: 1080, fps: 30, duration_ms: 20_000, ..Default::default() };
         let d = doc(&[(0, 20_000)]);
         let rec = clicks_take();
-        let v = session_view(&meta, &d, Some(&rec), (1920, 1080));
+        let v = session_view(&meta, &d, Some(&rec), &TakeSources::new(), (1920, 1080));
         let presses: Vec<u64> = v.click_hits.iter().filter(|h| !h.release).map(|h| h.prog_ms).collect();
         assert_eq!(presses, vec![5_000, 12_000]);
         assert_eq!(v.click_hits.len(), 4, "a press and a release each");
@@ -1458,10 +1525,10 @@ mod tests {
         assert_eq!(v.screen_rects.len(), 1);
         // Cut out the first click: only the second plays, on the programme clock.
         let cut = doc(&[(8_000, 20_000)]);
-        let v = session_view(&meta, &cut, Some(&rec), (1920, 1080));
+        let v = session_view(&meta, &cut, Some(&rec), &TakeSources::new(), (1920, 1080));
         assert_eq!(v.click_hits.iter().filter(|h| !h.release).map(|h| h.prog_ms).collect::<Vec<_>>(), vec![4_000]);
         // No pointer data: no clicks.
-        assert!(session_view(&meta, &d, None, (1920, 1080)).click_hits.is_empty());
+        assert!(session_view(&meta, &d, None, &TakeSources::new(), (1920, 1080)).click_hits.is_empty());
         let json = serde_json::to_value(&v).unwrap();
         assert!(json.get("clickHits").is_some() && json.get("screenRects").is_some() && json.get("zooms").is_some());
     }
@@ -1491,7 +1558,7 @@ mod tests {
         let project = project::read_project(&dir).expect("project.json");
         let cursor = read_cursor(&dir);
         println!("cursor samples: {}", cursor.as_ref().map_or(0, |c| c.samples.len()));
-        let (mut doc, planned) = doc_for_open(&project, cursor.as_ref(), true);
+        let (mut doc, planned) = doc_for_open(&project, cursor.as_ref(), true, &TakeMetas::new());
         println!("first open planned={planned}, zooms:");
         for z in &doc.zooms {
             println!("  {} clip {} {}–{} ms depth {} focus ({:.2},{:.2}) {:?}", z.id, z.clip, z.start_ms, z.end_ms, z.depth, z.focus_x, z.focus_y, z.origin);
@@ -1502,11 +1569,11 @@ mod tests {
         doc.cursor.show = true;
         doc.cursor.theme = "pop-coral".into();
         doc.cursor.click_sound = true;
-        let doc = editor::normalize(doc, project.recording.duration_ms);
-        let out = editor::output_size(&project.recording, &doc, OutputTarget::P1080);
-        let v = session_view(&project.recording, &doc, cursor.as_ref(), out);
+        let doc = editor::normalize(doc, project.recording.duration_ms, &TakeMetas::new());
+        let out = editor::output_size(&project.recording, &TakeMetas::new(), &doc, OutputTarget::P1080);
+        let v = session_view(&project.recording, &doc, cursor.as_ref(), &TakeSources::new(), out);
         println!("output {out:?}, click hits {}, screen rect {:?}", v.click_hits.len(), v.screen_rects.first());
-        let scene = scene_json_with(&dir, &project, &doc, out, 30, &AssetRoot::dev(), cursor.as_ref());
+        let scene = scene_json_with(&dir, &project, &doc, out, 30, &AssetRoot::dev(), cursor.as_ref(), &TakeSources::new());
         assert_eq!(scene.get("clickSound").is_some(), !v.click_hits.is_empty(), "click sound iff the take has clicks");
         // `IR_E2E_SCENE_OUT` keeps someone else's project untouched.
         let path = std::env::var_os("IR_E2E_SCENE_OUT").map(PathBuf::from).unwrap_or_else(|| dir.join("scene-e2e.json"));
@@ -1541,7 +1608,7 @@ mod tests {
         // B's own edit is stored into B — and only B.
         apply_update(&mut slot, 2, stale.clone(), 0).unwrap();
         save_session(slot.as_mut().unwrap());
-        assert_eq!(editor::load(&project::read_project(&b).unwrap()).clips, stale.clips);
+        assert_eq!(editor::load(&project::read_project(&b).unwrap(), &TakeMetas::new()).clips, stale.clips);
         assert_eq!(std::fs::read(a.join(PROJECT_FILE)).unwrap(), a_before, "A's project.json untouched");
         // No session at all: refused too.
         assert_eq!(apply_update(&mut None, 2, stale, 0).unwrap_err(), ERR_NO_SESSION);
@@ -1778,17 +1845,17 @@ mod tests {
         let mp4 = ExportOptions { target: OutputTarget::P720, fps: 60, codec: Codec::Hevc, ..ExportOptions::default() };
         let mut d = doc(&[(0, 5_000)]);
         d.output.aspect = Aspect::W16H9;
-        let (kind, size, fps, ext) = export_plan(&mp4, &meta, &d).unwrap();
+        let (kind, size, fps, ext) = export_plan(&mp4, &meta, &TakeMetas::new(), &d).unwrap();
         assert_eq!(kind, ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc });
         assert_eq!((size, fps, ext), ((1280, 720), 60, "mp4"));
-        assert_eq!(export_plan(&ExportOptions { fps: 25, ..mp4.clone() }, &meta, &d).unwrap_err(), ERR_BAD_EXPORT);
+        assert_eq!(export_plan(&ExportOptions { fps: 25, ..mp4.clone() }, &meta, &TakeMetas::new(), &d).unwrap_err(), ERR_BAD_EXPORT);
 
         let gif = ExportOptions { kind: ExportFormat::Gif, fps: 15, gif_width: 480, loop_forever: false, ..ExportOptions::default() };
-        let (kind, size, _, ext) = export_plan(&gif, &meta, &d).unwrap();
+        let (kind, size, _, ext) = export_plan(&gif, &meta, &TakeMetas::new(), &d).unwrap();
         assert_eq!(kind, ExportKind::Gif { w: 480, h: 270, fps: 15, loop_forever: false });
         assert_eq!((size, ext), ((480, 270), "gif"));
-        assert!(export_plan(&ExportOptions { gif_width: 500, ..gif.clone() }, &meta, &d).is_err());
-        assert!(export_plan(&ExportOptions { fps: 60, ..gif }, &meta, &d).is_err());
+        assert!(export_plan(&ExportOptions { gif_width: 500, ..gif.clone() }, &meta, &TakeMetas::new(), &d).is_err());
+        assert!(export_plan(&ExportOptions { fps: 60, ..gif }, &meta, &TakeMetas::new(), &d).is_err());
         // Wire shape the UI sends.
         let o: ExportOptions =
             serde_json::from_str(r#"{"kind":"gif","target":"p1080","fps":20,"codec":"h264","gifWidth":854,"loopForever":true}"#)
@@ -1816,11 +1883,11 @@ mod tests {
     fn editor_ipc_live() {
         let dir = PathBuf::from(std::env::var("IR_EDITOR_PROJECT").expect("IR_EDITOR_PROJECT"));
         let project = project::read_project(&dir).unwrap();
-        let doc = editor::load(&project);
-        let out = editor::output_size(&project.recording, &doc, OutputTarget::P1080);
+        let doc = editor::load(&project, &TakeMetas::new());
+        let out = editor::output_size(&project.recording, &TakeMetas::new(), &doc, OutputTarget::P1080);
         let assets = AssetRoot::dev();
         let cursor = read_cursor(&dir);
-        let scene = scene_json_with(&dir, &project, &doc, out, PREVIEW_FPS, &assets, cursor.as_ref());
+        let scene = scene_json_with(&dir, &project, &doc, out, PREVIEW_FPS, &assets, cursor.as_ref(), &TakeSources::new());
         let client = RenderClient::spawn(Arc::new(|n| eprintln!("notice: {n:?}"))).unwrap();
         let (w, h) = preview_size(out);
         client.open(scene.clone(), w, h).unwrap();
@@ -1835,7 +1902,7 @@ mod tests {
         let f = got.expect("a preview frame");
         eprintln!("frame gen {} {}x{}", f.gen, f.w, f.h);
         let frames = thumb_frames(editor::programme_duration_ms(&doc), 4, THUMB_FPS);
-        let t = client.thumbs(scene_json_with(&dir, &project, &doc, (640, 360), THUMB_FPS, &assets, cursor.as_ref()), THUMB_FPS, frames.clone(), THUMB_WIDTH).unwrap();
+        let t = client.thumbs(scene_json_with(&dir, &project, &doc, (640, 360), THUMB_FPS, &assets, cursor.as_ref(), &TakeSources::new()), THUMB_FPS, frames.clone(), THUMB_WIDTH).unwrap();
         eprintln!("thumbs {:?}", t.iter().map(|(i, j)| (*i, j.len())).collect::<Vec<_>>());
         assert_eq!(t.len(), frames.len());
         let started = Instant::now();

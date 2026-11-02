@@ -264,6 +264,25 @@ export function clipAt(view: RecordEditorView, t: number): number {
 }
 
 /**
+ * The gap a dragged clip would land in: 0 = before the first clip, `clips.length` = after the
+ * last. Decided by clip middles (programme ms from Rust's view), so the mark jumps half-way.
+ */
+export function clipDropGap(clips: ProgSpan[], progMs: number): number {
+  const i = clips.findIndex((c) => progMs < (c.progStartMs + c.progEndMs) / 2);
+  return i < 0 ? clips.length : i;
+}
+
+/**
+ * The index clip `from` ends up at when dropped into `gap` (the `to` of `editor_move_clip`:
+ * remove, then insert) — `null` when the drop changes nothing (its own gaps).
+ */
+export function clipMoveTarget(from: number, gap: number, count: number): number | null {
+  if (from < 0 || from >= count || gap < 0 || gap > count) return null;
+  if (gap === from || gap === from + 1) return null;
+  return gap > from ? gap - 1 : gap;
+}
+
+/**
  * Source position of a trim handle dragged to programme time `prog` (ruling R12: the mapping
  * is Rust's). Inside the clip's programme span `toSource` (`editor_to_source`) answers. Past
  * the span the handle uncovers source the clip does not play yet; Rust's `normalize` keeps

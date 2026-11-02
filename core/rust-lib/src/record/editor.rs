@@ -9,6 +9,8 @@
 
 use super::project::{Project, RecordingMeta};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 
 pub const EDITOR_VERSION: u32 = 3;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
@@ -696,6 +698,9 @@ pub struct EditorView {
     /// the aspect alone. Filled by the editor session (`[0, 0]` from [`view`], which has no
     /// recording metadata).
     pub output_size: [u32; 2],
+    /// The inserted takes the clips may name (`source`), for the UI's audio preview. Filled by
+    /// the editor session (empty from [`view`]).
+    pub takes: TakeMetas,
 }
 
 /// One clip spanning the whole recording, speed 1, no crop.
@@ -747,10 +752,10 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
 
 /// The stored document, normalised. Empty, unparseable or unknown-version blocks fall back
 /// to `default_doc` — an editor that cannot read its block must still open the recording.
-pub fn load(project: &Project) -> EditDoc {
+pub fn load(project: &Project, takes: &TakeMetas) -> EditDoc {
     let meta = &project.recording;
     match migrate(project.editor.clone()) {
-        Some(doc) => normalize(doc, meta.duration_ms),
+        Some(doc) => normalize(doc, meta.duration_ms, takes),
         None => default_doc(meta),
     }
 }
@@ -758,6 +763,161 @@ pub fn load(project: &Project) -> EditDoc {
 pub fn store(project: &mut Project, doc: &EditDoc) {
     // EditDoc is plain data (no maps with non-string keys); serialisation cannot fail.
     project.editor = serde_json::to_value(doc).unwrap_or_else(|_| serde_json::json!({}));
+}
+
+// ── sources: the project's own take and inserted ones ───────────────────────
+
+/// Folder (inside the project) inserted takes are copied into, one sub-folder per take id.
+pub const TAKES_DIR: &str = "takes";
+
+/// What the editor needs to know about an inserted take (from its `project.json` + files).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TakeMeta {
+    pub duration_ms: u64,
+    pub width: u32,
+    pub height: u32,
+    pub system_audio: bool,
+    pub has_mic: bool,
+    /// The take's mic position against its video (`MicMeta::offset_ms`; 0 without a mic).
+    pub mic_offset_ms: i64,
+    pub has_cursor: bool,
+}
+
+impl TakeMeta {
+    pub fn from_recording(meta: &RecordingMeta, has_cursor: bool) -> Self {
+        TakeMeta {
+            duration_ms: meta.duration_ms,
+            width: meta.width,
+            height: meta.height,
+            system_audio: meta.system_audio,
+            has_mic: meta.mic.is_some(),
+            mic_offset_ms: meta.mic.as_ref().map_or(0, |m| m.offset_ms),
+            has_cursor,
+        }
+    }
+}
+
+/// The inserted takes of a project by id. A clip whose `source` is not in here plays nothing.
+pub type TakeMetas = BTreeMap<String, TakeMeta>;
+
+/// A take id is a plain folder name: 1..=64 of `[A-Za-z0-9_-]` — never a path.
+pub fn valid_take_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// The folder a clip's recording lives in: the project itself, or `<project>/takes/<id>/`.
+/// An id that is not a plain name (see [`valid_take_id`]) never escapes the takes folder: it
+/// maps to a name no take can have, so nothing there exists.
+pub fn take_dir(project: &Path, source: Option<&str>) -> PathBuf {
+    match source {
+        None => project.to_path_buf(),
+        Some(id) if valid_take_id(id) => project.join(TAKES_DIR).join(id),
+        Some(_) => project.join(TAKES_DIR).join(".invalid"),
+    }
+}
+
+/// Maps every clip index through `map` (old → new); entries whose clip has no new index go.
+fn remap_clips(doc: &mut EditDoc, map: impl Fn(usize) -> Option<usize>) {
+    doc.speed.retain_mut(|r| map(r.clip).map(|c| r.clip = c).is_some());
+    doc.zooms.retain_mut(|z| map(z.clip).map(|c| z.clip = c).is_some());
+    doc.annotations.retain_mut(|a| map(a.clip).map(|c| a.clip = c).is_some());
+    doc.audio_tracks.retain_mut(|t| map(t.clip).map(|c| t.clip = c).is_some());
+    doc.speed.sort_by_key(|r| (r.clip, r.start_ms));
+    doc.zooms.sort_by_key(|z| (z.clip, z.start_ms));
+}
+
+/// Clip `from` moved to position `to` (the index it has afterwards, `Vec::remove` + `insert`).
+/// Its speed regions, crop, zooms, annotations and audio tracks go along; every other clip's
+/// things follow their clip's new index. Out of range or `from == to`: unchanged.
+pub fn move_clip(doc: &EditDoc, from: usize, to: usize) -> EditDoc {
+    let n = doc.clips.len();
+    if from >= n || to >= n || from == to {
+        return doc.clone();
+    }
+    // order[new] = old
+    let mut order: Vec<usize> = (0..n).collect();
+    let moved = order.remove(from);
+    order.insert(to, moved);
+    let mut new_of = vec![0; n];
+    for (new, &old) in order.iter().enumerate() {
+        new_of[old] = new;
+    }
+    let mut next = doc.clone();
+    let mut crop = doc.crop.clone();
+    crop.resize(n, None);
+    next.clips = order.iter().map(|&o| doc.clips[o].clone()).collect();
+    next.crop = order.iter().map(|&o| crop[o]).collect();
+    remap_clips(&mut next, |c| new_of.get(c).copied());
+    next
+}
+
+/// `{id}-copy`, `{id}-copy2`, … — the first that is not in `taken` (which it joins).
+fn copy_id(id: &str, taken: &mut HashSet<String>) -> String {
+    let base = if id.trim().is_empty() { "copy".to_string() } else { format!("{id}-copy") };
+    let mut candidate = base.clone();
+    let mut n = 2;
+    while !taken.insert(candidate.clone()) {
+        candidate = format!("{base}{n}");
+        n += 1;
+    }
+    candidate
+}
+
+/// A copy of clip `index` right behind it, with copies of its speed regions, crop, zooms,
+/// annotations and audio tracks (those under new ids). Out of range: unchanged.
+pub fn duplicate_clip(doc: &EditDoc, index: usize) -> EditDoc {
+    let n = doc.clips.len();
+    if index >= n {
+        return doc.clone();
+    }
+    let mut next = doc.clone();
+    next.crop.resize(n, None);
+    next.clips.insert(index + 1, doc.clips[index].clone());
+    let crop = next.crop[index];
+    next.crop.insert(index + 1, crop);
+    let copy = index + 1;
+    remap_clips(&mut next, |c| Some(if c > index { c + 1 } else { c }));
+
+    let speed: Vec<SpeedRegion> =
+        doc.speed.iter().filter(|r| r.clip == index).map(|r| SpeedRegion { clip: copy, ..*r }).collect();
+    next.speed.extend(speed);
+    let mut zoom_ids: HashSet<String> = next.zooms.iter().map(|z| z.id.clone()).collect();
+    let zooms: Vec<ZoomRegion> = doc
+        .zooms
+        .iter()
+        .filter(|z| z.clip == index)
+        .map(|z| ZoomRegion { id: copy_id(&z.id, &mut zoom_ids), clip: copy, ..z.clone() })
+        .collect();
+    next.zooms.extend(zooms);
+    let mut ann_ids: HashSet<String> = next.annotations.iter().map(|a| a.id.clone()).collect();
+    let anns: Vec<Annotation> = doc
+        .annotations
+        .iter()
+        .filter(|a| a.clip == index)
+        .map(|a| Annotation { id: copy_id(&a.id, &mut ann_ids), clip: copy, ..a.clone() })
+        .collect();
+    next.annotations.extend(anns);
+    let mut track_ids: HashSet<String> = next.audio_tracks.iter().map(|t| t.id.clone()).collect();
+    let tracks: Vec<AudioTrack> = doc
+        .audio_tracks
+        .iter()
+        .filter(|t| t.clip == index)
+        .map(|t| AudioTrack { id: copy_id(&t.id, &mut track_ids), clip: copy, ..t.clone() })
+        .collect();
+    next.audio_tracks.extend(tracks);
+    next.speed.sort_by_key(|r| (r.clip, r.start_ms));
+    next.zooms.sort_by_key(|z| (z.clip, z.start_ms));
+    next
+}
+
+/// One clip over the whole of take `take_id`, appended at the end (no crop, speed 1).
+pub fn append_take(doc: &EditDoc, take_id: &str, meta: &TakeMeta) -> EditDoc {
+    let mut next = doc.clone();
+    next.crop.resize(doc.clips.len(), None);
+    next.clips.push(EditClip { start_ms: 0, end_ms: meta.duration_ms, source: Some(take_id.to_string()) });
+    next.crop.push(None);
+    next
 }
 
 fn finite_or(v: f64, fallback: f64) -> f64 {
@@ -778,8 +938,9 @@ fn normalize_crop(c: CropRect) -> Option<CropRect> {
 /// cuts its range out of earlier ones). Regions come out sorted by (clip, start).
 /// Annotations and audio tracks follow their clip like zooms (see [`normalize_annotations`],
 /// [`normalize_tracks`]). `duration_ms` is the project's own take; a clip of an inserted
-/// take (`source: Some`) keeps its own bounds.
-pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
+/// take (`source: Some(id)`) is clamped to that take's length from `takes` — a clip whose take
+/// is not there (folder gone, not a plain id) has nothing to play and is dropped.
+pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
     let EditDoc {
         clips,
         speed,
@@ -803,7 +964,10 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
         .enumerate()
         .map(|(i, c)| {
             let source = c.source.filter(|s| !s.trim().is_empty());
-            let limit = if source.is_none() { duration_ms } else { u64::MAX };
+            let limit = match &source {
+                None => duration_ms,
+                Some(id) => takes.get(id).filter(|_| valid_take_id(id)).map_or(0, |t| t.duration_ms),
+            };
             let start = c.start_ms.min(limit);
             let end = c.end_ms.min(limit).max(start);
             (i, EditClip { start_ms: start, end_ms: end, source })
@@ -1256,6 +1420,7 @@ pub fn view(doc: &EditDoc) -> EditorView {
         click_hits: Vec::new(),
         screen_rects: Vec::new(),
         output_size: [0, 0],
+        takes: TakeMetas::new(),
     }
 }
 
@@ -1276,9 +1441,14 @@ fn source_dims(meta: &RecordingMeta) -> (f64, f64) {
     }
 }
 
-/// Clip `clip`'s screen source in px: the recording × its crop (`screenSourceSize`).
-pub fn clip_source_size(meta: &RecordingMeta, doc: &EditDoc, clip: usize) -> (u32, u32) {
-    let (sw, sh) = source_dims(meta);
+/// Clip `clip`'s screen source in px: its recording (the project's own or an inserted take)
+/// × its crop (`screenSourceSize`).
+pub fn clip_source_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, clip: usize) -> (u32, u32) {
+    let take = doc.clips.get(clip).and_then(|c| c.source.as_ref()).and_then(|id| takes.get(id));
+    let (sw, sh) = match take {
+        Some(t) if t.width > 0 && t.height > 0 => (t.width as f64, t.height as f64),
+        _ => source_dims(meta),
+    };
     let c = doc.crop.get(clip).copied().flatten();
     let (cw, ch) = c.map_or((1.0, 1.0), |c| (c.w, c.h));
     (((sw * cw).round() as u32).max(1), ((sh * ch).round() as u32).max(1))
@@ -1286,8 +1456,8 @@ pub fn clip_source_size(meta: &RecordingMeta, doc: &EditDoc, clip: usize) -> (u3
 
 /// The Auto shape (width / height): `layout::auto_aspect` over the first clip's screen
 /// (crop included), the padding and the frame (OpenScreen `autoAspectRatioValue`).
-pub fn auto_ratio(meta: &RecordingMeta, doc: &EditDoc) -> f64 {
-    let (w, h) = clip_source_size(meta, doc, 0);
+pub fn auto_ratio(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc) -> f64 {
+    let (w, h) = clip_source_size(meta, takes, doc, 0);
     super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame)
 }
 
@@ -1295,11 +1465,11 @@ pub fn auto_ratio(meta: &RecordingMeta, doc: &EditDoc) -> f64 {
 /// is the target's (1280 / 1920 / the source's long side), the other derived and even
 /// (`toEvenPx = max(2, round(v/2)·2)`, OpenScreen `pickOutputDims`). Every other aspect:
 /// [`aspect_output_size`].
-pub fn output_size(meta: &RecordingMeta, doc: &EditDoc, target: OutputTarget) -> (u32, u32) {
+pub fn output_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, target: OutputTarget) -> (u32, u32) {
     if doc.output.aspect != Aspect::Auto {
         return aspect_output_size(meta, doc.output.aspect, target);
     }
-    let ratio = auto_ratio(meta, doc);
+    let ratio = auto_ratio(meta, takes, doc);
     let (sw, sh) = source_dims(meta);
     let long = match target {
         OutputTarget::P720 => 1280.0,
@@ -1338,6 +1508,8 @@ pub fn aspect_output_size(meta: &RecordingMeta, aspect: Aspect, target: OutputTa
 
 #[cfg(test)]
 mod tests {
+    static NO_TAKES: TakeMetas = TakeMetas::new();
+
     use super::*;
     use crate::record::project::{MicMeta, ProjectStatus, PROJECT_SCHEMA};
 
@@ -1438,7 +1610,7 @@ mod tests {
             serde_json::json!({"version": 0, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 1, "clips": []}),
         ] {
-            assert_eq!(load(&project_with(editor.clone())), def, "{editor}");
+            assert_eq!(load(&project_with(editor.clone()), &NO_TAKES), def, "{editor}");
         }
     }
 
@@ -1453,7 +1625,7 @@ mod tests {
         assert_eq!(p.editor["version"], EDITOR_VERSION);
         assert_eq!(p.editor["output"]["aspect"], "9:16");
         assert_eq!(p.editor["micGainDb"], -6.0);
-        assert_eq!(load(&p), d);
+        assert_eq!(load(&p, &NO_TAKES), d);
     }
 
     #[test]
@@ -1468,7 +1640,7 @@ mod tests {
             Some(CropRect { x: 0.0, y: 0.0, w: 0.5, h: 0.5 }),
         ];
         d.mic_gain_db = 40.0;
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         // Clip 0 (50 ms) and clip 2 (empty) go; clip 1 is clamped into the source.
         assert_eq!(n.clips, vec![clip(2_000, 10_000)]);
         // Regions follow their clip's new index, are clamped into it, speed into 0.25..16;
@@ -1477,7 +1649,7 @@ mod tests {
         // Crop of the surviving clip: min edge 0.05, inside 0..1.
         assert_eq!(n.crop, vec![Some(CropRect { x: 0.0, y: 0.0, w: MIN_CROP_EDGE, h: 1.0 })]);
         assert_eq!(n.mic_gain_db, MAX_MIC_GAIN_DB);
-        let quiet = normalize(EditDoc { mic_gain_db: -200.0, ..example() }, 10_000);
+        let quiet = normalize(EditDoc { mic_gain_db: -200.0, ..example() }, 10_000, &NO_TAKES);
         assert_eq!(quiet.mic_gain_db, MIN_MIC_GAIN_DB);
     }
 
@@ -1486,7 +1658,7 @@ mod tests {
         let mut d = doc(vec![clip(0, 10_000)], vec![sr(0, 0, 1_000, f64::NAN)]);
         d.crop = vec![Some(CropRect { x: f64::NAN, y: 0.0, w: 0.5, h: 0.5 })];
         d.mic_gain_db = f64::NAN;
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.speed[0].speed, 1.0);
         assert_eq!(n.crop, vec![None]);
         assert_eq!(n.mic_gain_db, 0.0);
@@ -1503,7 +1675,7 @@ mod tests {
                 sr(0, 0, 2_000, 0.5),      // eats the head of the first
             ],
         );
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(
             n.speed,
             vec![
@@ -1519,13 +1691,13 @@ mod tests {
     #[test]
     fn normalize_keeps_one_clip() {
         // Every clip too short: the longest survives rather than leaving nothing to play.
-        let n = normalize(doc(vec![clip(0, 30), clip(500, 580), clip(900, 950)], vec![]), 10_000);
+        let n = normalize(doc(vec![clip(0, 30), clip(500, 580), clip(900, 950)], vec![]), 10_000, &NO_TAKES);
         assert_eq!(n.clips, vec![clip(500, 580)]);
         assert_eq!(n.crop, vec![None]);
         // Nothing usable at all: the whole source.
-        let n = normalize(doc(vec![clip(20_000, 30_000)], vec![]), 10_000);
+        let n = normalize(doc(vec![clip(20_000, 30_000)], vec![]), 10_000, &NO_TAKES);
         assert_eq!(n.clips, vec![clip(0, 10_000)]);
-        let n = normalize(doc(vec![], vec![]), 10_000);
+        let n = normalize(doc(vec![], vec![]), 10_000, &NO_TAKES);
         assert_eq!(n.clips, vec![clip(0, 10_000)]);
         assert_eq!(n.version, EDITOR_VERSION);
     }
@@ -1656,20 +1828,20 @@ mod tests {
         let m = meta(1_000);
         let mut d = default_doc(&m); // Auto, 50 % padding, no frame
         // e' = 0.8 · 3024/1964 + 0.2 = 1.4318; the long side is the target's.
-        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1340));
-        assert_eq!(output_size(&m, &d, OutputTarget::P720), (1280, 894));
-        assert_eq!(output_size(&m, &d, OutputTarget::Source), (3024, 2112));
+        assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P1080), (1920, 1340));
+        assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P720), (1280, 894));
+        assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::Source), (3024, 2112));
         // No padding: the screen's own shape.
         d.appearance.padding = 0.0;
-        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1246));
+        assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P1080), (1920, 1246));
         // The first clip's crop decides the shape (a vertical strip → portrait, long side tall).
         d.crop[0] = Some(CropRect { x: 0.25, y: 0.0, w: 0.25, h: 1.0 });
-        let (w, h) = output_size(&m, &d, OutputTarget::P1080);
+        let (w, h) = output_size(&m, &NO_TAKES, &d, OutputTarget::P1080);
         assert_eq!(h, 1920);
         assert!(w < h && w % 2 == 0, "{w}x{h}");
         // A fixed aspect ignores the layout.
         d.output.aspect = Aspect::W16H9;
-        assert_eq!(output_size(&m, &d, OutputTarget::P1080), (1920, 1080));
+        assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P1080), (1920, 1080));
     }
 
     // ── v2: appearance, cursor, zooms ───────────────────────────────────────────
@@ -1688,7 +1860,7 @@ mod tests {
 
     #[test]
     fn v1_doc_migrates_without_visual_change() {
-        let d = load(&project_with(v1_json()));
+        let d = load(&project_with(v1_json()), &NO_TAKES);
         assert_eq!(d.version, EDITOR_VERSION);
         assert_eq!(d.appearance, Appearance::plain());
         assert!(!d.cursor.show);
@@ -1700,7 +1872,7 @@ mod tests {
         assert_eq!(d.mic_gain_db, -3.0);
         // A v1 block without any `output` keeps meaning "as the source".
         let bare = serde_json::json!({"version": 1, "clips": [{"startMs": 0, "endMs": 5000}]});
-        assert_eq!(load(&project_with(bare)).output.aspect, Aspect::Source);
+        assert_eq!(load(&project_with(bare), &NO_TAKES).output.aspect, Aspect::Source);
     }
 
     #[test]
@@ -1722,7 +1894,7 @@ mod tests {
     fn unknown_version_falls_back_to_default() {
         let json = serde_json::json!({"version": 99, "clips": [{"startMs": 0, "endMs": 5000}]});
         assert!(migrate(json.clone()).is_none());
-        assert_eq!(load(&project_with(json)), default_doc(&meta(10_000)));
+        assert_eq!(load(&project_with(json), &NO_TAKES), default_doc(&meta(10_000)));
     }
 
     #[test]
@@ -1745,7 +1917,7 @@ mod tests {
     fn normalize_zoom_follows_split() {
         // What the TS split leaves behind: two clips, the zoom still reaching across the cut.
         let d = with_zooms(vec![clip(0, 3_000), clip(3_000, 10_000)], vec![zoom(0, 1_000, 5_000)]);
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.zooms.len(), 1);
         assert_eq!((n.zooms[0].clip, n.zooms[0].start_ms, n.zooms[0].end_ms), (0, 1_000, 3_000));
     }
@@ -1754,7 +1926,7 @@ mod tests {
     fn normalize_drops_zoom_of_deleted_clip() {
         // Clip 0 is a sliver and goes; its zoom goes with it, clip 1's zoom moves to index 0.
         let d = with_zooms(vec![clip(0, 50), clip(2_000, 9_000)], vec![zoom(0, 0, 50), zoom(1, 3_000, 5_000)]);
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.clips, vec![clip(2_000, 9_000)]);
         assert_eq!(n.zooms.len(), 1);
         assert_eq!((n.zooms[0].clip, n.zooms[0].start_ms), (0, 3_000));
@@ -1763,33 +1935,33 @@ mod tests {
     #[test]
     fn normalize_drops_short_zoom() {
         let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 1_000, 1_200), zoom(0, 4_000, 4_250)]);
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.zooms.iter().map(|z| z.start_ms).collect::<Vec<_>>(), vec![4_000]);
         // A trim that leaves under 250 ms of a zoom removes it too.
         let d = with_zooms(vec![clip(0, 1_100)], vec![zoom(0, 1_000, 5_000)]);
-        assert!(normalize(d, 10_000).zooms.is_empty());
+        assert!(normalize(d, 10_000, &NO_TAKES).zooms.is_empty());
     }
 
     #[test]
     fn normalize_zoom_overlap_later_wins() {
         let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 1_000, 5_000), zoom(0, 3_000, 7_000)]);
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         let spans: Vec<_> = n.zooms.iter().map(|z| (z.start_ms, z.end_ms)).collect();
         assert_eq!(spans, vec![(1_000, 3_000), (3_000, 7_000)]);
         // The later one eating the earlier one's head.
         let d = with_zooms(vec![clip(0, 10_000)], vec![zoom(0, 3_000, 7_000), zoom(0, 1_000, 5_000)]);
-        let spans: Vec<_> = normalize(d, 10_000).zooms.iter().map(|z| (z.start_ms, z.end_ms)).collect();
+        let spans: Vec<_> = normalize(d, 10_000, &NO_TAKES).zooms.iter().map(|z| (z.start_ms, z.end_ms)).collect();
         assert_eq!(spans, vec![(1_000, 5_000), (5_000, 7_000)]);
     }
 
     #[test]
     fn normalize_clamps_zoom_numbers() {
         let z = ZoomRegion { depth: 9, focus_x: 1.7, focus_y: f64::NAN, custom_scale: Some(40.0), ..zoom(0, 0, 2_000) };
-        let n = normalize(with_zooms(vec![clip(0, 10_000)], vec![z]), 10_000);
+        let n = normalize(with_zooms(vec![clip(0, 10_000)], vec![z]), 10_000, &NO_TAKES);
         let z = &n.zooms[0];
         assert_eq!((z.depth, z.focus_x, z.focus_y, z.custom_scale), (6, 1.0, 0.5, Some(5.0)));
         let z0 = ZoomRegion { depth: 0, ..zoom(0, 0, 2_000) };
-        assert_eq!(normalize(with_zooms(vec![clip(0, 10_000)], vec![z0]), 10_000).zooms[0].depth, 1);
+        assert_eq!(normalize(with_zooms(vec![clip(0, 10_000)], vec![z0]), 10_000, &NO_TAKES).zooms[0].depth, 1);
     }
 
     #[test]
@@ -1812,7 +1984,7 @@ mod tests {
             custom: Some(CustomCursor { file: "c.png".into(), hotspot_x: 3.0, hotspot_y: -1.0 }),
             ..CursorStyle::default()
         };
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         let a = &n.appearance;
         assert_eq!((a.padding, a.radius_px, a.shadow, a.background_blur, a.motion_blur), (100.0, 0.0, 1.0, 0.0, 0.0));
         let c = &n.cursor;
@@ -1846,7 +2018,7 @@ mod tests {
         assert_eq!(back, d);
         let mut p = project_with(serde_json::json!({}));
         store(&mut p, &d);
-        assert_eq!(load(&p), d);
+        assert_eq!(load(&p, &NO_TAKES), d);
         for b in [
             Background::Wallpaper { id: "03".into() },
             Background::Color { color: "#fff".into() },
@@ -1884,7 +2056,7 @@ mod tests {
         assert!(d.clips.iter().all(|c| c.source.is_none()));
         // Everything a v2 document carried comes through untouched.
         assert_eq!(EditDoc { version: 2, ..d.clone() }, v2);
-        assert_eq!(load(&project_with(v2_json())), normalize(d, 10_000));
+        assert_eq!(load(&project_with(v2_json()), &NO_TAKES), normalize(d, 10_000, &NO_TAKES));
     }
 
     fn text(content: &str) -> AnnotationBody {
@@ -1926,7 +2098,7 @@ mod tests {
             vec![clip(0, 50), clip(2_000, 9_000)],
             vec![ann(0, 0, 50, text("gone")), ann(1, 3_000, 5_000, text("kept"))],
         );
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.annotations.len(), 1);
         assert_eq!((n.annotations[0].clip, n.annotations[0].start_ms), (0, 3_000));
         assert_eq!(n.annotations[0].body, text("kept"));
@@ -1936,12 +2108,12 @@ mod tests {
     fn normalize_annotation_follows_split() {
         // What the TS split leaves behind: two clips, the annotation still reaching across the cut.
         let d = with_annotations(vec![clip(0, 3_000), clip(3_000, 10_000)], vec![ann(0, 1_000, 5_000, text("x"))]);
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!(n.annotations.len(), 1);
         assert_eq!((n.annotations[0].clip, n.annotations[0].start_ms, n.annotations[0].end_ms), (0, 1_000, 3_000));
         // Overlapping annotations both stay (unlike zooms).
         let d = with_annotations(vec![clip(0, 10_000)], vec![ann(0, 0, 4_000, text("a")), ann(0, 1_000, 3_000, text("b"))]);
-        assert_eq!(normalize(d, 10_000).annotations.len(), 2);
+        assert_eq!(normalize(d, 10_000, &NO_TAKES).annotations.len(), 2);
     }
 
     #[test]
@@ -1959,7 +2131,7 @@ mod tests {
             vec![clip(0, 10_000)],
             vec![ann(0, 0, 1_000, blur), ann(0, 0, 1_000, t), ann(0, 0, 1_000, arrow), boxed],
         );
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         let AnnotationBody::Blur(b) = &n.annotations[0].body else { panic!("blur") };
         assert_eq!((b.intensity, b.block_size), (40.0, 4.0));
         let AnnotationBody::Text(t) = &n.annotations[1].body else { panic!("text") };
@@ -1984,7 +2156,7 @@ mod tests {
                 Annotation { id: "".into(), ..ann(0, 0, 1_000, text("3")) },
             ],
         );
-        let ids: Vec<String> = normalize(d, 10_000).annotations.into_iter().map(|a| a.id).collect();
+        let ids: Vec<String> = normalize(d, 10_000, &NO_TAKES).annotations.into_iter().map(|a| a.id).collect();
         assert_eq!(ids[0], "same");
         assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 3);
         assert!(ids.iter().all(|i| !i.is_empty()));
@@ -2002,7 +2174,7 @@ mod tests {
                 ann(0, 0, 1_000, free(vec![(0.0, 0.0), (150.0, 50.0), (50.0, -4.0)])),
             ],
         );
-        let n = normalize(d, 10_000);
+        let n = normalize(d, 10_000, &NO_TAKES);
         let AnnotationBody::Blur(b) = &n.annotations[0].body else { panic!("blur") };
         assert_eq!(b.points, DEFAULT_FREEHAND_POINTS.to_vec());
         let AnnotationBody::Blur(b) = &n.annotations[1].body else { panic!("blur") };
@@ -2042,7 +2214,7 @@ mod tests {
         };
         let looped = AudioTrack { looped: true, fade_in_ms: 4_000, fade_out_ms: 4_000, ..track(0, 0, 1_000) };
         let doc = EditDoc { audio_tracks: vec![t, v, looped], ..doc(vec![clip(0, 5_000), clip(5_000, 10_000)], vec![]) };
-        let n = normalize(doc, 10_000);
+        let n = normalize(doc, 10_000, &NO_TAKES);
         assert_eq!((n.audio_tracks[0].fade_in_ms, n.audio_tracks[0].fade_out_ms), (500, 1_000));
         // Fade capped at 5 s first, then 5000 + 400 share 800 ms.
         assert_eq!((n.audio_tracks[1].fade_in_ms, n.audio_tracks[1].fade_out_ms), (740, 59));
@@ -2061,22 +2233,34 @@ mod tests {
             system_gain_db: 30.0,
             ..doc(vec![clip(0, 50), clip(2_000, 9_000)], vec![])
         };
-        let n = normalize(doc, 10_000);
+        let n = normalize(doc, 10_000, &NO_TAKES);
         assert_eq!(n.audio_tracks.len(), 1);
         assert_eq!((n.audio_tracks[0].clip, n.audio_tracks[0].start_ms), (0, 3_000));
         assert_eq!(n.system_gain_db, 12.0);
     }
 
     #[test]
-    fn inserted_take_clip_keeps_its_bounds() {
+    fn inserted_take_clip_is_clamped_to_its_take() {
         let mut other = clip(0, 30_000);
         other.source = Some("t2".into());
         let mut blank = clip(0, 4_000);
         blank.source = Some("  ".into());
-        let n = normalize(doc(vec![clip(0, 30_000), other, blank], vec![]), 10_000);
+        let mut gone = clip(0, 4_000);
+        gone.source = Some("missing".into());
+        let mut evil = clip(0, 4_000);
+        evil.source = Some("../t2".into());
+        let takes = TakeMetas::from([
+            ("t2".to_string(), TakeMeta { duration_ms: 20_000, ..TakeMeta::default() }),
+            ("../t2".to_string(), TakeMeta { duration_ms: 20_000, ..TakeMeta::default() }),
+        ]);
+        let n = normalize(doc(vec![clip(0, 30_000), other, blank, gone, evil], vec![]), 10_000, &takes);
         assert_eq!(n.clips[0], clip(0, 10_000));
-        assert_eq!((n.clips[1].end_ms, n.clips[1].source.as_deref()), (30_000, Some("t2")));
+        // Clamped to the take's own 20 s, not the project's 10 s and not left at 30 s.
+        assert_eq!((n.clips[1].end_ms, n.clips[1].source.as_deref()), (20_000, Some("t2")));
+        // A blank source is the project's own take.
         assert_eq!(n.clips[2].source, None);
+        // A take that is not there (or not a plain id) has nothing to play: dropped.
+        assert_eq!(n.clips.len(), 3);
     }
 
     #[test]
@@ -2127,7 +2311,7 @@ mod tests {
                 {"id": "broken", "kind": "podcast", "file": "b.mp3", "clip": 0, "durationMs": 1000}
             ]
         });
-        let d = load(&project_with(json));
+        let d = load(&project_with(json), &NO_TAKES);
         assert_eq!(d.clips, vec![clip(0, 4_000), clip(5_000, 9_000)]);
         assert_eq!(d.zooms.len(), 1);
         assert_eq!(d.annotations.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["good", "arrow"]);
@@ -2144,7 +2328,125 @@ mod tests {
     fn z_index_is_capped() {
         let top = Annotation { z_index: i32::MAX, ..ann(0, 0, 1_000, text("t")) };
         assert_eq!(Annotation::new("n".into(), 0, 0, 1_000, text("n"), std::slice::from_ref(&top)).z_index, MAX_Z_INDEX);
-        let n = normalize(with_annotations(vec![clip(0, 10_000)], vec![top]), 10_000);
+        let n = normalize(with_annotations(vec![clip(0, 10_000)], vec![top]), 10_000, &NO_TAKES);
         assert_eq!(n.annotations[0].z_index, MAX_Z_INDEX);
+    }
+
+    // ── clip operations + sources ────────────────────────────────────────────
+
+    /// Three clips, each carrying one of every per-clip thing, so a re-index shows up in all.
+    fn three_clip_doc() -> EditDoc {
+        let mut d = doc(
+            vec![clip(0, 3_000), clip(3_000, 6_000), clip(6_000, 9_000)],
+            vec![sr(0, 500, 1_000, 2.0), sr(2, 7_000, 8_000, 0.5)],
+        );
+        d.crop = vec![Some(CropRect { x: 0.1, y: 0.1, w: 0.5, h: 0.5 }), None, None];
+        d.zooms = vec![zoom(0, 0, 1_000), zoom(1, 3_500, 4_500), zoom(2, 6_500, 7_500)];
+        d.annotations = vec![ann(0, 100, 900, text("first")), ann(2, 6_100, 6_900, text("third"))];
+        d.audio_tracks = vec![track(0, 0, 60_000), track(2, 6_000, 60_000)];
+        d
+    }
+
+    #[test]
+    fn reorder_moves_annotations_and_tracks() {
+        let d = three_clip_doc();
+        // Clip 0 to the end: old 1 → 0, old 2 → 1, old 0 → 2.
+        let m = move_clip(&d, 0, 2);
+        assert_eq!(m.clips, vec![clip(3_000, 6_000), clip(6_000, 9_000), clip(0, 3_000)]);
+        assert_eq!(m.crop, vec![None, None, d.crop[0]]);
+        let ann_clip = |m: &EditDoc, label: &str| {
+            m.annotations
+                .iter()
+                .find(|a| matches!(&a.body, AnnotationBody::Text(t) if t.content == label))
+                .map(|a| a.clip)
+        };
+        assert_eq!(ann_clip(&m, "first"), Some(2));
+        assert_eq!(ann_clip(&m, "third"), Some(1));
+        let track_clip = |id: &str| m.audio_tracks.iter().find(|t| t.id == id).map(|t| t.clip);
+        assert_eq!(track_clip("t0-0"), Some(2));
+        assert_eq!(track_clip("t2-6000"), Some(1));
+        let zoom_clip = |id: &str| m.zooms.iter().find(|z| z.id == id).map(|z| z.clip);
+        assert_eq!((zoom_clip("z0-0"), zoom_clip("z1-3500"), zoom_clip("z2-6500")), (Some(2), Some(0), Some(1)));
+        let speeds: Vec<_> = m.speed.iter().map(|r| (r.clip, r.start_ms)).collect();
+        assert_eq!(speeds, vec![(1, 7_000), (2, 500)]);
+        // Source times never change, only which clip they belong to.
+        assert_eq!(m.annotations.iter().map(|a| a.start_ms).collect::<HashSet<_>>(), HashSet::from([100, 6_100]));
+        // Moving back restores the document (same things, same order of clips).
+        let back = move_clip(&m, 2, 0);
+        assert_eq!(back.clips, d.clips);
+        assert_eq!(back.crop, d.crop);
+        // Out of range / no move: unchanged.
+        assert_eq!(move_clip(&d, 0, 3), d);
+        assert_eq!(move_clip(&d, 1, 1), d);
+    }
+
+    #[test]
+    fn reorder_survives_normalize_and_changes_the_programme_order() {
+        let d = three_clip_doc();
+        let m = normalize(move_clip(&d, 2, 0), 10_000, &NO_TAKES);
+        assert_eq!(programme_to_source(&m, 0), Some((0, 6_000)));
+        assert_eq!(m.annotations.len(), 2);
+        assert_eq!(m.audio_tracks.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_copies_regions_with_new_ids() {
+        let d = three_clip_doc();
+        let c = duplicate_clip(&d, 0);
+        assert_eq!(c.clips, vec![clip(0, 3_000), clip(0, 3_000), clip(3_000, 6_000), clip(6_000, 9_000)]);
+        assert_eq!(c.crop, vec![d.crop[0], d.crop[0], None, None]);
+        // The copy (clip 1) has its own zoom/annotation/track under a new id; later clips shifted.
+        let zooms: Vec<_> = c.zooms.iter().map(|z| (z.clip, z.id.as_str())).collect();
+        assert_eq!(zooms, vec![(0, "z0-0"), (1, "z0-0-copy"), (2, "z1-3500"), (3, "z2-6500")]);
+        let anns: Vec<_> = c.annotations.iter().map(|a| (a.clip, a.id.as_str())).collect();
+        assert!(anns.contains(&(0, "a0-100")) && anns.contains(&(1, "a0-100-copy")) && anns.contains(&(3, "a2-6100")));
+        let tracks: Vec<_> = c.audio_tracks.iter().map(|t| (t.clip, t.id.as_str())).collect();
+        assert!(tracks.contains(&(0, "t0-0")) && tracks.contains(&(1, "t0-0-copy")) && tracks.contains(&(3, "t2-6000")));
+        let speeds: Vec<_> = c.speed.iter().map(|r| (r.clip, r.start_ms)).collect();
+        assert_eq!(speeds, vec![(0, 500), (1, 500), (3, 7_000)]);
+        // A second copy of the same clip gets yet another id; all ids stay unique.
+        let c2 = duplicate_clip(&c, 0);
+        let ids: Vec<_> = c2.zooms.iter().map(|z| z.id.clone()).collect();
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len());
+        assert!(ids.contains(&"z0-0-copy2".to_string()));
+        // Normalize keeps every copy (copies may overlap in source time: different clips).
+        let n = normalize(c, 10_000, &NO_TAKES);
+        assert_eq!((n.clips.len(), n.zooms.len(), n.annotations.len(), n.audio_tracks.len()), (4, 4, 3, 3));
+        assert_eq!(duplicate_clip(&d, 3), d);
+    }
+
+    #[test]
+    fn append_take_adds_clip_at_end() {
+        let d = three_clip_doc();
+        let meta = TakeMeta { duration_ms: 12_345, width: 1280, height: 720, ..TakeMeta::default() };
+        let a = append_take(&d, "t9", &meta);
+        assert_eq!(a.clips.len(), 4);
+        assert_eq!(a.clips[3], EditClip { start_ms: 0, end_ms: 12_345, source: Some("t9".into()) });
+        assert_eq!(a.crop.len(), 4);
+        assert_eq!(a.crop[3], None);
+        // Nothing else moves.
+        assert_eq!((a.zooms.clone(), a.annotations.clone(), a.speed.clone()), (d.zooms.clone(), d.annotations.clone(), d.speed.clone()));
+        let takes = TakeMetas::from([("t9".to_string(), meta)]);
+        let n = normalize(a, 10_000, &takes);
+        assert_eq!(n.clips[3].end_ms, 12_345);
+        assert_eq!(programme_duration_ms(&n), programme_duration_ms(&d) + 12_345);
+        // The take's own size is that clip's source size.
+        assert_eq!(clip_source_size(&meta_fixture(), &takes, &n, 3), (1280, 720));
+        assert_eq!(clip_source_size(&meta_fixture(), &takes, &n, 1), (3024, 1964));
+    }
+
+    fn meta_fixture() -> RecordingMeta {
+        meta(10_000)
+    }
+
+    #[test]
+    fn take_dir_never_leaves_the_takes_folder() {
+        let p = Path::new("/p");
+        assert_eq!(take_dir(p, None), PathBuf::from("/p"));
+        assert_eq!(take_dir(p, Some("ab-12_C")), PathBuf::from("/p/takes/ab-12_C"));
+        for bad in ["", "..", "../x", "a/b", "a b", "/abs", "ä"] {
+            assert_eq!(take_dir(p, Some(bad)), PathBuf::from("/p/takes/.invalid"), "{bad:?}");
+        }
+        assert!(!valid_take_id(&"x".repeat(65)));
     }
 }

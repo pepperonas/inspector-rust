@@ -57,11 +57,24 @@ fn cues(cursor: &CursorRecording) -> Vec<(u64, f64, bool)> {
 
 /// Every click the edit plays, on the programme clock (cuts and speed applied), sorted.
 /// A cue inside no clip's source window (cut out, or past the end) is dropped; a source moment
-/// two clips both show sounds in each.
+/// two clips both show sounds in each. `cursor` is the project's own take: clips of an inserted
+/// take play none of its clicks (see [`click_hits_by_source`]).
 pub fn click_hits(doc: &EditDoc, cursor: &CursorRecording) -> Vec<ClickHit> {
+    click_hits_by_source(doc, |source| if source.is_none() { Some(cursor) } else { None })
+}
+
+/// [`click_hits`] with each clip's clicks from its own recording: `cursor_of(source)` gives the
+/// telemetry of the project's take (`None`) or of an inserted take (`Some(id)`).
+pub fn click_hits_by_source<'a>(
+    doc: &EditDoc,
+    cursor_of: impl Fn(Option<&str>) -> Option<&'a CursorRecording>,
+) -> Vec<ClickHit> {
+    let mut by_source: std::collections::HashMap<Option<&str>, Vec<(u64, f64, bool)>> = std::collections::HashMap::new();
     let mut hits = Vec::new();
-    for (t, gain, release) in cues(cursor) {
-        for (i, c) in doc.clips.iter().enumerate() {
+    for (i, c) in doc.clips.iter().enumerate() {
+        let source = c.source.as_deref();
+        let list = by_source.entry(source).or_insert_with(|| cursor_of(source).map(cues).unwrap_or_default());
+        for &(t, gain, release) in list.iter() {
             if t < c.start_ms || t >= c.end_ms {
                 continue;
             }

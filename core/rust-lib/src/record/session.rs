@@ -379,6 +379,88 @@ pub fn record_supported() -> bool {
     support_reason().is_ok()
 }
 
+// ---------- inserting another take into a project ----------
+
+/// The folder given is not a recording project.
+pub const ERR_TAKE_NOT_PROJECT: &str = "record.editor.take_not_project";
+/// The project is not a finished, readable recording (still recording, failed, video missing).
+pub const ERR_TAKE_NOT_READY: &str = "record.editor.take_not_ready";
+/// A project cannot be inserted into itself.
+pub const ERR_TAKE_SAME: &str = "record.editor.take_same";
+/// Copying the take's files failed (disk full, permissions).
+pub const ERR_TAKE_COPY: &str = "record.editor.take_copy_failed";
+
+/// Copies one file, as an APFS clone where the volume can (`cp -c`: instant, no extra space),
+/// else as a plain copy.
+fn clone_file(src: &Path, dst: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let ok = std::process::Command::new("/bin/cp")
+            .arg("-c")
+            .arg(src)
+            .arg(dst)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return Ok(());
+        }
+    }
+    std::fs::copy(src, dst).map(|_| ())
+}
+
+/// Copies the finished project at `src` into `<project>/takes/<id>/` (`screen.mp4`,
+/// `project.json`, and `mic.wav` / `cursor.json` when there) and returns the new take id and
+/// what the editor needs of it. The copy goes into a hidden staging folder first and is
+/// renamed into place only when complete, so a half copy is never a take.
+pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::record::editor::TakeMeta), String> {
+    use super::project::{is_project_dir, read_project, CURSOR_FILE, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
+    use crate::record::editor::{TakeMeta, TAKES_DIR};
+    if !src.is_dir() || !is_project_dir(src) {
+        return Err(ERR_TAKE_NOT_PROJECT.into());
+    }
+    let same = match (std::fs::canonicalize(project), std::fs::canonicalize(src)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if same {
+        return Err(ERR_TAKE_SAME.into());
+    }
+    let p = read_project(src).map_err(|_| ERR_TAKE_NOT_READY.to_string())?;
+    if p.status != ProjectStatus::Ready || !src.join(SCREEN_FILE).is_file() || p.recording.duration_ms == 0 {
+        return Err(ERR_TAKE_NOT_READY.into());
+    }
+    let id = {
+        let b: [u8; 8] = rand::random();
+        b.iter().map(|x| format!("{x:02x}")).collect::<String>()
+    };
+    let takes = project.join(TAKES_DIR);
+    let stage = takes.join(format!(".import-{id}"));
+    let fail = |e: std::io::Error, what: &Path| {
+        tracing::warn!(target: "record::editor", "take import: {}: {e}", what.display());
+        ERR_TAKE_COPY.to_string()
+    };
+    std::fs::create_dir_all(&stage).map_err(|e| fail(e, &stage))?;
+    let copied = (|| {
+        for name in [SCREEN_FILE, PROJECT_FILE, MIC_FILE, CURSOR_FILE] {
+            let from = src.join(name);
+            if !from.is_file() {
+                continue;
+            }
+            clone_file(&from, &stage.join(name)).map_err(|e| fail(e, &from))?;
+        }
+        let target = takes.join(&id);
+        std::fs::rename(&stage, &target).map_err(|e| fail(e, &target))
+    })();
+    if let Err(e) = copied {
+        let _ = std::fs::remove_dir_all(&stage);
+        return Err(e);
+    }
+    let cursor = super::scene_json::read_cursor(&takes.join(&id));
+    let meta = TakeMeta::from_recording(&p.recording, super::scene_json::has_cursor_data(cursor.as_ref()));
+    Ok((id, meta))
+}
+
 #[cfg(target_os = "macos")]
 pub use mac::*;
 
@@ -1332,6 +1414,91 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A project folder with `status`, a `duration_ms` and, if `screen`, a video.
+    fn take_project(dir: &Path, status: ProjectStatus, screen: bool) {
+        use super::super::project::{write_atomic, Project, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
+        std::fs::create_dir_all(dir).unwrap();
+        let p = Project {
+            schema: 1,
+            id: "t".into(),
+            title: String::new(),
+            created_at: 0,
+            updated_at: 0,
+            status,
+            failure: None,
+            recording: RecordingMeta { width: 1280, height: 720, duration_ms: 4_000, ..RecordingMeta::default() },
+            editor: serde_json::json!({}),
+        };
+        write_atomic(dir, PROJECT_FILE, &p).unwrap();
+        if screen {
+            std::fs::write(dir.join(SCREEN_FILE), b"video").unwrap();
+        }
+    }
+
+    #[test]
+    fn import_take_rejects_non_project() {
+        let root = tmp("take-nonproj");
+        let project = root.join("p");
+        take_project(&project, ProjectStatus::Ready, true);
+        let plain = root.join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(import_take_into(&project, &plain).unwrap_err(), ERR_TAKE_NOT_PROJECT);
+        assert_eq!(import_take_into(&project, &root.join("missing")).unwrap_err(), ERR_TAKE_NOT_PROJECT);
+        // A project cannot be inserted into itself.
+        assert_eq!(import_take_into(&project, &project).unwrap_err(), ERR_TAKE_SAME);
+        assert!(!project.join("takes").exists(), "nothing copied");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn import_take_rejects_failed_project() {
+        let root = tmp("take-failed");
+        let project = root.join("p");
+        take_project(&project, ProjectStatus::Ready, true);
+        for (name, status, screen) in [
+            ("failed", ProjectStatus::Failed, true),
+            ("recording", ProjectStatus::Recording, true),
+            ("incomplete", ProjectStatus::Incomplete, true),
+            ("novideo", ProjectStatus::Ready, false),
+        ] {
+            let src = root.join(name);
+            take_project(&src, status, screen);
+            assert_eq!(import_take_into(&project, &src).unwrap_err(), ERR_TAKE_NOT_READY, "{name}");
+        }
+        let broken = root.join("broken");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join("project.json"), b"{nope").unwrap();
+        assert_eq!(import_take_into(&project, &broken).unwrap_err(), ERR_TAKE_NOT_READY);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn import_take_copies_the_files_under_a_plain_id() {
+        let root = tmp("take-ok");
+        let project = root.join("p");
+        take_project(&project, ProjectStatus::Ready, true);
+        let src = root.join("other");
+        take_project(&src, ProjectStatus::Ready, true);
+        std::fs::write(src.join("mic.wav"), b"mic").unwrap();
+        std::fs::write(src.join("notes.txt"), b"not part of a take").unwrap();
+        let (id, meta) = import_take_into(&project, &src).unwrap();
+        assert!(crate::record::editor::valid_take_id(&id));
+        assert_eq!((meta.duration_ms, meta.width, meta.height, meta.has_cursor), (4_000, 1280, 720, false));
+        let dir = project.join("takes").join(&id);
+        assert_eq!(std::fs::read(dir.join("screen.mp4")).unwrap(), b"video");
+        assert_eq!(std::fs::read(dir.join("mic.wav")).unwrap(), b"mic");
+        assert!(dir.join("project.json").is_file());
+        assert!(!dir.join("notes.txt").exists());
+        // No staging folder left behind; the source is untouched.
+        let left: Vec<_> = std::fs::read_dir(project.join("takes")).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 1);
+        assert!(src.join("screen.mp4").is_file());
+        // Read back as a take of the project.
+        let takes = crate::record::scene_json::load_takes(&project);
+        assert_eq!(takes[&id].meta.duration_ms, 4_000);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

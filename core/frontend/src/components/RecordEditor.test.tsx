@@ -14,6 +14,9 @@ const editorThumbs = vi.fn();
 const editorRestart = vi.fn();
 const editorAssets = vi.fn();
 const editorImportAsset = vi.fn();
+const editorDuplicateClip = vi.fn();
+const editorMoveClip = vi.fn();
+const editorImportTake = vi.fn();
 const openDialog = vi.fn();
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
@@ -32,6 +35,10 @@ vi.mock("../lib/ipc", () => ({
   editorRestart: () => editorRestart(),
   editorAssets: () => editorAssets(),
   editorImportAsset: (id: number, src: string, kind: string) => editorImportAsset(id, src, kind),
+  editorDuplicateClip: (id: number, i: number) => editorDuplicateClip(id, i),
+  editorMoveClip: (id: number, f: number, t: number) => editorMoveClip(id, f, t),
+  editorImportTake: (id: number, d: string) => editorImportTake(id, d),
+  recordListProjects: async () => [],
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
 }));
@@ -491,4 +498,44 @@ describe("RecordEditor", () => {
     });
     expect(queryByTestId("ed-inspector")).toBeNull();
   });
+
+  it("⌘D duplicates the clip through Rust and is one undo step", async () => {
+    const twice: RecordEditDoc = { ...doc0, clips: [doc0.clips[0], doc0.clips[0]], crop: [null, null] };
+    editorDuplicateClip.mockResolvedValue(viewOf(twice));
+    const { getAllByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "d", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorDuplicateClip).toHaveBeenCalledWith(1, 0);
+    expect(getAllByTestId("ed-clip")).toHaveLength(2);
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toEqual(doc0.clips);
+  });
+
+  it("the audio preview plays the inserted take's files in its clip", async () => {
+    const withTake: RecordEditDoc = {
+      ...doc0,
+      clips: [doc0.clips[0], { startMs: 0, endMs: 5_000, source: "t1" }],
+      crop: [null, null],
+    };
+    const view = {
+      ...viewOf(withTake),
+      takes: { t1: { durationMs: 5_000, width: 1280, height: 720, systemAudio: true, hasMic: false, micOffsetMs: 0, hasCursor: false } },
+    };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", view));
+    editorSeek.mockResolvedValue({ clip: 1, sourceMs: 1_000 });
+    const { getByTestId, queryByTestId, getAllByTestId } = await mount();
+    expect(getByTestId("ed-audio-system").getAttribute("src")).toBe("asset:///m/take/screen.mp4");
+    await act(async () => {
+      fireEvent.pointerDown(getAllByTestId("ed-track")[0], { clientX: 0, pointerId: 1 });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(getByTestId("ed-audio-system").getAttribute("src")).toBe("asset:///m/take/takes/t1/screen.mp4");
+    expect(queryByTestId("ed-audio-mic")).toBeNull();
+  });
 });
+

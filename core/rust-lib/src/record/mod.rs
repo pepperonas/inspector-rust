@@ -22,6 +22,7 @@ pub mod editor_ipc;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod scene_json;
 pub mod wav;
+pub mod zoom_plan;
 
 /// Window label of the record editor (the status toast must not `app.hide()` it away).
 pub const EDITOR_WINDOW: &str = "record-editor";

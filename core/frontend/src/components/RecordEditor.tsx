@@ -50,6 +50,7 @@ import {
   addSpeed,
   addZoom,
   clipAt,
+  clipMedia,
   cropForPreset,
   deleteClip,
   formatTimecode,
@@ -61,6 +62,7 @@ import {
   setSpeedValue,
   splitAt,
   updateZoom,
+  type ClipMedia,
   type CropPreset,
 } from "../lib/editor";
 import { tn, useT, type MessageKey } from "../lib/i18n";
@@ -515,11 +517,17 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   );
 
   const enterCrop = useCallback(async () => {
+    const d = history.current?.present;
+    // A clip whose recording is missing has no frame to crop.
+    if (view && d && clipMedia(d, view.takes, clipFor(posRef.current), { width: 0, height: 0, systemAudio: false, micOffsetMs: null }).missing) {
+      report("record.editor.take_missing");
+      return;
+    }
     if (playing) togglePlay();
     const at = await sourceHere();
     setCropSourceMs(at?.sourceMs ?? 0);
     setCropMode(true);
-  }, [playing, togglePlay, sourceHere]);
+  }, [playing, togglePlay, sourceHere, view, clipFor, report]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -623,20 +631,17 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const zoomSel = selectedZoom ? (doc.zooms.find((z) => z.id === selectedZoom) ?? null) : null;
   const zoomRect = zoomSel ? (view.screenRects?.[zoomSel.clip] ?? ([0, 0, 1, 1] as [number, number, number, number])) : null;
   const hasCursorData = !!assets?.hasCursorData;
+  const mainMedia = { width: meta.width, height: meta.height, systemAudio: meta.systemAudio, micOffsetMs: meta.mic?.offsetMs ?? null };
+  const fileOf = (m: ClipMedia, f: string) => asset(m.dir ? `${m.dir}/${f}` : f);
   // The audio of the clip under the playhead: the project's own take or an inserted one.
-  const takeId = cue.source ? (doc.clips[cue.source.clip]?.source ?? null) : null;
-  const take = takeId ? view.takes?.[takeId] : undefined;
-  const audio = take
-    ? {
-        screen: take.systemAudio ? asset(`takes/${takeId}/screen.mp4`) : null,
-        mic: take.hasMic ? asset(`takes/${takeId}/mic.wav`) : null,
-        micOffsetMs: take.micOffsetMs,
-      }
-    : {
-        screen: meta.systemAudio ? asset("screen.mp4") : null,
-        mic: meta.mic ? asset("mic.wav") : null,
-        micOffsetMs: meta.mic?.offsetMs ?? 0,
-      };
+  const playMedia = clipMedia(doc, view.takes, cue.source?.clip ?? 0, mainMedia);
+  const audio = {
+    screen: playMedia.systemAudio ? fileOf(playMedia, "screen.mp4") : null,
+    mic: playMedia.hasMic ? fileOf(playMedia, "mic.wav") : null,
+    micOffsetMs: playMedia.micOffsetMs,
+  };
+  // Crop works on the cropped clip's own recording and size (presets included).
+  const cropMedia = clipMedia(doc, view.takes, cropClip, mainMedia);
 
   const iconBtn =
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
@@ -695,15 +700,15 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       >
         {cropMode && !fatal && (
           <CropOverlay
-            srcW={meta.width}
-            srcH={meta.height}
-            videoSrc={asset("screen.mp4")}
+            srcW={cropMedia.width}
+            srcH={cropMedia.height}
+            videoSrc={fileOf(cropMedia, "screen.mp4")}
             sourceMs={cropSourceMs}
             rect={doc.crop[cropClip] ?? null}
             preset={preset}
             onPreset={(p) => {
               const aspect = p === "free" ? "source" : p;
-              const rect = p === "free" ? ((cur() ?? doc).crop[cropClip] ?? null) : cropForPreset(p, meta.width, meta.height);
+              const rect = p === "free" ? ((cur() ?? doc).crop[cropClip] ?? null) : cropForPreset(p, cropMedia.width, cropMedia.height);
               commit({ ...setCrop(cur() ?? doc, cropClip, rect), output: { aspect } });
             }}
             onCommit={(r) => commit(setCrop(cur() ?? doc, cropClip, r))}

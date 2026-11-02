@@ -34,6 +34,7 @@ import {
   addSpeed,
   clipAt,
   clipDropGap,
+  clipMedia,
   clipMoveTarget,
   cropForPreset,
   deleteClip,
@@ -455,6 +456,17 @@ describe("clip reorder targets", () => {
     expect(clipMoveTarget(1, 2, 3)).toBeNull();
     expect(clipMoveTarget(5, 0, 3)).toBeNull();
     expect(clipMoveTarget(0, 4, 3)).toBeNull();
+  });
+});
+
+describe("clipMedia", () => {
+  const main = { width: 1920, height: 1080, systemAudio: true, micOffsetMs: 40 };
+  const doc = { clips: [{ startMs: 0, endMs: 1 }, { startMs: 0, endMs: 1, source: "t1" }, { startMs: 0, endMs: 1, source: "gone" }] } as unknown as RecordEditDoc;
+  const takes = { t1: { durationMs: 1, width: 640, height: 480, systemAudio: false, hasMic: true, micOffsetMs: -20, hasCursor: false } };
+  it("names the clip's own recording, size and audio", () => {
+    expect(clipMedia(doc, takes, 0, main)).toMatchObject({ dir: "", width: 1920, height: 1080, systemAudio: true, hasMic: true, micOffsetMs: 40, missing: false });
+    expect(clipMedia(doc, takes, 1, main)).toMatchObject({ dir: "takes/t1", width: 640, height: 480, systemAudio: false, hasMic: true, micOffsetMs: -20, missing: false });
+    expect(clipMedia(doc, takes, 2, main)).toMatchObject({ missing: true, systemAudio: false, hasMic: false });
   });
 });
 

@@ -409,6 +409,26 @@ fn clone_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::copy(src, dst).map(|_| ())
 }
 
+/// Staging folders older than this are leftovers of a crash mid-copy (a running import is
+/// minutes at most), removed when the next import starts.
+pub const STALE_IMPORT_SECS: u64 = 3600;
+
+/// Removes `takes/.import-*` leftovers older than [`STALE_IMPORT_SECS`].
+fn sweep_stale_imports(takes: &Path) {
+    let Ok(rd) = std::fs::read_dir(takes) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = std::fs::symlink_metadata(e.path()) else { continue };
+        if !name.starts_with(".import-") || !meta.is_dir() {
+            continue;
+        }
+        let age = meta.modified().ok().and_then(|m| m.elapsed().ok()).map_or(0, |d| d.as_secs());
+        if age >= STALE_IMPORT_SECS {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
 /// Copies the finished project at `src` into `<project>/takes/<id>/` (`screen.mp4`,
 /// `project.json`, and `mic.wav` / `cursor.json` when there) and returns the new take id and
 /// what the editor needs of it. The copy goes into a hidden staging folder first and is
@@ -426,6 +446,12 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
     if same {
         return Err(ERR_TAKE_SAME.into());
     }
+    // Never follow a link out of the source project: a linked video or project file is
+    // refused, a linked mic or pointer file is left out.
+    let is_link = |name: &str| std::fs::symlink_metadata(src.join(name)).is_ok_and(|m| m.file_type().is_symlink());
+    if is_link(SCREEN_FILE) || is_link(PROJECT_FILE) {
+        return Err(ERR_TAKE_NOT_READY.into());
+    }
     let p = read_project(src).map_err(|_| ERR_TAKE_NOT_READY.to_string())?;
     if p.status != ProjectStatus::Ready || !src.join(SCREEN_FILE).is_file() || p.recording.duration_ms == 0 {
         return Err(ERR_TAKE_NOT_READY.into());
@@ -435,6 +461,7 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
         b.iter().map(|x| format!("{x:02x}")).collect::<String>()
     };
     let takes = project.join(TAKES_DIR);
+    sweep_stale_imports(&takes);
     let stage = takes.join(format!(".import-{id}"));
     let fail = |e: std::io::Error, what: &Path| {
         tracing::warn!(target: "record::editor", "take import: {}: {e}", what.display());
@@ -444,7 +471,7 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
     let copied = (|| {
         for name in [SCREEN_FILE, PROJECT_FILE, MIC_FILE, CURSOR_FILE] {
             let from = src.join(name);
-            if !from.is_file() {
+            if !from.is_file() || is_link(name) {
                 continue;
             }
             clone_file(&from, &stage.join(name)).map_err(|e| fail(e, &from))?;
@@ -1498,6 +1525,35 @@ mod tests {
         // Read back as a take of the project.
         let takes = crate::record::scene_json::load_takes(&project);
         assert_eq!(takes[&id].meta.duration_ms, 4_000);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn import_take_does_not_follow_links_and_sweeps_stale_staging() {
+        let root = tmp("take-links");
+        let project = root.join("p");
+        take_project(&project, ProjectStatus::Ready, true);
+        let outside = root.join("secret.wav");
+        std::fs::write(&outside, b"outside").unwrap();
+        // A linked mic is left out, the take still imports.
+        let src = root.join("other");
+        take_project(&src, ProjectStatus::Ready, true);
+        std::os::unix::fs::symlink(&outside, src.join("mic.wav")).unwrap();
+        // A stale staging folder from a crash, and a fresh one (another import running).
+        let takes = project.join("takes");
+        std::fs::create_dir_all(takes.join(".import-old")).unwrap();
+        std::fs::create_dir_all(takes.join(".import-new")).unwrap();
+        let old = std::fs::File::open(takes.join(".import-old")).unwrap();
+        old.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(STALE_IMPORT_SECS + 60)).unwrap();
+        let (id, _) = import_take_into(&project, &src).unwrap();
+        assert!(!takes.join(&id).join("mic.wav").exists(), "a link is not followed");
+        assert!(!takes.join(".import-old").exists(), "stale staging swept");
+        assert!(takes.join(".import-new").exists(), "a running import is left alone");
+        // A linked video is refused.
+        let linked = root.join("linked");
+        take_project(&linked, ProjectStatus::Ready, false);
+        std::os::unix::fs::symlink(src.join("screen.mp4"), linked.join("screen.mp4")).unwrap();
+        assert_eq!(import_take_into(&project, &linked).unwrap_err(), ERR_TAKE_NOT_READY);
         let _ = std::fs::remove_dir_all(&root);
     }
 

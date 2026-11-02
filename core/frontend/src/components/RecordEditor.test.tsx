@@ -537,5 +537,73 @@ describe("RecordEditor", () => {
     expect(getByTestId("ed-audio-system").getAttribute("src")).toBe("asset:///m/take/takes/t1/screen.mp4");
     expect(queryByTestId("ed-audio-mic")).toBeNull();
   });
+
+  it("crop on an inserted take's clip uses that take's video and size, presets included", async () => {
+    const withTake: RecordEditDoc = {
+      ...doc0,
+      clips: [doc0.clips[0], { startMs: 0, endMs: 5_000, source: "t1" }],
+      crop: [null, null],
+    };
+    const takes = { t1: { durationMs: 5_000, width: 1080, height: 1920, systemAudio: false, hasMic: false, micOffsetMs: 0, hasCursor: false } };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", { ...viewOf(withTake), takes }));
+    editorUpdate.mockImplementation(async (d: RecordEditDoc) => ({ ...viewOf(d), takes }));
+    const { getAllByTestId, getByTestId, getByText } = await mount();
+    await act(async () => {
+      fireEvent.pointerDown(getAllByTestId("ed-clip")[1], { clientX: 0, pointerId: 1 });
+      fireEvent.pointerUp(getAllByTestId("ed-clip")[1], { clientX: 0, pointerId: 1 });
+      fireEvent.keyDown(window, { key: "c" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const crop = getByTestId("ed-crop");
+    expect(crop.querySelector("video")?.getAttribute("src")).toBe("asset:///m/take/takes/t1/screen.mp4");
+    await act(async () => {
+      fireEvent.click(getByText("1:1"));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    // 1:1 on the take's portrait 1080×1920 frame: full width, 1080/1920 of the height.
+    const rect = (lastSent() as RecordEditDoc).crop[1]!;
+    expect(rect.w).toBeCloseTo(1);
+    expect(rect.h).toBeCloseTo(1080 / 1920);
+  });
+
+  it("a clip whose take is missing is marked and cannot be cropped", async () => {
+    const withGone: RecordEditDoc = {
+      ...doc0,
+      clips: [doc0.clips[0], { startMs: 0, endMs: 5_000, source: "gone" }],
+      crop: [null, null],
+    };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", { ...viewOf(withGone), takes: {} }));
+    const { getAllByTestId, queryByTestId, getByTestId } = await mount();
+    const clips = getAllByTestId("ed-clip");
+    expect(clips[1].hasAttribute("data-missing")).toBe(true);
+    expect(clips[0].hasAttribute("data-missing")).toBe(false);
+    await act(async () => {
+      fireEvent.pointerDown(clips[1], { clientX: 0, pointerId: 1 });
+      fireEvent.pointerUp(clips[1], { clientX: 0, pointerId: 1 });
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "c" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(queryByTestId("ed-crop")).toBeNull();
+    expect(getByTestId("ed-notice").textContent).toMatch(/missing/i);
+  });
+
+  it("⌘D duplicates the selected clip, not the one under the playhead", async () => {
+    const two: RecordEditDoc = { ...doc0, clips: [{ startMs: 0, endMs: 4_000 }, { startMs: 4_000, endMs: 10_000 }], crop: [null, null] };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf(two)));
+    editorDuplicateClip.mockResolvedValue(viewOf(two));
+    const { getAllByTestId } = await mount();
+    // The playhead is at 0 (clip 0); clip 1 is selected by a click.
+    await act(async () => {
+      fireEvent.pointerDown(getAllByTestId("ed-clip")[1], { clientX: 0, pointerId: 1 });
+      fireEvent.pointerUp(getAllByTestId("ed-clip")[1], { clientX: 0, pointerId: 1 });
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "d", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorDuplicateClip).toHaveBeenCalledWith(1, 1);
+  });
 });
 

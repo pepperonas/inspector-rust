@@ -817,6 +817,40 @@ pub fn take_dir(project: &Path, source: Option<&str>) -> PathBuf {
     }
 }
 
+/// The clip plays an inserted take that is not available (not in `takes`, or not a plain id).
+pub fn take_missing(clip: &EditClip, takes: &TakeMetas) -> bool {
+    clip.source.as_deref().is_some_and(|id| !valid_take_id(id) || !takes.contains_key(id))
+}
+
+/// The document as it plays: a clip whose take is missing lasts no time (its window collapses
+/// to its start), so the programme, the transport and the scene skip it while the stored
+/// document keeps it. Every index stays the same.
+pub fn playable(doc: &EditDoc, takes: &TakeMetas) -> EditDoc {
+    let mut out = doc.clone();
+    for c in &mut out.clips {
+        if take_missing(c, takes) {
+            c.end_ms = c.start_ms;
+        }
+    }
+    out
+}
+
+/// Per clip: its index among the clips the scene holds (`None` = a missing take, not in it).
+pub fn scene_clip_indices(doc: &EditDoc, takes: &TakeMetas) -> Vec<Option<usize>> {
+    let mut next = 0;
+    doc.clips
+        .iter()
+        .map(|c| {
+            if take_missing(c, takes) {
+                None
+            } else {
+                next += 1;
+                Some(next - 1)
+            }
+        })
+        .collect()
+}
+
 /// Maps every clip index through `map` (old → new); entries whose clip has no new index go.
 fn remap_clips(doc: &mut EditDoc, map: impl Fn(usize) -> Option<usize>) {
     doc.speed.retain_mut(|r| map(r.clip).map(|c| r.clip = c).is_some());
@@ -938,8 +972,9 @@ fn normalize_crop(c: CropRect) -> Option<CropRect> {
 /// cuts its range out of earlier ones). Regions come out sorted by (clip, start).
 /// Annotations and audio tracks follow their clip like zooms (see [`normalize_annotations`],
 /// [`normalize_tracks`]). `duration_ms` is the project's own take; a clip of an inserted
-/// take (`source: Some(id)`) is clamped to that take's length from `takes` — a clip whose take
-/// is not there (folder gone, not a plain id) has nothing to play and is dropped.
+/// take (`source: Some(id)`) is clamped to that take's length from `takes`; a clip whose take
+/// is not there (folder gone, not a plain id) keeps its bounds and everything on it (see
+/// [`take_missing`], [`playable`]).
 pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
     let EditDoc {
         clips,
@@ -966,7 +1001,9 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
             let source = c.source.filter(|s| !s.trim().is_empty());
             let limit = match &source {
                 None => duration_ms,
-                Some(id) => takes.get(id).filter(|_| valid_take_id(id)).map_or(0, |t| t.duration_ms),
+                // A take that is not readable right now (moved, half-synced, deleted) keeps
+                // the clip as stored: it is skipped when playing, never lost on the next save.
+                Some(id) => takes.get(id).filter(|_| valid_take_id(id)).map_or(u64::MAX, |t| t.duration_ms),
             };
             let start = c.start_ms.min(limit);
             let end = c.end_ms.min(limit).max(start);
@@ -2245,22 +2282,39 @@ mod tests {
         other.source = Some("t2".into());
         let mut blank = clip(0, 4_000);
         blank.source = Some("  ".into());
-        let mut gone = clip(0, 4_000);
-        gone.source = Some("missing".into());
-        let mut evil = clip(0, 4_000);
-        evil.source = Some("../t2".into());
-        let takes = TakeMetas::from([
-            ("t2".to_string(), TakeMeta { duration_ms: 20_000, ..TakeMeta::default() }),
-            ("../t2".to_string(), TakeMeta { duration_ms: 20_000, ..TakeMeta::default() }),
-        ]);
-        let n = normalize(doc(vec![clip(0, 30_000), other, blank, gone, evil], vec![]), 10_000, &takes);
+        let takes = TakeMetas::from([("t2".to_string(), TakeMeta { duration_ms: 20_000, ..TakeMeta::default() })]);
+        let n = normalize(doc(vec![clip(0, 30_000), other, blank], vec![]), 10_000, &takes);
         assert_eq!(n.clips[0], clip(0, 10_000));
         // Clamped to the take's own 20 s, not the project's 10 s and not left at 30 s.
         assert_eq!((n.clips[1].end_ms, n.clips[1].source.as_deref()), (20_000, Some("t2")));
         // A blank source is the project's own take.
         assert_eq!(n.clips[2].source, None);
-        // A take that is not there (or not a plain id) has nothing to play: dropped.
-        assert_eq!(n.clips.len(), 3);
+    }
+
+    #[test]
+    fn missing_take_clip_survives_normalize_unchanged() {
+        let mut gone = clip(2_000, 40_000);
+        gone.source = Some("missing".into());
+        let mut evil = clip(0, 4_000);
+        evil.source = Some("../t2".into());
+        let mut d = doc(vec![clip(0, 5_000), gone.clone(), evil.clone()], vec![sr(1, 3_000, 4_000, 2.0)]);
+        d.zooms = vec![zoom(1, 2_500, 3_500)];
+        d.annotations = vec![ann(1, 2_000, 3_000, text("kept"))];
+        d.audio_tracks = vec![track(1, 2_000, 9_000)];
+        let takes = TakeMetas::from([("../t2".to_string(), TakeMeta { duration_ms: 1_000, ..TakeMeta::default() })]);
+        let n = normalize(d.clone(), 10_000, &takes);
+        assert_eq!(n.clips, vec![clip(0, 5_000), gone, evil]);
+        assert_eq!((n.speed.len(), n.zooms.len(), n.annotations.len(), n.audio_tracks.len()), (1, 1, 1, 1));
+        assert_eq!(n.zooms[0].clip, 1);
+        // Stable: normalising again changes nothing (no loss on the next save).
+        assert_eq!(normalize(n.clone(), 10_000, &takes), n);
+        // As it plays, the missing clips last no time; indices stay.
+        assert!(take_missing(&n.clips[1], &takes) && take_missing(&n.clips[2], &takes));
+        let play = playable(&n, &takes);
+        assert_eq!(play.clips.len(), 3);
+        assert_eq!(programme_duration_ms(&play), 5_000);
+        assert_eq!(programme_to_source(&play, 4_999), Some((0, 4_999)));
+        assert_eq!(scene_clip_indices(&n, &takes), vec![Some(0), None, None]);
     }
 
     #[test]

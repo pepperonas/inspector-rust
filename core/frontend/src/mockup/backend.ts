@@ -571,6 +571,8 @@ const mockLanguage = () => ({
 
 // ── record editor (stage 2) — invented 24-s take, spans computed here only for the mockup ──
 type EdDoc = { clips: { startMs: number; endMs: number }[]; speed: { clip: number; startMs: number; endMs: number; speed: number }[] } & Record<string, unknown>;
+/** Inserted takes of the mockup project (filled by `editor_import_take`). */
+const edTakes: Record<string, unknown> = {};
 let edDoc: EdDoc = {
   version: 3,
   clips: [{ startMs: 0, endMs: 9_000 }, { startMs: 11_000, endMs: 24_000 }],
@@ -641,7 +643,7 @@ function edView(doc: EdDoc) {
     { progMs: ms + 90, gain: 0.7, release: true },
   ]);
   const screenRects = doc.clips.map(() => [0.06, 0.06, 0.88, 0.88] as [number, number, number, number]);
-  return { doc, programmeMs: Math.round(t), clips, speed, zooms, clickHits, screenRects, outputSize: edOutputSize(doc) };
+  return { doc, programmeMs: Math.round(t), clips, speed, zooms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -994,6 +996,52 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       }
       return edView(edDoc);
     }
+    // Clip operations: the mockup only re-orders/copies the per-clip lists (no ids, no tracks).
+    case "editor_move_clip": {
+      const { from, to } = args as { from: number; to: number };
+      const n = edDoc.clips.length;
+      if (from >= n || to >= n || from === to) return edView(edDoc);
+      const order = [...Array(n).keys()];
+      order.splice(to, 0, order.splice(from, 1)[0]);
+      const newOf = (old: number) => order.indexOf(old);
+      const crop = (edDoc.crop ?? []) as unknown[];
+      edDoc = {
+        ...edDoc,
+        clips: order.map((o) => edDoc.clips[o]),
+        crop: order.map((o) => crop[o] ?? null),
+        speed: edDoc.speed.map((r) => ({ ...r, clip: newOf(r.clip) })),
+        zooms: ((edDoc.zooms ?? []) as { clip: number }[]).map((z) => ({ ...z, clip: newOf(z.clip) })),
+      };
+      return edView(edDoc);
+    }
+    case "editor_duplicate_clip": {
+      const { index } = args as { index: number };
+      const c = edDoc.clips[index];
+      if (!c) return edView(edDoc);
+      const shift = (k: number) => (k > index ? k + 1 : k);
+      const crop = (edDoc.crop ?? []) as unknown[];
+      edDoc = {
+        ...edDoc,
+        clips: [...edDoc.clips.slice(0, index + 1), { ...c }, ...edDoc.clips.slice(index + 1)],
+        crop: [...crop.slice(0, index + 1), crop[index] ?? null, ...crop.slice(index + 1)],
+        speed: edDoc.speed.map((r) => ({ ...r, clip: shift(r.clip) })),
+        zooms: ((edDoc.zooms ?? []) as { clip: number }[]).map((z) => ({ ...z, clip: shift(z.clip) })),
+      };
+      return edView(edDoc);
+    }
+    case "editor_import_take":
+      edDoc = {
+        ...edDoc,
+        clips: [...edDoc.clips, { startMs: 0, endMs: 8_000, source: "a1b2c3d4e5f60718" } as EdDoc["clips"][number]],
+        crop: [...((edDoc.crop ?? []) as unknown[]), null],
+      };
+      edTakes.a1b2c3d4e5f60718 = { durationMs: 8_000, width: 1920, height: 1080, systemAudio: true, hasMic: false, micOffsetMs: 0, hasCursor: false };
+      return edView(edDoc);
+    case "record_list_projects":
+      return [
+        { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false },
+        { dir: "/Users/ana/Movies/Inspector Rust/2026-09-28 Release notes", title: "Release notes", createdAt: Date.parse("2026-09-28T15:40:00Z"), durationMs: 41_500, status: "ready", failure: null, active: false },
+      ];
     case "editor_import_asset": return "6f1c2a8e-4b1d-4c5e-9a3f-2d7b8e0c1a44.png";
     default:
       if (!misses.has(cmd)) {

@@ -4201,6 +4201,7 @@
   "record.editor.take_not_ready": "Only finished recordings can be inserted.",
   "record.editor.take_same": "A recording cannot be inserted into itself.",
   "record.editor.take_copy_failed": "The recording could not be copied into the project.",
+  "record.editor.take_missing": "The recording of this clip is missing (its folder in takes/ is gone). It is skipped until it is back.",
   "rec4.clip.duplicate": "Duplicate",
   "rec4.clip.take": "inserted recording",
   "rec4.take.insert": "Insert recording…",

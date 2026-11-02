@@ -234,8 +234,12 @@ pub fn scene_json_with(
     takes: &TakeSources,
 ) -> Value {
     let meta = &project.recording;
-    // A clip's recording: its folder, metadata and telemetry. A take that is not in `takes`
-    // (normalize drops such clips) falls back to the project's own files.
+    let metas = take_metas(takes);
+    // A clip whose take is missing is not in the scene; regions are re-indexed onto the rest
+    // (`editor::playable` collapses it in the programme, so the times agree).
+    let index = editor::scene_clip_indices(doc, &metas);
+    let kept = |clip: usize| index.get(clip).copied().flatten();
+    // A clip's recording: its folder, metadata and telemetry.
     let source_of = |source: Option<&str>| -> (PathBuf, &RecordingMeta, Option<&CursorRecording>) {
         match source.and_then(|id| takes.get(id).map(|t| (id, t))) {
             Some((id, t)) => (take_dir(project_dir, Some(id)), &t.meta, t.cursor.as_ref()),
@@ -245,7 +249,9 @@ pub fn scene_json_with(
     let clips: Vec<Value> = doc
         .clips
         .iter()
-        .map(|c| {
+        .enumerate()
+        .filter(|(i, _)| kept(*i).is_some())
+        .map(|(_, c)| {
             let (dir, m, _) = source_of(c.source.as_deref());
             let mut clip = json!({
                 "screenPath": path_str(&dir.join(SCREEN_FILE)),
@@ -269,9 +275,10 @@ pub fn scene_json_with(
     let speed_regions: Vec<Value> = doc
         .speed
         .iter()
-        .map(|r| {
+        .filter_map(|r| kept(r.clip).map(|ci| (ci, r)))
+        .map(|(ci, r)| {
             json!({
-                "clipIndex": r.clip,
+                "clipIndex": ci,
                 "startSec": ms_to_sec(r.start_ms),
                 "endSec": ms_to_sec(r.end_ms),
                 "speed": r.speed,
@@ -279,26 +286,27 @@ pub fn scene_json_with(
         })
         .collect();
     let crop_by_clip: Vec<Value> = (0..doc.clips.len())
+        .filter(|i| kept(*i).is_some())
         .map(|i| match doc.crop.get(i).copied().flatten() {
             Some(c) => json!({"x": c.x, "y": c.y, "width": c.w, "height": c.h}),
             None => Value::Null,
         })
         .collect();
 
-    let metas = take_metas(takes);
-    let rects = screen_boxes(meta, &metas, doc, out);
+    let all_rects = screen_boxes(meta, &metas, doc, out);
+    let rects: Vec<_> = all_rects.iter().enumerate().filter(|(i, _)| kept(*i).is_some()).map(|(_, r)| *r).collect();
     let rect_json = |r: &layout::Rect| json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height});
     let layout_by_clip: Vec<Value> = rects.iter().map(|(r, _)| json!({"screenRect": rect_json(r)})).collect();
 
     let zoom_regions: Vec<Value> = doc
         .zooms
         .iter()
-        .filter(|z| z.clip < doc.clips.len())
-        .map(|z| {
-            let (rect, src) = rects[z.clip];
+        .filter_map(|z| kept(z.clip).map(|ci| (ci, z)))
+        .map(|(ci, z)| {
+            let (rect, src) = rects[ci];
             let mut r = json!({
                 "id": z.id,
-                "clipIndex": z.clip,
+                "clipIndex": ci,
                 "startSec": ms_to_sec(z.start_ms),
                 "endSec": ms_to_sec(z.end_ms),
                 "scale": zoom_scale(z).min(layout::max_zoom_scale(rect, out, src)),
@@ -316,7 +324,12 @@ pub fn scene_json_with(
 
     let c = &doc.cursor;
     // Drawn when any clip's recording has pointer data (a clip without plays none).
-    let show = c.show && doc.clips.iter().any(|clip| has_cursor_data(source_of(clip.source.as_deref()).2));
+    let show = c.show
+        && doc
+            .clips
+            .iter()
+            .filter(|clip| !editor::take_missing(clip, &metas))
+            .any(|clip| has_cursor_data(source_of(clip.source.as_deref()).2));
     let mut cursor_block = json!({
         "show": show,
         "autoHide": c.auto_hide,
@@ -356,7 +369,9 @@ pub fn scene_json_with(
 
     if show && c.click_sound {
         let level = 10f64.powf(c.click_sound_gain_db / 20.0);
-        let hits: Vec<Value> = click_hits_by_source(doc, |source| source_of(source).2.filter(|r| has_cursor_data(Some(r))))
+        // On the programme as it plays (a missing take's clip lasts no time, see `playable`).
+        let play = editor::playable(doc, &metas);
+        let hits: Vec<Value> = click_hits_by_source(&play, |source| source_of(source).2.filter(|r| has_cursor_data(Some(r))))
             .iter()
             .map(|h| json!({"timeSec": ms_to_sec(h.prog_ms), "gain": h.gain * level, "release": h.release}))
             .collect();
@@ -832,5 +847,35 @@ mod tests {
         assert_eq!(takes.keys().collect::<Vec<_>>(), vec!["good"]);
         assert_eq!(take_metas(&takes)["good"].duration_ms, 7_000);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scene_skips_a_clip_whose_take_is_missing() {
+        let mut d = doc();
+        // Clip 1 (with its speed region and zoom) plays a take that is not there.
+        d.clips[1].source = Some("gone".into());
+        d.zooms = vec![ZoomRegion {
+            id: "z".into(),
+            clip: 1,
+            start_ms: 7_000,
+            end_ms: 8_000,
+            depth: 3,
+            custom_scale: None,
+            focus_x: 0.5,
+            focus_y: 0.5,
+            focus_mode: FocusMode::Auto,
+            origin: ZoomOrigin::Manual,
+            hide_cursor: false,
+        }];
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let clips = v["clips"].as_array().unwrap();
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0]["screenPath"], format!("{DIR}/screen.mp4"));
+        assert!(!v.to_string().contains("gone"), "the scene never names the missing take");
+        assert!(v["speedRegions"].as_array().unwrap().iter().all(|r| r["clipIndex"] == 0));
+        assert_eq!(v["speedRegions"].as_array().unwrap().len(), 1);
+        assert!(v["zoomRegions"].as_array().unwrap().is_empty());
+        assert_eq!(v["cropByClip"].as_array().unwrap().len(), 1);
+        assert_eq!(v["layout"]["layoutByClip"].as_array().unwrap().len(), 1);
     }
 }

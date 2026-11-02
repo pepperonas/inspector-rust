@@ -402,11 +402,30 @@ pub struct Transport {
     started_ms: u64,
     clip: Option<usize>,
     programme_ms: u64,
+    /// Document clip index → the scene's clip index (clips of a missing take are not in the
+    /// scene). Empty = the same index.
+    scene_index: Vec<Option<usize>>,
 }
 
 impl Transport {
     pub fn new(doc: &EditDoc) -> Self {
-        Self { playing: false, base_ms: 0, started_ms: 0, clip: Some(0), programme_ms: editor::programme_duration_ms(doc) }
+        Self {
+            playing: false,
+            base_ms: 0,
+            started_ms: 0,
+            clip: Some(0),
+            programme_ms: editor::programme_duration_ms(doc),
+            scene_index: Vec::new(),
+        }
+    }
+
+    /// See [`editor::scene_clip_indices`].
+    pub fn set_scene_index(&mut self, index: Vec<Option<usize>>) {
+        self.scene_index = index;
+    }
+
+    fn scene_clip(&self, clip: usize) -> usize {
+        self.scene_index.get(clip).copied().flatten().unwrap_or(clip)
     }
 
     pub fn playing(&self) -> bool {
@@ -431,7 +450,7 @@ impl Transport {
         let Some(p) = locate(doc, pos) else { return (Vec::new(), None) };
         let cmd = if force || self.clip != Some(p.clip) {
             self.clip = Some(p.clip);
-            Command::SetActiveClip { clip: p.clip, source_sec: sec(p.source_ms) }
+            Command::SetActiveClip { clip: self.scene_clip(p.clip), source_sec: sec(p.source_ms) }
         } else {
             Command::SetTime { source_sec: sec(p.source_ms) }
         };
@@ -527,6 +546,9 @@ struct Session {
     dir: PathBuf,
     project: Project,
     doc: EditDoc,
+    /// `doc` as it plays ([`editor::playable`]): clips of a missing take last no time. The
+    /// transport, the programme mapping and the scene use this; `doc` is what is stored.
+    play: EditDoc,
     /// Resolved once per session: the bundle's asset root and the take's cursor telemetry.
     assets: AssetRoot,
     cursor: Option<CursorRecording>,
@@ -560,8 +582,16 @@ impl Session {
         take_metas(&self.takes)
     }
 
+    /// Re-derives the playing document and the scene's clip indices after `doc` or `takes`
+    /// changed.
+    fn sync_play(&mut self) {
+        let metas = self.metas();
+        self.play = editor::playable(&self.doc, &metas);
+        self.transport.set_scene_index(editor::scene_clip_indices(&self.doc, &metas));
+    }
+
     fn scene(&self, out: (u32, u32), fps: u32) -> Value {
-        scene_json_with(&self.dir, &self.project, &self.doc, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
+        scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
     }
 
     fn preview_scene(&self) -> Value {
@@ -570,7 +600,10 @@ impl Session {
 
     /// The timeline view plus the preview scene's output size, the clicks and screen boxes.
     fn view(&self) -> EditorView {
-        session_view(&self.project.recording, &self.doc, self.cursor.as_ref(), &self.takes, self.output(OutputTarget::P1080))
+        // Geometry of the playing document, the stored one as `doc` (a missing take's clip is
+        // a zero-width span the UI marks; its bounds must come back unchanged on the next edit).
+        let v = session_view(&self.project.recording, &self.play, self.cursor.as_ref(), &self.takes, self.output(OutputTarget::P1080));
+        EditorView { doc: self.doc.clone(), ..v }
     }
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
@@ -700,7 +733,7 @@ fn ensure_client(app: &AppHandle, reopen: bool) -> Result<Arc<RenderClient>, Str
                 // The fresh helper's preview is paused on clip 0; stop the clock with it and
                 // aim at the playhead with a SetActiveClip (Transport::reaim).
                 s.transport.pause(now_ms());
-                let cmds = s.transport.reaim(&s.doc, now_ms());
+                let cmds = s.transport.reaim(&s.play, now_ms());
                 s.last_frame_ms = now_ms();
                 (s.preview_scene(), s.preview, cmds)
             })
@@ -837,9 +870,11 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     flush_save();
     let (scene, preview, init) = {
         let mut s = session();
-        let new = Session {
+        let play = editor::playable(&doc, &take_metas(&takes));
+        let mut new = Session {
             id: NEXT_SESSION.fetch_add(1, Ordering::SeqCst),
-            transport: Transport::new(&doc),
+            transport: Transport::new(&play),
+            play,
             preview: (0, 0),
             assets,
             cursor,
@@ -852,6 +887,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             dirty: planned,
             save_pending: false,
         };
+        new.sync_play();
         let preview = preview_size(new.output(OutputTarget::P1080));
         let new = Session { preview, ..new };
         let out = (new.preview_scene(), preview, new.init(None));
@@ -915,8 +951,11 @@ fn apply_update(
 ) -> Result<(EditorView, Value, Vec<Command>), String> {
     let s = slot.as_mut().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
     let before = s.output(OutputTarget::P1080);
+    // A take folder removed (or back) while the editor is open: re-read, it is cheap.
+    s.takes = load_takes(&s.dir);
     s.doc = editor::normalize(doc, s.project.recording.duration_ms, &s.metas());
-    let mut cmds = s.transport.set_doc(&s.doc, now);
+    s.sync_play();
+    let mut cmds = s.transport.set_doc(&s.play, now);
     // Under `Auto` padding, frame and crop change the output's shape, not only an aspect
     // switch: every shape change reshapes the preview (the same size `open_editor` picks), so
     // the helper never draws the new scene onto the old canvas. The UI re-sends its own panel
@@ -1011,7 +1050,7 @@ pub fn seek(app: &AppHandle, programme_ms: u64) -> Result<Option<SourcePos>, Str
         let mut guard = session();
         let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
         s.last_frame_ms = now_ms();
-        s.transport.seek(&s.doc, now_ms(), programme_ms)
+        s.transport.seek(&s.play, now_ms(), programme_ms)
     };
     let client = ensure_client(app, true)?;
     send_all(&client, &cmds)?;
@@ -1022,25 +1061,25 @@ pub fn seek(app: &AppHandle, programme_ms: u64) -> Result<Option<SourcePos>, Str
 pub fn to_source(programme_ms: u64) -> Result<Option<SourcePos>, String> {
     let guard = session();
     let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-    Ok(locate(&s.doc, programme_ms))
+    Ok(locate(&s.play, programme_ms))
 }
 
 /// Source → programme on the open document, without moving the playhead.
 pub fn to_programme(clip: usize, source_ms: u64) -> Result<u64, String> {
     let guard = session();
     let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-    Ok(editor::source_to_programme(&s.doc, clip, source_ms))
+    Ok(editor::source_to_programme(&s.play, clip, source_ms))
 }
 
 fn playback(s: &Session) -> PlaybackState {
     let client = HOST.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let position_ms = s.transport.position(now_ms());
-    let source = locate(&s.doc, position_ms);
+    let source = locate(&s.play, position_ms);
     PlaybackState {
         playing: s.transport.playing(),
         position_ms,
         source,
-        speed: speed_of(&s.doc, source),
+        speed: speed_of(&s.play, source),
         programme_ms: s.transport.programme_ms(),
         exporting: client.as_ref().is_some_and(|c| c.exporting()),
         helper_error: client.and_then(|c| match c.state() {
@@ -1055,7 +1094,7 @@ pub fn play(app: &AppHandle, playing: bool) -> Result<PlaybackState, String> {
         let mut guard = session();
         let s = guard.as_mut().ok_or(ERR_NO_SESSION)?;
         s.last_frame_ms = now_ms();
-        if playing { s.transport.play(&s.doc, now_ms()) } else { s.transport.pause(now_ms()) }
+        if playing { s.transport.play(&s.play, now_ms()) } else { s.transport.pause(now_ms()) }
     };
     let client = ensure_client(app, true)?;
     send_all(&client, &cmds)?;
@@ -1068,7 +1107,7 @@ fn tick() -> Option<PlaybackState> {
     let (cmds, state) = {
         let mut guard = session();
         let s = guard.as_mut()?;
-        let cmds = s.transport.tick(&s.doc, now_ms());
+        let cmds = s.transport.tick(&s.play, now_ms());
         (cmds, playback(s))
     };
     if let Some(c) = current_client() {
@@ -1123,7 +1162,7 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
         let out = s.output(OutputTarget::P720);
-        let frames = thumb_frames(editor::programme_duration_ms(&s.doc), count, THUMB_FPS);
+        let frames = thumb_frames(editor::programme_duration_ms(&s.play), count, THUMB_FPS);
         (s.scene(out, THUMB_FPS), frames)
     };
     let client = ensure_client(app, true)?;
@@ -1134,7 +1173,7 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         let mut guard = session();
         guard.as_mut().filter(|s| s.transport.playing()).map(|s| {
             s.last_frame_ms = now_ms();
-            s.transport.reaim(&s.doc, now_ms())
+            s.transport.reaim(&s.play, now_ms())
         })
     };
     if let Some(cmds) = cmds {
@@ -1398,10 +1437,11 @@ mod tests {
     fn session_for(dir: &Path, id: u64) -> Session {
         let project = project::read_project(dir).unwrap();
         let doc = editor::load(&project, &TakeMetas::new());
-        Session {
+        let mut s = Session {
             id,
             dir: dir.to_path_buf(),
             transport: Transport::new(&doc),
+            play: doc.clone(),
             preview: (640, 360),
             assets: AssetRoot::dev(),
             cursor: None,
@@ -1411,7 +1451,9 @@ mod tests {
             last_frame_ms: 0,
             dirty: false,
             save_pending: false,
-        }
+        };
+        s.sync_play();
+        s
     }
 
     fn sample(t: u64, cx: f64, cy: f64, kind: Option<crate::record::project::Interaction>) -> crate::record::project::CursorSample {
@@ -1614,6 +1656,29 @@ mod tests {
         assert_eq!(apply_update(&mut None, 2, stale, 0).unwrap_err(), ERR_NO_SESSION);
         let _ = std::fs::remove_dir_all(&a);
         let _ = std::fs::remove_dir_all(&b);
+    }
+
+    /// A clip whose take folder is gone stays in the stored document (no loss on the next
+    /// save); it plays for no time, the scene leaves it out, and the transport aims at the
+    /// scene's index of the clip behind it.
+    #[test]
+    fn a_missing_take_is_kept_and_skipped_while_playing() {
+        let dir = tmp_project("missing-take", "m");
+        let mut slot = Some(session_for(&dir, 4));
+        let mut d = doc(&[(0, 4_000), (0, 6_000), (5_000, 9_000)]);
+        d.clips[1].source = Some("gone".into());
+        let (view, scene, _) = apply_update(&mut slot, 4, d.clone(), 0).unwrap();
+        assert_eq!(view.doc.clips, d.clips, "the stored document keeps the clip");
+        assert_eq!(view.clips[1].prog_start_ms, view.clips[1].prog_end_ms, "zero-width while missing");
+        assert_eq!(view.programme_ms, 8_000);
+        assert_eq!(scene["clips"].as_array().unwrap().len(), 2);
+        let s = slot.as_mut().unwrap();
+        assert_eq!(s.doc.clips, d.clips);
+        // Seeking into the third clip names the scene's clip 1.
+        let (cmds, pos) = s.transport.seek(&s.play, 0, 5_000);
+        assert_eq!(pos, Some(SourcePos { clip: 2, source_ms: 6_000 }));
+        assert!(matches!(cmds[..], [Command::SetActiveClip { clip: 1, .. }]), "{cmds:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Under `Auto` the output shape follows padding (and frame, crop): an edit that changes

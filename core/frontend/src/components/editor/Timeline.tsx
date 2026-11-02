@@ -314,6 +314,8 @@ export function Timeline({
         <div className="relative mt-1 h-9">
           {view.clips.map((span, i) => {
             const sel = selectedClip === i;
+            const takeId = doc.clips[i]?.source ?? null;
+            const missing = !!takeId && !view.takes?.[takeId];
             let left = span.progStartMs * scale;
             let w = (span.progEndMs - span.progStartMs) * scale;
             if (drag?.kind === "trim" && drag.clip === i) {
@@ -326,6 +328,7 @@ export function Timeline({
               <div
                 key={i}
                 data-testid="ed-clip"
+                data-missing={missing ? "" : undefined}
                 data-dragging={clipDrag?.from === i && Math.abs(clipDrag.dx) >= CLICK_SLOP_PX ? "" : undefined}
                 onPointerDown={(e) => {
                   e.stopPropagation();
@@ -338,18 +341,21 @@ export function Timeline({
                 className={
                   "absolute top-0 flex h-full items-center overflow-hidden rounded-md border px-3 text-[11px] tabular-nums " +
                   (onMoveClip && view.clips.length > 1 ? "cursor-grab data-[dragging]:z-10 data-[dragging]:cursor-grabbing data-[dragging]:opacity-70 " : "") +
-                  (sel
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent)]/25 text-[var(--color-fg)]"
-                    : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]")
+                  (missing
+                    ? "border-dashed border-red-500/80 bg-red-500/15 text-red-500"
+                    : sel
+                      ? "border-[var(--color-accent)] bg-[var(--color-accent)]/25 text-[var(--color-fg)]"
+                      : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]")
                 }
                 style={{
                   left,
-                  width: Math.max(4, w - 2),
+                  width: missing ? 8 : Math.max(4, w - 2),
                   transform: clipDrag?.from === i && Math.abs(clipDrag.dx) >= CLICK_SLOP_PX ? `translateX(${clipDrag.dx}px)` : undefined,
                 }}
                 title={`${formatTimecode(doc.clips[i]?.startMs ?? 0)} – ${formatTimecode(doc.clips[i]?.endMs ?? 0)}${
-                  doc.clips[i]?.source ? ` · ${t("rec4.clip.take")}` : ""
+                  missing ? ` · ${t("record.editor.take_missing")}` : takeId ? ` · ${t("rec4.clip.take")}` : ""
                 }`}
+                aria-label={missing ? t("record.editor.take_missing") : undefined}
               >
                 <span className="truncate">
                   {drag?.kind === "trim" && drag.clip === i

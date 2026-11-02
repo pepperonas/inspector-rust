@@ -20,6 +20,7 @@ import type {
   RecordCursorStyle,
   RecordEditDoc,
   RecordEditorView,
+  RecordTakeMeta,
   RecordZoomRegion,
 } from "./ipc";
 
@@ -261,6 +262,53 @@ export function clipAt(view: RecordEditorView, t: number): number {
     if (c.progStartMs <= t) found = i;
   });
   return found;
+}
+
+/** The recording a clip plays: its folder inside the project and what is in it. */
+export interface ClipMedia {
+  /** Relative folder: "" = the project's own take, else `takes/<id>`. */
+  dir: string;
+  width: number;
+  height: number;
+  systemAudio: boolean;
+  hasMic: boolean;
+  micOffsetMs: number;
+  /** An inserted take that is not available right now (the clip plays for no time). */
+  missing: boolean;
+}
+
+/**
+ * The recording behind clip `clip`: the project's own (`main`) or the inserted take its
+ * `source` names (from `view.takes`, Rust's list of takes that are there).
+ */
+export function clipMedia(
+  doc: RecordEditDoc,
+  takes: Record<string, RecordTakeMeta> | undefined,
+  clip: number,
+  main: { width: number; height: number; systemAudio: boolean; micOffsetMs: number | null },
+): ClipMedia {
+  const id = doc.clips[clip]?.source ?? null;
+  const own: ClipMedia = {
+    dir: "",
+    width: main.width,
+    height: main.height,
+    systemAudio: main.systemAudio,
+    hasMic: main.micOffsetMs != null,
+    micOffsetMs: main.micOffsetMs ?? 0,
+    missing: false,
+  };
+  if (!id) return own;
+  const t = takes?.[id];
+  if (!t) return { ...own, systemAudio: false, hasMic: false, missing: true };
+  return {
+    dir: `takes/${id}`,
+    width: t.width || main.width,
+    height: t.height || main.height,
+    systemAudio: t.systemAudio,
+    hasMic: t.hasMic,
+    micOffsetMs: t.micOffsetMs,
+    missing: false,
+  };
 }
 
 /**

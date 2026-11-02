@@ -4201,6 +4201,7 @@
   "record.editor.take_not_ready": "Nur fertige Aufnahmen lassen sich einfügen.",
   "record.editor.take_same": "Eine Aufnahme lässt sich nicht in sich selbst einfügen.",
   "record.editor.take_copy_failed": "Die Aufnahme konnte nicht ins Projekt kopiert werden.",
+  "record.editor.take_missing": "Die Aufnahme dieses Clips fehlt (ihr Ordner unter takes/ ist weg). Er wird übersprungen, bis sie wieder da ist.",
   "rec4.clip.duplicate": "Duplizieren",
   "rec4.clip.take": "eingefügte Aufnahme",
   "rec4.take.insert": "Aufnahme einfügen…",

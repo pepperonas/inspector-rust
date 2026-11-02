@@ -162,6 +162,26 @@ describe("Timeline zoom track", () => {
     for (const [p] of toSource.mock.calls) expect(p).toBeLessThan(5_000);
   });
 
+  it("moving or trimming a planned zoom makes it the user's", async () => {
+    const doc = doc0([zoom("a", 0, 1_000, 2_000, "auto")]);
+    const { onChange } = setup(doc);
+    const block = screen.getByTestId("ed-zoom");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerUp(block, { clientX: 250, pointerId: 1 });
+    await flush();
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).zooms[0]).toMatchObject({ startMs: 2_000, endMs: 3_000, origin: "manual" });
+    for (const edge of ["Zoom start", "Zoom end"]) {
+      onChange.mockClear();
+      const handle = screen.getByLabelText(edge);
+      fireEvent.pointerDown(handle, { clientX: 100, pointerId: 1 });
+      fireEvent.pointerMove(handle, { clientX: 150, pointerId: 1 });
+      fireEvent.pointerUp(handle, { clientX: 150, pointerId: 1 });
+      await flush();
+      expect((onChange.mock.calls[0][0] as RecordEditDoc).zooms[0].origin, edge).toBe("manual");
+    }
+  });
+
   it("a click without movement only selects", async () => {
     const { onChange, onSelectZoom } = setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]));
     const block = screen.getByTestId("ed-zoom");

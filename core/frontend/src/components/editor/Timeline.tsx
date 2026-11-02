@@ -210,7 +210,8 @@ export function Timeline({
     } else if (d.mode === "start") startMs = await at(target.progStartMs);
     else endMs = await at(target.progEndMs);
     if (startMs === z.startMs && endMs === z.endMs) return;
-    onChange(updateZoom(getDoc(), d.id, { startMs, endMs }));
+    // A planned zoom the user moved or trimmed is theirs now: "Remove auto-zooms" keeps it.
+    onChange(updateZoom(getDoc(), d.id, { startMs, endMs, origin: "manual" }));
   };
 
   const onMove = (e: ReactPointerEvent) => {

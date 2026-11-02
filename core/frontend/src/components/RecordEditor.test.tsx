@@ -89,7 +89,8 @@ const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   });
   // Spans for the mock only (1× everywhere): the component never computes them itself.
   const speed = doc.speed.map((r, index) => ({ index, progStartMs: r.startMs, progEndMs: r.endMs }));
-  return { doc, programmeMs: t, clips, speed, outputSize: [1920, 1080] };
+  const zooms = doc.zooms.map((z, index) => ({ index, progStartMs: z.startMs, progEndMs: z.endMs }));
+  return { doc, programmeMs: t, clips, speed, zooms, clickHits: [], screenRects: doc.clips.map(() => [0, 0, 1, 1]), outputSize: [1920, 1080] };
 };
 const init = (helperError: string | null = null, sessionId = 1, title = "Take", view = viewOf(doc0)): EditorInit => ({
   sessionId,
@@ -129,7 +130,7 @@ beforeEach(() => {
   editorResize.mockResolvedValue(undefined);
   editorThumbs.mockResolvedValue([]);
   editorRestart.mockResolvedValue(playback(false));
-  editorAssets.mockResolvedValue({ wallpapers: [], themes: [], hasCursorData: true });
+  editorAssets.mockResolvedValue({ wallpapers: [], themes: [], hasCursorData: true, clickDown: null, clickUp: null });
   editorImportAsset.mockResolvedValue("img.png");
   openDialog.mockResolvedValue(null);
 });

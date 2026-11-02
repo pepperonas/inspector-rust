@@ -38,6 +38,8 @@ const assets = (hasCursorData = true): EditorAssets => ({
     preview: `/a/cursors/${id}/arrow.png`,
   })),
   hasCursorData,
+  clickDown: null,
+  clickUp: null,
 });
 
 function mount(over: Partial<InspectorProps> = {}) {
@@ -50,6 +52,9 @@ function mount(over: Partial<InspectorProps> = {}) {
     onLive: vi.fn(),
     onLiveEnd: vi.fn(),
     onImport: vi.fn(async () => null),
+    selectedZoom: null,
+    onSelectZoom: vi.fn(),
+    onAutoZoom: vi.fn(),
     ...over,
   };
   const r = render(<Inspector {...props} />);
@@ -167,5 +172,83 @@ describe("Inspector", () => {
     rerender(<Inspector {...props} doc={d} />);
     expect(screen.getByRole("slider", { name: "Hotspot X" })).toBeTruthy();
     expect(screen.getByRole("slider", { name: "Hotspot Y" })).toBeTruthy();
+  });
+
+  describe("zoom tab", () => {
+    const z = (id: string, origin: "auto" | "manual", over: Partial<RecordEditDoc["zooms"][number]> = {}) => ({
+      id,
+      clip: 0,
+      startMs: 1_000,
+      endMs: 3_000,
+      depth: 3,
+      customScale: null,
+      focusX: 0.5,
+      focusY: 0.5,
+      focusMode: "auto" as const,
+      origin,
+      hideCursor: false,
+      ...over,
+    });
+    const withZooms = (...zooms: RecordEditDoc["zooms"]) => ({ ...doc0(), zooms });
+    const committed = (props: InspectorProps) =>
+      (props.onCommit as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as RecordEditDoc);
+
+    it("opens on the zoom tab when a zoom gets selected", () => {
+      const { props, rerender } = mount({ doc: withZooms(z("a", "manual")) });
+      expect(screen.getByRole("tab", { name: "Zoom" }).getAttribute("aria-selected")).toBe("false");
+      rerender(<Inspector {...props} selectedZoom="a" />);
+      expect(screen.getByRole("tab", { name: "Zoom" }).getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("depth chips show their factor and set the depth (custom scale cleared)", () => {
+      const { props } = mount({ doc: withZooms(z("a", "manual", { customScale: 2.4 })), selectedZoom: "a" });
+      for (const f of ["1.25×", "1.5×", "1.8×", "2.2×", "3.5×", "5×"]) expect(screen.getByRole("button", { name: f })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "3.5×" }));
+      expect(committed(props)[0].zooms[0]).toMatchObject({ depth: 5, customScale: null });
+    });
+
+    it("the own scale slider moves live and clamps", () => {
+      const { props } = mount({ doc: withZooms(z("a", "manual")), selectedZoom: "a" });
+      fireEvent.change(screen.getByRole("slider", { name: "Own scale" }), { target: { value: "9" } });
+      expect(((props.onLive as ReturnType<typeof vi.fn>).mock.calls[0][0] as RecordEditDoc).zooms[0].customScale).toBe(5);
+    });
+
+    it("focus mode, hiding the pointer and deleting are one step each; edits keep the zoom", () => {
+      const { props } = mount({ doc: withZooms(z("a", "auto")), selectedZoom: "a" });
+      fireEvent.click(screen.getByRole("button", { name: "Fixed" }));
+      fireEvent.click(screen.getByRole("checkbox", { name: "Hide the pointer while zoomed" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete zoom" }));
+      const c = committed(props);
+      expect(c[0].zooms[0]).toMatchObject({ focusMode: "manual", origin: "manual" });
+      expect(c[1].zooms[0].hideCursor).toBe(true);
+      expect(c[2].zooms).toEqual([]);
+      expect(props.onSelectZoom).toHaveBeenCalledWith(null);
+    });
+
+    it("a fixed focus explains the click in the preview", () => {
+      mount({ doc: withZooms(z("a", "manual", { focusMode: "manual" })), selectedZoom: "a" });
+      expect(screen.getByTestId("ed-focus-hint")).toBeTruthy();
+    });
+
+    it("auto-zoom is off without pointer data and says why", () => {
+      const { props } = mount({ assets: assets(false) });
+      fireEvent.click(screen.getByRole("tab", { name: "Zoom" }));
+      const btn = screen.getByRole("button", { name: "Auto-zoom" }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.title).toBe("This recording has no pointer data.");
+      cleanup();
+      const m = mount();
+      fireEvent.click(screen.getByRole("tab", { name: "Zoom" }));
+      fireEvent.click(screen.getByRole("button", { name: "Auto-zoom" }));
+      expect(m.props.onAutoZoom).toHaveBeenCalledTimes(1);
+      void props;
+    });
+
+    it("removing auto-zooms keeps the manual ones", () => {
+      const { props } = mount({ doc: withZooms(z("a", "manual"), z("b", "auto"), z("c", "auto")) });
+      fireEvent.click(screen.getByRole("tab", { name: "Zoom" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove auto-zooms" }));
+      expect(committed(props)[0].zooms.map((x) => x.id)).toEqual(["a"]);
+    });
   });
 });

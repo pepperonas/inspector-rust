@@ -26,7 +26,7 @@ export function RecordSettingsSection() {
   };
 
   if (!cfg) return null;
-  const box = (key: "countdown" | "systemAudio" | "mic" | "openEditor", label: string, help?: string) => (
+  const box = (key: "countdown" | "systemAudio" | "mic" | "openEditor" | "autoZoom", label: string, help?: string) => (
     <Row label={label} help={help}>
       <input
         type="checkbox"
@@ -75,6 +75,7 @@ export function RecordSettingsSection() {
       {box("systemAudio", t("rec2.hud.system_audio"))}
       {box("mic", t("rec2.hud.mic"))}
       {box("openEditor", t("rec2.set.open_editor"), t("rec2.set.open_editor_help"))}
+      {box("autoZoom", t("rec3.set.auto_zoom"), t("rec3.set.auto_zoom_help"))}
     </Section>
   );
 }

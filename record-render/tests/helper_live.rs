@@ -543,3 +543,60 @@ fn preview_matches_still_with_effects() {
     assert!(worst < 20.0, "a part of the preview differs from the still: worst block {worst:.2}");
     assert!(h.shutdown().success());
 }
+
+/// Stage 3 end to end (Task 7): exports the scene the app built for a real project
+/// (`IR_E2E_SCENE`, written by `inspector-rust-core`'s `stage3_e2e_scene`) as MP4 and GIF into
+/// `IR_E2E_OUT`. Wallpaper, padding, laptop frame, themed pointer, click sound and the planned
+/// zooms all come from the app's scene builder; this only drives the helper.
+#[test]
+#[ignore]
+fn export_scene_file() {
+    let (Some(scene_path), Some(out)) = (std::env::var_os("IR_E2E_SCENE"), std::env::var_os("IR_E2E_OUT")) else {
+        eprintln!("skipped: set IR_E2E_SCENE=<scene.json> IR_E2E_OUT=<dir>");
+        return;
+    };
+    let out = PathBuf::from(out);
+    std::fs::create_dir_all(&out).unwrap();
+    let scene: Value = serde_json::from_slice(&std::fs::read(&scene_path).unwrap()).unwrap();
+    let (w, h) = (scene["output"]["width"].as_u64().unwrap() as u32, scene["output"]["height"].as_u64().unwrap() as u32);
+    let mut helper = Helper::start();
+
+    let mp4 = out.join("stage3.mp4");
+    let t = Instant::now();
+    helper.send(&Command::Export {
+        scene: scene.clone(),
+        kind: ExportKind::Mp4 { w, h, fps: 30, codec: Codec::H264 },
+        out_path: mp4.display().to_string(),
+    });
+    let (done, _, frames) = helper.export_result(Duration::from_secs(600));
+    assert_eq!(done, Event::ExportDone { path: mp4.display().to_string() });
+    println!(
+        "mp4: {:?}, {} bytes, {frames} frames, duration {:.3} s\n{}",
+        t.elapsed(),
+        std::fs::metadata(&mp4).unwrap().len(),
+        ffprobe_duration(&mp4),
+        ffprobe(&mp4, "stream=codec_name,width,height,r_frame_rate,sample_rate,channels")
+    );
+
+    let gw = 640u32;
+    let gh = ((gw as f64 * h as f64 / w as f64 / 2.0).round() as u32) * 2;
+    let mut gif_scene = scene;
+    gif_scene["output"] = json!({"width": gw, "height": gh, "fps": 15});
+    let gif = out.join("stage3.gif");
+    let t = Instant::now();
+    helper.send(&Command::Export {
+        scene: gif_scene,
+        kind: ExportKind::Gif { w: gw, h: gh, fps: 15, loop_forever: true },
+        out_path: gif.display().to_string(),
+    });
+    let (done, _, _) = helper.export_result(Duration::from_secs(600));
+    assert_eq!(done, Event::ExportDone { path: gif.display().to_string() });
+    println!(
+        "gif: {:?}, {} bytes, duration {:.3} s\n{}",
+        t.elapsed(),
+        std::fs::metadata(&gif).unwrap().len(),
+        ffprobe_duration(&gif),
+        ffprobe(&gif, "stream=codec_name,width,height,r_frame_rate")
+    );
+    assert!(helper.shutdown().success());
+}

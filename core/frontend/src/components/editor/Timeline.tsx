@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { editorToSource, type RecordEditDoc, type RecordEditorView } from "../../lib/ipc";
-import { MAX_SPEED, MIN_CLIP_MS, MIN_SPEED, SPEED_STEPS, formatTimecode, setTrim, trimSourceAt } from "../../lib/editor";
+import {
+  MAX_SPEED,
+  MIN_CLIP_MS,
+  MIN_SPEED,
+  SPEED_STEPS,
+  addZoom,
+  fmtZoom,
+  formatTimecode,
+  isTypingTarget,
+  moveZoomProg,
+  removeZoom,
+  setTrim,
+  trimSourceAt,
+  trimZoomProg,
+  updateZoom,
+  zoomScale,
+  zoomSourceAt,
+} from "../../lib/editor";
 import { useT } from "../../lib/i18n";
 
 const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
@@ -20,7 +37,19 @@ type Drag =
       sourceMs: number;
     }
   | { kind: "speed"; index: number; y0: number; value: number; moved: boolean }
+  | {
+      kind: "zoom";
+      id: string;
+      mode: "move" | "start" | "end";
+      x0: number;
+      dx: number;
+      span: { progStartMs: number; progEndMs: number };
+      clipSpan: { progStartMs: number; progEndMs: number };
+    }
   | { kind: "head" };
+
+/** A pointer moved less than this many px: a click (select), not a drag. */
+const CLICK_SLOP_PX = 3;
 
 /**
  * Timeline: filmstrip, clips (with trim handles), speed band and the playhead. All
@@ -41,6 +70,9 @@ export function Timeline({
   onSpeedValue,
   onSpeedRemove,
   onWidth,
+  selectedZoom = null,
+  onSelectZoom = () => undefined,
+  keysEnabled = true,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -55,6 +87,11 @@ export function Timeline({
   onSpeedValue: (index: number, speed: number) => void;
   onSpeedRemove: (index: number) => void;
   onWidth: (px: number) => void;
+  /** The zoom region (`id`) the inspector edits. */
+  selectedZoom?: string | null;
+  onSelectZoom?: (id: string | null) => void;
+  /** Z (new zoom) and Delete (selected zoom) — off while a dialog or crop mode owns the keys. */
+  keysEnabled?: boolean;
 }) {
   const t = useT();
   const track = useRef<HTMLDivElement>(null);
@@ -76,6 +113,41 @@ export function Timeline({
     ro.observe(el);
     return () => ro.disconnect();
   }, [onWidth]);
+
+  // Latest values for the window key handler (registered once per enable flip).
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom });
+  useEffect(() => {
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom };
+  });
+  useEffect(() => {
+    if (!keysEnabled) return;
+    // Registered before the editor's own handler (a child's effect runs first): a key this
+    // track uses is `preventDefault`ed and the editor leaves it alone.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+      const cur = live.current;
+      if (e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        void editorToSource(cur.positionMs)
+          .then((at) => {
+            if (!at) return;
+            const doc = cur.getDoc();
+            const next = addZoom(doc, at.clip, at.sourceMs);
+            const made = next.zooms[next.zooms.length - 1];
+            if (next === doc || !made) return;
+            cur.onChange(next);
+            cur.onSelectZoom(made.id);
+          })
+          .catch(() => undefined);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedZoom) {
+        e.preventDefault();
+        cur.onChange(removeZoom(cur.getDoc(), cur.selectedZoom));
+        cur.onSelectZoom(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [keysEnabled]);
 
   const progAt = (clientX: number) => {
     const r = track.current?.getBoundingClientRect();
@@ -107,11 +179,44 @@ export function Timeline({
       });
   };
 
-  const capture = (e: ReactPointerEvent) => (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  const capture = (e: ReactPointerEvent) => {
+    try {
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* no active pointer (synthetic events) */
+    }
+  };
+
+  /** The block a zoom drag shows right now (programme ms). */
+  const zoomPreview = (d: Extract<Drag, { kind: "zoom" }>) => {
+    const delta = scale > 0 ? d.dx / scale : 0;
+    return d.mode === "move" ? moveZoomProg(d.span, d.clipSpan, delta) : trimZoomProg(d.span, d.clipSpan, d.mode, delta);
+  };
+
+  /** Commits a zoom drag: programme edges → source through Rust, inside the zoom's clip. */
+  const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {
+    const doc = getDoc();
+    const z = doc.zooms.find((x) => x.id === d.id);
+    const c = z ? doc.clips[z.clip] : undefined;
+    if (!z || !c) return;
+    const target = zoomPreview(d);
+    const at = (prog: number) => zoomSourceAt(z.clip, d.clipSpan, c, prog, (p) => editorToSource(p));
+    let startMs = z.startMs;
+    let endMs = z.endMs;
+    if (d.mode === "move") {
+      startMs = await at(target.progStartMs);
+      endMs = Math.min(c.endMs, startMs + (z.endMs - z.startMs));
+      startMs = Math.max(c.startMs, endMs - (z.endMs - z.startMs));
+    } else if (d.mode === "start") startMs = await at(target.progStartMs);
+    else endMs = await at(target.progEndMs);
+    if (startMs === z.startMs && endMs === z.endMs) return;
+    onChange(updateZoom(getDoc(), d.id, { startMs, endMs }));
+  };
 
   const onMove = (e: ReactPointerEvent) => {
     if (!drag) return;
     if (drag.kind === "head") onSeek(progAt(e.clientX));
+    else if (drag.kind === "zoom") setDrag({ ...drag, dx: e.clientX - drag.x0 });
     else if (drag.kind === "trim") {
       const next = { ...drag, dx: e.clientX - drag.x0 };
       setDrag(next);
@@ -144,6 +249,8 @@ export function Timeline({
           }
         })
         .catch(() => undefined);
+    } else if (d.kind === "zoom") {
+      if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitZoom(d).catch(() => undefined);
     } else if (d.kind === "speed") {
       if (d.moved) onSpeedValue(d.index, d.value);
       else setMenu(menu === d.index ? null : d.index);
@@ -295,6 +402,56 @@ export function Timeline({
                     </button>
                   </div>
                 )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Zoom track */}
+        <div className="relative mt-1 h-5" data-testid="ed-zoom-track">
+          {view.zooms.map((span) => {
+            const z = doc.zooms[span.index];
+            const clipSpan = z ? view.clips[z.clip] : undefined;
+            if (!z || !clipSpan) return null;
+            const d = drag?.kind === "zoom" && drag.id === z.id ? drag : null;
+            const g = d ? zoomPreview(d) : span;
+            const sel = selectedZoom === z.id;
+            const auto = z.origin === "auto";
+            const start = (mode: "move" | "start" | "end") => (e: ReactPointerEvent) => {
+              e.stopPropagation();
+              capture(e);
+              onSelectZoom(z.id);
+              setDrag({ kind: "zoom", id: z.id, mode, x0: e.clientX, dx: 0, span, clipSpan });
+            };
+            return (
+              <div
+                key={z.id}
+                data-testid="ed-zoom"
+                data-origin={z.origin}
+                aria-selected={sel}
+                title={`${t(auto ? "rec3.zoom.auto_block" : "rec3.zoom.manual_block")} · ${fmtZoom(zoomScale(z))}`}
+                onPointerDown={start("move")}
+                className={
+                  "absolute top-0 flex h-full cursor-grab items-center overflow-hidden rounded-sm border px-1.5 text-[10px] font-medium tabular-nums " +
+                  (auto
+                    ? "border-dashed border-violet-400/80 bg-violet-500/25 text-violet-100"
+                    : "border-violet-400 bg-violet-500/70 text-white") +
+                  (sel ? " ring-2 ring-[var(--color-accent)]" : "")
+                }
+                style={{ left: g.progStartMs * scale, width: Math.max(10, (g.progEndMs - g.progStartMs) * scale) }}
+              >
+                <span className="truncate">{fmtZoom(zoomScale(z))}</span>
+                {(["start", "end"] as const).map((edge) => (
+                  <span
+                    key={edge}
+                    aria-label={edge === "start" ? t("rec3.zoom.trim_start") : t("rec3.zoom.trim_end")}
+                    onPointerDown={start(edge)}
+                    className={
+                      "absolute top-0 h-full w-1.5 cursor-ew-resize bg-white/60 opacity-0 transition-opacity duration-(--duration-fast) ease-sharp hover:opacity-100 " +
+                      (edge === "start" ? "left-0" : "right-0")
+                    }
+                  />
+                ))}
               </div>
             );
           })}

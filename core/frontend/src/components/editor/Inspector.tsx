@@ -6,6 +6,7 @@ import type {
   RecordEditDoc,
   RecordFrame,
   RecordWallpaperMotion,
+  RecordZoomRegion,
 } from "../../lib/ipc";
 import {
   BOUNCE_LEVELS,
@@ -13,10 +14,16 @@ import {
   GRADIENT_PRESETS,
   INSPECTOR_RANGES,
   SHADOW_LEVELS,
+  ZOOM_DEPTHS,
   clampSetting,
+  fmtZoom,
   motionAllowed,
+  removeAutoZooms,
+  removeZoom,
   setAppearance,
   setCursorStyle,
+  updateZoom,
+  zoomScale,
   type InspectorSetting,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
@@ -37,13 +44,19 @@ export interface InspectorProps {
   onLiveEnd: () => void;
   /** Picks and imports a file; resolves to its name in the project, or null. */
   onImport: (kind: "image" | "cursor") => Promise<string | null>;
+  /** The zoom region (`id`) selected on the timeline; the zoom tab edits it. */
+  selectedZoom: string | null;
+  onSelectZoom: (id: string | null) => void;
+  /** Plans auto-zooms (Rust `editor_auto_zoom`); the editor records the answer as one step. */
+  onAutoZoom: () => void;
 }
 
-type Tab = "background" | "frame" | "cursor";
+type Tab = "background" | "frame" | "cursor" | "zoom";
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
   { id: "frame", label: "rec3.insp.tab_frame" },
   { id: "cursor", label: "rec3.insp.tab_cursor" },
+  { id: "zoom", label: "rec3.zoom.tab" },
 ];
 const MOTIONS: { id: RecordWallpaperMotion; label: MessageKey }[] = [
   { id: "none", label: "rec3.insp.motion_none" },
@@ -80,7 +93,13 @@ const fmt = (v: number, digits: number) => (Math.round(v * 10 ** digits) / 10 **
  */
 export function Inspector(props: InspectorProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>("background");
+  const [tab, setTab] = useState<Tab>(props.selectedZoom ? "zoom" : "background");
+  // Selecting a zoom on the timeline brings its settings up (derived during render).
+  const [seenZoom, setSeenZoom] = useState(props.selectedZoom);
+  if (props.selectedZoom !== seenZoom) {
+    setSeenZoom(props.selectedZoom);
+    if (props.selectedZoom) setTab("zoom");
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ed-inspector">
       <div role="tablist" aria-label={t("rec3.insp.title")} className="flex gap-1 border-b border-[var(--color-border)] px-3 py-2">
@@ -103,6 +122,7 @@ export function Inspector(props: InspectorProps) {
         {tab === "background" && <BackgroundTab {...props} />}
         {tab === "frame" && <FrameTab {...props} />}
         {tab === "cursor" && <CursorTab {...props} />}
+        {tab === "zoom" && <ZoomTab {...props} />}
       </div>
     </div>
   );
@@ -398,6 +418,85 @@ function CursorTab({ doc, assets, assetUrl, projectAssetUrl, onCommit, onLive, o
           onLive={(clickSoundGainDb) => live({ clickSoundGainDb })}
           onEnd={onLiveEnd}
         />
+      )}
+    </>
+  );
+}
+
+function ZoomTab({ doc, assets, selectedZoom, onSelectZoom, onAutoZoom, onCommit, onLive, onLiveEnd }: InspectorProps) {
+  const t = useT();
+  const z = selectedZoom ? doc.zooms.find((x) => x.id === selectedZoom) : undefined;
+  const hasData = !!assets?.hasCursorData;
+  const autos = doc.zooms.filter((x) => x.origin === "auto").length;
+  // Editing a planned zoom makes it the user's: "Remove auto-zooms" must not take it away.
+  const patch = (zz: RecordZoomRegion, p: Partial<Omit<RecordZoomRegion, "id">>) => updateZoom(doc, zz.id, { ...p, origin: "manual" });
+  return (
+    <>
+      <Group label={t("rec3.zoom.auto_title")} hint={hasData ? t("rec3.zoom.auto_hint") : undefined}>
+        <div className="flex flex-wrap gap-1">
+          <button
+            type="button"
+            className={chipClass(false)}
+            disabled={!hasData}
+            title={hasData ? t("rec3.zoom.auto_hint") : t("rec3.insp.no_cursor")}
+            onClick={onAutoZoom}
+          >
+            {t("rec3.zoom.auto")}
+          </button>
+          <button type="button" className={chipClass(false)} disabled={autos === 0} onClick={() => onCommit(removeAutoZooms(doc))}>
+            {t("rec3.zoom.remove_auto")}
+          </button>
+        </div>
+      </Group>
+      {!z ? (
+        <p className="text-[12px] text-[var(--color-muted)]" data-testid="ed-zoom-none">
+          {t("rec3.zoom.none_selected")}
+        </p>
+      ) : (
+        <>
+          <Group label={t("rec3.zoom.depth")}>
+            <Chips>
+              {ZOOM_DEPTHS.map((f, i) => (
+                <Chip
+                  key={f}
+                  label={fmtZoom(f)}
+                  active={z.customScale == null && z.depth === i + 1}
+                  onClick={() => onCommit(patch(z, { depth: i + 1, customScale: null }))}
+                />
+              ))}
+            </Chips>
+          </Group>
+          <Slider
+            label={t("rec3.zoom.own_scale")}
+            setting="zoomScale"
+            value={zoomScale(z)}
+            format={fmtZoom}
+            onLive={(v) => onLive(patch(z, { customScale: v }))}
+            onEnd={onLiveEnd}
+          />
+          <Group label={t("rec3.zoom.focus")}>
+            <Chips>
+              <Chip label={t("rec3.zoom.focus_auto")} active={z.focusMode === "auto"} onClick={() => onCommit(patch(z, { focusMode: "auto" }))} />
+              <Chip label={t("rec3.zoom.focus_manual")} active={z.focusMode === "manual"} onClick={() => onCommit(patch(z, { focusMode: "manual" }))} />
+            </Chips>
+            {z.focusMode === "manual" && (
+              <p className="text-[11px] text-[var(--color-muted)]" data-testid="ed-focus-hint">
+                {t("rec3.zoom.focus_hint")}
+              </p>
+            )}
+          </Group>
+          <Toggle label={t("rec3.zoom.hide_cursor")} checked={z.hideCursor} onChange={(hideCursor) => onCommit(patch(z, { hideCursor }))} />
+          <button
+            type="button"
+            className={chipClass(false) + " text-red-500"}
+            onClick={() => {
+              onCommit(removeZoom(doc, z.id));
+              onSelectZoom(null);
+            }}
+          >
+            {t("rec3.zoom.delete")}
+          </button>
+        </>
       )}
     </>
   );

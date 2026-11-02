@@ -625,7 +625,20 @@ function edView(doc: EdDoc) {
     t += c.endMs - src;
     return { progStartMs: Math.round(start), progEndMs: Math.round(t) };
   });
-  return { doc, programmeMs: Math.round(t), clips, speed, outputSize: edOutputSize(doc) };
+  // Zooms: source ms → programme ms via the clip's offset (the mockup's docs have no speed there).
+  const zooms = ((doc.zooms ?? []) as { clip: number; startMs: number; endMs: number }[])
+    .map((z, index) => ({ z, index }))
+    .filter(({ z }) => doc.clips[z.clip])
+    .map(({ z, index }) => {
+      const off = clips[z.clip].progStartMs - doc.clips[z.clip].startMs;
+      return { index, progStartMs: z.startMs + off, progEndMs: z.endMs + off };
+    });
+  const clickHits = [4_200, 9_800, 15_300].flatMap((ms) => [
+    { progMs: ms, gain: 1, release: false },
+    { progMs: ms + 90, gain: 0.7, release: true },
+  ]);
+  const screenRects = doc.clips.map(() => [0.06, 0.06, 0.88, 0.88] as [number, number, number, number]);
+  return { doc, programmeMs: Math.round(t), clips, speed, zooms, clickHits, screenRects, outputSize: edOutputSize(doc) };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -958,7 +971,26 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         wallpapers: ED_WALL_HUES.map((h, i) => ({ id: `0${i + 1}`, thumb: edWallpaper(h) })),
         themes: ED_THEMES.map(([id, fill]) => ({ id, preview: edArrow(fill) })),
         hasCursorData: true,
+        clickDown: null,
+        clickUp: null,
       };
+    case "editor_auto_zoom": {
+      const zs = (edDoc.zooms ?? []) as { origin: string }[];
+      if (!zs.some((z) => z.origin === "auto")) {
+        edDoc = {
+          ...edDoc,
+          autoZoomDone: true,
+          zooms: [
+            ...zs,
+            ...[3_700, 9_300, 14_800].map((s, i) => ({
+              id: `auto-0-${s}`, clip: 0, startMs: s, endMs: s + 2_000, depth: [3, 2, 3][i], customScale: null,
+              focusX: [0.3, 0.62, 0.48][i], focusY: [0.4, 0.55, 0.3][i], focusMode: "auto", origin: "auto", hideCursor: false,
+            })),
+          ],
+        };
+      }
+      return edView(edDoc);
+    }
     case "editor_import_asset": return "6f1c2a8e-4b1d-4c5e-9a3f-2d7b8e0c1a44.png";
     default:
       if (!misses.has(cmd)) {

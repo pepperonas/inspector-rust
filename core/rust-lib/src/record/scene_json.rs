@@ -20,7 +20,7 @@ use super::editor::{
     DEFAULT_WALLPAPER,
 };
 use super::layout;
-use super::project::{CursorProvider, CursorRecording, Project, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
+use super::project::{CursorProvider, CursorRecording, Project, RecordingMeta, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
 use serde_json::{json, Map, Value};
 use std::path::{Component, Path, PathBuf};
 
@@ -37,6 +37,20 @@ fn ms_to_sec(ms: u64) -> f64 {
 pub fn read_cursor(project_dir: &Path) -> Option<CursorRecording> {
     let raw = std::fs::read(project_dir.join(CURSOR_FILE)).ok()?;
     serde_json::from_slice(&raw).ok()
+}
+
+/// One screen box per clip (fractions of `out`) with the clip's source size: the screen's
+/// shape is the recording × the clip's crop. The scene and the editor's focus crosshair both
+/// take it from here.
+pub fn screen_boxes(meta: &RecordingMeta, doc: &EditDoc, out: (u32, u32)) -> Vec<(layout::Rect, (u32, u32))> {
+    let a = &doc.appearance;
+    let even_border = doc.output.aspect == Aspect::Auto;
+    (0..doc.clips.len())
+        .map(|i| {
+            let src = editor::clip_source_size(meta, doc, i);
+            (layout::screen_rect(out, src.0 as f64 / src.1 as f64, a.padding, a.frame, even_border), src)
+        })
+        .collect()
 }
 
 /// Whether the recording has pointer data to draw (`provider` not none, any samples).
@@ -225,15 +239,7 @@ pub fn scene_json_with(
         })
         .collect();
 
-    // One screen box per clip: the screen's shape is the recording × the clip's crop.
-    let a = &doc.appearance;
-    let even_border = doc.output.aspect == Aspect::Auto;
-    let rects: Vec<(layout::Rect, (u32, u32))> = (0..doc.clips.len())
-        .map(|i| {
-            let src = editor::clip_source_size(meta, doc, i);
-            (layout::screen_rect(out, src.0 as f64 / src.1 as f64, a.padding, a.frame, even_border), src)
-        })
-        .collect();
+    let rects = screen_boxes(meta, doc, out);
     let rect_json = |r: &layout::Rect| json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height});
     let layout_by_clip: Vec<Value> = rects.iter().map(|(r, _)| json!({"screenRect": rect_json(r)})).collect();
 
@@ -323,7 +329,7 @@ mod tests {
         Appearance, CropRect, CursorStyle, CustomCursor, OutputShape, OutputTarget, ZoomOrigin,
         ZoomRegion, EDITOR_VERSION,
     };
-    use crate::record::project::{CursorSample, Interaction, MicMeta, ProjectStatus, RecordingMeta, PROJECT_SCHEMA};
+    use crate::record::project::{CursorSample, Interaction, MicMeta, ProjectStatus, PROJECT_SCHEMA};
 
     const GOLDEN: &str = include_str!("fixtures/scene-golden.json");
     const GOLDEN_STYLED: &str = include_str!("fixtures/scene-golden-styled.json");

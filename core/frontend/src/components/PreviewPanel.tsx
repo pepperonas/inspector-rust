@@ -1,6 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { QrPreview } from "./QrPreview";
 import { STATE_LABELS, brunoSelfAssumptions, buildBrunoExport } from "../lib/bruno";
 import {
   AudioLines, Calculator, Check, Copy, Download, ExternalLink, GitBranch, Loader2, Mail, MapPin, Music, Palette,
@@ -28,7 +27,6 @@ import { findRepoUrl } from "../lib/repo-url";
 import { needsFullText } from "../lib/clip-text";
 import { TotpSecondsLeft } from "./TotpSecondsLeft";
 import { AnimatedNumber } from "./AnimatedNumber";
-import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
 import { resolveFileWrite } from "../lib/touch";
 import { readableForeground, tryParseColor } from "../lib/colors";
@@ -686,7 +684,11 @@ export function PreviewPanel({
             {isQr ? t("preview.command.enter_qr") : t("preview.command.enter_run")}
           </div>
         </div>
-        {isQr && <QrPreview key={entry.data.arg} text={entry.data.arg} />}
+        {isQr && (
+          <Suspense fallback={null}>
+            <QrPreviewLazy key={entry.data.arg} text={entry.data.arg} />
+          </Suspense>
+        )}
         {fileWrite?.content && (
           <div className="flex min-h-0 flex-col gap-1.5">
             <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -1911,11 +1913,11 @@ function SmartActionsBar({ text }: { text: string }) {
   if (actions.length === 0) return null;
   const run = (kind: SmartActionKind, href: string) => {
     if (kind === "qr") {
-      try {
-        void qrCopyPng(qrPngBase64(href), href.length > 48 ? `${href.slice(0, 48)}…` : href);
-      } catch {
-        /* unencodable — ignore */
-      }
+      void import("../lib/qr")
+        .then(({ qrPngBase64 }) => qrCopyPng(qrPngBase64(href), href.length > 48 ? `${href.slice(0, 48)}…` : href))
+        .catch(() => {
+          /* unencodable — ignore */
+        });
       return;
     }
     void openUrl(href).catch(() => {});
@@ -2274,6 +2276,9 @@ function ZdfPageVideosSlot({ url }: { url: string }) {
     </Suspense>
   );
 }
+
+// Lazy (with the QR encoder): only a `qr …` command shows it, and this file ships at start-up.
+const QrPreviewLazy = lazy(() => import("./QrPreview").then((m) => ({ default: m.QrPreview })));
 
 const TransformBarLazy = lazy(() => import("./TransformBar").then((m) => ({ default: m.TransformBar })));
 

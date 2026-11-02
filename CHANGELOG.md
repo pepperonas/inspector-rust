@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.230.0] — 2026-11-02
+
+### Added
+- **`record` editor — backgrounds and frames.** A settings column beside the preview (it folds away) sets the scene around the recording: eight bundled wallpapers, 16 gradients, 16 colours or your own image (PNG/JPEG up to 25 MB, copied into the project), background motion and blur, padding, corner radius, shadow levels, motion blur, a window, laptop, phone or monitor frame in light or dark, and the output shape (Auto follows padding, frame and crop). Sliders preview live and become one undo step when released.
+- **`record` editor — pointer style.** With pointer data, the recorded pointer can be shown or hidden (also automatically when idle), drawn in one of seven themes or as your own PNG with a hotspot, sized, smoothed, blurred in motion, given a bounce and an impact ring on clicks, and a click sound with its own volume. The click sound is mixed into the export and plays in the preview at the same level.
+- **`record` editor — zooms.** A zoom track under the clips: drag a block to move it, drag its edges to shorten or lengthen it (it stays inside its clip), press **Z** for a new zoom at the playhead and **Delete** to remove the selected one. The Zoom tab sets the depth (1.25× to 5×) or an own scale, whether the focus follows the pointer or stays fixed (click into the preview to place it; a crosshair shows it), and whether the pointer hides while zoomed.
+- **Auto-zoom.** "Auto-zoom" zooms in on every click of the recording, ported from OpenScreen's planner; zooms you made stay, and "Remove auto-zooms" takes only the planned ones away. Planned zooms are drawn dashed. The first time a new recording opens in the editor it is planned once (Settings → Recording → "Auto-zoom on first open"); a recording never gets zooms added again later, even after all of them were deleted.
+
+### Changed
+- **The QR encoder loads on first use.** The `qr` preview and the "Make QR" action load the encoder when they are needed, which keeps the start-up bundle smaller.
+
 ## [0.229.0] - 2026-11-01
 
 ### Added

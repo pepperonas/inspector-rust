@@ -1250,6 +1250,8 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_thumbs,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_auto_zoom,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_assets,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_import_asset,

@@ -345,6 +345,15 @@ pub struct SpeedSpan {
     pub prog_end_ms: u64,
 }
 
+/// One zoom region on the programme timeline. `index` points into `EditDoc::zooms`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoomSpan {
+    pub index: usize,
+    pub prog_start_ms: u64,
+    pub prog_end_ms: u64,
+}
+
 /// What the editor UI draws its timeline from.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -353,6 +362,14 @@ pub struct EditorView {
     pub programme_ms: u64,
     pub clips: Vec<ClipSpan>,
     pub speed: Vec<SpeedSpan>,
+    /// Zoom regions in programme ms (Rust's mapping; the UI never converts source ms itself).
+    pub zooms: Vec<ZoomSpan>,
+    /// The recorded clicks on the programme clock (`click_cues::click_hits`), for the preview's
+    /// click sound. Filled by the editor session (empty from [`view`], which has no cursor data).
+    pub click_hits: Vec<super::click_cues::ClickHit>,
+    /// Per clip: the screen's box in the output `[x, y, w, h]` in fractions (the focus
+    /// crosshair is drawn over it). Filled by the editor session (empty from [`view`]).
+    pub screen_rects: Vec<[f64; 4]>,
     /// The preview scene's output size `[w, h]` (1080p target). Under `Aspect::Auto` its shape
     /// follows padding, frame and crop, so the UI sizes its preview box from this, never from
     /// the aspect alone. Filled by the editor session (`[0, 0]` from [`view`], which has no
@@ -718,7 +735,27 @@ pub fn view(doc: &EditDoc) -> EditorView {
             prog_end_ms: source_to_programme(doc, r.clip, r.end_ms),
         })
         .collect();
-    EditorView { doc: doc.clone(), programme_ms: programme_duration_ms(doc), clips, speed, output_size: [0, 0] }
+    let zooms = doc
+        .zooms
+        .iter()
+        .enumerate()
+        .filter(|(_, z)| z.clip < doc.clips.len())
+        .map(|(index, z)| ZoomSpan {
+            index,
+            prog_start_ms: source_to_programme(doc, z.clip, z.start_ms),
+            prog_end_ms: source_to_programme(doc, z.clip, z.end_ms),
+        })
+        .collect();
+    EditorView {
+        doc: doc.clone(),
+        programme_ms: programme_duration_ms(doc),
+        clips,
+        speed,
+        zooms,
+        click_hits: Vec::new(),
+        screen_rects: Vec::new(),
+        output_size: [0, 0],
+    }
 }
 
 fn even_round(v: f64) -> u32 {

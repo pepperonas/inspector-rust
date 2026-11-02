@@ -206,6 +206,9 @@ const view: RecordEditorView = {
   programmeMs: 10_000,
   clips: [{ progStartMs: 0, progEndMs: 8000 }, { progStartMs: 8000, progEndMs: 10_000 }],
   speed: [{ index: 0, progStartMs: 2000, progEndMs: 4000 }],
+  zooms: [],
+  clickHits: [],
+  screenRects: [],
 };
 
 describe("clipAt (from Rust spans)", () => {

@@ -26,7 +26,20 @@ async function draw(canvas: HTMLCanvasElement, f: EditorFrame) {
  * flight), stops while the window is hidden or `active` is false, and tells the helper
  * the panel size (debounced). `children` cover the whole panel (crop mode, fatal state).
  */
-export function Preview({ ratio, active, dim, children }: { ratio: number; active: boolean; dim: boolean; children?: ReactNode }) {
+export function Preview({
+  ratio,
+  active,
+  dim,
+  overlay,
+  children,
+}: {
+  ratio: number;
+  active: boolean;
+  dim: boolean;
+  /** Drawn over the picture itself (the output frame), e.g. the zoom focus crosshair. */
+  overlay?: ReactNode;
+  children?: ReactNode;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [panel, setPanel] = useState({ w: 0, h: 0 });
@@ -101,6 +114,7 @@ export function Preview({ ratio, active, dim, children }: { ratio: number; activ
           className={"h-full w-full bg-black " + (dim ? "opacity-40 grayscale" : "")}
           data-testid="ed-canvas"
         />
+        {overlay}
       </div>
       {children}
     </div>

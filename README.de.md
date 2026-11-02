@@ -44,7 +44,7 @@
   - 🎚️ **Systemweites Audio-EQ — `boom`** (macOS · Windows via [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)) — ein **10-Band-Grafik-Equalizer + Volume-Boost + 20 Presets** auf den *gesamten* System-Sound, plus **5 Enhancement-Effekte** (Bass · Clarity · Fidelity · Ambience-Stereo-Verbreiterung · Night-Kompressor fürs leise Hören), mit Live-Input/Output-Pegelmetern und **wahrnehmungsgerechter Lautstärke-Kurve** (die Standard-Kurve des virtuellen Treibers machte alles unter 40 % fast unhörbar; boom wendet jetzt einen echten Power-Taper an — der Regler fühlt sich wie echte Hardware an). Installiert einen kleinen virtuellen Audio-Treiber direkt aus dem Panel (ein Klick), matcht die Sample-Rate deines Geräts und **folgt deinem Ausgabegerät live** (inkl. Bluetooth). **Akku-schonend:** nach 60 s Stille suspendiert sich die Audio-Bridge selbst, damit der Mac normal schlafen kann — und ist in Millisekunden wieder da, sobald irgendetwas abspielt.
   - 🪟 **Fenster-Management** (macOS, opt-in) — zieh ein Fenster an einen Bildschirmrand zum **Snappen** (linke/rechte Hälfte · oben = maximieren, Magnet-Stil), oder schweb über den grünen Zoom-Button für eine **Moom-artige Palette**: Preset-Layouts (⌥ für Viertel) + ein **Honigwaben-Raster** (16×10 Standard, bis 24 — abgerundete Hexagons mit magnetischem Hover, leuchtender Auswahl und Live-Maßanzeige), über das du ziehst, um das Fenster in jede Bildschirmregion zu legen — mit Live-Umriss-Vorschau auf dem Screen.
   - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Selbstauslöser · Wiederholen; schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rechteck / Ellipse / Highlight / Blur / Schwärzen / nummerierte Schritt-Badges); **an Bildschirm pinnen**. Dateinamen enthalten die Quell-App.
-  - 🎥 **Bildschirmaufnahme** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ auf Apple Silicon) — Bildschirm oder Fenster per ScreenCaptureKit wählen, Systemton + separate Mikrofon-Spur, Countdown, **Pause/Fortsetzen**, Notizfenster → **nachbearbeitbares Projekt** in `~/Movies/Inspector Rust/` (Bildschirmvideo, Mikro-Spur, Zeigerdaten). Die eigenen Fenster der App erscheinen nie in der Aufnahme. Seit v0.229.0 öffnet sich die Aufnahme in einem **Editor** (Apple Silicon): Live-Vorschau, Clips schneiden/kürzen, Tempo 0,25–16×, Zuschneide-Presets, Mikro-Pegel, Rückgängig — und **Export als MP4** (H.264/HEVC, bis Quellauflösung, 24/30/60 fps) **oder GIF** nach `~/Downloads`, gerendert vom vendorten OpenScreen-Compositor in einem eigenen Hilfsprozess.
+  - 🎥 **Bildschirmaufnahme** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ auf Apple Silicon) — Bildschirm oder Fenster per ScreenCaptureKit wählen, Systemton + separate Mikrofon-Spur, Countdown, **Pause/Fortsetzen**, Notizfenster → **nachbearbeitbares Projekt** in `~/Movies/Inspector Rust/` (Bildschirmvideo, Mikro-Spur, Zeigerdaten). Die eigenen Fenster der App erscheinen nie in der Aufnahme. Seit v0.229.0 öffnet sich die Aufnahme in einem **Editor** (Apple Silicon): Live-Vorschau, Clips schneiden/kürzen, Tempo 0,25–16×, Zuschneide-Presets, Mikro-Pegel, Rückgängig — und **Export als MP4** (H.264/HEVC, bis Quellauflösung, 24/30/60 fps) **oder GIF** nach `~/Downloads`, gerendert vom vendorten OpenScreen-Compositor in einem eigenen Hilfsprozess. Seit v0.230.0 gestaltet der Editor auch die Szene (Wallpaper, Verläufe, eigenes Bild, Abstand, Schatten, Geräterahmen), den aufgezeichneten Zeiger (Themes, eigenes PNG, Klick-Ton) und **Zooms** — von Hand auf einer Zoom-Spur oder **automatisch bei jedem Klick**.
   - 🔍 **Bildschirm-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-Qualität-Texterkennung ins Clipboard.
   - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook / X (Twitter) (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube), mit optionalem **Ausschnitt** unter den Buttons: gelbe Griffe im QuickTime-Stil, per Ohr über einen kleinen Audio-Proxy scrubben — der Download lädt dann **nur den Schnitt** (framegenau; 20 s aus einem 83-Minuten-Set kommen als ~1,2 MiB statt Hunderter MB); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - ⏱️ **Zeiterfassung / Timesheet** (`track on/off`; `track` oder **`Ctrl+Shift+T`**; macOS) — opt-in, event-basierte App-Nutzungserfassung per Fensterfokus mit rückwirkender Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tages-/Wochen-Ansicht, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Projekte), **manueller Pause/Weiter-Taste**, CSV- + eigenständigem HTML-Export im sichtbaren Umfang (Tag oder Mo–So-Woche), **wochenweitem Aufräumen** und globalem **Tracking-Hotkey** (`Ctrl+Shift+Alt+T`, umbelegbar); erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); optionale **Browser-Extension** (nur Loopback-Socket). Fenstertitel + URLs at-rest verschlüsselt.
@@ -87,16 +87,16 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **6145 Unit-Tests (2403 Rust + 3742 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **6177 Unit-Tests (2409 Rust + 3768 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~261k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~262k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2403 Rust + 3742 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-6145%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2409 Rust + 3768 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-6177%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -118,22 +118,22 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](.github/badges/maintained-yes-brightgreen-f6453ee2.svg)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-6145%20(2403%20Rust%20%2B%203742%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-6177%20(2409%20Rust%20%2B%203768%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](.github/badges/prs-welcome-brightgreen-bf350bde.svg)](./CONTRIBUTING.md)
   [![Code Style](.github/badges/code-style-clippy-eslint-orange-216d70a2.svg)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-78-4f46e5?style=flat-square)](#commands)
   [![Docs](https://img.shields.io/badge/docs-39%20pages-0ea5e9?style=flat-square)](./docs)
   [![Rust modules](https://img.shields.io/badge/rust%20modules-110-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-890-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-531-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-532-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
   [![UI components](https://img.shields.io/badge/UI%20components-114-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
-  [![Test suites](https://img.shields.io/badge/test%20suites-355-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
+  [![Test suites](https://img.shields.io/badge/test%20suites-359-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-46-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
   [![Hidden triggers](https://img.shields.io/badge/hidden%20triggers-11-ff69b4?style=flat-square)](./core/frontend/src/lib/feature-extras.ts)
   [![Frontend modules](https://img.shields.io/badge/frontend%20modules-124-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
-  [![Releases](https://img.shields.io/badge/releases-597-8957e5?style=flat-square)](./CHANGELOG.md)
+  [![Releases](https://img.shields.io/badge/releases-598-8957e5?style=flat-square)](./CHANGELOG.md)
   [![License](.github/badges/license-mit-blue-d5dc0172.svg)](./LICENSE)
   [![Tauri](.github/badges/tauri-2-24c8db-31b76b30.svg)](https://tauri.app)
   [![Offline first](.github/badges/offline-first-334155-52fd5d0d.svg)](#privacy)
@@ -204,8 +204,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](.github/badges/eslint-flat-config-4b32c3-cc02ea79.svg)](https://eslint.org)
   [![Vitest](.github/badges/vitest-3-6e9f18-d14e6138.svg)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-2403%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-3742%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-2409%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-3768%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](.github/badges/cargo-clippy-d-warnings-success-0e95b602.svg)](#)
   [![tsc strict](.github/badges/tsc-strict-3178c6-8998462e.svg)](#)
   [![Prettier](.github/badges/code-style-prettier-f7b93e-52e0150f.svg)](https://prettier.io)
@@ -238,8 +238,8 @@
   [![exe size](.github/badges/exe-14-mb-blue-2fcaaf46.svg)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-6145%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-531-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-6177%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-532-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-78-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-68-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-110-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
@@ -254,8 +254,8 @@
   [![Time tracking](.github/badges/timesheet-event-based-encrypted-ce422b-9f407ee0.svg)](./docs/timesheet.md)
   [![Privacy](.github/badges/privacy-offline-no-telemetry-success-1b1e254a.svg)](./docs/encryption.md)
   [![Rust LoC](https://img.shields.io/badge/Rust-~139k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![TS LoC](https://img.shields.io/badge/TypeScript-~122k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Features](https://img.shields.io/badge/features-219-0ea5e9?style=flat-square)](./features.txt)
+  [![TS LoC](https://img.shields.io/badge/TypeScript-~123k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
+  [![Features](https://img.shields.io/badge/features-222-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](.github/badges/xdr-up-to-1600-nits-ffb300-683a54d2.svg)](#)
   [![Audio presets](.github/badges/boom-20-eq-presets-1db954-38c8049c.svg)](#)
   [![Material colours](.github/badges/snippets-255-colours-blueviolet-b1f62fa5.svg)](#)
@@ -446,7 +446,7 @@
   [![Espresso-betrieben](.github/badges/angetrieben-von-espresso-6f4e37-265ae0ef.svg)](#)
   [![Zero Config](.github/badges/setup-zero-config-brightgreen-a0d242b5.svg)](#)
   [![Kein Account](.github/badges/account-nicht-no-tig-brightgreen-2069ea26.svg)](#)
-  [![100+ Features](https://img.shields.io/badge/features-219%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-222%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](.github/badges/versteckt-pong-snake-invaders-flappy-ff69b4-5d4c2958.svg)](#)
   [![Auf LinkedIn teilen](.github/badges/teilen-auf-linkedin-0a66c2-c957a7ef.svg)](https://www.linkedin.com/)
 
@@ -855,6 +855,7 @@ Jedes Banner:
 ### Bildschirmaufnahme — `record` (v0.228.0, ScreenCaptureKit)
 - **Bildschirmaufnahme** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ auf Apple Silicon) — ScreenCaptureKit nimmt einen Bildschirm oder ein einzelnes Fenster samt Systemton auf; das Mikrofon landet in einer eigenen WAV-Spur, der Zeiger (Position, Klicks, Zeigerform) in einer `cursor.json`, alles auf einer Zeitachse, die sauber pausiert. Jede Aufnahme ist ein nachbearbeitbares Projekt in `~/Movies/Inspector Rust/`; HUD, Leiste und Notizfenster der App sind von der Aufnahme ausgeschlossen. Etappe 1 eines Rekorders nach OpenScreen-Vorbild.
 - **Editor + Export** *(v0.229.0, Apple Silicon)* — nach einer Aufnahme (oder Enter / **Bearbeiten** auf einem Projekt im `record`-Panel) zeigt ein Editor-Fenster eine Live-Vorschau aus dem vendorten **OpenScreen-Compositor** (Metal + VideoToolbox), eine Zeitleiste mit Filmstreifen, Clips teilen (S) / löschen (⌫) / kürzen, Tempo-Bereiche 0,25–16×, Zuschneiden (C) mit Presets frei/16:9/9:16/1:1/4:3/3:4/21:9, Mikro-Pegel −60…+12 dB und Rückgängig/Wiederholen; Änderungen landen im Projekt. **Export** als MP4 (720p/1080p/Quelle, 24/30/60 fps, H.264 oder HEVC) oder GIF (15–30 fps, 480–1080 px, Loop) nach `~/Downloads`, mit Fortschritt und Abbrechen. Vorschau und Export laufen durch denselben Compositor im eigenen Hilfsprozess `ir-record-render`, der einen **LGPL**-Build von FFmpeg 8.1.2 linkt (dynamisch, in `Contents/Frameworks/`; Lizenztexte in `Contents/Resources/THIRD-PARTY/`). Die Tray-App selbst linkt weder FFmpeg noch den Compositor; ein Absturz des Helfers beendet nie die App.
+- **Look, Zeiger und Zoom** *(v0.230.0, Apple Silicon)* — eine Einstellungsspalte neben der Vorschau setzt den Hintergrund (8 mitgelieferte Wallpaper, 16 Verläufe, 16 Farben oder ein eigenes Bild, mit Bewegung und Unschärfe), Abstand, Eckenradius, Schatten, Bewegungsunschärfe, einen Fenster-/Laptop-/Telefon-/Monitor-Rahmen und das Ausgabeformat; mit Zeigerdaten bekommt der aufgezeichnete Zeiger eines von 7 Themes oder ein eigenes PNG, Größe, Glättung, Klick-Hüpfer/-Impuls und einen **Klick-Ton** (im Export gemischt, in der Vorschau hörbar). Eine **Zoom-Spur** unter den Clips: **Z** legt einen Zoom am Abspielkopf an, Ziehen verschiebt oder kürzt, Tiefe 1,25×–5× oder eigene Skala, Fokus folgt dem Zeiger oder sitzt fest auf einem Punkt, den ein Klick in die Vorschau setzt. **Auto-Zoom** (OpenScreens Planer) zoomt auf jeden Klick — beim ersten Öffnen einer neuen Aufnahme einmal automatisch, sonst per Knopf; eigene Zooms bleiben immer.
 
 ### Media-Tools — downloaden · trimmen · tauschen (v0.81.0 → v0.84.x, ffmpeg)
 - **Audio ersetzen / überlagern** (`Ctrl+Shift+Alt+M`, macOS) — Video im Finder wählen → Overlay zum **Ersetzen** der Tonspur oder **Mischen** einer neuen darüber, an gewählter Startposition mit optionalem Trim + Lautstärke pro Spur. Die neue Audio ist eine lokale Datei oder ein **yt-dlp-YouTube-Track**. Video wird stream-kopiert (schnell/verlustfrei), Ausgabe ist ein `-audioswap.mp4` daneben.
@@ -1032,8 +1033,8 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3742 Tests
-cargo test --workspace  # Rust-Unit-Tests — 2403 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 3768 Tests
+cargo test --workspace  # Rust-Unit-Tests — 2409 Tests
 ```
 
 Ein einzelnes Modul während der Iteration:

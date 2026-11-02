@@ -19,7 +19,9 @@ use super::assets::AssetRoot;
 use super::editor::{self, EditDoc, EditorView, OutputTarget};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
-use super::scene_json::{read_cursor, scene_json_with};
+use super::click_cues::click_hits;
+use super::scene_json::{has_cursor_data, read_cursor, scene_json_with, screen_boxes};
+use super::zoom_plan::plan_auto_zooms;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
 use serde::{Deserialize, Serialize};
@@ -97,6 +99,9 @@ pub struct EditorAssets {
     pub themes: Vec<ThemeAsset>,
     /// False when the take has no pointer telemetry: the inspector shows no pointer settings.
     pub has_cursor_data: bool,
+    /// The click sound's press / release WAVs (the preview plays the export's files).
+    pub click_down: Option<String>,
+    pub click_up: Option<String>,
 }
 
 /// What the inspector offers: the shipped wallpapers and pointer themes (only those whose
@@ -115,7 +120,15 @@ pub fn editor_assets_for(assets: &AssetRoot, cursor: Option<&CursorRecording>) -
             arrow.is_file().then(|| ThemeAsset { id, preview: arrow.to_string_lossy().into_owned() })
         })
         .collect();
-    EditorAssets { wallpapers, themes, has_cursor_data: super::scene_json::has_cursor_data(cursor) }
+    let (down, up) = assets.click_sounds();
+    let file = |p: PathBuf| p.is_file().then(|| p.to_string_lossy().into_owned());
+    EditorAssets {
+        wallpapers,
+        themes,
+        has_cursor_data: has_cursor_data(cursor),
+        click_down: file(down),
+        click_up: file(up),
+    }
 }
 
 /// What a file is imported as.
@@ -548,10 +561,9 @@ impl Session {
         self.scene(self.output(OutputTarget::P1080), PREVIEW_FPS)
     }
 
-    /// The timeline view plus the preview scene's output size.
+    /// The timeline view plus the preview scene's output size, the clicks and screen boxes.
     fn view(&self) -> EditorView {
-        let (w, h) = self.output(OutputTarget::P1080);
-        EditorView { output_size: [w, h], ..editor::view(&self.doc) }
+        session_view(&self.project.recording, &self.doc, self.cursor.as_ref(), self.output(OutputTarget::P1080))
     }
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
@@ -563,6 +575,40 @@ impl Session {
             helper_error,
         }
     }
+}
+
+/// [`editor::view`] plus what only the session knows: the output size, the recorded clicks
+/// on the programme clock and each clip's screen box in the output.
+pub fn session_view(meta: &RecordingMeta, doc: &EditDoc, cursor: Option<&CursorRecording>, out: (u32, u32)) -> EditorView {
+    let click_hits = cursor.filter(|_| has_cursor_data(cursor)).map(|c| click_hits(doc, c)).unwrap_or_default();
+    let screen_rects = screen_boxes(meta, doc, out).iter().map(|(r, _)| [r.x, r.y, r.width, r.height]).collect();
+    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, ..editor::view(doc) }
+}
+
+/// The document with the planner's zooms appended (`plan_auto_zooms`: new auto regions only,
+/// the existing ones — manual or auto — are reserved and stay), marked as planned, normalised.
+/// `None` without pointer data: nothing to plan, nothing changes.
+pub fn with_auto_zooms(doc: &EditDoc, cursor: Option<&CursorRecording>, duration_ms: u64) -> Option<EditDoc> {
+    let rec = cursor.filter(|_| has_cursor_data(cursor))?;
+    let mut next = doc.clone();
+    next.zooms.extend(plan_auto_zooms(doc, rec));
+    next.auto_zoom_done = true;
+    Some(editor::normalize(next, duration_ms))
+}
+
+/// The stored document for an open. The first time a v2 document is opened (`auto_zoom_done`
+/// unset) it gets the planner's zooms once when `auto_zoom` (`record.auto_zoom`) is on and the
+/// take has pointer data — and is marked done either way, so zooms are never added behind the
+/// user's back later (deleting them all and reopening plans nothing). `true` = changed (save).
+pub fn doc_for_open(project: &Project, cursor: Option<&CursorRecording>, auto_zoom: bool) -> (EditDoc, bool) {
+    let doc = editor::load(project);
+    if doc.auto_zoom_done {
+        return (doc, false);
+    }
+    let duration = project.recording.duration_ms;
+    let planned = if auto_zoom { with_auto_zooms(&doc, cursor, duration) } else { None };
+    let next = planned.unwrap_or(editor::EditDoc { auto_zoom_done: true, ..doc });
+    (next, true)
 }
 
 static SESSION: Mutex<Option<Session>> = Mutex::new(None);
@@ -758,9 +804,13 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     if project.status == ProjectStatus::Failed || !dir.join(SCREEN_FILE).is_file() {
         return Err(ERR_NO_VIDEO.into());
     }
-    let doc = editor::load(&project);
     let assets = AssetRoot::resolve(app);
     let cursor = read_cursor(&dir);
+    let auto_zoom = app
+        .try_state::<crate::db::DbHandle>()
+        .map(|db| super::RecordConfig::load(&db).auto_zoom)
+        .unwrap_or(true);
+    let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom);
     // A different project open before: its edits are saved first.
     flush_save();
     let (scene, preview, init) = {
@@ -775,7 +825,8 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             project,
             doc,
             last_frame_ms: now_ms(),
-            dirty: false,
+            // The first open's planning (or its "done" mark) is written right away.
+            dirty: planned,
             save_pending: false,
         };
         let preview = preview_size(new.output(OutputTarget::P1080));
@@ -786,6 +837,9 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             save_session(old);
         }
         *s = Some(new);
+        if let Some(cur) = s.as_mut() {
+            save_session(cur);
+        }
         out
     };
     show_window(app);
@@ -868,6 +922,20 @@ pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorVi
     client.send(&Command::SetScene { scene })?;
     send_all(&client, &cmds)?;
     Ok(view)
+}
+
+/// `editor_auto_zoom`: appends the planner's zooms to the open document (one undo step in the
+/// UI, which records the returned doc). Without pointer data the view comes back unchanged.
+pub fn auto_zoom(app: &AppHandle, session_id: u64) -> Result<EditorView, String> {
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        match with_auto_zooms(&s.doc, s.cursor.as_ref(), s.project.recording.duration_ms) {
+            Some(doc) => doc,
+            None => return Ok(s.view()),
+        }
+    };
+    update(app, session_id, next)
 }
 
 pub fn seek(app: &AppHandle, programme_ms: u64) -> Result<Option<SourcePos>, String> {
@@ -1098,7 +1166,11 @@ pub fn assets(app: &AppHandle) -> Result<EditorAssets, String> {
         (editor_assets_for(&s.assets, s.cursor.as_ref()), s.assets.dir.clone())
     };
     let scope = app.asset_protocol_scope();
-    for (dir, recursive) in [(root.join("wallpapers").join("thumbs"), false), (root.join("cursors"), true)] {
+    for (dir, recursive) in [
+        (root.join("wallpapers").join("thumbs"), false),
+        (root.join("cursors"), true),
+        (root.join("sounds"), false),
+    ] {
         if let Err(e) = scope.allow_directory(&dir, recursive) {
             tracing::warn!(target: "record::editor", "asset scope {}: {e}", dir.display());
         }
@@ -1268,6 +1340,181 @@ mod tests {
             dirty: false,
             save_pending: false,
         }
+    }
+
+    fn sample(t: u64, cx: f64, cy: f64, kind: Option<crate::record::project::Interaction>) -> crate::record::project::CursorSample {
+        crate::record::project::CursorSample {
+            time_ms: t,
+            cx,
+            cy,
+            visible: None,
+            asset_id: None,
+            cursor_type: None,
+            interaction_type: kind,
+        }
+    }
+
+    /// A 20-s take: pointer parked, clicks at 5 s and 12 s (two separate shots).
+    fn clicks_take() -> CursorRecording {
+        use crate::record::project::{CursorProvider, Interaction};
+        let mut samples: Vec<_> = (0..200).map(|i| sample(i * 100, 0.3, 0.4, None)).collect();
+        samples.push(sample(5_000, 0.3, 0.4, Some(Interaction::Click)));
+        samples.push(sample(5_080, 0.3, 0.4, Some(Interaction::Mouseup)));
+        samples.push(sample(12_000, 0.7, 0.6, Some(Interaction::Click)));
+        samples.push(sample(12_080, 0.7, 0.6, Some(Interaction::Mouseup)));
+        samples.sort_by_key(|s| s.time_ms);
+        CursorRecording { version: 1, provider: CursorProvider::Native, samples, assets: vec![] }
+    }
+
+    fn manual_zoom(start: u64, end: u64) -> crate::record::editor::ZoomRegion {
+        crate::record::editor::ZoomRegion {
+            id: "mine".into(),
+            clip: 0,
+            start_ms: start,
+            end_ms: end,
+            depth: 2,
+            custom_scale: None,
+            focus_x: 0.5,
+            focus_y: 0.5,
+            focus_mode: crate::record::editor::FocusMode::Manual,
+            origin: crate::record::editor::ZoomOrigin::Manual,
+            hide_cursor: false,
+        }
+    }
+
+    #[test]
+    fn auto_zoom_appends_and_keeps_manual() {
+        use crate::record::editor::ZoomOrigin;
+        let mut d = doc(&[(0, 20_000)]);
+        d.zooms = vec![manual_zoom(18_000, 19_500)];
+        let rec = clicks_take();
+        let next = with_auto_zooms(&d, Some(&rec), 20_000).expect("pointer data: planned");
+        assert!(next.auto_zoom_done);
+        assert_eq!(next.zooms.iter().filter(|z| z.origin == ZoomOrigin::Manual).count(), 1);
+        assert_eq!(next.zooms.iter().find(|z| z.id == "mine"), d.zooms.first(), "the manual zoom is untouched");
+        let autos: Vec<_> = next.zooms.iter().filter(|z| z.origin == ZoomOrigin::Auto).collect();
+        assert_eq!(autos.len(), 2, "one zoom per click: {autos:?}");
+        assert!(autos[0].start_ms <= 5_000 && autos[0].end_ms > 5_000);
+        assert!(autos[1].start_ms <= 12_000 && autos[1].end_ms > 12_000);
+        // Pressing it again plans nothing new: every existing zoom is reserved.
+        let again = with_auto_zooms(&next, Some(&rec), 20_000).unwrap();
+        assert_eq!(again.zooms, next.zooms);
+    }
+
+    #[test]
+    fn auto_zoom_without_cursor_data_is_noop() {
+        let d = doc(&[(0, 20_000)]);
+        assert_eq!(with_auto_zooms(&d, None, 20_000), None);
+        let empty = CursorRecording { samples: vec![], ..clicks_take() };
+        assert_eq!(with_auto_zooms(&d, Some(&empty), 20_000), None);
+        let none = CursorRecording { provider: crate::record::project::CursorProvider::None, ..clicks_take() };
+        assert_eq!(with_auto_zooms(&d, Some(&none), 20_000), None);
+    }
+
+    #[test]
+    fn first_open_plans_once() {
+        let dir = tmp_project("first-open", "f");
+        let mut p = project::read_project(&dir).unwrap();
+        p.recording.duration_ms = 20_000;
+        let rec = clicks_take();
+        // Off: no zooms, but the open still marks it done.
+        let (off, changed) = doc_for_open(&p, Some(&rec), false);
+        assert!(changed && off.auto_zoom_done && off.zooms.is_empty());
+        // On: the first open plans.
+        let (first, changed) = doc_for_open(&p, Some(&rec), true);
+        assert!(changed && first.auto_zoom_done);
+        assert_eq!(first.zooms.len(), 2);
+        // Saved, every zoom deleted, reopened: nothing comes back.
+        let cleared = EditDoc { zooms: vec![], ..first };
+        editor::store(&mut p, &cleared);
+        project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
+        let p2 = project::read_project(&dir).unwrap();
+        let (second, changed) = doc_for_open(&p2, Some(&rec), true);
+        assert!(!changed);
+        assert!(second.zooms.is_empty(), "a second open never plans again");
+        // A v1 project never gets zooms either.
+        let mut old = p2.clone();
+        old.editor = serde_json::json!({"version": 1, "clips": [{"startMs": 0, "endMs": 20000}]});
+        let (v1, changed) = doc_for_open(&old, Some(&rec), true);
+        assert!(!changed && v1.zooms.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn click_hits_in_view() {
+        let meta = RecordingMeta { width: 1920, height: 1080, fps: 30, duration_ms: 20_000, ..Default::default() };
+        let d = doc(&[(0, 20_000)]);
+        let rec = clicks_take();
+        let v = session_view(&meta, &d, Some(&rec), (1920, 1080));
+        let presses: Vec<u64> = v.click_hits.iter().filter(|h| !h.release).map(|h| h.prog_ms).collect();
+        assert_eq!(presses, vec![5_000, 12_000]);
+        assert_eq!(v.click_hits.len(), 4, "a press and a release each");
+        assert_eq!(v.output_size, [1920, 1080]);
+        assert_eq!(v.screen_rects.len(), 1);
+        // Cut out the first click: only the second plays, on the programme clock.
+        let cut = doc(&[(8_000, 20_000)]);
+        let v = session_view(&meta, &cut, Some(&rec), (1920, 1080));
+        assert_eq!(v.click_hits.iter().filter(|h| !h.release).map(|h| h.prog_ms).collect::<Vec<_>>(), vec![4_000]);
+        // No pointer data: no clicks.
+        assert!(session_view(&meta, &d, None, (1920, 1080)).click_hits.is_empty());
+        let json = serde_json::to_value(&v).unwrap();
+        assert!(json.get("clickHits").is_some() && json.get("screenRects").is_some() && json.get("zooms").is_some());
+    }
+
+    #[test]
+    fn view_maps_zooms_to_programme_time() {
+        let mut d = doc(&[(0, 4_000), (6_000, 10_000)]);
+        d.zooms = vec![crate::record::editor::ZoomRegion { clip: 1, ..manual_zoom(7_000, 8_000) }];
+        let v = editor::view(&d);
+        assert_eq!(v.zooms.len(), 1);
+        assert_eq!((v.zooms[0].prog_start_ms, v.zooms[0].prog_end_ms), (5_000, 6_000));
+    }
+
+    /// End-to-end fixture for the render helper (Task 7): the real project at `IR_E2E_PROJECT`
+    /// opened like the editor does (first open → auto-zooms), styled (wallpaper 01, padding 50,
+    /// laptop frame, `pop-coral` pointer, click sound on), its scene written to
+    /// `IR_E2E_SCENE_OUT` (default `<project>/scene-e2e.json`) for `record-render`'s
+    /// `export_scene_file`.
+    #[test]
+    #[ignore]
+    fn stage3_e2e_scene() {
+        use crate::record::editor::{Background, Frame};
+        let Some(dir) = std::env::var_os("IR_E2E_PROJECT").map(PathBuf::from) else {
+            eprintln!("skipped: set IR_E2E_PROJECT=<project dir>");
+            return;
+        };
+        let project = project::read_project(&dir).expect("project.json");
+        let cursor = read_cursor(&dir);
+        println!("cursor samples: {}", cursor.as_ref().map_or(0, |c| c.samples.len()));
+        let (mut doc, planned) = doc_for_open(&project, cursor.as_ref(), true);
+        println!("first open planned={planned}, zooms:");
+        for z in &doc.zooms {
+            println!("  {} clip {} {}–{} ms depth {} focus ({:.2},{:.2}) {:?}", z.id, z.clip, z.start_ms, z.end_ms, z.depth, z.focus_x, z.focus_y, z.origin);
+        }
+        doc.appearance.background = Background::Wallpaper { id: "01".into() };
+        doc.appearance.padding = 50.0;
+        doc.appearance.frame = Frame::Laptop;
+        doc.cursor.show = true;
+        doc.cursor.theme = "pop-coral".into();
+        doc.cursor.click_sound = true;
+        let doc = editor::normalize(doc, project.recording.duration_ms);
+        let out = editor::output_size(&project.recording, &doc, OutputTarget::P1080);
+        let v = session_view(&project.recording, &doc, cursor.as_ref(), out);
+        println!("output {out:?}, click hits {}, screen rect {:?}", v.click_hits.len(), v.screen_rects.first());
+        let scene = scene_json_with(&dir, &project, &doc, out, 30, &AssetRoot::dev(), cursor.as_ref());
+        assert_eq!(scene.get("clickSound").is_some(), !v.click_hits.is_empty(), "click sound iff the take has clicks");
+        // `IR_E2E_SCENE_OUT` keeps someone else's project untouched.
+        let path = std::env::var_os("IR_E2E_SCENE_OUT").map(PathBuf::from).unwrap_or_else(|| dir.join("scene-e2e.json"));
+        std::fs::write(&path, serde_json::to_vec_pretty(&scene).unwrap()).unwrap();
+        println!("scene written: {}", path.display());
+    }
+
+    #[test]
+    fn auto_zoom_ipc_is_registered() {
+        let lib = include_str!("../lib.rs");
+        assert!(lib.contains("commands::editor_auto_zoom,"));
+        let ipc = include_str!("../../../frontend/src/lib/ipc.ts");
+        assert!(ipc.contains("\"editor_auto_zoom\""));
     }
 
     #[test]

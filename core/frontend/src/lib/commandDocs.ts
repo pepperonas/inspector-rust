@@ -989,7 +989,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Bildschirm oder Fenster als nachbearbeitbares Projekt aufnehmen.",
     synopsis: "record",
     description:
-      "Records a display or a single window with ScreenCaptureKit — optionally with system audio, microphone and pointer data kept separate so the cursor can be restyled later. Typing `record` lists your recent projects (title, date, length; broken or interrupted takes show their reason). **Enter** opens the recording HUD, where you pick the source, toggle the tracks and start; with a project selected (**↓**), **Enter** opens it in the **editor** — cut, change speed, crop, set the microphone level and export as MP4 (720p/1080p/source, 24/30/60 fps, H.264 or HEVC) or GIF (15–30 fps, 480–1080 px wide, loop) to your Downloads folder. **⌘⏎** shows a project in Finder; **⌫** (twice) deletes it. While a take runs the panel shows its phase and time with a Stop button. After a successful take the editor opens by itself (Settings → Recording). `Ctrl+Shift+Alt+S` opens the same HUD from anywhere.",
+      "Records a display or a single window with ScreenCaptureKit — optionally with system audio, microphone and pointer data kept separate so the cursor can be restyled later. Typing `record` lists your recent projects (title, date, length; broken or interrupted takes show their reason). **Enter** opens the recording HUD, where you pick the source, toggle the tracks and start; with a project selected (**↓**), **Enter** opens it in the **editor** — cut, change speed, crop, set the microphone level and style it — wallpaper, gradient, colour or own image, padding, rounded corners, shadow and a window/laptop/phone/monitor frame; restyle the recorded pointer (themes, own PNG, size, smoothing, click bounce and click sound); add zooms on a zoom track (**Z** at the playhead, drag to move or trim, **Auto-zoom** zooms in on every click) — and export as MP4 (720p/1080p/source, 24/30/60 fps, H.264 or HEVC) or GIF (15–30 fps, 480–1080 px wide, loop) to your Downloads folder. **⌘⏎** shows a project in Finder; **⌫** (twice) deletes it. While a take runs the panel shows its phase and time with a Stop button. After a successful take the editor opens by itself (Settings → Recording). `Ctrl+Shift+Alt+S` opens the same HUD from anywhere.",
     arguments: [],
     flags: [],
     examples: [
@@ -997,14 +997,22 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "record + Enter", result: "Choose Screen or Window, set audio/cursor, press Record." },
       { input: "record, ↓, Enter", result: "Opens the selected project in the editor; Export writes an MP4 or GIF to Downloads." },
       { input: "record?", result: "This help." },
+      { input: "editor: Z, then drag the zoom block", result: "A zoom at the playhead; dragging moves it inside its clip, its edges shorten or lengthen it." },
     ],
     tips: [
       "The hotkey `Ctrl+Shift+Alt+S` skips the search bar and opens the HUD directly.",
+      "A new recording gets auto-zooms on its clicks the first time it opens (Settings → Recording); dashed blocks are planned, filled ones are yours — \"Remove auto-zooms\" keeps yours.",
+      "Fixed focus: pick \"Fixed\" in the Zoom tab and click into the preview where the zoom should aim.",
       "Projects live in the folder set under Settings → Recording; each one is a plain folder you can back up or move.",
       "Turn off \"Open the editor after recording\" in Settings → Recording to get the Finder instead; a failed take always goes to the Finder.",
       "Edits are saved into the project itself — reopening the project in the editor brings them back; the recording is never changed.",
     ],
-    caveats: ["Apple Silicon only, macOS 14+ — elsewhere the panel explains why recording is unavailable.", "Needs the Screen Recording permission.", "One export at a time; cancelling deletes the partial file."],
+    caveats: [
+      "Apple Silicon only, macOS 14+ — elsewhere the panel explains why recording is unavailable.",
+      "Needs the Screen Recording permission.",
+      "One export at a time; cancelling deletes the partial file.",
+      "Pointer style, click sound and auto-zoom need the take's pointer data; without it these controls are off.",
+    ],
     related: ["shot", "trim"],
   },
   {

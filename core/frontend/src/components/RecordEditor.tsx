@@ -15,9 +15,12 @@ import {
   Scissors,
   Trash2,
   Undo2,
+  ZoomIn,
+  WandSparkles,
 } from "lucide-react";
 import {
   editorAssets,
+  editorAutoZoom,
   editorCurrent,
   editorImportAsset,
   editorPlay,
@@ -40,6 +43,7 @@ import {
   MAX_MIC_DB,
   MIN_MIC_DB,
   addSpeed,
+  addZoom,
   clipAt,
   cropForPreset,
   deleteClip,
@@ -51,15 +55,17 @@ import {
   setMicGain,
   setSpeedValue,
   splitAt,
+  updateZoom,
   type CropPreset,
 } from "../lib/editor";
-import { useT, type MessageKey } from "../lib/i18n";
+import { tn, useT, type MessageKey } from "../lib/i18n";
 import { Preview } from "./editor/Preview";
 import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
 import { ExportDialog } from "./editor/ExportDialog";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
+import { FocusOverlay } from "./editor/FocusOverlay";
 
 const POSITION_POLL_MS = 66;
 const THUMB_DEBOUNCE_MS = 600;
@@ -149,6 +155,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [],
   );
   const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
+  const [selectedZoom, setSelectedZoom] = useState<string | null>(null);
+  /** Neutral one-liner beside the save state (e.g. what auto-zoom added). */
+  const [info, setInfo] = useState<string | null>(null);
+  const infoTimer = useRef(0);
 
   useEffect(() => {
     let dead = false;
@@ -416,6 +426,41 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     commit(addSpeed(doc, at.clip, at.sourceMs, end, 2));
   }, [commit, sourceHere, cur]);
 
+  const addZoomHere = useCallback(async () => {
+    const at = await sourceHere();
+    const doc = cur();
+    if (!at || !doc) return;
+    const next = addZoom(doc, at.clip, at.sourceMs);
+    const made = next.zooms[next.zooms.length - 1];
+    if (next === doc || !made) return;
+    commit(next);
+    setSelectedZoom(made.id);
+  }, [commit, sourceHere, cur]);
+
+  /** Auto-zoom: Rust plans and stores; the answer becomes one undo step here. */
+  const autoZoom = useCallback(() => {
+    const h = history.current;
+    if (!h) return;
+    const next = chain.current.then(async () => {
+      const before = h.present.zooms.length;
+      try {
+        const v = await editorAutoZoom(sessionId.current);
+        seq.current += 1;
+        const added = v.doc.zooms.length - before;
+        if (added > 0) h.push(v.doc);
+        else h.replace(v.doc);
+        setUndoable({ undo: h.canUndo(), redo: h.canRedo() });
+        setView(v);
+        setInfo(added > 0 ? tn("rec3.zoom.planned", added) : t("rec3.zoom.planned_none"));
+        window.clearTimeout(infoTimer.current);
+        infoTimer.current = window.setTimeout(() => setInfo(null), NOTICE_MS);
+      } catch (e) {
+        report(e);
+      }
+    });
+    chain.current = next;
+  }, [report, t]);
+
   const enterCrop = useCallback(async () => {
     if (playing) togglePlay();
     const at = await sourceHere();
@@ -425,7 +470,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (exportOpen || isTypingTarget(e.target) || !view) return;
+      // The timeline took the key (Z, Delete on a selected zoom).
+      if (e.defaultPrevented || exportOpen || isTypingTarget(e.target) || !view) return;
       const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
       // Held keys repeat only for stepping; a focused slider keeps its own arrows.
       if (e.repeat && !arrow) return;
@@ -516,6 +562,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const cropClip = clipFor(pos);
   const preset: CropPreset = doc.output.aspect === "source" || doc.output.aspect === "auto" ? "free" : doc.output.aspect;
   const asset = (f: string) => convertFileSrc(`${dir}/${f}`);
+  const zoomSel = selectedZoom ? (doc.zooms.find((z) => z.id === selectedZoom) ?? null) : null;
+  const zoomRect = zoomSel ? (view.screenRects?.[zoomSel.clip] ?? ([0, 0, 1, 1] as [number, number, number, number])) : null;
+  const hasCursorData = !!assets?.hasCursorData;
 
   const iconBtn =
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
@@ -528,6 +577,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <span className="text-[11px] text-[var(--color-muted)]" data-testid="ed-save">
           {saving ? t("rec2.ed.saving") : t("rec2.ed.saved")}
         </span>
+        {info && (
+          <span className="min-w-0 truncate text-[11px] text-[var(--color-muted)]" role="status" data-testid="ed-info">
+            {info}
+          </span>
+        )}
         {notice && (
           <span className="min-w-0 truncate text-[11px] text-red-500" role="alert" data-testid="ed-notice" title={notice}>
             {errText(t, notice)}
@@ -553,7 +607,20 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
       {/* Preview + settings column */}
       <div className="flex min-h-0 flex-1">
-      <Preview ratio={ratio} active={!fatal && !cropMode} dim={!!fatal}>
+      <Preview
+        ratio={ratio}
+        active={!fatal && !cropMode}
+        dim={!!fatal}
+        overlay={
+          zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
+            <FocusOverlay
+              rect={zoomRect}
+              focus={{ x: zoomSel.focusX, y: zoomSel.focusY }}
+              onPick={(x, y) => commit(updateZoom(cur() ?? doc, zoomSel.id, { focusX: x, focusY: y, origin: "manual" }))}
+            />
+          ) : null
+        }
+      >
         {cropMode && !fatal && (
           <CropOverlay
             srcW={meta.width}
@@ -613,6 +680,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             onLive={inspectorLive}
             onLiveEnd={inspectorLiveEnd}
             onImport={importAsset}
+            selectedZoom={zoomSel?.id ?? null}
+            onSelectZoom={setSelectedZoom}
+            onAutoZoom={autoZoom}
           />
         )}
       </aside>
@@ -641,6 +711,18 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         </button>
         <button className={iconBtn} onClick={() => void addSpeedHere()} title={t("rec2.ed.speed_add_hint")}>
           <Gauge size={14} /> {t("rec2.ed.speed_add")}
+        </button>
+        <button className={iconBtn} onClick={() => void addZoomHere()} title={t("rec3.zoom.add_hint")}>
+          <ZoomIn size={14} /> {t("rec3.zoom.add")}
+        </button>
+        <button
+          className={iconBtn}
+          onClick={autoZoom}
+          disabled={!hasCursorData}
+          title={hasCursorData ? t("rec3.zoom.auto_hint") : t("rec3.insp.no_cursor")}
+          data-testid="ed-auto-zoom"
+        >
+          <WandSparkles size={14} /> {t("rec3.zoom.auto")}
         </button>
         <button
           className={iconBtn + (cropMode ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")}
@@ -685,6 +767,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onSpeedValue={(i, v) => commit(setSpeedValue(cur() ?? doc, i, v))}
           onSpeedRemove={(i) => commit(removeSpeed(cur() ?? doc, i))}
           onWidth={setTrackWidth}
+          selectedZoom={zoomSel?.id ?? null}
+          onSelectZoom={setSelectedZoom}
+          keysEnabled={!exportOpen && !cropMode}
         />
       </div>
 
@@ -696,6 +781,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         playing={playing && !fatal}
         source={cue.source}
         speed={cue.speed}
+        positionMs={pos}
+        clicks={{
+          hits: view.clickHits ?? [],
+          downSrc: assets?.clickDown ? shippedUrl(assets.clickDown) : null,
+          upSrc: assets?.clickUp ? shippedUrl(assets.clickUp) : null,
+          gainDb: doc.cursor.clickSoundGainDb,
+          on: hasCursorData && doc.cursor.show && doc.cursor.clickSound,
+        }}
       />
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
     </div>

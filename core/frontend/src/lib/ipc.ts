@@ -5125,6 +5125,8 @@ export interface RecordConfig {
   systemAudio: boolean;
   mic: boolean;  /** After a successful take, open the editor instead of the Finder (default on). */
   openEditor: boolean;
+  /** The first time a take opens in the editor, plan zooms at its clicks once (default on). */
+  autoZoom: boolean;
 }
 export interface RecordNotes {
   text: string;
@@ -5274,8 +5276,20 @@ export interface RecordEditorView {
   programmeMs: number;
   clips: { progStartMs: number; progEndMs: number }[];
   speed: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Zoom regions in programme ms (`index` into `doc.zooms`; Rust's mapping). */
+  zooms: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Recorded clicks on the programme clock (the preview's click sound). */
+  clickHits: RecordClickHit[];
+  /** Per clip: the screen's box in the output `[x, y, w, h]` (fractions). */
+  screenRects: [number, number, number, number][];
   /** Rust's 1080p output size `[w, h]` — the preview's shape (never re-derived in TS). */
   outputSize: [number, number];
+}
+export interface RecordClickHit {
+  progMs: number;
+  /** The cue's own level; the user's click volume (dB) is applied on top. */
+  gain: number;
+  release: boolean;
 }
 export interface RecordingMeta {
   source: "display" | "window";
@@ -5348,6 +5362,10 @@ export function editorSeek(programmeMs: number): Promise<EditorSourcePos | null>
 export function editorToSource(programmeMs: number): Promise<EditorSourcePos | null> {
   return invoke("editor_to_source", { programmeMs: ms(programmeMs) });
 }
+/** Appends the auto-zoom planner's zooms; the caller records the answer as one undo step. */
+export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
+  return invoke("editor_auto_zoom", { sessionId });
+}
 /** Source → programme on the open document; does not move the playhead. */
 export function editorToProgramme(clip: number, sourceMs: number): Promise<number> {
   return invoke("editor_to_programme", { clip, sourceMs: ms(sourceMs) });
@@ -5374,6 +5392,9 @@ export interface EditorAssets {
   wallpapers: { id: string; thumb: string }[];
   themes: { id: string; preview: string }[];
   hasCursorData: boolean;
+  /** Click sound press / release WAVs (null when the bundle lacks them). */
+  clickDown: string | null;
+  clickUp: string | null;
 }
 export function editorAssets(): Promise<EditorAssets> {
   return invoke("editor_assets");

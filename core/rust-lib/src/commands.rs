@@ -7222,6 +7222,14 @@ pub async fn editor_update(
     editor_blocking(move || crate::record::editor_ipc::update(&app, session_id, doc)).await
 }
 
+/// Appends the auto-zoom planner's zooms to the open document; the editor records the
+/// returned document as one undo step. Without pointer data the view comes back unchanged.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_auto_zoom(app: AppHandle, session_id: u64) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::auto_zoom(&app, session_id)).await
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_seek(app: AppHandle, programme_ms: u64) -> Result<Option<crate::record::editor_ipc::SourcePos>, String> {

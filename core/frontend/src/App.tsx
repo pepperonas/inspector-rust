@@ -185,7 +185,6 @@ import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { clownAll, parseClownArg } from "./lib/clown";
 import { lookupDoc } from "./lib/commandDocs";
-import { qrPngBase64 } from "./lib/qr";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 const PongGame = lazy(() => import("./components/PongGame").then((m) => ({ default: m.PongGame })));
 const SnakeGame = lazy(() => import("./components/SnakeGame").then((m) => ({ default: m.SnakeGame })));
@@ -4688,6 +4687,8 @@ function App() {
       } else if (commandKind === "qr") {
         // Render the QR to a PNG and copy it to the clipboard (+ history).
         try {
+          // The encoder loads on first use (it is not part of the start-up bundle).
+          const { qrPngBase64 } = await import("./lib/qr");
           const png = qrPngBase64(arg);
           const label = arg.length > 48 ? `${arg.slice(0, 48)}…` : arg;
           await qrCopyPng(png, label);

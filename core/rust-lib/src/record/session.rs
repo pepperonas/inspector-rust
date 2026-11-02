@@ -184,6 +184,8 @@ pub struct RecordConfig {
     pub mic: bool,
     /// After a successful take, open the editor instead of the Finder.
     pub open_editor: bool,
+    /// The first time a take opens in the editor, plan zooms at its clicks once.
+    pub auto_zoom: bool,
 }
 
 impl Default for RecordConfig {
@@ -195,11 +197,13 @@ impl Default for RecordConfig {
             system_audio: true,
             mic: false,
             open_editor: true,
+            auto_zoom: true,
         }
     }
 }
 
 const K_OPEN_EDITOR: &str = "record.open_editor";
+const K_AUTO_ZOOM: &str = "record.auto_zoom";
 const K_DIR: &str = "record.project_dir";
 const K_COUNTDOWN: &str = "record.countdown";
 const K_CURSOR: &str = "record.cursor_mode";
@@ -240,6 +244,7 @@ impl RecordConfig {
             system_audio: parse_bool(get(K_SYSTEM_AUDIO), d.system_audio),
             mic: parse_bool(get(K_MIC), d.mic),
             open_editor: parse_bool(get(K_OPEN_EDITOR), d.open_editor),
+            auto_zoom: parse_bool(get(K_AUTO_ZOOM), d.auto_zoom),
         }
     }
 
@@ -250,6 +255,7 @@ impl RecordConfig {
         crate::settings::set(db, K_SYSTEM_AUDIO, if self.system_audio { "true" } else { "false" })?;
         crate::settings::set(db, K_MIC, if self.mic { "true" } else { "false" })?;
         crate::settings::set(db, K_OPEN_EDITOR, if self.open_editor { "true" } else { "false" })?;
+        crate::settings::set(db, K_AUTO_ZOOM, if self.auto_zoom { "true" } else { "false" })?;
         Ok(())
     }
 
@@ -1294,6 +1300,8 @@ mod tests {
         assert!(RecordConfig::default().open_editor);
         let c: RecordConfig = serde_json::from_str(r#"{"projectDir":""}"#).unwrap();
         assert!(c.open_editor, "an older frontend payload without the field must not turn it off");
+        assert!(RecordConfig::default().auto_zoom);
+        assert!(c.auto_zoom, "an older payload without `autoZoom` must not turn auto-zoom off");
         assert!(parse_bool(None, true));
     }
 

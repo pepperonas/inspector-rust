@@ -325,6 +325,7 @@ export const INSPECTOR_RANGES = {
   clickBounce: { min: 0, max: 2, step: 1 },
   clickSoundGainDb: { min: -24, max: 0, step: 1 },
   hotspot: { min: 0, max: 1, step: 0.01 },
+  zoomScale: { min: 1, max: 5, step: 0.05 },
 } as const;
 export type InspectorSetting = keyof typeof INSPECTOR_RANGES;
 
@@ -426,4 +427,79 @@ export class LiveGesture {
     // Rust saw a live value: put it back to where the drag began.
     else if (sentLive) this.send(start, false);
   }
+}
+
+// ── zoom track (stage 3, Task 7) ────────────────────────────────────────────
+
+/** `1.25×` — the factor a zoom depth or custom scale stands for. */
+export function fmtZoom(scale: number): string {
+  return `${Number(scale.toFixed(2))}×`;
+}
+
+/** The scale a region zooms to (mirrors Rust's `zoom_scale`). */
+export function zoomScale(z: Pick<RecordZoomRegion, "depth" | "customScale">): number {
+  if (z.customScale != null && Number.isFinite(z.customScale)) return Math.min(5, Math.max(1, z.customScale));
+  return ZOOM_DEPTHS[Math.min(6, Math.max(1, Math.round(z.depth))) - 1];
+}
+
+type ProgSpan = { progStartMs: number; progEndMs: number };
+
+/**
+ * A zoom block dragged by `deltaMs` of programme time: the block keeps its length and stays
+ * inside its clip's programme span (a drag past the clip edge clamps there).
+ */
+export function moveZoomProg(span: ProgSpan, clip: ProgSpan, deltaMs: number): ProgSpan {
+  const len = Math.min(span.progEndMs - span.progStartMs, clip.progEndMs - clip.progStartMs);
+  const start = Math.min(clip.progEndMs - len, Math.max(clip.progStartMs, span.progStartMs + deltaMs));
+  return { progStartMs: start, progEndMs: start + len };
+}
+
+/** A zoom edge dragged by `deltaMs`: inside the clip, never shorter than `MIN_ZOOM_MS`. */
+export function trimZoomProg(span: ProgSpan, clip: ProgSpan, edge: "start" | "end", deltaMs: number): ProgSpan {
+  if (edge === "start") {
+    const start = Math.min(span.progEndMs - MIN_ZOOM_MS, Math.max(clip.progStartMs, span.progStartMs + deltaMs));
+    return { progStartMs: start, progEndMs: span.progEndMs };
+  }
+  const end = Math.max(span.progStartMs + MIN_ZOOM_MS, Math.min(clip.progEndMs, span.progEndMs + deltaMs));
+  return { progStartMs: span.progStartMs, progEndMs: end };
+}
+
+/**
+ * Source position of programme time `prog` inside `clip` (ruling R12: Rust maps). At or past
+ * the clip's programme edges the clip's own source edge answers — `editor_to_source` at a
+ * boundary may already name the next clip.
+ */
+export async function zoomSourceAt(
+  clip: number,
+  span: ProgSpan,
+  bounds: { startMs: number; endMs: number },
+  prog: number,
+  toSource: (programmeMs: number) => Promise<{ clip: number; sourceMs: number } | null>,
+): Promise<number> {
+  const p = Math.round(prog);
+  if (p <= span.progStartMs) return bounds.startMs;
+  if (p >= span.progEndMs) return bounds.endMs;
+  const at = await toSource(p);
+  if (at && at.clip === clip) return Math.min(bounds.endMs, Math.max(bounds.startMs, at.sourceMs));
+  return bounds.endMs;
+}
+
+/** Click hits that fall into `(fromMs, toMs]` of the programme clock. */
+export function dueClickHits<T extends { progMs: number }>(hits: readonly T[], fromMs: number, toMs: number): T[] {
+  return hits.filter((h) => h.progMs > fromMs && h.progMs <= toMs);
+}
+
+/** Element volume of a click: its own gain × the user's dB (the export's level), at most 1. */
+export function clickVolume(gain: number, db: number): number {
+  return Math.min(1, Math.max(0, gain * 10 ** (db / 20)));
+}
+
+/**
+ * Focus point (fractions of the screen) for a click at `(px, py)` (fractions of the output)
+ * over the clip's screen box `[x, y, w, h]`; clamped into the screen.
+ */
+export function focusFromPoint(rect: readonly [number, number, number, number], px: number, py: number): { x: number; y: number } {
+  const [x, y, w, h] = rect;
+  const f = (v: number, o: number, l: number) => (l > 0 ? Math.min(1, Math.max(0, (v - o) / l)) : 0.5);
+  return { x: f(px, x, w), y: f(py, y, h) };
 }

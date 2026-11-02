@@ -20,7 +20,7 @@ use openscreen_compositor::gif_export::{export_gif_cancellable, GifExportParams}
 use openscreen_compositor::live::LiveView;
 use openscreen_compositor::pipeline::{self, ClipSource, ExportCodec, ExportParams};
 use openscreen_compositor::regions::speed_segments_for_window;
-use openscreen_compositor::scene::{Scene, SceneSpeedRegion};
+use openscreen_compositor::scene::{Scene, SceneBackground, SceneSpeedRegion};
 use openscreen_compositor::timeline_walk;
 use record_render_protocol::{
     decode_command, encode_preview, encode_thumb, read_frame, write_event, write_frame, Codec,
@@ -274,7 +274,7 @@ impl State {
             Command::SetScene { scene } => match parse_scene(&scene) {
                 Ok(parsed) => {
                     if let Some(live) = &self.live {
-                        live.set_scene(&scene.to_string());
+                        push_scene(live, &scene);
                     }
                     self.scene = Some(parsed);
                     Ok(())
@@ -348,9 +348,12 @@ impl State {
         let first = scene.clips.first().ok_or_else(|| anyhow!("the scene has no clips"))?;
         // A previous preview first: its render thread holds a GPU context and decoders.
         self.live = None;
-        let live = LiveView::create(w.max(1), h.max(1), &first.screen_path, &first.webcam_path, "")
+        // The clip's own telemetry; `None` lets the LiveView fall back to the sidecar next to
+        // the video, as the export does (`scene::cursor_sidecar`).
+        let cursor = first.cursor_path.as_deref().unwrap_or("");
+        let live = LiveView::create(w.max(1), h.max(1), &first.screen_path, &first.webcam_path, cursor)
             .context("starting the preview")?;
-        live.set_scene(&scene_json.to_string());
+        push_scene(&live, scene_json);
         live.set_playing(false);
         live.set_active_clip(&first.screen_path, &first.webcam_path, first.webcam_offset_sec, 0, first.source_start_sec);
         self.live = Some(live);
@@ -490,6 +493,98 @@ impl State {
     }
 }
 
+// ── the preview's effect values ──────────────────────────────────────────────
+
+/// Effect values the LiveView keeps apart from its scene (`set_param_*`). Its render thread
+/// builds the compositor's `LiveParams` from them — not from the scene — so without these
+/// the preview showed the LiveView's defaults while the export drew the scene's values.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct LiveParamSet {
+    pub nums: Vec<(&'static str, f64)>,
+    pub bools: Vec<(&'static str, bool)>,
+    pub strs: Vec<(&'static str, String)>,
+}
+
+/// The LiveView parameters that give the preview the values the export takes from `scene`
+/// (`frame_geometry::live_params_from_scene`, the export `Cfg` and its cursor smoothing).
+/// Keys and units are those of `LiveView::set_param_*`. An unparsable scene gives nothing.
+pub(crate) fn live_params(scene: &Value) -> LiveParamSet {
+    let Ok(s) = parse_scene(scene) else {
+        return LiveParamSet::default();
+    };
+    let f = |v: f32| v as f64;
+    let mut strs = vec![("webcamShape", s.layout.webcam_shape.clone())];
+    if let SceneBackground::Color { color } = &s.background {
+        strs.push(("backgroundColor", color.clone()));
+    }
+    LiveParamSet {
+        nums: vec![
+            ("shadow", f(s.effects.shadow)),
+            // The scene's corner radius reaches the compositor as `effects.roundnessFrac`
+            // (read in compose_frame) in both paths; `live_params_from_scene` leaves
+            // `radius_scale` at its default 1.0, so the LiveView's multiplier must be 1 too —
+            // anything else would scale a radius the export does not scale.
+            ("roundness", 1.0),
+            ("motionBlur", f(s.effects.motion_blur)),
+            ("padding", f(s.effects.padding)),
+            ("backgroundBlur", f(s.effects.blur)),
+            ("cursorSize", f(s.cursor.size)),
+            ("cursorClickBounce", f(s.cursor.click_bounce)),
+            ("cursorSmoothing", f(s.cursor.smoothing)),
+            ("cursorMotionBlur", f(s.cursor.motion_blur)),
+            ("webcamSize", f(s.layout.webcam_size)),
+        ],
+        bools: vec![
+            ("cursorShow", s.cursor.show),
+            ("cursorAutoHide", s.cursor.auto_hide),
+            ("cursorModel3d", s.cursor.model3d),
+            ("webcamMirror", s.layout.webcam_mirror),
+        ],
+        strs,
+    }
+}
+
+/// What the session hands a preview. A trait so the "every scene push re-applies every
+/// effect value" rule is testable without a GPU.
+pub(crate) trait PreviewTarget {
+    fn set_scene(&self, json: &str);
+    fn set_param_num(&self, key: &str, value: f64);
+    fn set_param_bool(&self, key: &str, value: bool);
+    fn set_param_str(&self, key: &str, value: &str);
+}
+
+impl PreviewTarget for LiveView {
+    fn set_scene(&self, json: &str) {
+        LiveView::set_scene(self, json)
+    }
+    fn set_param_num(&self, key: &str, value: f64) {
+        LiveView::set_param_num(self, key, value)
+    }
+    fn set_param_bool(&self, key: &str, value: bool) {
+        LiveView::set_param_bool(self, key, value)
+    }
+    fn set_param_str(&self, key: &str, value: &str) {
+        LiveView::set_param_str(self, key, value)
+    }
+}
+
+/// The ONLY way a scene reaches the preview (Open, SetScene, a restarted helper's Open):
+/// the scene, then every effect value — after, because `set_scene` itself resets the
+/// cursor switches.
+pub(crate) fn push_scene(view: &impl PreviewTarget, scene: &Value) {
+    view.set_scene(&scene.to_string());
+    let p = live_params(scene);
+    for (k, v) in &p.nums {
+        view.set_param_num(k, *v);
+    }
+    for (k, v) in &p.bools {
+        view.set_param_bool(k, *v);
+    }
+    for (k, v) in &p.strs {
+        view.set_param_str(k, v);
+    }
+}
+
 fn parse_scene(scene: &Value) -> Result<Scene> {
     Scene::from_json(&scene.to_string()).context("invalid scene")
 }
@@ -573,6 +668,7 @@ fn expected_frames(scene: &Scene, fps: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openscreen_compositor::frame_geometry::{webcam_shape_code, LiveParams};
 
     /// Ruling R9: the app's golden scene (built by `record::scene_json`) is a valid compositor
     /// `Scene` — both sides of the contract agree. Paths are placeholders; this parses only.
@@ -748,5 +844,210 @@ mod tests {
         assert_eq!(export_size((1920, 1080), (481, 271)), Ok((480, 270)));
         assert!(export_size((1080, 1920), (1920, 1080)).is_err());
         assert!(export_size((1920, 1080), (1080, 1080)).is_err());
+    }
+
+    // ── stage 3: the preview takes the export's effect values ───────────────
+
+    fn styled() -> Value {
+        serde_json::from_str(include_str!("../../core/rust-lib/src/record/fixtures/scene-golden-styled.json")).unwrap()
+    }
+
+    fn num(set: &LiveParamSet, key: &str) -> f64 {
+        set.nums.iter().find(|(k, _)| *k == key).unwrap_or_else(|| panic!("no {key}")).1
+    }
+    fn flag(set: &LiveParamSet, key: &str) -> bool {
+        set.bools.iter().find(|(k, _)| *k == key).unwrap_or_else(|| panic!("no {key}")).1
+    }
+    fn text<'a>(set: &'a LiveParamSet, key: &str) -> Option<&'a str> {
+        set.strs.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_str())
+    }
+
+    /// Every effect set away from its default arrives under the LiveView's key.
+    #[test]
+    fn live_params_map_every_effect() {
+        let mut v = styled();
+        v["effects"]["shadow"] = 0.6.into();
+        v["effects"]["padding"] = 0.5.into();
+        v["effects"]["blur"] = 0.7.into();
+        v["effects"]["motionBlur"] = 0.4.into();
+        v["effects"]["roundnessFrac"] = 0.04.into();
+        v["cursor"]["size"] = 2.5.into();
+        v["cursor"]["clickBounce"] = 1.8.into();
+        v["cursor"]["smoothing"] = 0.45.into();
+        v["cursor"]["motionBlur"] = 0.25.into();
+        v["cursor"]["show"] = false.into();
+        v["cursor"]["autoHide"] = true.into();
+        v["cursor"]["model3d"] = true.into();
+        v["layout"]["webcamSize"] = 1.4.into();
+        v["layout"]["webcamMirror"] = true.into();
+        v["layout"]["webcamShape"] = "circle".into();
+        v["background"] = serde_json::json!({ "kind": "color", "color": "#123456" });
+        let p = live_params(&v);
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert!(close(num(&p, "shadow"), 0.6));
+        assert!(close(num(&p, "padding"), 0.5));
+        assert!(close(num(&p, "backgroundBlur"), 0.7));
+        assert!(close(num(&p, "motionBlur"), 0.4));
+        // The scene's corner radius acts through `roundnessFrac` in both paths; the export's
+        // `radius_scale` stays at its default (frame_geometry::live_params_from_scene).
+        assert!(close(num(&p, "roundness"), 1.0));
+        assert!(close(num(&p, "cursorSize"), 2.5));
+        assert!(close(num(&p, "cursorClickBounce"), 1.8));
+        assert!(close(num(&p, "cursorSmoothing"), 0.45));
+        assert!(close(num(&p, "cursorMotionBlur"), 0.25));
+        assert!(close(num(&p, "webcamSize"), 1.4));
+        assert!(!flag(&p, "cursorShow"));
+        assert!(flag(&p, "cursorAutoHide"));
+        assert!(flag(&p, "cursorModel3d"));
+        assert!(flag(&p, "webcamMirror"));
+        assert_eq!(text(&p, "backgroundColor"), Some("#123456"));
+        assert_eq!(text(&p, "webcamShape"), Some("circle"));
+        // Not a colour background: no colour is pushed.
+        assert_eq!(text(&live_params(&styled()), "backgroundColor"), None);
+    }
+
+    /// Test mirror of the LiveView's inspector state: `set_param_*` (live.rs:1131-1181) and
+    /// the `InspectorParams → LiveParams` mapping of its render thread (live.rs:1797-1811).
+    /// The compositor has no public way to read either back.
+    struct Mirror {
+        lp: LiveParams,
+        bg_blur: f32,
+        mblur_taps: u32,
+        smoothing: f32,
+        show: bool,
+    }
+
+    impl Mirror {
+        fn after(scene: &Scene, set: &LiveParamSet) -> Self {
+            let mut m = Mirror { lp: LiveParams::default(), bg_blur: 0.0, mblur_taps: 8, smoothing: 0.0, show: true };
+            // `set_scene` itself copies these two.
+            m.show = scene.cursor.show;
+            m.lp.cursor_auto_hide = scene.cursor.auto_hide;
+            for (k, v) in &set.nums {
+                let f = *v as f32;
+                match *k {
+                    "shadow" => m.lp.shadow_scale = f.max(0.0),
+                    "roundness" => m.lp.radius_scale = f.max(0.0),
+                    "motionBlur" => m.mblur_taps = (1.0 + v.clamp(0.0, 1.0) * 15.0).round() as u32,
+                    "padding" => m.lp.padding = f.clamp(0.0, 1.0),
+                    "backgroundBlur" => m.bg_blur = f.clamp(0.0, 1.0),
+                    "webcamSize" => m.lp.webcam_size_scale = f.max(0.05),
+                    "cursorSize" => m.lp.cursor_size_scale = f.max(0.0),
+                    "cursorClickBounce" => m.lp.cursor_bounce_scale = f.max(0.0),
+                    "cursorSmoothing" => m.smoothing = f.clamp(0.0, 1.0),
+                    "cursorMotionBlur" => m.lp.cursor_motion_blur = f.clamp(0.0, 1.0),
+                    other => panic!("the LiveView has no number key {other}"),
+                }
+            }
+            for (k, v) in &set.bools {
+                match *k {
+                    "webcamMirror" => m.lp.webcam_mirror = *v,
+                    "cursorShow" => m.show = *v,
+                    "cursorAutoHide" => m.lp.cursor_auto_hide = *v,
+                    "cursorModel3d" => m.lp.cursor_model3d = *v,
+                    other => panic!("the LiveView has no bool key {other}"),
+                }
+            }
+            for (k, v) in &set.strs {
+                match *k {
+                    "backgroundColor" => m.lp.bg_color = hex(v).expect("a hex colour"),
+                    "webcamShape" => m.lp.webcam_shape = webcam_shape_code(v),
+                    other => panic!("the LiveView has no string key {other}"),
+                }
+            }
+            m
+        }
+    }
+
+    fn hex(s: &str) -> Option<[f32; 4]> {
+        let h = s.trim_start_matches('#');
+        let c = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|b| b as f32 / 255.0);
+        Some([c(0)?, c(2)?, c(4)?, 1.0])
+    }
+
+    /// The LiveView ends up with the values the export takes from the scene.
+    #[test]
+    fn live_params_match_export_params() {
+        let mut colour = styled();
+        colour["background"] = serde_json::json!({ "kind": "color", "color": "#203040" });
+        colour["layout"]["webcamMirror"] = true.into();
+        colour["layout"]["webcamShape"] = "square".into();
+        colour["layout"]["webcamSize"] = 0.8.into();
+        colour["cursor"]["model3d"] = true.into();
+        let golden: Value =
+            serde_json::from_str(include_str!("../../core/rust-lib/src/record/fixtures/scene-golden.json")).unwrap();
+        for (name, v) in [("golden", golden), ("styled", styled()), ("colour", colour)] {
+            let scene = parse_scene(&v).unwrap();
+            let m = Mirror::after(&scene, &live_params(&v));
+            let e = live_params_from_scene(&scene);
+            let same = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 1e-6, "{name}: {what} {a} vs {b}");
+            same(m.lp.shadow_scale, e.shadow_scale, "shadow");
+            same(m.lp.radius_scale, e.radius_scale, "radius");
+            same(m.lp.padding, e.padding, "padding");
+            same(m.lp.webcam_size_scale, e.webcam_size_scale, "webcam size");
+            same(m.lp.cursor_size_scale, e.cursor_size_scale, "cursor size");
+            same(m.lp.cursor_bounce_scale, e.cursor_bounce_scale, "click bounce");
+            same(m.lp.cursor_motion_blur, e.cursor_motion_blur, "cursor motion blur");
+            assert_eq!(m.lp.webcam_mirror, e.webcam_mirror, "{name}: mirror");
+            assert_eq!(m.lp.webcam_shape, e.webcam_shape, "{name}: shape");
+            assert_eq!(m.lp.cursor_model3d, e.cursor_model3d, "{name}: model3d");
+            assert_eq!(m.lp.cursor_auto_hide, e.cursor_auto_hide, "{name}: auto hide");
+            // Outside LiveParams: what the export's Cfg and cursor track take from the scene.
+            assert_eq!(m.show, scene.cursor.show, "{name}: cursor show");
+            same(m.smoothing, scene.cursor.smoothing.clamp(0.0, 1.0), "smoothing");
+            same(m.bg_blur, scene.effects.blur.clamp(0.0, 1.0), "background blur");
+            assert_eq!(m.mblur_taps, (1.0 + scene.effects.motion_blur.clamp(0.0, 1.0) * 15.0).round() as u32);
+            // A colour background is drawn from the scene's own colour; the LiveView's fallback
+            // colour must agree with it.
+            if let SceneBackground::Color { color } = &scene.background {
+                assert_eq!(Some(m.lp.bg_color), hex(color), "{name}: background colour");
+            }
+        }
+    }
+
+    /// Records what reaches the preview, in order.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<String>>);
+
+    impl PreviewTarget for Recorder {
+        fn set_scene(&self, _json: &str) {
+            self.0.lock().unwrap().push("scene".into());
+        }
+        fn set_param_num(&self, key: &str, _v: f64) {
+            self.0.lock().unwrap().push(key.into());
+        }
+        fn set_param_bool(&self, key: &str, _v: bool) {
+            self.0.lock().unwrap().push(key.into());
+        }
+        fn set_param_str(&self, key: &str, _v: &str) {
+            self.0.lock().unwrap().push(key.into());
+        }
+    }
+
+    /// Every scene push is followed by every effect value — a second push re-applies all of
+    /// them (an edit, a restarted helper's `Open`).
+    #[test]
+    fn params_reapplied_after_set_scene() {
+        let rec = Recorder::default();
+        let v = styled();
+        let expected = live_params(&v);
+        let keys = expected.nums.len() + expected.bools.len() + expected.strs.len();
+        push_scene(&rec, &v);
+        push_scene(&rec, &v);
+        let calls = rec.0.lock().unwrap().clone();
+        assert_eq!(calls.len(), 2 * (1 + keys), "{calls:?}");
+        for half in calls.chunks(1 + keys) {
+            assert_eq!(half[0], "scene", "params follow the scene, never precede it");
+            for (k, _) in &expected.nums {
+                assert!(half.contains(&k.to_string()), "{k} missing in {half:?}");
+            }
+            for (k, _) in &expected.bools {
+                assert!(half.contains(&k.to_string()), "{k} missing in {half:?}");
+            }
+        }
+        // Every place that hands the LiveView a scene goes through `push_scene`.
+        let src = include_str!("session.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert_eq!(code.matches(".set_scene(&").count(), 1, "only push_scene calls LiveView::set_scene");
     }
 }

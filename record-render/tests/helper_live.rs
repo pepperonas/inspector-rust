@@ -414,3 +414,132 @@ fn broken_output_cancels_export_and_exits() {
     drop(stdin);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// The styled scene with this project's files: one clip, padding, radius, shadow,
+/// wallpaper 01, pointer on, one zoom over t = 2 s.
+fn styled_scene(dir: &Path) -> Value {
+    let (dur_ms, mic_ms) = recording(dir);
+    let template = include_str!("../../core/rust-lib/src/record/fixtures/scene-golden-styled.json");
+    let assets = concat!(env!("CARGO_MANIFEST_DIR"), "/../core/rust-lib/assets/record");
+    let mut s: Value =
+        serde_json::from_str(&template.replace("<PROJECT>", &dir.display().to_string()).replace("<ASSETS>", assets)).unwrap();
+    let mut clip = s["clips"][0].clone();
+    clip["sourceStartSec"] = json!(0.0);
+    clip["sourceEndSec"] = json!(dur_ms as f64 / 1000.0);
+    clip["extraAudio"]["offsetSec"] = json!(mic_ms as f64 / 1000.0);
+    clip["extraAudio"]["gainDb"] = json!(0.0);
+    s["clips"] = json!([clip]);
+    s["cropByClip"] = json!([null]);
+    s["layout"]["layoutByClip"] = json!([s["layout"]["layoutByClip"][0].clone()]);
+    s["effects"]["padding"] = json!(0.5);
+    s["effects"]["roundnessFrac"] = json!(40.0 / 1800.0);
+    s["effects"]["shadow"] = json!(0.6);
+    s["background"] = json!({"kind": "image", "path": format!("{assets}/wallpapers/01.jpg")});
+    s["cursor"]["show"] = json!(true);
+    s["cursor"]["autoHide"] = json!(false);
+    let zoom = s["zoomRegions"][0].clone();
+    s["zoomRegions"] = json!([zoom]); // clip 0, 1–3 s
+    s["speedRegions"] = json!([]);
+    s
+}
+
+/// RGB bytes of a JPEG (ffmpeg, a dev tool) and its size.
+fn jpeg_rgb(path: &Path) -> (u32, u32, Vec<u8>) {
+    let dims = ffprobe(path, "stream=width,height");
+    let get = |k: &str| -> u32 {
+        dims.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap().trim().parse().unwrap()
+    };
+    let (w, h) = (get("width"), get("height"));
+    let o = Proc::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .unwrap();
+    assert_eq!(o.stdout.len(), (w * h * 3) as usize);
+    (w, h, o.stdout)
+}
+
+/// Stage 3: the preview shows the export's effect values. A preview frame at t = 2 s and the
+/// `Thumbs` still of the same frame (the export's compositor path) differ by less than 3/255
+/// on average.
+#[test]
+#[ignore]
+fn preview_matches_still_with_effects() {
+    let Some(dir) = project() else { return };
+    let out = out_dir("parity");
+    let mut h = Helper::start();
+    let scene = styled_scene(&dir);
+    let fps = scene["output"]["fps"].as_u64().unwrap() as u32;
+    let frame = 2 * fps as u64;
+
+    h.send(&Command::Thumbs { scene: scene.clone(), out_fps: fps, frames: vec![frame], max_width: 960 });
+    let jpeg = match h.next(Duration::from_secs(120)) {
+        Msg::Thumb(i, jpeg) if i == frame => jpeg,
+        _ => panic!("expected the still"),
+    };
+    assert_eq!(h.event(Duration::from_secs(10)), Event::ThumbsDone);
+    let still_path = out.join("still.jpg");
+    std::fs::write(&still_path, &jpeg).unwrap();
+    let (w, hgt, still) = jpeg_rgb(&still_path);
+
+    h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
+    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    h.send(&Command::SetTime { source_sec: 2.0 });
+    // Let the render thread settle on the seek (cursor load, wallpaper, zoom), then take the
+    // newest frame.
+    let mut f = h.frame_after(0);
+    let settle = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < settle {
+        std::thread::sleep(Duration::from_millis(300));
+        h.send(&Command::Frame { since_gen: f.gen });
+        if let Msg::Preview(p) = h.next(Duration::from_secs(5)) {
+            if !p.is_empty() {
+                f = p;
+            }
+        }
+    }
+    assert_eq!((f.w, f.h), (w, hgt), "preview and still share a size");
+    let mut sum = 0u64;
+    for (px, rgb) in f.rgba.as_chunks::<4>().0.iter().zip(still.as_chunks::<3>().0) {
+        for c in 0..3 {
+            sum += (px[c] as i64 - rgb[c] as i64).unsigned_abs();
+        }
+    }
+    let mae = sum as f64 / (w as f64 * hgt as f64 * 3.0);
+    // Keep both images for a look.
+    let raw = out.join("preview.rgba");
+    std::fs::write(&raw, &f.rgba).unwrap();
+    let _ = Proc::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{hgt}"), "-i"])
+        .arg(&raw)
+        .arg(out.join("preview.png"))
+        .status();
+    // The mean alone is blind to a local difference: without the effect values the pointer was
+    // drawn at the LiveView's default size and the whole-frame mean still stayed under 3
+    // (measured 1.58). The worst 32-px block catches it (measured 53.9 without, 8.1 with).
+    let block = |bx: u32, by: u32| -> f64 {
+        let mut s = 0u64;
+        for y in by..by + 32 {
+            for x in bx..bx + 32 {
+                let (i, j) = (((y * w + x) * 4) as usize, ((y * w + x) * 3) as usize);
+                for c in 0..3 {
+                    s += (f.rgba[i + c] as i64 - still[j + c] as i64).unsigned_abs();
+                }
+            }
+        }
+        s as f64 / (32.0 * 32.0 * 3.0)
+    };
+    let worst = (0..=(hgt - 32) / 16)
+        .flat_map(|by| (0..=(w - 32) / 16).map(move |bx| (bx * 16, by * 16)))
+        .map(|(bx, by)| block(bx, by))
+        .fold(0.0, f64::max);
+    println!(
+        "parity: {w}x{hgt}, preview gen {}, mean abs diff {mae:.2} / 255, worst 32-px block {worst:.2} (files in {})",
+        f.gen,
+        out.display()
+    );
+    assert!(mae < 3.0, "preview differs from the still: mean abs diff {mae:.2}");
+    assert!(worst < 20.0, "a part of the preview differs from the still: worst block {worst:.2}");
+    assert!(h.shutdown().success());
+}

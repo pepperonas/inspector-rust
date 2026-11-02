@@ -353,6 +353,11 @@ pub struct EditorView {
     pub programme_ms: u64,
     pub clips: Vec<ClipSpan>,
     pub speed: Vec<SpeedSpan>,
+    /// The preview scene's output size `[w, h]` (1080p target). Under `Aspect::Auto` its shape
+    /// follows padding, frame and crop, so the UI sizes its preview box from this, never from
+    /// the aspect alone. Filled by the editor session (`[0, 0]` from [`view`], which has no
+    /// recording metadata).
+    pub output_size: [u32; 2],
 }
 
 /// One clip spanning the whole recording, speed 1, no crop.
@@ -713,7 +718,7 @@ pub fn view(doc: &EditDoc) -> EditorView {
             prog_end_ms: source_to_programme(doc, r.clip, r.end_ms),
         })
         .collect();
-    EditorView { doc: doc.clone(), programme_ms: programme_duration_ms(doc), clips, speed }
+    EditorView { doc: doc.clone(), programme_ms: programme_duration_ms(doc), clips, speed, output_size: [0, 0] }
 }
 
 fn even_round(v: f64) -> u32 {

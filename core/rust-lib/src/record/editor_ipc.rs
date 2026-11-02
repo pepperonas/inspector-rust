@@ -423,12 +423,18 @@ impl Session {
         self.scene(self.output(OutputTarget::P1080), PREVIEW_FPS)
     }
 
+    /// The timeline view plus the preview scene's output size.
+    fn view(&self) -> EditorView {
+        let (w, h) = self.output(OutputTarget::P1080);
+        EditorView { output_size: [w, h], ..editor::view(&self.doc) }
+    }
+
     fn init(&self, helper_error: Option<String>) -> EditorInit {
         EditorInit {
             session_id: self.id,
             project: self.summary(),
             meta: self.project.recording.clone(),
-            view: editor::view(&self.doc),
+            view: self.view(),
             helper_error,
         }
     }
@@ -706,11 +712,22 @@ fn apply_update(
     now: u64,
 ) -> Result<(EditorView, Value, Vec<Command>), String> {
     let s = slot.as_mut().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    let before = s.output(OutputTarget::P1080);
     s.doc = editor::normalize(doc, s.project.recording.duration_ms);
-    let cmds = s.transport.set_doc(&s.doc, now);
+    let mut cmds = s.transport.set_doc(&s.doc, now);
+    // Under `Auto` padding, frame and crop change the output's shape, not only an aspect
+    // switch: every shape change reshapes the preview (the same size `open_editor` picks), so
+    // the helper never draws the new scene onto the old canvas. The UI re-sends its own panel
+    // fit afterwards (`editor_resize`).
+    let after = s.output(OutputTarget::P1080);
+    if after != before {
+        let (w, h) = preview_size(after);
+        s.preview = (w, h);
+        cmds.insert(0, Command::Resize { w, h });
+    }
     s.last_frame_ms = now;
     s.dirty = true;
-    Ok((editor::view(&s.doc), s.preview_scene(), cmds))
+    Ok((s.view(), s.preview_scene(), cmds))
 }
 
 pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorView, String> {
@@ -1051,6 +1068,38 @@ mod tests {
         assert_eq!(apply_update(&mut None, 2, stale, 0).unwrap_err(), ERR_NO_SESSION);
         let _ = std::fs::remove_dir_all(&a);
         let _ = std::fs::remove_dir_all(&b);
+    }
+
+    /// Under `Auto` the output shape follows padding (and frame, crop): an edit that changes
+    /// it must reshape the preview too, or the helper keeps rendering the old shape.
+    #[test]
+    fn an_update_that_changes_the_output_size_resizes_the_preview() {
+        let dir = tmp_project("reshape", "r");
+        let mut slot = Some(session_for(&dir, 3));
+        let s = slot.as_ref().unwrap();
+        assert_eq!(s.doc.output.aspect, Aspect::Auto);
+        let before = s.output(OutputTarget::P1080);
+        // Same shape: no resize.
+        let same = s.doc.clone();
+        let (view, _, cmds) = apply_update(&mut slot, 3, same, 0).unwrap();
+        assert!(!cmds.iter().any(|c| matches!(c, Command::Resize { .. })), "{cmds:?}");
+        assert_eq!(view.output_size, [before.0, before.1]);
+        // More padding: another Auto shape → the preview follows it.
+        let mut padded = slot.as_ref().unwrap().doc.clone();
+        padded.appearance.padding = 100.0;
+        let (view, _, cmds) = apply_update(&mut slot, 3, padded, 0).unwrap();
+        let s = slot.as_ref().unwrap();
+        let after = s.output(OutputTarget::P1080);
+        assert_ne!(after, before, "the fixture must change the Auto shape");
+        let want = preview_size(after);
+        let resizes: Vec<_> = cmds.iter().filter(|c| matches!(c, Command::Resize { .. })).collect();
+        assert_eq!(resizes.len(), 1, "{cmds:?}");
+        assert!(matches!(resizes[0], Command::Resize { w, h } if (*w, *h) == want));
+        assert_eq!(s.preview, want, "a restarted helper re-opens at the new shape");
+        assert_eq!(view.output_size, [after.0, after.1]);
+        // The init view carries it too (a window mounting later).
+        assert_eq!(s.init(None).view.output_size, [after.0, after.1]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

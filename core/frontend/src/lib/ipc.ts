@@ -5204,7 +5204,12 @@ export function setRecordNotes(notes: RecordNotes): Promise<void> {
 // ── record (stage 2): editor ────────────────────────────────────────────────
 export type RecordAspect = "source" | "auto" | "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
 export type RecordOutputTarget = "p720" | "p1080" | "source";
-export interface RecordEditClip { startMs: number; endMs: number }
+export interface RecordEditClip {
+  startMs: number;
+  endMs: number;
+  /** `null`/absent = the project's own take; an id = `<project>/takes/<id>/`. */
+  source?: string | null;
+}
 export interface RecordSpeedRegion { clip: number; startMs: number; endMs: number; speed: number }
 export interface RecordCropRect { x: number; y: number; w: number; h: number }
 export type RecordBackground =
@@ -5259,6 +5264,75 @@ export interface RecordZoomRegion {
   origin: RecordZoomOrigin;
   hideCursor: boolean;
 }
+export type RecordTextAlign = "left" | "center" | "right";
+export type RecordTextAnimation = "none" | "fade" | "rise" | "pop" | "slide-left" | "typewriter" | "pulse";
+export type RecordArrowDirection =
+  | "up" | "down" | "left" | "right" | "up-right" | "up-left" | "down-right" | "down-left";
+export type RecordBlurStyle = "blur" | "mosaic";
+export type RecordBlurShape = "rectangle" | "oval" | "freehand";
+export type RecordBlurTint = "white" | "black";
+export interface RecordTextBody {
+  content: string;
+  color: string;
+  background: string;
+  fontSize: number;
+  fontFamily: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  align: RecordTextAlign;
+  animation: RecordTextAnimation;
+}
+export interface RecordBlurBody {
+  style: RecordBlurStyle;
+  shape: RecordBlurShape;
+  color: RecordBlurTint;
+  intensity: number;
+  blockSize: number;
+  /** Free-form outline, percent (0…100) of the annotation box. */
+  points: [number, number][];
+}
+export type RecordAnnotationBody =
+  | ({ kind: "text" } & RecordTextBody)
+  | { kind: "image"; file: string }
+  | { kind: "arrow"; direction: RecordArrowDirection; color: string; strokeWidth: number }
+  | ({ kind: "blur" } & RecordBlurBody);
+export type RecordAnnotationKind = RecordAnnotationBody["kind"];
+export interface RecordAnnotation {
+  id: string;
+  clip: number;
+  /** SOURCE ms of the clip, like zooms. */
+  startMs: number;
+  endMs: number;
+  /** Box in percent (0…100) of the frame (blur: of the screen). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  zIndex: number;
+  body: RecordAnnotationBody;
+}
+export type RecordTrackKind = "music" | "voiceover";
+export interface RecordAudioTrack {
+  id: string;
+  kind: RecordTrackKind;
+  /** File name under `<project>/assets/`. */
+  file: string;
+  clip: number;
+  /** SOURCE ms in the anchor clip. */
+  startMs: number;
+  /** Length of the file. */
+  durationMs: number;
+  offsetMs: number;
+  /** Voiceover: the recorded length. */
+  spanMs: number | null;
+  gainDb: number;
+  looped: boolean;
+  fadeInMs: number;
+  fadeOutMs: number;
+  muted: boolean;
+  label: string;
+}
 export interface RecordEditDoc {
   version: number;
   clips: RecordEditClip[];
@@ -5270,6 +5344,10 @@ export interface RecordEditDoc {
   cursor: RecordCursorStyle;
   zooms: RecordZoomRegion[];
   autoZoomDone: boolean;
+  annotations: RecordAnnotation[];
+  audioTracks: RecordAudioTrack[];
+  /** Level of the recorded system sound, dB. */
+  systemGainDb: number;
 }
 export interface RecordEditorView {
   doc: RecordEditDoc;

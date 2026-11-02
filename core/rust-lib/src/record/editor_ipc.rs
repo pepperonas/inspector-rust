@@ -1295,7 +1295,7 @@ mod tests {
     fn doc(clips: &[(u64, u64)]) -> EditDoc {
         EditDoc {
             version: EDITOR_VERSION,
-            clips: clips.iter().map(|&(s, e)| EditClip { start_ms: s, end_ms: e }).collect(),
+            clips: clips.iter().map(|&(s, e)| EditClip::main(s, e)).collect(),
             speed: Vec::new(),
             crop: vec![None; clips.len()],
             output: OutputShape::default(),
@@ -1304,6 +1304,9 @@ mod tests {
             cursor: crate::record::editor::CursorStyle::plain(),
             zooms: Vec::new(),
             auto_zoom_done: true,
+            annotations: Vec::new(),
+            audio_tracks: Vec::new(),
+            system_gain_db: 0.0,
         }
     }
 

@@ -8,6 +8,11 @@
  * the audio preview cues from the source position Rust reports with the playhead.
  */
 import type {
+  RecordAnnotation,
+  RecordAnnotationBody,
+  RecordAnnotationKind,
+  RecordAudioTrack,
+  RecordTrackKind,
   RecordAppearance,
   RecordAspect,
   RecordBackground,
@@ -54,8 +59,8 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
   const at = Math.round(sourceMs);
   const clips = [
     ...doc.clips.slice(0, clip),
-    { startMs: c.startMs, endMs: at },
-    { startMs: at, endMs: c.endMs },
+    { ...c, startMs: c.startMs, endMs: at },
+    { ...c, startMs: at, endMs: c.endMs },
     ...doc.clips.slice(clip + 1),
   ];
   const speed = doc.speed.flatMap((r) => {
@@ -74,10 +79,19 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
     if (z.clip > clip) return { ...z, clip: z.clip + 1 };
     return z.startMs >= at ? { ...z, clip: clip + 1 } : { ...z, endMs: Math.min(z.endMs, at) };
   });
+  // Annotations like zooms; a track's anchor follows the half holding its start.
+  const annotations = doc.annotations.map((a) => {
+    if (a.clip < clip) return a;
+    if (a.clip > clip) return { ...a, clip: a.clip + 1 };
+    return a.startMs >= at ? { ...a, clip: clip + 1 } : { ...a, endMs: Math.min(a.endMs, at) };
+  });
+  const audioTracks = doc.audioTracks.map((t) =>
+    t.clip > clip || (t.clip === clip && t.startMs >= at) ? { ...t, clip: t.clip + 1 } : t,
+  );
   const crop = [...doc.crop];
   while (crop.length < doc.clips.length) crop.push(null);
   crop.splice(clip + 1, 0, crop[clip] ?? null);
-  return { ...doc, clips, speed, crop, zooms };
+  return { ...doc, clips, speed, crop, zooms, annotations, audioTracks };
 }
 
 /** Removes a clip with its regions and crop. The last clip is never removed. */
@@ -89,6 +103,12 @@ export function deleteClip(doc: RecordEditDoc, clip: number): RecordEditDoc {
     speed: doc.speed.filter((r) => r.clip !== clip).map((r) => (r.clip > clip ? { ...r, clip: r.clip - 1 } : r)),
     crop: doc.crop.filter((_, i) => i !== clip),
     zooms: doc.zooms.filter((z) => z.clip !== clip).map((z) => (z.clip > clip ? { ...z, clip: z.clip - 1 } : z)),
+    annotations: doc.annotations
+      .filter((a) => a.clip !== clip)
+      .map((a) => (a.clip > clip ? { ...a, clip: a.clip - 1 } : a)),
+    audioTracks: doc.audioTracks
+      .filter((t) => t.clip !== clip)
+      .map((t) => (t.clip > clip ? { ...t, clip: t.clip - 1 } : t)),
   };
 }
 
@@ -97,7 +117,7 @@ export function setTrim(doc: RecordEditDoc, clip: number, startMs: number, endMs
   if (!doc.clips[clip]) return doc;
   const a = Math.max(0, Math.round(Math.min(startMs, endMs)));
   const b = Math.max(0, Math.round(Math.max(startMs, endMs)));
-  return { ...doc, clips: doc.clips.map((c, i) => (i === clip ? { startMs: a, endMs: b } : c)) };
+  return { ...doc, clips: doc.clips.map((c, i) => (i === clip ? { ...c, startMs: a, endMs: b } : c)) };
 }
 
 /** Appends a speed region in source time; a later region wins an overlap (Rust resolves). */
@@ -502,4 +522,158 @@ export function focusFromPoint(rect: readonly [number, number, number, number], 
   const [x, y, w, h] = rect;
   const f = (v: number, o: number, l: number) => (l > 0 ? Math.min(1, Math.max(0, (v - o) / l)) : 0.5);
   return { x: f(px, x, w), y: f(py, y, h) };
+}
+
+// ── annotations + audio tracks (stage 4) ────────────────────────────────────
+// Mirrors of the constants in record/editor.rs (a test reads that file and pins them).
+
+export const TEXT_FONTS = ["Inter", "Lora", "Oswald", "Caveat", "IBM Plex Mono"] as const;
+/** A new annotation's box `[x, y, w, h]` in percent of the frame. */
+export const ANNOTATION_DEFAULT_RECT = [50, 50, 30, 20] as const;
+export const FONT_SIZE_RANGE = [8, 200] as const;
+export const DEFAULT_FONT_SIZE = 32;
+export const BLUR_INTENSITY_RANGE = [2, 40] as const;
+export const BLUR_BLOCK_RANGE = [4, 48] as const;
+export const DEFAULT_BLUR_INTENSITY = 12;
+export const DEFAULT_BLUR_BLOCK = 12;
+export const DEFAULT_TEXT_COLOR = "#ffffff";
+export const DEFAULT_TEXT_PLATE = "rgba(0, 0, 0, 0.7)";
+export const DEFAULT_ARROW_COLOR = "#34B27B";
+export const DEFAULT_ARROW_STROKE = 4;
+export const DEFAULT_FREEHAND_POINTS: readonly (readonly [number, number])[] = [
+  [10, 30], [25, 10], [55, 8], [82, 20], [90, 45], [78, 72], [52, 90], [22, 84], [8, 58],
+];
+export const TRACK_GAIN_RANGE = [-60, 12] as const;
+export const FADE_MAX_MS = 5000;
+export const SYSTEM_GAIN_RANGE = [-12, 12] as const;
+export const MUSIC_DEFAULT_GAIN_DB = -18;
+export const MUSIC_DEFAULT_FADE_MS = 1000;
+/** Length of a freshly added annotation (upstream `DEFAULT_NEW_REGION_SEC`). */
+export const NEW_ANNOTATION_MS = 2000;
+
+/** The body a new annotation of `kind` starts with (upstream defaults). */
+export function defaultAnnotationBody(kind: RecordAnnotationKind): RecordAnnotationBody {
+  switch (kind) {
+    case "text":
+      return {
+        kind: "text",
+        content: "",
+        color: DEFAULT_TEXT_COLOR,
+        background: DEFAULT_TEXT_PLATE,
+        fontSize: DEFAULT_FONT_SIZE,
+        fontFamily: TEXT_FONTS[0],
+        bold: true,
+        italic: false,
+        underline: false,
+        align: "center",
+        animation: "none",
+      };
+    case "image":
+      return { kind: "image", file: "" };
+    case "arrow":
+      return { kind: "arrow", direction: "right", color: DEFAULT_ARROW_COLOR, strokeWidth: DEFAULT_ARROW_STROKE };
+    case "blur":
+      return {
+        kind: "blur",
+        style: "mosaic",
+        shape: "rectangle",
+        color: "white",
+        intensity: DEFAULT_BLUR_INTENSITY,
+        blockSize: DEFAULT_BLUR_BLOCK,
+        points: DEFAULT_FREEHAND_POINTS.map(([x, y]) => [x, y] as [number, number]),
+      };
+  }
+}
+
+/**
+ * A new annotation of `kind` at `sourceMs` of `clip` (SOURCE ms), 2 s long and clamped into the
+ * clip; the upstream box, `zIndex` above every existing one. Rust clamps the rest.
+ */
+export function addAnnotation(doc: RecordEditDoc, kind: RecordAnnotationKind, clip: number, sourceMs: number): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c) return doc;
+  const startMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)));
+  const [x, y, w, h] = ANNOTATION_DEFAULT_RECT;
+  const annotation: RecordAnnotation = {
+    id: crypto.randomUUID(),
+    clip,
+    startMs,
+    endMs: Math.min(c.endMs, startMs + NEW_ANNOTATION_MS),
+    x,
+    y,
+    w,
+    h,
+    zIndex: Math.max(0, ...doc.annotations.map((a) => a.zIndex)) + 1,
+    body: defaultAnnotationBody(kind),
+  };
+  return { ...doc, annotations: [...doc.annotations, annotation] };
+}
+
+/** Patches one annotation; a `body` patch merges into the body of the same kind. */
+export function updateAnnotation(
+  doc: RecordEditDoc,
+  id: string,
+  patch: Partial<Omit<RecordAnnotation, "id" | "body">> & { body?: Partial<RecordAnnotationBody> },
+): RecordEditDoc {
+  if (!doc.annotations.some((a) => a.id === id)) return doc;
+  const { body, ...rest } = patch;
+  return {
+    ...doc,
+    annotations: doc.annotations.map((a) =>
+      a.id === id ? { ...a, ...rest, body: body ? ({ ...a.body, ...body } as RecordAnnotationBody) : a.body } : a,
+    ),
+  };
+}
+
+export function removeAnnotation(doc: RecordEditDoc, id: string): RecordEditDoc {
+  return { ...doc, annotations: doc.annotations.filter((a) => a.id !== id) };
+}
+
+/**
+ * A new track of `file` (`durationMs` long) starting at `sourceMs` of `clip`. Music: −18 dB with
+ * 1 s fades; voiceover: 0 dB, no fades, the recorded length as its span.
+ */
+export function addTrack(
+  doc: RecordEditDoc,
+  kind: RecordTrackKind,
+  file: string,
+  durationMs: number,
+  clip: number,
+  sourceMs: number,
+): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c) return doc;
+  const music = kind === "music";
+  const duration = Math.max(0, Math.round(durationMs));
+  const track: RecordAudioTrack = {
+    id: crypto.randomUUID(),
+    kind,
+    file,
+    clip,
+    startMs: Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs))),
+    durationMs: duration,
+    offsetMs: 0,
+    spanMs: music ? null : duration,
+    gainDb: music ? MUSIC_DEFAULT_GAIN_DB : 0,
+    looped: false,
+    fadeInMs: music ? MUSIC_DEFAULT_FADE_MS : 0,
+    fadeOutMs: music ? MUSIC_DEFAULT_FADE_MS : 0,
+    muted: false,
+    label: "",
+  };
+  return { ...doc, audioTracks: [...doc.audioTracks, track] };
+}
+
+export function updateTrack(doc: RecordEditDoc, id: string, patch: Partial<Omit<RecordAudioTrack, "id">>): RecordEditDoc {
+  if (!doc.audioTracks.some((t) => t.id === id)) return doc;
+  return { ...doc, audioTracks: doc.audioTracks.map((t) => (t.id === id ? { ...t, ...patch } : t)) };
+}
+
+export function removeTrack(doc: RecordEditDoc, id: string): RecordEditDoc {
+  return { ...doc, audioTracks: doc.audioTracks.filter((t) => t.id !== id) };
+}
+
+export function setSystemGain(doc: RecordEditDoc, db: number): RecordEditDoc {
+  const [lo, hi] = SYSTEM_GAIN_RANGE;
+  return { ...doc, systemGainDb: Number.isFinite(db) ? Math.min(hi, Math.max(lo, db)) : 0 };
 }

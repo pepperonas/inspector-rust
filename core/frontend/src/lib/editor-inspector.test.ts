@@ -16,7 +16,7 @@ import {
 
 const doc = (padding = 0): RecordEditDoc =>
   ({
-    version: 2,
+    version: 3,
     clips: [{ startMs: 0, endMs: 10_000 }],
     speed: [],
     crop: [null],
@@ -39,6 +39,9 @@ const doc = (padding = 0): RecordEditDoc =>
     },
     zooms: [],
     autoZoomDone: true,
+    annotations: [],
+    audioTracks: [],
+    systemGainDb: 0,
   }) as RecordEditDoc;
 
 describe("inspector presets", () => {

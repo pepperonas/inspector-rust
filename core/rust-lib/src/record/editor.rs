@@ -10,7 +10,7 @@
 use super::project::{Project, RecordingMeta};
 use serde::{Deserialize, Serialize};
 
-pub const EDITOR_VERSION: u32 = 2;
+pub const EDITOR_VERSION: u32 = 3;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -32,11 +32,57 @@ pub const MAX_ZOOM_SCALE: f64 = 5.0;
 pub const DEFAULT_WALLPAPER: &str = "01";
 pub const DEFAULT_CURSOR_THEME: &str = "default";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// ── annotations + audio tracks (stage 4, OpenScreen v2.1.2 defaults) ──────────
+/// The text fonts on offer (`textFonts.ts:13`); anything else becomes the first.
+pub const TEXT_FONTS: [&str; 5] = ["Inter", "Lora", "Oswald", "Caveat", "IBM Plex Mono"];
+/// A new annotation's box `(x, y, w, h)` in percent of the frame (`types.ts:425-433`).
+pub const ANNOTATION_DEFAULT_RECT: (f64, f64, f64, f64) = (50.0, 50.0, 30.0, 20.0);
+pub const FONT_SIZE_RANGE: (f64, f64) = (8.0, 200.0);
+pub const DEFAULT_FONT_SIZE: f64 = 32.0;
+pub const BLUR_INTENSITY_RANGE: (f64, f64) = (2.0, 40.0);
+pub const BLUR_BLOCK_RANGE: (f64, f64) = (4.0, 48.0);
+pub const DEFAULT_BLUR_INTENSITY: f64 = 12.0;
+pub const DEFAULT_BLUR_BLOCK: f64 = 12.0;
+pub const DEFAULT_TEXT_COLOR: &str = "#ffffff";
+/// The plate a NEW text gets (`background.ts:20`); a stored one without a valid colour falls
+/// back to `transparent` (the schema default).
+pub const DEFAULT_TEXT_PLATE: &str = "rgba(0, 0, 0, 0.7)";
+pub const DEFAULT_ARROW_COLOR: &str = "#34B27B";
+pub const DEFAULT_ARROW_STROKE: f64 = 4.0;
+/// The free-form blur shape a new (or broken) free form gets, percent of the box (`types.ts:453-463`).
+pub const DEFAULT_FREEHAND_POINTS: [(f64, f64); 9] = [
+    (10.0, 30.0),
+    (25.0, 10.0),
+    (55.0, 8.0),
+    (82.0, 20.0),
+    (90.0, 45.0),
+    (78.0, 72.0),
+    (52.0, 90.0),
+    (22.0, 84.0),
+    (8.0, 58.0),
+];
+pub const TRACK_GAIN_RANGE: (f64, f64) = (-60.0, 12.0);
+pub const FADE_MAX_MS: u64 = 5000;
+pub const SYSTEM_GAIN_RANGE: (f64, f64) = (-12.0, 12.0);
+pub const MUSIC_DEFAULT_GAIN_DB: f64 = -18.0;
+pub const MUSIC_DEFAULT_FADE_MS: u64 = 1000;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditClip {
     pub start_ms: u64,
     pub end_ms: u64,
+    /// Which recording the clip plays: `None` = the project's own take, `Some(id)` = an
+    /// inserted take under `<project>/takes/<id>/`.
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+impl EditClip {
+    /// A clip of the project's own take.
+    pub fn main(start_ms: u64, end_ms: u64) -> Self {
+        EditClip { start_ms, end_ms, source: None }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -302,6 +348,229 @@ pub fn zoom_scale(z: &ZoomRegion) -> f64 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextAlign {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextAnimation {
+    #[default]
+    None,
+    Fade,
+    Rise,
+    Pop,
+    SlideLeft,
+    Typewriter,
+    Pulse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArrowDirection {
+    Up,
+    Down,
+    Left,
+    #[default]
+    Right,
+    UpRight,
+    UpLeft,
+    DownRight,
+    DownLeft,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BlurStyle {
+    Blur,
+    #[default]
+    Mosaic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BlurShape {
+    #[default]
+    Rectangle,
+    Oval,
+    Freehand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum BlurTint {
+    #[default]
+    White,
+    Black,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextBody {
+    pub content: String,
+    pub color: String,
+    pub background: String,
+    pub font_size: f64,
+    pub font_family: String,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub align: TextAlign,
+    pub animation: TextAnimation,
+}
+
+impl Default for TextBody {
+    /// A NEW text: white, bold, centred, on the dark plate.
+    fn default() -> Self {
+        TextBody {
+            content: String::new(),
+            color: DEFAULT_TEXT_COLOR.into(),
+            background: DEFAULT_TEXT_PLATE.into(),
+            font_size: DEFAULT_FONT_SIZE,
+            font_family: TEXT_FONTS[0].into(),
+            bold: true,
+            italic: false,
+            underline: false,
+            align: TextAlign::Center,
+            animation: TextAnimation::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlurBody {
+    pub style: BlurStyle,
+    pub shape: BlurShape,
+    pub color: BlurTint,
+    pub intensity: f64,
+    pub block_size: f64,
+    /// Free-form outline in percent (0..100) of the annotation box.
+    #[serde(default)]
+    pub points: Vec<(f64, f64)>,
+}
+
+impl Default for BlurBody {
+    fn default() -> Self {
+        BlurBody {
+            style: BlurStyle::Mosaic,
+            shape: BlurShape::Rectangle,
+            color: BlurTint::White,
+            intensity: DEFAULT_BLUR_INTENSITY,
+            block_size: DEFAULT_BLUR_BLOCK,
+            points: DEFAULT_FREEHAND_POINTS.to_vec(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum AnnotationBody {
+    Text(TextBody),
+    Image {
+        file: String,
+    },
+    Arrow {
+        direction: ArrowDirection,
+        color: String,
+        #[serde(rename = "strokeWidth")]
+        stroke_width: f64,
+    },
+    Blur(BlurBody),
+}
+
+/// A text, image, arrow or blur box over the video. Times are SOURCE ms of its clip (like
+/// [`ZoomRegion`]); the box is in percent (0..100) of the frame (blur: of the screen).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Annotation {
+    pub id: String,
+    pub clip: usize,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub z_index: i32,
+    pub body: AnnotationBody,
+}
+
+impl Annotation {
+    /// A new annotation of `body` with the upstream box and `z_index` above every existing one.
+    pub fn new(id: String, clip: usize, start_ms: u64, end_ms: u64, body: AnnotationBody, existing: &[Annotation]) -> Self {
+        let (x, y, w, h) = ANNOTATION_DEFAULT_RECT;
+        let z_index = existing.iter().map(|a| a.z_index).max().unwrap_or(0).max(0) + 1;
+        Annotation { id, clip, start_ms, end_ms, x, y, w, h, z_index, body }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackKind {
+    #[default]
+    Music,
+    Voiceover,
+}
+
+/// A music or voiceover file laid under the programme. It starts at `start_ms` (SOURCE ms of
+/// its anchor clip) and plays `offset_ms..` of the file.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrack {
+    pub id: String,
+    pub kind: TrackKind,
+    /// File name under `<project>/assets/`.
+    pub file: String,
+    pub clip: usize,
+    pub start_ms: u64,
+    /// Length of the file.
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub offset_ms: u64,
+    /// Voiceover: the recorded length.
+    #[serde(default)]
+    pub span_ms: Option<u64>,
+    pub gain_db: f64,
+    #[serde(default)]
+    pub looped: bool,
+    #[serde(default)]
+    pub fade_in_ms: u64,
+    #[serde(default)]
+    pub fade_out_ms: u64,
+    #[serde(default)]
+    pub muted: bool,
+    #[serde(default)]
+    pub label: String,
+}
+
+/// The length a track plays: a voiceover's recorded span, else the file from its offset. A
+/// looped music track has no fixed length (`None`).
+pub fn track_span_ms(t: &AudioTrack) -> Option<u64> {
+    match t.span_ms {
+        Some(s) => Some(s),
+        None if t.looped => None,
+        None => Some(t.duration_ms.saturating_sub(t.offset_ms)),
+    }
+}
+
+/// Fades that do not fit the span share it in proportion (`resolveFadeSecs`): an asymmetric
+/// pair keeps its shape.
+pub fn fit_fades(fade_in_ms: u64, fade_out_ms: u64, span_ms: u64) -> (u64, u64) {
+    let total = fade_in_ms + fade_out_ms;
+    if total <= span_ms {
+        return (fade_in_ms, fade_out_ms);
+    }
+    let scale = span_ms as f64 / total as f64;
+    let fade_in = (fade_in_ms as f64 * scale).floor() as u64;
+    (fade_in, (fade_out_ms as f64 * scale).floor() as u64)
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditDoc {
@@ -326,6 +595,13 @@ pub struct EditDoc {
     /// so an old project never gets zooms added behind the user's back).
     #[serde(default)]
     pub auto_zoom_done: bool,
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
+    #[serde(default)]
+    pub audio_tracks: Vec<AudioTrack>,
+    /// Level of the recorded system sound, dB.
+    #[serde(default)]
+    pub system_gain_db: f64,
 }
 
 /// One clip on the programme timeline.
@@ -381,7 +657,7 @@ pub struct EditorView {
 pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
     EditDoc {
         version: EDITOR_VERSION,
-        clips: vec![EditClip { start_ms: 0, end_ms: meta.duration_ms }],
+        clips: vec![EditClip::main(0, meta.duration_ms)],
         speed: Vec::new(),
         crop: vec![None],
         output: OutputShape { aspect: Aspect::Auto },
@@ -390,28 +666,38 @@ pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
         cursor: CursorStyle::default(),
         zooms: Vec::new(),
         auto_zoom_done: false,
+        annotations: Vec::new(),
+        audio_tracks: Vec::new(),
+        system_gain_db: 0.0,
     }
 }
 
-/// Reads a stored editor block: v2 as is, v1 upgraded with the look it always had
+/// Reads a stored editor block: v3 as is, v2 upgraded with no annotations, no tracks and the
+/// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
 /// (`Appearance::plain`, no pointer, no zooms, aspect as saved). Anything else is `None`.
 pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
     let mut doc = serde_json::from_value::<EditDoc>(value).ok()?;
     if doc.clips.is_empty() {
         return None;
     }
-    match doc.version {
-        1 => {
-            doc.version = EDITOR_VERSION;
-            doc.appearance = Appearance::plain();
-            doc.cursor = CursorStyle::plain();
-            doc.zooms = Vec::new();
-            doc.auto_zoom_done = true;
-            Some(doc)
-        }
-        EDITOR_VERSION => Some(doc),
-        _ => None,
+    if doc.version == 1 {
+        doc.version = 2;
+        doc.appearance = Appearance::plain();
+        doc.cursor = CursorStyle::plain();
+        doc.zooms = Vec::new();
+        doc.auto_zoom_done = true;
     }
+    if doc.version == 2 {
+        doc.version = 3;
+        doc.annotations = Vec::new();
+        doc.audio_tracks = Vec::new();
+        doc.system_gain_db = 0.0;
+        // A v2 clip always played the project's own take.
+        for c in &mut doc.clips {
+            c.source = None;
+        }
+    }
+    (doc.version == EDITOR_VERSION).then_some(doc)
 }
 
 /// The stored document, normalised. Empty, unparseable or unknown-version blocks fall back
@@ -445,39 +731,57 @@ fn normalize_crop(c: CropRect) -> Option<CropRect> {
 /// Clamp everything into range, drop clips under `MIN_CLIP_MS` (one clip always stays),
 /// clamp speed regions into their clip and resolve overlaps (a later region in the list
 /// cuts its range out of earlier ones). Regions come out sorted by (clip, start).
+/// Annotations and audio tracks follow their clip like zooms (see [`normalize_annotations`],
+/// [`normalize_tracks`]). `duration_ms` is the project's own take; a clip of an inserted
+/// take (`source: Some`) keeps its own bounds.
 pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
-    let EditDoc { clips, speed, mut crop, output, mic_gain_db, appearance, cursor, zooms, auto_zoom_done, .. } = doc;
+    let EditDoc {
+        clips,
+        speed,
+        mut crop,
+        output,
+        mic_gain_db,
+        appearance,
+        cursor,
+        zooms,
+        auto_zoom_done,
+        annotations,
+        audio_tracks,
+        system_gain_db,
+        ..
+    } = doc;
     crop.resize(clips.len(), None);
 
-    // Clamp clips into the source; remember each survivor's old index.
+    // Clamp clips into their source; remember each survivor's old index.
     let clamped: Vec<(usize, EditClip)> = clips
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(i, c)| {
-            let start = c.start_ms.min(duration_ms);
-            let end = c.end_ms.min(duration_ms).max(start);
-            (i, EditClip { start_ms: start, end_ms: end })
+            let source = c.source.filter(|s| !s.trim().is_empty());
+            let limit = if source.is_none() { duration_ms } else { u64::MAX };
+            let start = c.start_ms.min(limit);
+            let end = c.end_ms.min(limit).max(start);
+            (i, EditClip { start_ms: start, end_ms: end, source })
         })
         .collect();
     let mut kept: Vec<(usize, EditClip)> =
-        clamped.iter().copied().filter(|(_, c)| c.end_ms - c.start_ms >= MIN_CLIP_MS).collect();
+        clamped.iter().filter(|(_, c)| c.end_ms - c.start_ms >= MIN_CLIP_MS).cloned().collect();
     if kept.is_empty() {
         // Keep the longest clip that has any length (first wins on a tie); else the whole source.
         let longest = clamped
             .iter()
-            .copied()
             .filter(|(_, c)| c.end_ms > c.start_ms)
-            .fold(None::<(usize, EditClip)>, |best, cur| match best {
+            .fold(None::<&(usize, EditClip)>, |best, cur| match best {
                 Some(b) if b.1.end_ms - b.1.start_ms >= cur.1.end_ms - cur.1.start_ms => Some(b),
                 _ => Some(cur),
             });
         kept = match longest {
-            Some(c) => vec![c],
-            None => vec![(usize::MAX, EditClip { start_ms: 0, end_ms: duration_ms })],
+            Some(c) => vec![c.clone()],
+            None => vec![(usize::MAX, EditClip::main(0, duration_ms))],
         };
     }
     let new_index = |old: usize| kept.iter().position(|(o, _)| *o == old);
-    let new_clips: Vec<EditClip> = kept.iter().map(|(_, c)| *c).collect();
+    let new_clips: Vec<EditClip> = kept.iter().map(|(_, c)| c.clone()).collect();
     let new_crop: Vec<Option<CropRect>> = kept
         .iter()
         .map(|(old, _)| crop.get(*old).copied().flatten().and_then(normalize_crop))
@@ -487,7 +791,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
     let mut resolved: Vec<SpeedRegion> = Vec::new();
     for r in speed {
         let Some(clip) = new_index(r.clip) else { continue };
-        let c = new_clips[clip];
+        let c = &new_clips[clip];
         let start = r.start_ms.clamp(c.start_ms, c.end_ms);
         let end = r.end_ms.clamp(c.start_ms, c.end_ms);
         if end <= start {
@@ -513,6 +817,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
     resolved.sort_by_key(|r| (r.clip, r.start_ms));
 
     let zooms = normalize_zooms(zooms, &new_clips, new_index);
+    let annotations = normalize_annotations(annotations, &new_clips, new_index);
+    let audio_tracks = normalize_tracks(audio_tracks, &new_clips, new_index);
 
     EditDoc {
         version: EDITOR_VERSION,
@@ -525,7 +831,157 @@ pub fn normalize(doc: EditDoc, duration_ms: u64) -> EditDoc {
         cursor: normalize_cursor(cursor),
         zooms,
         auto_zoom_done,
+        annotations,
+        audio_tracks,
+        system_gain_db: clamp_or(system_gain_db, SYSTEM_GAIN_RANGE.0, SYSTEM_GAIN_RANGE.1, 0.0),
     }
+}
+
+/// `taken` ∪ the result never holds `id` twice: an empty or repeated id gets `{prefix}-{n}`.
+fn unique_id(id: String, prefix: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    if !id.trim().is_empty() && taken.insert(id.clone()) {
+        return id;
+    }
+    let mut n = taken.len() + 1;
+    loop {
+        let candidate = format!("{prefix}-{n}");
+        if taken.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb(…)`, `rgba(…)` or `transparent` — what the
+/// compositor's colour parser reads (`frame_geometry.rs:120-136`).
+fn valid_color(c: &str) -> bool {
+    let c = c.trim();
+    if c.eq_ignore_ascii_case("transparent") {
+        return true;
+    }
+    if let Some(hex) = c.strip_prefix('#') {
+        return matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|ch| ch.is_ascii_hexdigit());
+    }
+    let lower = c.to_ascii_lowercase();
+    (lower.starts_with("rgb(") || lower.starts_with("rgba(")) && lower.ends_with(')')
+}
+
+fn color_or(c: String, fallback: &str) -> String {
+    if valid_color(&c) { c } else { fallback.into() }
+}
+
+fn normalize_points(points: Vec<(f64, f64)>, shape: BlurShape) -> Vec<(f64, f64)> {
+    let pts: Vec<(f64, f64)> = points
+        .into_iter()
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
+        .map(|(x, y)| (x.clamp(0.0, 100.0), y.clamp(0.0, 100.0)))
+        .collect();
+    if shape == BlurShape::Freehand && pts.len() < 3 {
+        return DEFAULT_FREEHAND_POINTS.to_vec();
+    }
+    pts
+}
+
+fn normalize_body(body: AnnotationBody) -> AnnotationBody {
+    match body {
+        AnnotationBody::Text(t) => {
+            let font_family = if TEXT_FONTS.contains(&t.font_family.as_str()) {
+                t.font_family
+            } else {
+                TEXT_FONTS[0].into()
+            };
+            AnnotationBody::Text(TextBody {
+                color: color_or(t.color, DEFAULT_TEXT_COLOR),
+                background: color_or(t.background, "transparent"),
+                font_size: clamp_or(t.font_size, FONT_SIZE_RANGE.0, FONT_SIZE_RANGE.1, DEFAULT_FONT_SIZE),
+                font_family,
+                ..t
+            })
+        }
+        AnnotationBody::Image { file } => AnnotationBody::Image { file },
+        AnnotationBody::Arrow { direction, color, stroke_width } => AnnotationBody::Arrow {
+            direction,
+            color: color_or(color, DEFAULT_ARROW_COLOR),
+            stroke_width: if stroke_width.is_finite() && stroke_width >= 0.0 {
+                stroke_width
+            } else {
+                DEFAULT_ARROW_STROKE
+            },
+        },
+        AnnotationBody::Blur(b) => AnnotationBody::Blur(BlurBody {
+            intensity: clamp_or(b.intensity, BLUR_INTENSITY_RANGE.0, BLUR_INTENSITY_RANGE.1, DEFAULT_BLUR_INTENSITY),
+            block_size: clamp_or(b.block_size, BLUR_BLOCK_RANGE.0, BLUR_BLOCK_RANGE.1, DEFAULT_BLUR_BLOCK),
+            points: normalize_points(b.points, b.shape),
+            ..b
+        }),
+    }
+}
+
+/// Like zooms: re-index onto the surviving clips (a deleted clip takes its annotations along),
+/// clamp into the clip (an annotation belongs to the part holding its start; a cut shortens it
+/// at the edge), drop empty spans. Annotations may overlap — the list order stays. The box,
+/// colours, font and blur numbers are clamped; ids are made unique.
+fn normalize_annotations(
+    annotations: Vec<Annotation>,
+    clips: &[EditClip],
+    new_index: impl Fn(usize) -> Option<usize>,
+) -> Vec<Annotation> {
+    let mut taken = std::collections::HashSet::new();
+    let (dx, dy, dw, dh) = ANNOTATION_DEFAULT_RECT;
+    let mut out = Vec::with_capacity(annotations.len());
+    for a in annotations {
+        let Some(clip) = new_index(a.clip) else { continue };
+        let c = &clips[clip];
+        let start = a.start_ms.clamp(c.start_ms, c.end_ms);
+        let end = a.end_ms.clamp(c.start_ms, c.end_ms);
+        if end <= start {
+            continue;
+        }
+        out.push(Annotation {
+            id: unique_id(a.id, "ann", &mut taken),
+            clip,
+            start_ms: start,
+            end_ms: end,
+            x: clamp_or(a.x, 0.0, 100.0, dx),
+            y: clamp_or(a.y, 0.0, 100.0, dy),
+            w: clamp_or(a.w, 1.0, 100.0, dw),
+            h: clamp_or(a.h, 1.0, 100.0, dh),
+            z_index: a.z_index.max(0),
+            body: normalize_body(a.body),
+        });
+    }
+    out
+}
+
+/// Re-index the anchor clip (a deleted clip takes its tracks along; after a split the track
+/// belongs to the part holding its start), clamp the start into that clip, the numbers into
+/// range, and fades that do not fit the track's span share it in proportion.
+fn normalize_tracks(
+    tracks: Vec<AudioTrack>,
+    clips: &[EditClip],
+    new_index: impl Fn(usize) -> Option<usize>,
+) -> Vec<AudioTrack> {
+    let mut taken = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(tracks.len());
+    for t in tracks {
+        let Some(clip) = new_index(t.clip) else { continue };
+        let c = &clips[clip];
+        let mut t = AudioTrack {
+            id: unique_id(t.id, "track", &mut taken),
+            clip,
+            start_ms: t.start_ms.clamp(c.start_ms, c.end_ms),
+            offset_ms: t.offset_ms.min(t.duration_ms),
+            gain_db: clamp_or(t.gain_db, TRACK_GAIN_RANGE.0, TRACK_GAIN_RANGE.1, 0.0),
+            fade_in_ms: t.fade_in_ms.min(FADE_MAX_MS),
+            fade_out_ms: t.fade_out_ms.min(FADE_MAX_MS),
+            ..t
+        };
+        if let Some(span) = track_span_ms(&t) {
+            (t.fade_in_ms, t.fade_out_ms) = fit_fades(t.fade_in_ms, t.fade_out_ms, span);
+        }
+        out.push(t);
+    }
+    out
 }
 
 fn clamp_or(v: f64, lo: f64, hi: f64, fallback: f64) -> f64 {
@@ -572,7 +1028,7 @@ fn normalize_zooms(
     let mut resolved: Vec<ZoomRegion> = Vec::new();
     for z in zooms {
         let Some(clip) = new_index(z.clip) else { continue };
-        let c = clips[clip];
+        let c = &clips[clip];
         let start = z.start_ms.clamp(c.start_ms, c.end_ms);
         let end = z.end_ms.clamp(c.start_ms, c.end_ms);
         if end <= start {
@@ -867,7 +1323,7 @@ mod tests {
     }
 
     fn clip(start_ms: u64, end_ms: u64) -> EditClip {
-        EditClip { start_ms, end_ms }
+        EditClip::main(start_ms, end_ms)
     }
 
     fn sr(clip: usize, start_ms: u64, end_ms: u64, speed: f64) -> SpeedRegion {
@@ -887,6 +1343,9 @@ mod tests {
             cursor: CursorStyle::plain(),
             zooms: Vec::new(),
             auto_zoom_done: true,
+            annotations: Vec::new(),
+            audio_tracks: Vec::new(),
+            system_gain_db: 0.0,
         }
     }
 
@@ -930,7 +1389,7 @@ mod tests {
             serde_json::json!(null),
             serde_json::json!("garbage"),
             serde_json::json!({"version": 1, "clips": "nope"}),
-            serde_json::json!({"version": 3, "clips": [{"startMs": 0, "endMs": 5000}]}),
+            serde_json::json!({"version": 4, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 0, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 1, "clips": []}),
         ] {
@@ -946,7 +1405,7 @@ mod tests {
         d.output.aspect = Aspect::W9H16;
         d.mic_gain_db = -6.0;
         store(&mut p, &d);
-        assert_eq!(p.editor["version"], 2);
+        assert_eq!(p.editor["version"], EDITOR_VERSION);
         assert_eq!(p.editor["output"]["aspect"], "9:16");
         assert_eq!(p.editor["micGainDb"], -6.0);
         assert_eq!(load(&p), d);
@@ -1328,7 +1787,7 @@ mod tests {
         d.zooms = vec![ZoomRegion { origin: ZoomOrigin::Auto, focus_mode: FocusMode::Manual, hide_cursor: true, custom_scale: Some(2.0), ..zoom(0, 1_000, 3_000) }];
         d.auto_zoom_done = true;
         let j = serde_json::to_value(&d).unwrap();
-        assert_eq!(j["version"], 2);
+        assert_eq!(j["version"], EDITOR_VERSION);
         assert_eq!(j["appearance"]["background"]["kind"], "gradient");
         assert_eq!(j["appearance"]["background"]["angleDeg"], 135.0);
         assert_eq!(j["appearance"]["frame"], "laptop");
@@ -1351,5 +1810,258 @@ mod tests {
             let v = serde_json::to_value(&b).unwrap();
             assert_eq!(serde_json::from_value::<Background>(v).unwrap(), b);
         }
+    }
+
+    // ── v3: annotations + audio tracks ──────────────────────────────────────
+
+    fn v2_json() -> serde_json::Value {
+        serde_json::json!({
+            "version": 2,
+            "clips": [{"startMs": 0, "endMs": 4000}, {"startMs": 5000, "endMs": 9000}],
+            "speed": [{"clip": 1, "startMs": 6000, "endMs": 7000, "speed": 2.0}],
+            "crop": [null, {"x": 0.1, "y": 0.1, "w": 0.5, "h": 0.5}],
+            "output": {"aspect": "16:9"},
+            "micGainDb": -4.0,
+            "appearance": {"padding": 20.0, "background": {"kind": "color", "color": "#123456"}},
+            "cursor": {"size": 2.0},
+            "zooms": [{"id": "z1", "clip": 0, "startMs": 1000, "endMs": 3000, "depth": 4, "focusX": 0.2, "focusY": 0.3}],
+            "autoZoomDone": true
+        })
+    }
+
+    #[test]
+    fn v2_doc_migrates_without_change() {
+        let v2: EditDoc = serde_json::from_value(v2_json()).unwrap();
+        let d = migrate(v2_json()).unwrap();
+        assert_eq!(d.version, 3);
+        assert!(d.annotations.is_empty() && d.audio_tracks.is_empty());
+        assert_eq!(d.system_gain_db, 0.0);
+        assert!(d.clips.iter().all(|c| c.source.is_none()));
+        // Everything a v2 document carried comes through untouched.
+        assert_eq!(EditDoc { version: 2, ..d.clone() }, v2);
+        assert_eq!(load(&project_with(v2_json())), normalize(d, 10_000));
+    }
+
+    fn text(content: &str) -> AnnotationBody {
+        AnnotationBody::Text(TextBody { content: content.into(), ..TextBody::default() })
+    }
+
+    fn ann(clip: usize, start_ms: u64, end_ms: u64, body: AnnotationBody) -> Annotation {
+        Annotation::new(format!("a{clip}-{start_ms}"), clip, start_ms, end_ms, body, &[])
+    }
+
+    #[test]
+    fn new_text_annotation_defaults() {
+        let existing = vec![
+            Annotation { z_index: 4, ..ann(0, 0, 1_000, text("a")) },
+            Annotation { z_index: 2, ..ann(0, 0, 1_000, text("b")) },
+        ];
+        let a = Annotation::new("n".into(), 0, 0, 2_000, AnnotationBody::Text(TextBody::default()), &existing);
+        assert_eq!((a.x, a.y, a.w, a.h), (50.0, 50.0, 30.0, 20.0));
+        assert_eq!(a.z_index, 5);
+        assert_eq!(Annotation::new("m".into(), 0, 0, 1, text(""), &[]).z_index, 1);
+        let AnnotationBody::Text(t) = &a.body else { panic!("text") };
+        assert_eq!((t.color.as_str(), t.background.as_str()), ("#ffffff", "rgba(0, 0, 0, 0.7)"));
+        assert_eq!((t.font_size, t.font_family.as_str()), (32.0, "Inter"));
+        assert!(t.bold && !t.italic && !t.underline);
+        assert_eq!((t.align, t.animation), (TextAlign::Center, TextAnimation::None));
+        let b = BlurBody::default();
+        assert_eq!((b.style, b.shape, b.color), (BlurStyle::Mosaic, BlurShape::Rectangle, BlurTint::White));
+        assert_eq!((b.intensity, b.block_size, b.points.len()), (12.0, 12.0, 9));
+        assert_eq!(TEXT_FONTS, ["Inter", "Lora", "Oswald", "Caveat", "IBM Plex Mono"]);
+    }
+
+    fn with_annotations(clips: Vec<EditClip>, annotations: Vec<Annotation>) -> EditDoc {
+        EditDoc { annotations, ..doc(clips, vec![]) }
+    }
+
+    #[test]
+    fn normalize_drops_annotation_of_deleted_clip() {
+        let d = with_annotations(
+            vec![clip(0, 50), clip(2_000, 9_000)],
+            vec![ann(0, 0, 50, text("gone")), ann(1, 3_000, 5_000, text("kept"))],
+        );
+        let n = normalize(d, 10_000);
+        assert_eq!(n.annotations.len(), 1);
+        assert_eq!((n.annotations[0].clip, n.annotations[0].start_ms), (0, 3_000));
+        assert_eq!(n.annotations[0].body, text("kept"));
+    }
+
+    #[test]
+    fn normalize_annotation_follows_split() {
+        // What the TS split leaves behind: two clips, the annotation still reaching across the cut.
+        let d = with_annotations(vec![clip(0, 3_000), clip(3_000, 10_000)], vec![ann(0, 1_000, 5_000, text("x"))]);
+        let n = normalize(d, 10_000);
+        assert_eq!(n.annotations.len(), 1);
+        assert_eq!((n.annotations[0].clip, n.annotations[0].start_ms, n.annotations[0].end_ms), (0, 1_000, 3_000));
+        // Overlapping annotations both stay (unlike zooms).
+        let d = with_annotations(vec![clip(0, 10_000)], vec![ann(0, 0, 4_000, text("a")), ann(0, 1_000, 3_000, text("b"))]);
+        assert_eq!(normalize(d, 10_000).annotations.len(), 2);
+    }
+
+    #[test]
+    fn normalize_clamps_blur_and_font() {
+        let blur = AnnotationBody::Blur(BlurBody { intensity: 99.0, block_size: 1.0, ..BlurBody::default() });
+        let t = AnnotationBody::Text(TextBody {
+            font_size: 300.0,
+            font_family: "Comic".into(),
+            color: "red; drop".into(),
+            ..TextBody::default()
+        });
+        let arrow = AnnotationBody::Arrow { direction: ArrowDirection::UpLeft, color: "nope".into(), stroke_width: f64::NAN };
+        let boxed = Annotation { x: -5.0, y: 140.0, w: 0.0, h: f64::NAN, z_index: -3, ..ann(0, 0, 1_000, text("b")) };
+        let d = with_annotations(
+            vec![clip(0, 10_000)],
+            vec![ann(0, 0, 1_000, blur), ann(0, 0, 1_000, t), ann(0, 0, 1_000, arrow), boxed],
+        );
+        let n = normalize(d, 10_000);
+        let AnnotationBody::Blur(b) = &n.annotations[0].body else { panic!("blur") };
+        assert_eq!((b.intensity, b.block_size), (40.0, 4.0));
+        let AnnotationBody::Text(t) = &n.annotations[1].body else { panic!("text") };
+        assert_eq!((t.font_size, t.font_family.as_str(), t.color.as_str()), (200.0, "Inter", "#ffffff"));
+        let AnnotationBody::Arrow { color, stroke_width, direction } = &n.annotations[2].body else { panic!("arrow") };
+        assert_eq!((color.as_str(), *stroke_width, *direction), ("#34B27B", 4.0, ArrowDirection::UpLeft));
+        let a = &n.annotations[3];
+        assert_eq!((a.x, a.y, a.w, a.h, a.z_index), (0.0, 100.0, 1.0, 20.0, 0));
+        // Valid colours pass as written.
+        for c in ["#fff", "#11223344", "rgba(0, 0, 0, 0.7)", "transparent"] {
+            assert!(valid_color(c), "{c}");
+        }
+    }
+
+    #[test]
+    fn normalize_makes_annotation_ids_unique() {
+        let d = with_annotations(
+            vec![clip(0, 10_000)],
+            vec![
+                Annotation { id: "same".into(), ..ann(0, 0, 1_000, text("1")) },
+                Annotation { id: "same".into(), ..ann(0, 0, 1_000, text("2")) },
+                Annotation { id: "".into(), ..ann(0, 0, 1_000, text("3")) },
+            ],
+        );
+        let ids: Vec<String> = normalize(d, 10_000).annotations.into_iter().map(|a| a.id).collect();
+        assert_eq!(ids[0], "same");
+        assert_eq!(ids.iter().collect::<std::collections::HashSet<_>>().len(), 3);
+        assert!(ids.iter().all(|i| !i.is_empty()));
+    }
+
+    #[test]
+    fn freehand_with_two_points_gets_default() {
+        let free = |points: Vec<(f64, f64)>| {
+            AnnotationBody::Blur(BlurBody { shape: BlurShape::Freehand, points, ..BlurBody::default() })
+        };
+        let d = with_annotations(
+            vec![clip(0, 10_000)],
+            vec![
+                ann(0, 0, 1_000, free(vec![(1.0, 1.0), (2.0, 2.0)])),
+                ann(0, 0, 1_000, free(vec![(0.0, 0.0), (150.0, 50.0), (50.0, -4.0)])),
+            ],
+        );
+        let n = normalize(d, 10_000);
+        let AnnotationBody::Blur(b) = &n.annotations[0].body else { panic!("blur") };
+        assert_eq!(b.points, DEFAULT_FREEHAND_POINTS.to_vec());
+        let AnnotationBody::Blur(b) = &n.annotations[1].body else { panic!("blur") };
+        assert_eq!(b.points, vec![(0.0, 0.0), (100.0, 50.0), (50.0, 0.0)]);
+    }
+
+    fn track(clip: usize, start_ms: u64, duration_ms: u64) -> AudioTrack {
+        AudioTrack {
+            id: format!("t{clip}-{start_ms}"),
+            kind: TrackKind::Music,
+            file: "song.mp3".into(),
+            clip,
+            start_ms,
+            duration_ms,
+            offset_ms: 0,
+            span_ms: None,
+            gain_db: MUSIC_DEFAULT_GAIN_DB,
+            looped: false,
+            fade_in_ms: MUSIC_DEFAULT_FADE_MS,
+            fade_out_ms: MUSIC_DEFAULT_FADE_MS,
+            muted: false,
+            label: String::new(),
+        }
+    }
+
+    #[test]
+    fn track_fades_scaled_to_span() {
+        // A 1.5 s file with 1 s + 2 s fades (3 s total): shared in proportion, shape kept.
+        let t = AudioTrack { fade_in_ms: 1_000, fade_out_ms: 2_000, ..track(0, 0, 1_500) };
+        let v = AudioTrack {
+            kind: TrackKind::Voiceover,
+            span_ms: Some(800),
+            fade_in_ms: 9_999,
+            fade_out_ms: 400,
+            gain_db: 40.0,
+            ..track(1, 2_000, 60_000)
+        };
+        let looped = AudioTrack { looped: true, fade_in_ms: 4_000, fade_out_ms: 4_000, ..track(0, 0, 1_000) };
+        let doc = EditDoc { audio_tracks: vec![t, v, looped], ..doc(vec![clip(0, 5_000), clip(5_000, 10_000)], vec![]) };
+        let n = normalize(doc, 10_000);
+        assert_eq!((n.audio_tracks[0].fade_in_ms, n.audio_tracks[0].fade_out_ms), (500, 1_000));
+        // Fade capped at 5 s first, then 5000 + 400 share 800 ms.
+        assert_eq!((n.audio_tracks[1].fade_in_ms, n.audio_tracks[1].fade_out_ms), (740, 59));
+        assert_eq!(n.audio_tracks[1].gain_db, 12.0);
+        // Anchor clamped into its clip (start 2 s → clip 1 begins at 5 s).
+        assert_eq!((n.audio_tracks[1].clip, n.audio_tracks[1].start_ms), (1, 5_000));
+        // A looped music track has no fixed length: fades are only capped.
+        assert_eq!((n.audio_tracks[2].fade_in_ms, n.audio_tracks[2].fade_out_ms), (4_000, 4_000));
+        assert_eq!(fit_fades(300, 300, 1_000), (300, 300));
+    }
+
+    #[test]
+    fn normalize_drops_track_of_deleted_clip_and_reindexes() {
+        let doc = EditDoc {
+            audio_tracks: vec![track(0, 0, 1_000), track(1, 3_000, 1_000)],
+            system_gain_db: 30.0,
+            ..doc(vec![clip(0, 50), clip(2_000, 9_000)], vec![])
+        };
+        let n = normalize(doc, 10_000);
+        assert_eq!(n.audio_tracks.len(), 1);
+        assert_eq!((n.audio_tracks[0].clip, n.audio_tracks[0].start_ms), (0, 3_000));
+        assert_eq!(n.system_gain_db, 12.0);
+    }
+
+    #[test]
+    fn inserted_take_clip_keeps_its_bounds() {
+        let mut other = clip(0, 30_000);
+        other.source = Some("t2".into());
+        let mut blank = clip(0, 4_000);
+        blank.source = Some("  ".into());
+        let n = normalize(doc(vec![clip(0, 30_000), other, blank], vec![]), 10_000);
+        assert_eq!(n.clips[0], clip(0, 10_000));
+        assert_eq!((n.clips[1].end_ms, n.clips[1].source.as_deref()), (30_000, Some("t2")));
+        assert_eq!(n.clips[2].source, None);
+    }
+
+    #[test]
+    fn serde_roundtrip_v3() {
+        let mut d = default_doc(&meta(10_000));
+        d.clips[0].source = Some("take-2".into());
+        d.annotations = vec![
+            ann(0, 0, 2_000, text("Hallo")),
+            ann(0, 0, 2_000, AnnotationBody::Image { file: "logo.png".into() }),
+            ann(0, 0, 2_000, AnnotationBody::Arrow { direction: ArrowDirection::DownRight, color: "#34B27B".into(), stroke_width: 4.0 }),
+            ann(0, 0, 2_000, AnnotationBody::Blur(BlurBody { shape: BlurShape::Freehand, ..BlurBody::default() })),
+        ];
+        d.audio_tracks = vec![AudioTrack { kind: TrackKind::Voiceover, span_ms: Some(900), ..track(0, 100, 1_000) }];
+        d.system_gain_db = -3.0;
+        let j = serde_json::to_value(&d).unwrap();
+        assert_eq!(j["version"], 3);
+        assert_eq!(j["clips"][0]["source"], "take-2");
+        assert_eq!(j["annotations"][0]["body"]["kind"], "text");
+        assert_eq!(j["annotations"][0]["body"]["fontFamily"], "Inter");
+        assert_eq!(j["annotations"][0]["zIndex"], 1);
+        assert_eq!(j["annotations"][2]["body"]["direction"], "down-right");
+        assert_eq!(j["annotations"][2]["body"]["strokeWidth"], 4.0);
+        assert_eq!(j["annotations"][3]["body"]["blockSize"], 12.0);
+        assert_eq!(j["annotations"][3]["body"]["points"][0], serde_json::json!([10.0, 30.0]));
+        assert_eq!(j["audioTracks"][0]["kind"], "voiceover");
+        assert_eq!(j["audioTracks"][0]["spanMs"], 900);
+        assert_eq!(j["systemGainDb"], -3.0);
+        let anim = serde_json::to_value(TextAnimation::SlideLeft).unwrap();
+        assert_eq!(anim, "slide-left");
+        let back: EditDoc = serde_json::from_value(j).unwrap();
+        assert_eq!(back, d);
     }
 }

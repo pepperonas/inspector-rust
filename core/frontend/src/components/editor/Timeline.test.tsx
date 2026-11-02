@@ -34,7 +34,7 @@ const zoom = (id: string, clip: number, startMs: number, endMs: number, origin: 
 
 const doc0 = (zooms: RecordZoomRegion[] = []): RecordEditDoc =>
   ({
-    version: 2,
+    version: 3,
     clips: [
       { startMs: 0, endMs: 5_000 },
       { startMs: 6_000, endMs: 11_000 },
@@ -47,6 +47,9 @@ const doc0 = (zooms: RecordZoomRegion[] = []): RecordEditDoc =>
     cursor: {} as RecordEditDoc["cursor"],
     zooms,
     autoZoomDone: true,
+    annotations: [],
+    audioTracks: [],
+    systemGainDb: 0,
   }) as RecordEditDoc;
 
 /** Programme spans: clip 0 = 0–5 s, clip 1 = 5–10 s (source 6–11 s). */

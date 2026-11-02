@@ -81,7 +81,7 @@ mod tests {
     fn doc(clips: &[(u64, u64)], speed: Vec<SpeedRegion>) -> EditDoc {
         EditDoc {
             version: EDITOR_VERSION,
-            clips: clips.iter().map(|&(s, e)| EditClip { start_ms: s, end_ms: e }).collect(),
+            clips: clips.iter().map(|&(s, e)| EditClip::main(s, e)).collect(),
             speed,
             crop: vec![None; clips.len()],
             output: OutputShape::default(),
@@ -90,6 +90,9 @@ mod tests {
             cursor: CursorStyle::default(),
             zooms: Vec::new(),
             auto_zoom_done: true,
+            annotations: Vec::new(),
+            audio_tracks: Vec::new(),
+            system_gain_db: 0.0,
         }
     }
 

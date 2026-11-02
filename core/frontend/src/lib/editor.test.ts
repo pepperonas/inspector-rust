@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import EDITOR_RS from "../../../rust-lib/src/record/editor.rs?raw";
 import type { RecordEditDoc, RecordEditorView } from "./ipc";
 import {
+  ANNOTATION_DEFAULT_RECT,
+  BLUR_BLOCK_RANGE,
+  BLUR_INTENSITY_RANGE,
+  DEFAULT_ARROW_COLOR,
+  DEFAULT_FREEHAND_POINTS,
+  DEFAULT_TEXT_PLATE,
+  FADE_MAX_MS,
+  FONT_SIZE_RANGE,
+  MUSIC_DEFAULT_FADE_MS,
+  MUSIC_DEFAULT_GAIN_DB,
+  SYSTEM_GAIN_RANGE,
+  TEXT_FONTS,
+  TRACK_GAIN_RANGE,
+  addAnnotation,
+  addTrack,
+  removeAnnotation,
+  removeTrack,
+  setSystemGain,
+  updateAnnotation,
+  updateTrack,
   History,
   ZOOM_DEPTHS,
   addZoom,
@@ -24,7 +44,7 @@ import {
 } from "./editor";
 
 const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
-  version: 2,
+  version: 3,
   clips: [{ startMs: 0, endMs: 10_000 }],
   speed: [],
   crop: [null],
@@ -56,6 +76,9 @@ const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
   },
   zooms: [],
   autoZoomDone: true,
+  annotations: [],
+  audioTracks: [],
+  systemGainDb: 0,
   ...over,
 });
 
@@ -294,5 +317,107 @@ describe("zoom regions", () => {
     expect(m).not.toBeNull();
     const rust = m![1].split(",").map((v) => Number(v.trim()));
     expect([...ZOOM_DEPTHS]).toEqual(rust);
+  });
+});
+
+describe("annotations + audio tracks (v3)", () => {
+  it("addAnnotation: upstream box, 2 s clamped into the clip, zIndex above the rest", () => {
+    let doc = base({ clips: [{ startMs: 0, endMs: 5_000 }, { startMs: 6_000, endMs: 7_000 }], crop: [null, null] });
+    doc = addAnnotation(doc, "text", 0, 1_000);
+    const a = doc.annotations[0];
+    expect([a.x, a.y, a.w, a.h]).toEqual([50, 50, 30, 20]);
+    expect([a.clip, a.startMs, a.endMs, a.zIndex]).toEqual([0, 1_000, 3_000, 1]);
+    expect(a.body).toMatchObject({
+      kind: "text",
+      color: "#ffffff",
+      background: "rgba(0, 0, 0, 0.7)",
+      fontSize: 32,
+      fontFamily: "Inter",
+      bold: true,
+      align: "center",
+      animation: "none",
+    });
+    doc = updateAnnotation(doc, a.id, { zIndex: 7 });
+    doc = addAnnotation(doc, "arrow", 1, 6_500);
+    const b = doc.annotations[1];
+    expect([b.startMs, b.endMs, b.zIndex]).toEqual([6_500, 7_000, 8]);
+    expect(b.body).toEqual({ kind: "arrow", direction: "right", color: "#34B27B", strokeWidth: 4 });
+    expect(b.id).not.toBe(a.id);
+    doc = addAnnotation(doc, "blur", 0, 0);
+    expect(doc.annotations[2].body).toMatchObject({ kind: "blur", style: "mosaic", shape: "rectangle", color: "white", intensity: 12, blockSize: 12 });
+    expect(addAnnotation(doc, "image", 9, 0)).toBe(doc);
+  });
+
+  it("updateAnnotation merges a body patch and keeps the rest", () => {
+    let doc = addAnnotation(base(), "text", 0, 0);
+    const id = doc.annotations[0].id;
+    doc = updateAnnotation(doc, id, { x: 10, body: { content: "Hallo" } });
+    expect(doc.annotations[0].x).toBe(10);
+    expect(doc.annotations[0].body).toMatchObject({ kind: "text", content: "Hallo", fontSize: 32 });
+    expect(updateAnnotation(doc, "nope", { x: 1 })).toBe(doc);
+    expect(removeAnnotation(doc, id).annotations).toEqual([]);
+  });
+
+  it("addTrack: music −18 dB with 1 s fades, voiceover 0 dB with its span", () => {
+    let doc = addTrack(base(), "music", "song.mp3", 30_000, 0, 2_000);
+    const m = doc.audioTracks[0];
+    expect(m).toMatchObject({ kind: "music", file: "song.mp3", clip: 0, startMs: 2_000, durationMs: 30_000, offsetMs: 0 });
+    expect([m.gainDb, m.fadeInMs, m.fadeOutMs, m.spanMs, m.looped, m.muted]).toEqual([-18, 1_000, 1_000, null, false, false]);
+    doc = addTrack(doc, "voiceover", "vo.wav", 4_200, 0, 99_000);
+    const v = doc.audioTracks[1];
+    expect([v.gainDb, v.fadeInMs, v.fadeOutMs, v.spanMs, v.startMs]).toEqual([0, 0, 0, 4_200, 10_000]);
+    doc = updateTrack(doc, m.id, { looped: true, gainDb: -6 });
+    expect(doc.audioTracks[0]).toMatchObject({ looped: true, gainDb: -6, file: "song.mp3" });
+    expect(removeTrack(doc, v.id).audioTracks.map((t) => t.id)).toEqual([m.id]);
+  });
+
+  it("setSystemGain clamps to ±12 dB", () => {
+    expect(setSystemGain(base(), 20).systemGainDb).toBe(12);
+    expect(setSystemGain(base(), -40).systemGainDb).toBe(-12);
+    expect(setSystemGain(base(), -3.5).systemGainDb).toBe(-3.5);
+    expect(setSystemGain(base(), Number.NaN).systemGainDb).toBe(0);
+  });
+
+  it("split and delete carry annotations, tracks and the clip source", () => {
+    let doc = base({ clips: [{ startMs: 0, endMs: 10_000, source: "take-2" }] });
+    doc = addAnnotation(doc, "text", 0, 1_000); // 1–3 s, cut at 2 s
+    doc = addAnnotation(doc, "text", 0, 6_000); // 6–8 s, all in the second half
+    doc = addTrack(doc, "music", "a.mp3", 9_000, 0, 500);
+    doc = addTrack(doc, "music", "b.mp3", 9_000, 0, 5_000);
+    const split = splitAt(doc, 0, 2_000);
+    expect(split.clips.map((c) => c.source)).toEqual(["take-2", "take-2"]);
+    expect(split.annotations.map((a) => [a.clip, a.startMs, a.endMs])).toEqual([[0, 1_000, 2_000], [1, 6_000, 8_000]]);
+    expect(split.audioTracks.map((t) => t.clip)).toEqual([0, 1]);
+    const del = deleteClip(split, 0);
+    expect(del.annotations.map((a) => a.clip)).toEqual([0]);
+    expect(del.audioTracks.map((t) => [t.clip, t.file])).toEqual([[0, "b.mp3"]]);
+    expect(setTrim(split, 1, 2_500, 9_000).clips[1].source).toBe("take-2");
+  });
+
+  it("the stage-4 constants mirror record/editor.rs", () => {
+    const num = (name: string) => {
+      const m = new RegExp(`pub const ${name}: [^=]+= ([^;]+);`).exec(EDITOR_RS);
+      expect(m, name).not.toBeNull();
+      return m![1];
+    };
+    const tuple = (name: string) => num(name).replace(/[()]/g, "").split(",").map((v) => Number(v.trim()));
+    const str = (name: string) => JSON.parse(num(name));
+    expect(JSON.parse(num("TEXT_FONTS"))).toEqual([...TEXT_FONTS]);
+    expect(tuple("ANNOTATION_DEFAULT_RECT")).toEqual([...ANNOTATION_DEFAULT_RECT]);
+    expect(tuple("FONT_SIZE_RANGE")).toEqual([...FONT_SIZE_RANGE]);
+    expect(tuple("BLUR_INTENSITY_RANGE")).toEqual([...BLUR_INTENSITY_RANGE]);
+    expect(tuple("BLUR_BLOCK_RANGE")).toEqual([...BLUR_BLOCK_RANGE]);
+    expect(tuple("TRACK_GAIN_RANGE")).toEqual([...TRACK_GAIN_RANGE]);
+    expect(tuple("SYSTEM_GAIN_RANGE")).toEqual([...SYSTEM_GAIN_RANGE]);
+    expect(Number(num("FADE_MAX_MS"))).toBe(FADE_MAX_MS);
+    expect(Number(num("MUSIC_DEFAULT_GAIN_DB"))).toBe(MUSIC_DEFAULT_GAIN_DB);
+    expect(Number(num("MUSIC_DEFAULT_FADE_MS"))).toBe(MUSIC_DEFAULT_FADE_MS);
+    expect(str("DEFAULT_TEXT_PLATE")).toBe(DEFAULT_TEXT_PLATE);
+    expect(str("DEFAULT_ARROW_COLOR")).toBe(DEFAULT_ARROW_COLOR);
+    const pts = /pub const DEFAULT_FREEHAND_POINTS: [^=]+= \[([\s\S]*?)\];/.exec(EDITOR_RS);
+    expect(pts).not.toBeNull();
+    const rust = [...pts![1].matchAll(/\(([\d.]+), ([\d.]+)\)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+    expect(rust).toHaveLength(9);
+    expect(rust).toEqual(DEFAULT_FREEHAND_POINTS.map(([x, y]) => [x, y]));
   });
 });

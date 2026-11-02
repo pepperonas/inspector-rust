@@ -47,7 +47,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (o: unknown) => openDialog(o
 import { RecordEditor } from "./RecordEditor";
 
 const doc0: RecordEditDoc = {
-  version: 2,
+  version: 3,
   clips: [{ startMs: 0, endMs: 10_000 }],
   speed: [],
   crop: [null],
@@ -79,6 +79,9 @@ const doc0: RecordEditDoc = {
   },
   zooms: [],
   autoZoomDone: true,
+  annotations: [],
+  audioTracks: [],
+  systemGainDb: 0,
 };
 const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   let t = 0;

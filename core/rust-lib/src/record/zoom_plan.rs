@@ -510,7 +510,7 @@ mod tests {
     }
     fn doc(duration_ms: u64, clips: &[(u64, u64)]) -> EditDoc {
         let mut d = default_doc(&RecordingMeta { duration_ms, ..Default::default() });
-        d.clips = clips.iter().map(|&(a, b)| EditClip { start_ms: a, end_ms: b }).collect();
+        d.clips = clips.iter().map(|&(a, b)| EditClip::main(a, b)).collect();
         d.crop = vec![None; clips.len()];
         d
     }

@@ -5,7 +5,7 @@ import type { EditorAssets, RecordEditDoc } from "../../lib/ipc";
 import { Inspector, type InspectorProps } from "./Inspector";
 
 const doc0 = (over: Partial<RecordEditDoc["appearance"]> = {}): RecordEditDoc => ({
-  version: 2,
+  version: 3,
   clips: [{ startMs: 0, endMs: 10_000 }],
   speed: [],
   crop: [null],
@@ -29,6 +29,9 @@ const doc0 = (over: Partial<RecordEditDoc["appearance"]> = {}): RecordEditDoc =>
   },
   zooms: [],
   autoZoomDone: true,
+  annotations: [],
+  audioTracks: [],
+  systemGainDb: 0,
 });
 
 const assets = (hasCursorData = true): EditorAssets => ({

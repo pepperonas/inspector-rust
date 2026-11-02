@@ -572,7 +572,7 @@ const mockLanguage = () => ({
 // ── record editor (stage 2) — invented 24-s take, spans computed here only for the mockup ──
 type EdDoc = { clips: { startMs: number; endMs: number }[]; speed: { clip: number; startMs: number; endMs: number; speed: number }[] } & Record<string, unknown>;
 let edDoc: EdDoc = {
-  version: 2,
+  version: 3,
   clips: [{ startMs: 0, endMs: 9_000 }, { startMs: 11_000, endMs: 24_000 }],
   speed: [{ clip: 1, startMs: 14_000, endMs: 20_000, speed: 3 }],
   crop: [null, null],
@@ -588,6 +588,9 @@ let edDoc: EdDoc = {
   },
   zooms: [],
   autoZoomDone: true,
+  annotations: [],
+  audioTracks: [],
+  systemGainDb: 0,
 };
 /** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
 const ED_WALL_HUES: [number, number][] = [[220, 280], [200, 160], [20, 340], [40, 10], [180, 230], [260, 300], [100, 150], [0, 30]];

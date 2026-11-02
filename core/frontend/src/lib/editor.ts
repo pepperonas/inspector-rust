@@ -592,13 +592,15 @@ export function defaultAnnotationBody(kind: RecordAnnotationKind): RecordAnnotat
 export function addAnnotation(doc: RecordEditDoc, kind: RecordAnnotationKind, clip: number, sourceMs: number): RecordEditDoc {
   const c = doc.clips[clip];
   if (!c) return doc;
-  const startMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)));
+  // At the clip end the box starts earlier so it keeps its length (a clip is ≥ 100 ms long).
+  const endMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)) + NEW_ANNOTATION_MS);
+  const startMs = Math.max(c.startMs, endMs - NEW_ANNOTATION_MS);
   const [x, y, w, h] = ANNOTATION_DEFAULT_RECT;
   const annotation: RecordAnnotation = {
     id: crypto.randomUUID(),
     clip,
     startMs,
-    endMs: Math.min(c.endMs, startMs + NEW_ANNOTATION_MS),
+    endMs,
     x,
     y,
     w,
@@ -609,18 +611,23 @@ export function addAnnotation(doc: RecordEditDoc, kind: RecordAnnotationKind, cl
   return { ...doc, annotations: [...doc.annotations, annotation] };
 }
 
-/** Patches one annotation; a `body` patch merges into the body of the same kind. */
+/** A body patch: fields of one kind, never the kind itself. */
+export type AnnotationBodyPatch = {
+  [K in RecordAnnotationKind]: Partial<Omit<Extract<RecordAnnotationBody, { kind: K }>, "kind">>;
+}[RecordAnnotationKind];
+
+/** Patches one annotation; a `body` patch merges into its body (the kind never changes). */
 export function updateAnnotation(
   doc: RecordEditDoc,
   id: string,
-  patch: Partial<Omit<RecordAnnotation, "id" | "body">> & { body?: Partial<RecordAnnotationBody> },
+  patch: Partial<Omit<RecordAnnotation, "id" | "body">> & { body?: AnnotationBodyPatch },
 ): RecordEditDoc {
   if (!doc.annotations.some((a) => a.id === id)) return doc;
   const { body, ...rest } = patch;
   return {
     ...doc,
     annotations: doc.annotations.map((a) =>
-      a.id === id ? { ...a, ...rest, body: body ? ({ ...a.body, ...body } as RecordAnnotationBody) : a.body } : a,
+      a.id === id ? { ...a, ...rest, body: body ? ({ ...a.body, ...body, kind: a.body.kind } as RecordAnnotationBody) : a.body } : a,
     ),
   };
 }

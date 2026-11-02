@@ -66,6 +66,8 @@ pub const FADE_MAX_MS: u64 = 5000;
 pub const SYSTEM_GAIN_RANGE: (f64, f64) = (-12.0, 12.0);
 pub const MUSIC_DEFAULT_GAIN_DB: f64 = -18.0;
 pub const MUSIC_DEFAULT_FADE_MS: u64 = 1000;
+/// Highest `z_index` an annotation keeps (`max + 1` must never overflow).
+pub const MAX_Z_INDEX: i32 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -410,7 +412,7 @@ pub enum BlurTint {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct TextBody {
     pub content: String,
     pub color: String,
@@ -443,7 +445,7 @@ impl Default for TextBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct BlurBody {
     pub style: BlurStyle,
     pub shape: BlurShape,
@@ -451,7 +453,6 @@ pub struct BlurBody {
     pub intensity: f64,
     pub block_size: f64,
     /// Free-form outline in percent (0..100) of the annotation box.
-    #[serde(default)]
     pub points: Vec<(f64, f64)>,
 }
 
@@ -473,15 +474,48 @@ impl Default for BlurBody {
 pub enum AnnotationBody {
     Text(TextBody),
     Image {
+        #[serde(default)]
         file: String,
     },
     Arrow {
+        #[serde(default)]
         direction: ArrowDirection,
+        #[serde(default = "default_arrow_color")]
         color: String,
-        #[serde(rename = "strokeWidth")]
+        #[serde(rename = "strokeWidth", default = "default_arrow_stroke")]
         stroke_width: f64,
     },
     Blur(BlurBody),
+}
+
+fn default_arrow_color() -> String {
+    DEFAULT_ARROW_COLOR.into()
+}
+fn default_arrow_stroke() -> f64 {
+    DEFAULT_ARROW_STROKE
+}
+fn default_ann_x() -> f64 {
+    ANNOTATION_DEFAULT_RECT.0
+}
+fn default_ann_y() -> f64 {
+    ANNOTATION_DEFAULT_RECT.1
+}
+fn default_ann_w() -> f64 {
+    ANNOTATION_DEFAULT_RECT.2
+}
+fn default_ann_h() -> f64 {
+    ANNOTATION_DEFAULT_RECT.3
+}
+
+/// A list where an entry that does not parse is dropped instead of failing the whole document
+/// (one broken annotation must not cost every clip and zoom edit).
+fn lenient_vec<'de, D, T>(de: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let raw = Option::<Vec<serde_json::Value>>::deserialize(de)?.unwrap_or_default();
+    Ok(raw.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect())
 }
 
 /// A text, image, arrow or blur box over the video. Times are SOURCE ms of its clip (like
@@ -489,14 +523,20 @@ pub enum AnnotationBody {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Annotation {
+    #[serde(default)]
     pub id: String,
     pub clip: usize,
     pub start_ms: u64,
     pub end_ms: u64,
+    #[serde(default = "default_ann_x")]
     pub x: f64,
+    #[serde(default = "default_ann_y")]
     pub y: f64,
+    #[serde(default = "default_ann_w")]
     pub w: f64,
+    #[serde(default = "default_ann_h")]
     pub h: f64,
+    #[serde(default)]
     pub z_index: i32,
     pub body: AnnotationBody,
 }
@@ -505,7 +545,8 @@ impl Annotation {
     /// A new annotation of `body` with the upstream box and `z_index` above every existing one.
     pub fn new(id: String, clip: usize, start_ms: u64, end_ms: u64, body: AnnotationBody, existing: &[Annotation]) -> Self {
         let (x, y, w, h) = ANNOTATION_DEFAULT_RECT;
-        let z_index = existing.iter().map(|a| a.z_index).max().unwrap_or(0).max(0) + 1;
+        let top = existing.iter().map(|a| a.z_index).max().unwrap_or(0).clamp(0, MAX_Z_INDEX);
+        let z_index = top.saturating_add(1).min(MAX_Z_INDEX);
         Annotation { id, clip, start_ms, end_ms, x, y, w, h, z_index, body }
     }
 }
@@ -523,11 +564,14 @@ pub enum TrackKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioTrack {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub kind: TrackKind,
     /// File name under `<project>/assets/`.
     pub file: String,
     pub clip: usize,
+    #[serde(default)]
     pub start_ms: u64,
     /// Length of the file.
     pub duration_ms: u64,
@@ -536,6 +580,7 @@ pub struct AudioTrack {
     /// Voiceover: the recorded length.
     #[serde(default)]
     pub span_ms: Option<u64>,
+    #[serde(default)]
     pub gain_db: f64,
     #[serde(default)]
     pub looped: bool,
@@ -595,9 +640,9 @@ pub struct EditDoc {
     /// so an old project never gets zooms added behind the user's back).
     #[serde(default)]
     pub auto_zoom_done: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_vec")]
     pub annotations: Vec<Annotation>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_vec")]
     pub audio_tracks: Vec<AudioTrack>,
     /// Level of the recorded system sound, dB.
     #[serde(default)]
@@ -946,7 +991,7 @@ fn normalize_annotations(
             y: clamp_or(a.y, 0.0, 100.0, dy),
             w: clamp_or(a.w, 1.0, 100.0, dw),
             h: clamp_or(a.h, 1.0, 100.0, dh),
-            z_index: a.z_index.max(0),
+            z_index: a.z_index.clamp(0, MAX_Z_INDEX),
             body: normalize_body(a.body),
         });
     }
@@ -2063,5 +2108,43 @@ mod tests {
         assert_eq!(anim, "slide-left");
         let back: EditDoc = serde_json::from_value(j).unwrap();
         assert_eq!(back, d);
+    }
+
+    #[test]
+    fn broken_annotation_only_drops_itself() {
+        let json = serde_json::json!({
+            "version": 3,
+            "clips": [{"startMs": 0, "endMs": 4000}, {"startMs": 5000, "endMs": 9000}],
+            "zooms": [{"id": "z1", "clip": 0, "startMs": 1000, "endMs": 3000, "depth": 4, "focusX": 0.2, "focusY": 0.3}],
+            "annotations": [
+                {"id": "good", "clip": 0, "startMs": 0, "endMs": 1000, "body": {"kind": "text", "content": "Hi"}},
+                {"id": "bad-kind", "clip": 0, "startMs": 0, "endMs": 1000, "body": {"kind": "sticker"}},
+                {"id": "bad-shape", "clip": "zero", "startMs": 0, "endMs": 1000, "body": {"kind": "arrow"}},
+                {"id": "arrow", "clip": 1, "startMs": 6000, "endMs": 7000, "body": {"kind": "arrow"}}
+            ],
+            "audioTracks": [
+                {"id": "t", "file": "a.mp3", "clip": 0, "durationMs": 1000},
+                {"id": "broken", "kind": "podcast", "file": "b.mp3", "clip": 0, "durationMs": 1000}
+            ]
+        });
+        let d = load(&project_with(json));
+        assert_eq!(d.clips, vec![clip(0, 4_000), clip(5_000, 9_000)]);
+        assert_eq!(d.zooms.len(), 1);
+        assert_eq!(d.annotations.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), vec!["good", "arrow"]);
+        let AnnotationBody::Text(t) = &d.annotations[0].body else { panic!("text") };
+        assert_eq!((t.content.as_str(), t.font_family.as_str(), t.font_size), ("Hi", "Inter", 32.0));
+        assert_eq!((d.annotations[0].x, d.annotations[0].w), (50.0, 30.0));
+        let AnnotationBody::Arrow { color, stroke_width, direction } = &d.annotations[1].body else { panic!("arrow") };
+        assert_eq!((color.as_str(), *stroke_width, *direction), ("#34B27B", 4.0, ArrowDirection::Right));
+        assert_eq!(d.audio_tracks.len(), 1);
+        assert_eq!((d.audio_tracks[0].kind, d.audio_tracks[0].gain_db), (TrackKind::Music, 0.0));
+    }
+
+    #[test]
+    fn z_index_is_capped() {
+        let top = Annotation { z_index: i32::MAX, ..ann(0, 0, 1_000, text("t")) };
+        assert_eq!(Annotation::new("n".into(), 0, 0, 1_000, text("n"), std::slice::from_ref(&top)).z_index, MAX_Z_INDEX);
+        let n = normalize(with_annotations(vec![clip(0, 10_000)], vec![top]), 10_000);
+        assert_eq!(n.annotations[0].z_index, MAX_Z_INDEX);
     }
 }

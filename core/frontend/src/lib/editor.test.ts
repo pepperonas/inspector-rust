@@ -340,12 +340,19 @@ describe("annotations + audio tracks (v3)", () => {
     doc = updateAnnotation(doc, a.id, { zIndex: 7 });
     doc = addAnnotation(doc, "arrow", 1, 6_500);
     const b = doc.annotations[1];
-    expect([b.startMs, b.endMs, b.zIndex]).toEqual([6_500, 7_000, 8]);
+    expect([b.startMs, b.endMs, b.zIndex]).toEqual([6_000, 7_000, 8]); // shifted back to keep its length
     expect(b.body).toEqual({ kind: "arrow", direction: "right", color: "#34B27B", strokeWidth: 4 });
     expect(b.id).not.toBe(a.id);
     doc = addAnnotation(doc, "blur", 0, 0);
     expect(doc.annotations[2].body).toMatchObject({ kind: "blur", style: "mosaic", shape: "rectangle", color: "white", intensity: 12, blockSize: 12 });
     expect(addAnnotation(doc, "image", 9, 0)).toBe(doc);
+  });
+
+  it("addAnnotation at the clip end keeps its length by starting earlier", () => {
+    const doc = addAnnotation(base(), "text", 0, 10_000);
+    expect([doc.annotations[0].startMs, doc.annotations[0].endMs]).toEqual([8_000, 10_000]);
+    const short = addAnnotation(base({ clips: [{ startMs: 0, endMs: 500 }] }), "text", 0, 500);
+    expect([short.annotations[0].startMs, short.annotations[0].endMs]).toEqual([0, 500]);
   });
 
   it("updateAnnotation merges a body patch and keeps the rest", () => {
@@ -355,6 +362,8 @@ describe("annotations + audio tracks (v3)", () => {
     expect(doc.annotations[0].x).toBe(10);
     expect(doc.annotations[0].body).toMatchObject({ kind: "text", content: "Hallo", fontSize: 32 });
     expect(updateAnnotation(doc, "nope", { x: 1 })).toBe(doc);
+    // @ts-expect-error the kind is not patchable
+    expect(updateAnnotation(doc, id, { body: { kind: "arrow" } }).annotations[0].body.kind).toBe("text");
     expect(removeAnnotation(doc, id).annotations).toEqual([]);
   });
 

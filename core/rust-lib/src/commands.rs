@@ -7280,6 +7280,14 @@ pub async fn editor_update(
     editor_blocking(move || crate::record::editor_ipc::update(&app, session_id, doc)).await
 }
 
+/// Whether the open editor's render helper can run the camera background segmentation (it
+/// reported a model in `Ready`). `false` without a session or helper.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_segmentation_available() -> Result<bool, String> {
+    editor_blocking(|| Ok(crate::record::editor_ipc::segmentation_available())).await
+}
+
 /// Appends the auto-zoom planner's zooms to the open document; the editor records the
 /// returned document as one undo step. Without pointer data the view comes back unchanged.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -25,15 +25,18 @@ path = "src/lib.rs"
 bindgen = "0.70"
 cc = "1"
 
-# No `segmentation` feature: the ONNX webcam mask is not used, and its `ort`
-# 2.0.0-rc.13 requirement would bump Inspector Rust's own `ort` (rc.12) through
-# version unification. `segmentation.rs` still compiles; its entry points fail
-# gracefully without the feature.
+# `segmentation` (patch 16): the webcam person mask runs on Inspector Rust's OWN `ort`
+# (2.0.0-rc.12, statically linked through `download-binaries`) instead of upstream's
+# rc.13 `load-dynamic` — two `ort` versions cannot share one workspace (same `links =
+# "onnxruntime"`), and `load-dynamic` would break the app's static `cutout_ml`. On by
+# default so the compositor's own tests exercise it; the dependency exists only on
+# Apple Silicon, so the feature is inert everywhere else.
 [features]
-default = []
+default = ["segmentation"]
+segmentation = ["dep:ort"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("segmentation"))', 'cfg(openscreen_ffmpeg)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(openscreen_ffmpeg)'] }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 anyhow = "1"
@@ -46,3 +49,5 @@ metal = "0.29"
 objc = "0.2"
 block = "0.1"
 core-foundation = "0.9"
+# Patch 16: the workspace's ONNX Runtime, only with the `segmentation` feature.
+ort = { workspace = true, optional = true }

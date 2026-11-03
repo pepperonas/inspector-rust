@@ -38,19 +38,13 @@ const INTRA_OP_THREADS: usize = 2;
 
 /// La bibliothèque ONNX Runtime est-elle chargeable ?
 ///
-/// `ort` est lié en `load-dynamic` et **panique** quand la bibliothèque manque —
-/// `load_dynamic::init(&path).expect("Failed to load ONNX Runtime dylib")`, ort/src/lib.rs. Ce
-/// n'est pas une erreur qu'on peut propager : sans ce garde, un build où le staging de la lib
-/// n'a pas eu lieu ferait tomber le compositeur à la première frame avec un effet, au lieu de
-/// dessiner la webcam telle quelle.
+/// Inspector Rust (patch 16): `ort` is the workspace's own 2.0.0-rc.12, linked STATICALLY
+/// (`download-binaries`, no `load-dynamic`), so the runtime is part of this binary and always
+/// there — no dylib to stage, no `ORT_DYLIB_PATH`. Upstream read that variable here because its
+/// `load-dynamic` build panics when the library is missing; that cannot happen any more.
 #[cfg(feature = "segmentation")]
 pub fn runtime_available() -> bool {
-    // `ORT_DYLIB_PATH` est ce que l'app pose (`ensureOnnxRuntimeOnPath`) ; sans lui, ort ira
-    // chercher un nom nu dans les chemins système, ce qui est le cas « pas installé ».
-    match std::env::var_os("ORT_DYLIB_PATH") {
-        Some(p) if Path::new(&p).is_file() => true,
-        _ => false,
-    }
+    true
 }
 
 #[cfg(not(feature = "segmentation"))]
@@ -165,13 +159,13 @@ mod tests {
     use super::*;
 
     /// Le chemin par défaut du modèle vendorisé, depuis la racine du dépôt.
+    /// Inspector Rust (patch 16) : le modèle vit dans `vendor/selfie-segmentation/`.
     fn vendored_model() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../public/mediapipe/selfie_segmentation/selfie_segmentation_landscape.onnx")
+            .join("../selfie-segmentation/selfie_segmentation_landscape.onnx")
     }
 
     #[test]
-    #[ignore = "Inspector Rust: needs OpenScreen public/ assets that are not vendored (VENDORED.md)"]
     fn the_vendored_model_is_where_the_loader_expects_it() {
         // Ne charge pas le modèle (la feature peut être éteinte) : vérifie seulement que le
         // fichier que `load` ira chercher existe et n'est pas un pointeur LFS ou un tronçon.
@@ -233,6 +227,22 @@ mod tests {
         let mut seg = Segmenter::load(&vendored_model()).expect("chargement du modèle");
         let err = seg.run(&[0u8; 12]).unwrap_err().to_string();
         assert!(err.contains("attendus"), "message peu utile : {err}");
+    }
+
+    /// Inspector Rust (patch 16): the model runs on the workspace's own, statically linked
+    /// `ort` — no dylib, no `ORT_DYLIB_PATH`. Not ignored and never skipped: on Apple Silicon
+    /// the runtime is always there, so a failure here is a real one.
+    #[cfg(feature = "segmentation")]
+    #[test]
+    fn segmenter_runs_on_workspace_ort() {
+        assert!(runtime_available(), "the statically linked runtime is always available");
+        let mut seg = Segmenter::load(&vendored_model()).expect("the vendored model loads");
+        let frame = vec![77u8; (MODEL_WIDTH * MODEL_HEIGHT * 3) as usize];
+        let mask = seg.run(&frame).expect("inference").to_vec();
+        assert_eq!(mask.len(), (MODEL_WIDTH * MODEL_HEIGHT) as usize, "one value per 256x144 pixel");
+        // u8 already bounds the values to 0..=255; a second run of the same frame must give
+        // the same mask (the export relies on it being deterministic).
+        assert_eq!(seg.run(&frame).expect("second inference"), mask.as_slice());
     }
 
     #[test]

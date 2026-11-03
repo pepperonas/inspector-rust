@@ -79,6 +79,8 @@ impl Helper {
         let mut child = Proc::new(HELPER)
             // The app sets it at spawn (`RenderClient::spawn`); text draws in the shipped fonts.
             .env("OPENSCREEN_FONTS_DIR", concat!(env!("CARGO_MANIFEST_DIR"), "/../core/rust-lib/assets/record/fonts"))
+            // A dev helper has no `Contents/Resources/` beside it (`render_client::dev_env`).
+            .env("IR_SEGMENTATION_MODEL", concat!(env!("CARGO_MANIFEST_DIR"), "/../vendor/selfie-segmentation/selfie_segmentation_landscape.onnx"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -214,7 +216,7 @@ fn helper_live_export() {
     let preview_scene = scene(&dir, &[], (1920, 1080));
     let t = Instant::now();
     h.send(&Command::Open { scene: preview_scene.clone(), preview_w: 640, preview_h: 360 });
-    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    assert!(matches!(h.event(Duration::from_secs(30)), Event::Ready { .. }));
     let mut gen = 0;
     for (i, at) in [0.0, 1.5, 3.0].into_iter().enumerate() {
         if i > 0 {
@@ -486,7 +488,7 @@ fn preview_matches_still_with_effects() {
     let (w, hgt, still) = jpeg_rgb(&still_path);
 
     h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
-    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    assert!(matches!(h.event(Duration::from_secs(30)), Event::Ready { .. }));
     h.send(&Command::SetTime { source_sec: 2.0 });
     // Let the render thread settle on the seek (cursor load, wallpaper, zoom), then take the
     // newest frame.
@@ -711,7 +713,7 @@ fn two_sources_preview_crosses_into_second_take() {
     let (_, _, still_b) = still(&mut h, &scene, 90, &out, "still-b.jpg");
 
     h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
-    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    assert!(matches!(h.event(Duration::from_secs(30)), Event::Ready { .. }));
     let opened = settled(&mut h, 0, 1.0);
 
     // Jump from clip 0 (take A) straight into clip 1 (take B) at 1 s: a switch to another file,
@@ -782,7 +784,7 @@ fn annotations_preview_matches_still() {
     let frame = 2 * 30;
     let (w, hgt, still) = still(&mut h, &scene, frame, &out, "still.jpg");
     h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
-    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    assert!(matches!(h.event(Duration::from_secs(30)), Event::Ready { .. }));
     h.send(&Command::SetTime { source_sec: 2.0 });
     let f = settled(&mut h, 0, 3.0);
     assert_eq!((f.w, f.h), (w, hgt), "preview and still share a size");

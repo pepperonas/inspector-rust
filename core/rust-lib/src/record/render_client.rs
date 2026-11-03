@@ -246,10 +246,20 @@ pub fn helper_path() -> Option<(PathBuf, bool)> {
     candidates.into_iter().find(|p| p.is_file()).map(|p| (p, !in_bundle))
 }
 
-/// Environment for a dev helper: the LGPL ffmpeg build of `scripts/build-ffmpeg-macos.sh`.
+/// The helper's segmentation-model variable (`record-render/src/session.rs` `MODEL_ENV`). A
+/// bundled helper does not need it: it reads the model from `Contents/Resources/`.
+pub const SEGMENTATION_MODEL_ENV: &str = "IR_SEGMENTATION_MODEL";
+
+/// Environment for a dev helper: the LGPL ffmpeg build of `scripts/build-ffmpeg-macos.sh`, and
+/// the source tree's segmentation model (a helper in `target/` has no `Resources/` beside it).
 pub fn dev_env() -> Vec<(String, String)> {
-    let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third_party/ffmpeg/8.1.2/lib");
-    vec![("DYLD_FALLBACK_LIBRARY_PATH".into(), lib.to_string_lossy().into_owned())]
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lib = root.join("third_party/ffmpeg/8.1.2/lib");
+    let model = root.join("vendor/selfie-segmentation/selfie_segmentation_landscape.onnx");
+    vec![
+        ("DYLD_FALLBACK_LIBRARY_PATH".into(), lib.to_string_lossy().into_owned()),
+        (SEGMENTATION_MODEL_ENV.into(), model.to_string_lossy().into_owned()),
+    ]
 }
 
 /// Name of the compositor's font directory variable (`V/src/text_fonts.rs` `FONTS_DIR_ENV`).
@@ -389,8 +399,9 @@ impl RenderClient {
         }
     }
 
-    /// `Open` → `Ready`.
-    pub fn open(&self, scene: Value, preview_w: u32, preview_h: u32) -> Result<(), String> {
+    /// `Open` → `Ready`. Answers the segmentation model the helper can run (`None`: no
+    /// background effects — no model or no runtime in this helper).
+    pub fn open(&self, scene: Value, preview_w: u32, preview_h: u32) -> Result<Option<PathBuf>, String> {
         // The render thread is busy until the export ends: an `Open` would wait behind it,
         // time out and kill the helper — and the export with it.
         if self.exporting() {
@@ -401,7 +412,7 @@ impl RenderClient {
         let deadline = Instant::now() + self.timeouts.open;
         loop {
             match self.next(&rx, deadline, "Open")? {
-                Reply::Event(Event::Ready) => return Ok(()),
+                Reply::Event(Event::Ready { segmentation_model }) => return Ok(segmentation_model.map(PathBuf::from)),
                 Reply::Event(Event::Error { msg }) => return Err(msg),
                 other => tracing::debug!(target: "record::render", "ignoring {other:?} while opening"),
             }
@@ -639,7 +650,20 @@ mod tests {
             let env = helper_env(dev, fonts);
             assert!(env.contains(&(FONTS_DIR_ENV.to_string(), "/x/record/fonts".to_string())), "{env:?}");
             assert_eq!(env.iter().any(|(k, _)| k == "DYLD_FALLBACK_LIBRARY_PATH"), dev);
+            // A bundled helper finds the model in `Contents/Resources/` itself; a dev helper in
+            // `target/` is told where the source tree keeps it.
+            let model = env.iter().find(|(k, _)| k == SEGMENTATION_MODEL_ENV).map(|(_, v)| PathBuf::from(v));
+            assert_eq!(model.is_some(), dev, "{env:?}");
+            if let Some(m) = model {
+                assert!(m.is_file(), "the dev model exists: {}", m.display());
+            }
         }
+    }
+    /// The variable the app sets is the one the helper reads (two crates, one name).
+    #[test]
+    fn segmentation_model_env_matches_the_helper() {
+        let helper = include_str!("../../../../record-render/src/session.rs");
+        assert!(helper.contains(&format!("MODEL_ENV: &str = \"{SEGMENTATION_MODEL_ENV}\";")));
     }
     use std::os::unix::fs::PermissionsExt;
 
@@ -841,6 +865,26 @@ sleep 3"#,
         assert!(seen.iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: true, .. })), "{seen:?}");
         assert!(!seen.iter().any(|n| matches!(n, Notice::Dead { .. })), "an orderly close is not a death");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `Ready` names the segmentation model the helper can run; `open` hands it back so the
+    /// session can offer the effects and put the model into its scenes. A bare `ready` = none.
+    #[test]
+    fn open_returns_the_helpers_segmentation_model() {
+        let with = script(
+            "ready-model",
+            r#"printf '\002\062\000\000\000{"event":"ready","segmentation_model":"/R/m.onnx"}'
+sleep 2"#,
+        );
+        let (sink, _) = collecting();
+        let client = RenderClient::spawn_with(with, Vec::new(), sink).unwrap();
+        assert_eq!(client.open(serde_json::json!({}), 64, 36), Ok(Some(PathBuf::from("/R/m.onnx"))));
+        client.abandon("test over".into());
+        let bare = script("ready-bare", &format!("{READY}\nsleep 2"));
+        let (sink, _) = collecting();
+        let client = RenderClient::spawn_with(bare, Vec::new(), sink).unwrap();
+        assert_eq!(client.open(serde_json::json!({}), 64, 36), Ok(None));
+        client.abandon("test over".into());
     }
 
     #[test]

@@ -5602,6 +5602,10 @@ export function editorSeek(programmeMs: number): Promise<EditorSourcePos | null>
 export function editorToSource(programmeMs: number): Promise<EditorSourcePos | null> {
   return invoke("editor_to_source", { programmeMs: ms(programmeMs) });
 }
+/** Whether the editor's render helper can run the camera background cut-out (model + runtime present). */
+export function editorSegmentationAvailable(): Promise<boolean> {
+  return invoke("editor_segmentation_available");
+}
 /** Appends the auto-zoom planner's zooms; the caller records the answer as one undo step. */
 export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
   return invoke("editor_auto_zoom", { sessionId });

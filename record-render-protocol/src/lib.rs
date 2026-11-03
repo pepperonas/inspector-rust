@@ -10,7 +10,7 @@
 //! | [`TAG_PREVIEW`] `0x03` | helper → app | `gen u64 LE`, `w u32 LE`, `h u32 LE`, RGBA8 (`w·h·4`) |
 //! | [`TAG_THUMB`] `0x04` | helper → app | `index u64 LE` + JPEG bytes |
 //!
-//! Replies: `Open` → `Ready`; `Frame` → exactly one `0x03` frame (an EMPTY one — `w = h = 0`,
+//! Replies: `Open` → `Ready` (with the usable segmentation model, if any); `Frame` → exactly one `0x03` frame (an EMPTY one — `w = h = 0`,
 //! `gen = since_gen`, no pixels — when nothing newer exists); `Thumbs` → one `0x04` per
 //! rendered frame, then `ThumbsDone`; `Export` → `ExportProgress`… then `ExportDone` or
 //! `ExportFailed`. The setters (`SetScene`, `SetActiveClip`, `SetPlaying`, `SetTime`, `Resize`)
@@ -116,7 +116,13 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    Ready,
+    /// The answer to `Open`. `segmentation_model` is the camera segmentation model the helper
+    /// can run (its absolute path) — `None` when the model or the runtime is missing; the app
+    /// then offers no background effects and names no model in its scenes.
+    Ready {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        segmentation_model: Option<String>,
+    },
     ThumbsDone,
     Error { msg: String },
     /// `total` is the expected frame count of the programme (an estimate: a clip the file
@@ -305,7 +311,8 @@ mod tests {
     #[test]
     fn event_json_roundtrip() {
         let all = vec![
-            Event::Ready,
+            Event::Ready { segmentation_model: None },
+            Event::Ready { segmentation_model: Some("/m.onnx".into()) },
             Event::ThumbsDone,
             Event::Error { msg: "no".into() },
             Event::ExportProgress { frames: 3, total: 90 },
@@ -322,7 +329,12 @@ mod tests {
             assert_eq!(tag, TAG_EVENT);
             assert_eq!(decode_event(&body).unwrap(), ev);
         }
-        assert_eq!(serde_json::to_value(Event::Ready).unwrap(), json!({"event": "ready"}));
+        assert_eq!(serde_json::to_value(Event::Ready { segmentation_model: None }).unwrap(), json!({"event": "ready"}));
+        // The segmentation model the helper can use rides on `Ready`; an older helper's bare
+        // `ready` still decodes (no model = no cut-out).
+        let m = Event::Ready { segmentation_model: Some("/R/selfie.onnx".into()) };
+        assert_eq!(serde_json::to_value(&m).unwrap(), json!({"event": "ready", "segmentation_model": "/R/selfie.onnx"}));
+        assert_eq!(decode_event(br#"{"event":"ready"}"#).unwrap(), Event::Ready { segmentation_model: None });
         assert_eq!(
             serde_json::to_value(Event::Peaks { id: 1, blocks: 3, duration_ms: 15 }).unwrap(),
             json!({"event": "peaks", "id": 1, "blocks": 3, "duration_ms": 15})

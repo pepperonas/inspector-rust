@@ -241,6 +241,15 @@ fn cursor_sprites(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Map<
     map
 }
 
+/// Puts the segmentation model into the scene's camera effect (`webcamEffect.modelPath`), the
+/// one the render helper reported usable in `Ready`. A scene without an effect is left alone,
+/// and without a model nothing is added: the compositor then draws the camera unchanged.
+pub fn set_model_path(scene: &mut Value, model: Option<&Path>) {
+    if let (Some(effect), Some(model)) = (scene.get_mut("webcamEffect").and_then(Value::as_object_mut), model) {
+        effect.insert("modelPath".into(), Value::String(path_str(model)));
+    }
+}
+
 /// The compositor scene for `doc`, reading the project's `cursor.json`. Paths are absolute.
 pub fn scene_json(project_dir: &Path, project: &Project, doc: &EditDoc, out: (u32, u32), fps: u32, assets: &AssetRoot) -> Value {
     let takes = load_takes(project_dir);
@@ -427,8 +436,9 @@ pub fn scene_json_with(
             scene["layoutRegions"] = Value::Array(regions);
         }
         let bg = &doc.camera.background;
-        // Omitted at `none`, like upstream. `modelPath` (the segmentation model) is added by the
-        // camera cut-out stage; without it the compositor draws the camera unchanged.
+        // Omitted at `none`, like upstream. `modelPath` (the segmentation model) is added by
+        // `set_model_path` from what the helper reported; without it the helper fills in its
+        // own, and without a usable model the compositor draws the camera unchanged.
         if bg.mode != CameraBgMode::None {
             let mut e = json!({"mode": enum_name(&bg.mode), "blurIntensity": bg.blur});
             if bg.mode == CameraBgMode::Custom {
@@ -1583,7 +1593,7 @@ mod tests {
         d.camera.background.mode = editor::CameraBgMode::Blur;
         d.camera.background.blur = 0.8;
         let e = scene(&d, &cam_project())["webcamEffect"].clone();
-        assert_eq!(e, json!({"mode": "blur", "blurIntensity": 0.8}), "no model path until the segmentation ships");
+        assert_eq!(e, json!({"mode": "blur", "blurIntensity": 0.8}), "scene_json itself names no model (`set_model_path` adds it)");
         d.camera.background.mode = editor::CameraBgMode::Custom;
         d.camera.background.custom = Background::Color { color: "#102030".into() };
         let e = scene(&d, &cam_project())["webcamEffect"].clone();
@@ -1593,6 +1603,29 @@ mod tests {
         assert_eq!(scene(&d, &cam_project())["webcamEffect"]["mode"], "transparent");
         // Without any camera there is nothing to cut out.
         assert!(scene(&d, &project()).get("webcamEffect").is_none());
+    }
+
+    /// The model the helper reported in `Ready` rides in every effect; a scene without an
+    /// effect stays byte for byte, and without a model the effect carries none (the helper
+    /// then fills in its own, or the camera draws unchanged).
+    #[test]
+    fn scene_effect_carries_model_path() {
+        let mut d = cam_doc(editor::LayoutPreset::PictureInPicture);
+        let model = Path::new("/A/Contents/Resources/selfie_segmentation_landscape.onnx");
+        let build = |d: &EditDoc, m: Option<&Path>| {
+            let mut v = scene_json_with(Path::new(DIR), &cam_project(), d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+            set_model_path(&mut v, m);
+            v
+        };
+        let plain = scene_json_with(Path::new(DIR), &cam_project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert_eq!(build(&d, Some(model)), plain, "no effect, no model path");
+        d.camera.background.mode = editor::CameraBgMode::Blur;
+        d.camera.background.blur = 0.8;
+        let e = build(&d, Some(model))["webcamEffect"].clone();
+        assert_eq!(e, json!({"mode": "blur", "blurIntensity": 0.8, "modelPath": model.to_str().unwrap()}));
+        assert!(build(&d, None)["webcamEffect"].get("modelPath").is_none());
+        d.camera.background.mode = editor::CameraBgMode::Custom;
+        assert_eq!(build(&d, Some(model))["webcamEffect"]["modelPath"], model.to_str().unwrap());
     }
 
     /// Ruling R3: a camera-less v3 project migrates to the PiP default, keeps its old scene byte

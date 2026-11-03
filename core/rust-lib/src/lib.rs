@@ -1270,6 +1270,8 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_auto_zoom,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_segmentation_available,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_move_clip,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_duplicate_clip,

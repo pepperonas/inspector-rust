@@ -11,6 +11,13 @@ description = "The `ir-record-render` helper: owns the vendored OpenScreen compo
 name = "ir-record-render"
 path = "src/main.rs"
 
+# `segmentation`: the camera background effects (blur, cut-out, custom background) run the
+# person-segmentation model on the workspace's statically linked ONNX Runtime (vendor patch 16).
+# Without it the helper reports no model in `Ready` and draws the camera unchanged.
+[features]
+default = ["segmentation"]
+segmentation = ["openscreen-compositor/segmentation"]
+
 [dependencies]
 record-render-protocol = { path = "../record-render-protocol" }
 serde_json = { workspace = true }

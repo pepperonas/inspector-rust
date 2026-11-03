@@ -21,7 +21,7 @@ use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, PEAKS_TIMEOUT};
 use super::click_cues::click_hits_by_source;
-use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
+use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, set_model_path, take_metas, TakeSources};
 use std::collections::{HashMap, HashSet};
 use super::voiceover::{self, Take, VoiceoverState};
 use super::zoom_plan::plan_auto_zooms;
@@ -722,6 +722,9 @@ struct Session {
     dirty: bool,
     save_pending: bool,
     peaks: PeakStore,
+    /// The segmentation model the helper reported in its last `Ready` (`None`: no camera
+    /// background effects). Goes into every scene's `webcamEffect.modelPath`.
+    segmentation_model: Option<PathBuf>,
 }
 
 /// The session's waveform peaks, keyed by cache name (`peaks::cache_name_for`: path, size,
@@ -802,7 +805,9 @@ impl Session {
     }
 
     fn scene(&self, out: (u32, u32), fps: u32) -> Value {
-        scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
+        let mut scene = scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes);
+        set_model_path(&mut scene, self.segmentation_model.as_deref());
+        scene
     }
 
     fn preview_scene(&self) -> Value {
@@ -1033,7 +1038,8 @@ fn ensure_client(app: &AppHandle, reopen: bool) -> Result<Arc<RenderClient>, Str
             })
         };
         if let Some((scene, (w, h), cmds)) = opened {
-            fresh.open(scene, w, h)?;
+            let model = fresh.open(scene, w, h)?;
+            note_segmentation_model(model);
             for c in &cmds {
                 fresh.send(c)?;
             }
@@ -1192,6 +1198,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             dirty: planned,
             save_pending: false,
             peaks: PeakStore::default(),
+            segmentation_model: None,
         };
         new.sync_play();
         let preview = preview_size(new.output(OutputTarget::P1080));
@@ -1210,6 +1217,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     show_window(app);
     let helper_error = ensure_client(app, false)
         .and_then(|c| c.open(scene, preview.0, preview.1))
+        .map(note_segmentation_model)
         .err();
     if let Some(e) = &helper_error {
         tracing::warn!(target: "record::editor", "preview did not start: {e}");
@@ -1571,6 +1579,20 @@ pub fn to_source(programme_ms: u64) -> Result<Option<SourcePos>, String> {
     let guard = session();
     let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
     Ok(locate(&s.play, programme_ms))
+}
+
+/// Keeps the model the helper just reported (`Open` → `Ready`) in the session. A scene that
+/// named another one is re-sent on the next edit; the helper fills a scene without one itself.
+fn note_segmentation_model(model: Option<PathBuf>) {
+    if let Some(s) = session().as_mut() {
+        s.segmentation_model = model;
+    }
+}
+
+/// `editor_segmentation_available`: whether the open session's helper can run the camera
+/// segmentation (model and runtime present). `false` without a session or before `Ready`.
+pub fn segmentation_available() -> bool {
+    session().as_ref().is_some_and(|s| s.segmentation_model.is_some())
 }
 
 /// `editor_track_edge`: an edge drag of track `id` (at `index`) to programme `programme_ms`,
@@ -2307,9 +2329,28 @@ mod tests {
             dirty: false,
             save_pending: false,
             peaks: PeakStore::default(),
+            segmentation_model: None,
         };
         s.sync_play();
         s
+    }
+
+    /// The model the helper reported reaches every scene the session builds (preview, thumbs,
+    /// export), and only a session whose helper reported one offers the effects.
+    #[test]
+    fn session_scenes_carry_the_reported_model() {
+        let dir = tmp_project("seg-model", "take");
+        let mut s = session_for(&dir, 1);
+        s.project.recording.camera = Some(crate::record::project::CameraMeta {
+            width: 1280, height: 720, fps: 30, offset_ms: 0, device_name: "Cam".into(), ended_early_ms: None,
+        });
+        s.doc.camera.background.mode = editor::CameraBgMode::Blur;
+        s.sync_play();
+        assert!(s.preview_scene()["webcamEffect"].get("modelPath").is_none(), "no model before Ready");
+        s.segmentation_model = Some(PathBuf::from("/R/selfie.onnx"));
+        assert_eq!(s.preview_scene()["webcamEffect"]["modelPath"], "/R/selfie.onnx");
+        assert_eq!(s.scene((1280, 720), 30)["webcamEffect"]["modelPath"], "/R/selfie.onnx");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The session asks for each audio file's peaks once (mic read here, the rest from the

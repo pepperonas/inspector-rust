@@ -56,7 +56,9 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
 - `examples/` (three macOS benches; not needed, and `cargo test` would build them).
 - `public/fonts` (OFL, 2.3 MB) and `public/mediapipe` (Apache-2.0 model, 940 KB): only used by
   three tests, which are ignored instead (see patch 7). The fonts ship since stage 4 under
-  `core/rust-lib/assets/record/fonts` (patch 13); `public/mediapipe` is still not copied.
+  `core/rust-lib/assets/record/fonts` (patch 13). Of `public/mediapipe` only
+  `selfie_segmentation_landscape.onnx` is copied since stage 5, to `vendor/selfie-segmentation/`
+  (patch 16); the two `.tflite` files are not.
 
 ## Patches (each one, with the reason)
 
@@ -96,8 +98,8 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    `segmentation::tests::the_vendored_model_is_where_the_loader_expects_it`,
    `text_fonts::tests::only_the_font_files_of_the_directory_are_registered`,
    `text_macos::tests::every_shipped_family_draws_from_its_own_files`.
-   The two font tests run again since patch 13 (the fonts now ship); only the segmentation
-   one stays ignored.
+   The two font tests run again since patch 13 (the fonts now ship), the segmentation one
+   since patch 16 (the model now ships) — none is ignored any more.
 
 8. **Per-clip extra audio track (stage 2, Task 2 — the recorder's `mic.wav`).** RECON §6 showed
    `audioTracks` are placed, never speed-stretched, so a mic under a speed region would drift;
@@ -244,6 +246,30 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    backends carry the same guard but are not built in Inspector Rust). + test
    `swapped_image_of_equal_path_length_is_reloaded`.
 
+16. **Webcam segmentation on the workspace's `ort` (stage 5, Task 5).** Patch 1 dropped the
+   `segmentation` feature because upstream's `ort 2.0.0-rc.13` (`load-dynamic`, an
+   `ORT_DYLIB_PATH` dylib staged next to the app) cannot coexist with Inspector Rust's own
+   `ort 2.0.0-rc.12` (static, `download-binaries`): one `links = "onnxruntime"` per graph, and
+   `load-dynamic` would also switch the app's `cutout_ml` to a dylib. The feature is back on
+   the workspace's `ort`:
+   - `Cargo.toml`: `ort = { workspace = true, optional = true }` in the Apple-Silicon table,
+     `segmentation = ["dep:ort"]`, `default = ["segmentation"]` (so this crate's own tests run
+     it; `record-render` enables it through its own `segmentation` feature). The
+     `feature = "segmentation"` entry left `unexpected_cfgs`. No `ndarray` (not used).
+   - `src/segmentation.rs`: `runtime_available()` is `true` with the feature — the runtime is
+     statically linked, there is no dylib to look for. Every `ort` call compiled against rc.12
+     unchanged (`Session::builder`, `with_intra/inter_threads`, `commit_from_file`,
+     `TensorRef::from_array_view`, `inputs!`, `try_extract_tensor`).
+   - Test model path `../../public/mediapipe/…` → `../selfie-segmentation/…` in
+     `src/segmentation.rs` and the two macOS tests of `src/compositor_macos.rs`
+     (`compositor_linux.rs` untouched); `the_vendored_model_is_where_the_loader_expects_it` runs
+     again. The model is copied unchanged (457 447 B, sha256 `daa5d389…9e94`, README there).
+   - The model path reaches the compositor as `webcamEffect.modelPath`, filled by the app
+     (from the helper's `Ready`) or by the helper itself — no compositor change.
+   + tests `segmenter_runs_on_workspace_ort` (load + inference on a 256×144 frame, not ignored),
+     `missing_model_draws_camera_plain` (a `modelPath` to a missing file composes byte for byte
+     like no effect, and switches the effect off). The inference tests that upstream skips
+     without `ORT_DYLIB_PATH` now always run.
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -263,6 +289,6 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 
 ## Updating from upstream
 
-Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–15 (`grep -rn
+Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–16 (`grep -rn
 '\.\./\.\./\.\./\|\.\./\.\./public' src` finds 5/6) and diff `build.rs`/`Cargo.toml` by hand.
 Re-check `scripts/fetch-ffmpeg-macos.mjs` upstream for a new ffmpeg pin and hash.

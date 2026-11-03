@@ -294,6 +294,8 @@ fn read_commands(
 struct State {
     out: Out,
     exports: ExportSlot,
+    /// The segmentation model (`segmentation_model`), resolved once at start.
+    model: Option<std::path::PathBuf>,
     export_id: u64,
     live: Option<LiveView>,
     /// The preview's scene (for `SetActiveClip`, which needs the clip's file).
@@ -310,7 +312,7 @@ struct State {
 
 impl State {
     fn new(out: Out, exports: ExportSlot) -> Self {
-        Self { out, exports, export_id: 0, live: None, scene: None, scene_json: None, preview: (0, 0), gpu: None, comps: Vec::new() }
+        Self { out, exports, model: segmentation_model(), export_id: 0, live: None, scene: None, scene_json: None, preview: (0, 0), gpu: None, comps: Vec::new() }
     }
 
     fn event(&self, ev: Event) -> io::Result<()> {
@@ -322,10 +324,18 @@ impl State {
     }
 
     /// Runs one command. `Err` only when the output channel is broken.
-    fn handle(&mut self, incoming: Incoming) -> io::Result<()> {
+    fn handle(&mut self, mut incoming: Incoming) -> io::Result<()> {
+        // Every scene names the model before it reaches the compositor (see `fill_model_path`).
+        if let Command::Open { scene, .. } | Command::SetScene { scene } | Command::Thumbs { scene, .. } | Command::Export { scene, .. } =
+            &mut incoming.cmd
+        {
+            fill_model_path(scene, self.model.as_deref());
+        }
         match incoming.cmd {
             Command::Open { scene, preview_w, preview_h } => match self.open(&scene, preview_w, preview_h) {
-                Ok(()) => self.event(Event::Ready),
+                Ok(()) => self.event(Event::Ready {
+                    segmentation_model: self.model.as_ref().map(|m| m.to_string_lossy().into_owned()),
+                }),
                 Err(e) => self.error(format!("{e:#}")),
             },
             Command::SetScene { scene } => match parse_scene(&scene) {
@@ -699,6 +709,45 @@ pub(crate) fn preview_scene(scene: &Value, (pw, ph): (u32, u32)) -> Value {
     out
 }
 
+/// Environment variable naming the segmentation model (tests, dev runs outside a bundle).
+pub(crate) const MODEL_ENV: &str = "IR_SEGMENTATION_MODEL";
+/// The model's file name in the bundle's `Contents/Resources/`.
+pub(crate) const MODEL_FILE: &str = "selfie_segmentation_landscape.onnx";
+
+/// Where the segmentation model is: `IR_SEGMENTATION_MODEL` when set (a set variable that names
+/// no file means "no model", never the bundle's), else `Contents/Resources/` next to the
+/// helper's `Contents/MacOS/`. Only a regular file counts.
+fn resolve_model(env: Option<std::ffi::OsString>, exe: Option<&Path>) -> Option<std::path::PathBuf> {
+    let path = match env.filter(|v| !v.is_empty()) {
+        Some(v) => std::path::PathBuf::from(v),
+        None => exe?.parent()?.join("../Resources").join(MODEL_FILE),
+    };
+    path.is_file().then_some(path)
+}
+
+/// The model this helper can run, if any: the runtime is linked in (`segmentation` feature)
+/// and the file is there. Loading it stays lazy (the compositor loads it on the first frame
+/// with an effect).
+fn segmentation_model() -> Option<std::path::PathBuf> {
+    if !openscreen_compositor::segmentation::runtime_available() {
+        return None;
+    }
+    let exe = std::env::current_exe().ok();
+    resolve_model(std::env::var_os(MODEL_ENV), exe.as_deref())
+}
+
+/// Puts this helper's model into a scene effect that names none (the first `Open` precedes
+/// `Ready`, so the app cannot know it yet). A path the app sent is kept.
+fn fill_model_path(scene: &mut Value, model: Option<&Path>) {
+    let (Some(effect), Some(model)) = (scene.get_mut("webcamEffect").and_then(Value::as_object_mut), model) else {
+        return;
+    };
+    let named = effect.get("modelPath").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
+    if !named {
+        effect.insert("modelPath".into(), Value::String(model.to_string_lossy().into_owned()));
+    }
+}
+
 fn parse_scene(scene: &Value) -> Result<Scene> {
     Scene::from_json(&scene.to_string()).context("invalid scene")
 }
@@ -826,6 +875,54 @@ fn expected_frames(scene: &Scene, fps: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_model_is_found_from_the_env_or_next_to_the_helper() {
+        use super::{resolve_model, MODEL_FILE};
+        let d = std::env::temp_dir().join(format!("ir-render-model-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("App.app/Contents/MacOS")).unwrap();
+        std::fs::create_dir_all(d.join("App.app/Contents/Resources")).unwrap();
+        let exe = d.join("App.app/Contents/MacOS/ir-record-render");
+        let bundled = d.join("App.app/Contents/Resources").join(MODEL_FILE);
+        let other = d.join("other.onnx");
+        std::fs::write(&other, b"x").unwrap();
+        // Nothing in the bundle, no variable: no model.
+        assert_eq!(resolve_model(None, Some(&exe)), None);
+        std::fs::write(&bundled, b"x").unwrap();
+        assert_eq!(resolve_model(None, Some(&exe)), Some(d.join("App.app/Contents/MacOS/../Resources").join(MODEL_FILE)));
+        // The variable wins, and an empty one counts as unset.
+        assert_eq!(resolve_model(Some(other.clone().into()), Some(&exe)), Some(other.clone()));
+        assert!(resolve_model(Some("".into()), Some(&exe)).is_some(), "an empty variable is unset");
+        // A variable naming a missing file is not silently replaced by the bundle's model.
+        assert_eq!(resolve_model(Some(d.join("nope.onnx").into()), Some(&exe)), None);
+        // A directory is not a model.
+        assert_eq!(resolve_model(Some(d.clone().into()), None), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_scene_effect_without_a_model_gets_the_helpers() {
+        use super::fill_model_path;
+        use serde_json::json;
+        let m = std::path::Path::new("/R/selfie.onnx");
+        let mut plain = json!({"clips": []});
+        fill_model_path(&mut plain, Some(m));
+        assert_eq!(plain, json!({"clips": []}), "no effect, nothing added");
+        for missing in [json!({"mode": "blur"}), json!({"mode": "blur", "modelPath": null}), json!({"mode": "blur", "modelPath": ""})] {
+            let mut s = json!({"webcamEffect": missing});
+            fill_model_path(&mut s, Some(m));
+            assert_eq!(s["webcamEffect"]["modelPath"], "/R/selfie.onnx");
+        }
+        // The app's own path is kept.
+        let mut s = json!({"webcamEffect": {"mode": "blur", "modelPath": "/app.onnx"}});
+        fill_model_path(&mut s, Some(m));
+        assert_eq!(s["webcamEffect"]["modelPath"], "/app.onnx");
+        // Without a model nothing is invented.
+        let mut s = json!({"webcamEffect": {"mode": "blur"}});
+        fill_model_path(&mut s, None);
+        assert!(s["webcamEffect"].get("modelPath").is_none());
+    }
 
     #[test]
     fn a_peaks_cache_is_reused_only_as_a_plain_file_of_the_right_size() {

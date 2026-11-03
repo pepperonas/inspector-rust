@@ -4162,6 +4162,26 @@ mod tests {
         );
     }
 
+    /// Inspector Rust (patch 16): a scene whose effect names a model that is not there draws
+    /// the camera exactly as without an effect, with no error — the lazy start fails once,
+    /// logs, and switches the effect off. Byte for byte, like the no-mask test above.
+    #[test]
+    fn missing_model_draws_camera_plain() {
+        let Ok(gpu) = crate::d3d::Gpu::create(false) else {
+            eprintln!("pas de device Metal — test sauté");
+            return;
+        };
+        let comp = super::Compositor::new_sized(&gpu, 320, 180).expect("Compositor::new_sized");
+        let plain = compose_pip(&comp, NO_EFFECT, true);
+        let missing = r#"{"mode":"blur","blurIntensity":0.5,"background":null,"modelPath":"/nonexistent/selfie.onnx"}"#;
+        // Twice: the first frame tries the model, the second must not retry or fail either.
+        for round in 0..2 {
+            assert_eq!(compose_pip(&comp, missing, true), plain, "round {round}: the camera changed");
+        }
+        assert!(*comp.seg_failed.borrow(), "the missing model switched the effect off");
+        assert!(comp.webcam_mask.borrow().is_none(), "no mask without a model");
+    }
+
     /// Le tour complet, celui qui a besoin d'ONNX Runtime : capture → inférence → masque →
     /// composite, entraîné par `compose_frame` seul. Se saute proprement sans la
     /// bibliothèque, ce que fait la CI — cf. `segmentation::runtime_available`.
@@ -4172,7 +4192,7 @@ mod tests {
             return;
         }
         let model = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../public/mediapipe/selfie_segmentation/selfie_segmentation_landscape.onnx");
+            .join("../selfie-segmentation/selfie_segmentation_landscape.onnx");
         if !model.is_file() {
             eprintln!("modèle absent ({}) — test sauté", model.display());
             return;
@@ -4295,7 +4315,7 @@ mod tests {
             return;
         }
         let model = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../public/mediapipe/selfie_segmentation/selfie_segmentation_landscape.onnx");
+            .join("../selfie-segmentation/selfie_segmentation_landscape.onnx");
         let Ok(gpu) = crate::d3d::Gpu::create(false) else {
             eprintln!("pas de device Metal — sauté");
             return;

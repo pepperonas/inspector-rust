@@ -14,6 +14,9 @@
 #   Contents/Resources/THIRD-PARTY/ffmpeg/          LGPL text, FFmpeg LICENSE.md, SOURCE.txt
 #   Contents/Resources/THIRD-PARTY/openscreen/      OpenScreen LICENSE (MIT), notices (Recordly MIT)
 #   Contents/Resources/THIRD-PARTY/fonts/           SIL OFL 1.1 texts of the annotation fonts
+#   Contents/Resources/selfie_segmentation_landscape.onnx   camera person-segmentation model
+#                                                   (the helper reads it from ../Resources/)
+#   Contents/Resources/THIRD-PARTY/selfie-segmentation/     its Apache-2.0 LICENSE + README
 #   Contents/Resources/record/                      cursor themes, click sounds, wallpapers + thumbs,
 #                                                   annotation fonts (record/fonts, OPENSCREEN_FONTS_DIR)
 #
@@ -24,7 +27,8 @@
 # Hard checks (any failure aborts, so a broken bundle never gets signed):
 #   - no `otool -L` / LC_RPATH entry of the helper or any bundled dylib points
 #     into the repo, third_party/, /opt/homebrew or /usr/local;
-#   - every ffmpeg library the helper (transitively) needs is in Frameworks/.
+#   - every ffmpeg library the helper (transitively) needs is in Frameworks/;
+#   - the segmentation model has exactly the vendored size and sha256.
 #
 # Each dylib and the helper get an ad-hoc signature here (install_name_tool
 # invalidates the linker signature, and arm64 refuses to load unsigned code);
@@ -168,6 +172,19 @@ n_ttf=$(find "${FONTS}" -maxdepth 1 -name '*.ttf' | wc -l | tr -d ' ')
 [[ "${n_ttf}" == "10" ]] || die "expected 10 annotation fonts in ${FONTS}, found ${n_ttf}"
 mkdir -p "${TP}/fonts"
 cp "${FONTS}"/*-OFL.txt "${TP}/fonts/"
+
+# Camera segmentation model (MediaPipe Selfie Segmentation, Apache-2.0; vendor patch 16). Only
+# the exact vendored file: a different size or hash aborts rather than ship an unknown model.
+SEG="${REPO_ROOT}/vendor/selfie-segmentation"
+SEG_MODEL="${SEG}/selfie_segmentation_landscape.onnx"
+SEG_SIZE=457447
+SEG_SHA256="daa5d38991b6a013367a9be88cb03229bb01abeee5129707a70a3987511c9e94"
+[[ -f "${SEG_MODEL}" ]] || die "missing segmentation model ${SEG_MODEL}"
+[[ "$(stat -f %z "${SEG_MODEL}")" == "${SEG_SIZE}" ]] || die "segmentation model has the wrong size"
+[[ "$(shasum -a 256 "${SEG_MODEL}" | awk '{print $1}')" == "${SEG_SHA256}" ]] || die "segmentation model has the wrong sha256"
+cp "${SEG_MODEL}" "${APP}/Contents/Resources/selfie_segmentation_landscape.onnx"
+mkdir -p "${TP}/selfie-segmentation"
+cp "${SEG}/LICENSE" "${SEG}/README.md" "${TP}/selfie-segmentation/"
 
 # Editor assets (cursor sprites + hotspots, click sounds, wallpapers with their picker
 # thumbnails, annotation fonts). Read at runtime by record::assets::AssetRoot::resolve.

@@ -23,6 +23,7 @@ use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, 
 use super::click_cues::click_hits_by_source;
 use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
 use std::collections::{HashMap, HashSet};
+use super::voiceover::{self, Take, VoiceoverState};
 use super::zoom_plan::plan_auto_zooms;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
@@ -991,6 +992,8 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         .map(|db| super::RecordConfig::load(&db).auto_zoom)
         .unwrap_or(true);
     let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom, &take_metas(&takes));
+    // A take of the previous project ends unsaved: its session is replaced.
+    voiceover::abort();
     // A different project open before: its edits are saved first.
     flush_save();
     let (scene, preview, init) = {
@@ -1462,6 +1465,8 @@ pub fn close(app: &AppHandle, close_window: bool, expected: Option<u64>) {
     if !should_close(session().as_ref().map(|s| s.id), expected) {
         return;
     }
+    // A take of the closing session has nowhere to go.
+    voiceover::abort();
     flush_save();
     {
         let mut guard = session();
@@ -1522,6 +1527,75 @@ pub fn import_asset(session_id: u64, src: &Path, kind: AssetKind) -> Result<Stri
         guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?.dir.clone()
     };
     import_asset_into(&dir, src, kind)
+}
+
+// ── voiceover ──────────────────────────────────────────────────────────────
+
+/// Starts a voiceover take at `programme_ms` of session `session_id`: the microphone records
+/// into `<project>/assets/voiceover-<ts>.wav` while the preview plays from there (the playback
+/// is started here, so the take's clock and the picture start together). The take ends by
+/// itself at the programme's end ([`voiceover::EV_LEVEL`] reports `ended`); the UI then calls
+/// [`voiceover_stop`].
+pub fn voiceover_start(app: &AppHandle, session_id: u64, programme_ms: u64) -> Result<VoiceoverState, String> {
+    if voiceover::ACTIVE.lock().is_some() {
+        return Err(voiceover::ERR_BUSY.into());
+    }
+    let (dir, plan) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        (s.dir.clone(), voiceover::plan(&s.play, programme_ms)?)
+    };
+    voiceover::check_access(voiceover::mic_access())?;
+    let wall_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let take = Take::create(session_id, &dir, plan, wall_ms)?;
+    // The input warms up while the preview seeks; chunks before `arm` are dropped.
+    take.open_mic(Some(app.clone()));
+    let state = voiceover::install(&mut voiceover::ACTIVE.lock(), take)?;
+    let started = seek(app, programme_ms).and_then(|_| {
+        if let Some(t) = voiceover::ACTIVE.lock().as_ref() {
+            t.arm();
+        }
+        play(app, true)
+    });
+    if let Err(e) = started {
+        voiceover::abort();
+        return Err(e);
+    }
+    Ok(state)
+}
+
+/// Ends the running take and lays it under the programme where it was recorded: a voiceover
+/// track (0 dB, no fades, the recorded length) anchored at the clip/source time of the take's
+/// start. The UI records the answer as one undo step.
+pub fn voiceover_stop(app: &AppHandle, session_id: u64) -> Result<EditorView, String> {
+    let take = voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id)?;
+    let plan = take.plan;
+    let finished = take.finish();
+    let _ = play(app, false);
+    let (file, span) = finished?;
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        doc_with_voiceover(&s.doc, &s.play, &plan, &file, span)
+    };
+    update(app, session_id, next)
+}
+
+/// Ends the running take without a track: the file is removed.
+pub fn voiceover_cancel(app: &AppHandle, session_id: u64) -> Result<(), String> {
+    let take = voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id)?;
+    take.discard();
+    let _ = play(app, false);
+    Ok(())
+}
+
+/// `doc` with the finished take added as a voiceover track (see [`voiceover::anchor`]).
+fn doc_with_voiceover(doc: &EditDoc, play: &EditDoc, plan: &voiceover::Plan, file: &str, span_ms: u64) -> EditDoc {
+    let mut next = doc.clone();
+    if let Some((clip, source_ms)) = voiceover::anchor(doc, play, plan) {
+        next.audio_tracks.push(voiceover::voiceover_track(random_id(), file, clip, source_ms, span_ms));
+    }
+    next
 }
 
 /// App exit (`RunEvent::Exit`): save and stop the helper.
@@ -2280,5 +2354,28 @@ mod tests {
         client.shutdown();
         eprintln!("shutdown in {:?}", started.elapsed());
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    /// A finished take becomes a voiceover track at the clip/source time of the playhead it
+    /// started from, and plays there on the programme clock.
+    #[test]
+    fn a_voiceover_lands_where_it_was_recorded() {
+        let dir = tmp_project("voiceover", "v");
+        let mut slot = Some(session_for(&dir, 6));
+        let mut d = doc(&[(0, 4_000), (5_000, 9_000)]);
+        d.speed = vec![editor::SpeedRegion { clip: 1, start_ms: 5_000, end_ms: 7_000, speed: 2.0 }];
+        apply_update(&mut slot, 6, d, 0).unwrap();
+        let s = slot.as_ref().unwrap();
+        let plan = voiceover::plan(&s.play, 4_500).unwrap();
+        assert_eq!((plan.clip, plan.source_ms, plan.max_ms), (1, 6_000, 2_500));
+        let take = Take::create(6, &dir, plan, 42).unwrap();
+        let (file, span) = take.finish_at(1_200).unwrap();
+        let next = doc_with_voiceover(&s.doc, &s.play, &plan, &file, span);
+        let (view, _, _) = apply_update(&mut slot, 6, next, 0).unwrap();
+        let t = &view.doc.audio_tracks[0];
+        assert_eq!((t.kind, t.file.as_str(), t.clip, t.start_ms, t.span_ms), (editor::TrackKind::Voiceover, "voiceover-42.wav", 1, 6_000, Some(1_200)));
+        let span = view.tracks.iter().find(|e| e.index == 0).expect("the track plays");
+        assert_eq!(span.prog_start_ms.round() as u64, 4_500, "it starts at the take's playhead");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

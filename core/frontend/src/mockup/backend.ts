@@ -571,6 +571,8 @@ const mockLanguage = () => ({
 
 // ── record editor (stage 2) — invented 24-s take, spans computed here only for the mockup ──
 type EdDoc = { clips: { startMs: number; endMs: number }[]; speed: { clip: number; startMs: number; endMs: number; speed: number }[] } & Record<string, unknown>;
+/** The running mockup voiceover take (`editor_voiceover_start`). */
+let edVoiceover: { programmeMs: number; file: string } | null = null;
 /** Inserted takes of the mockup project (filled by `editor_import_take`). */
 const edTakes: Record<string, unknown> = {};
 let edDoc: EdDoc = {
@@ -1037,6 +1039,25 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
       edTakes.a1b2c3d4e5f60718 = { durationMs: 8_000, width: 1920, height: 1080, systemAudio: true, hasMic: false, micOffsetMs: 0, hasCursor: false };
       return edView(edDoc);
+    case "editor_voiceover_start": {
+      const { programmeMs } = args as { programmeMs: number };
+      edVoiceover = { programmeMs, file: "voiceover-1793000000000.wav" };
+      return { sessionId: 1, file: edVoiceover.file, programmeMs, maxMs: 8_000, clip: 0, sourceMs: programmeMs };
+    }
+    case "editor_voiceover_stop": {
+      const take = edVoiceover;
+      edVoiceover = null;
+      if (!take) return edView(edDoc);
+      const track = {
+        id: "c0ffee00-0000-4000-8000-000000000001", kind: "voiceover", file: take.file, clip: 0, startMs: take.programmeMs,
+        durationMs: 3_200, offsetMs: 0, spanMs: 3_200, gainDb: 0, looped: false, fadeInMs: 0, fadeOutMs: 0, muted: false, label: "",
+      };
+      edDoc = { ...edDoc, audioTracks: [...((edDoc.audioTracks ?? []) as unknown[]), track] } as EdDoc;
+      return edView(edDoc);
+    }
+    case "editor_voiceover_cancel":
+      edVoiceover = null;
+      return null;
     case "record_list_projects":
       return [
         { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false },

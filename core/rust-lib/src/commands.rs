@@ -7272,6 +7272,32 @@ pub async fn editor_import_take(
     .await
 }
 
+/// Records a voiceover from the playhead: the microphone into `<project>/assets/` while the
+/// preview plays from `programme_ms` (started here). Level events: `record-voiceover-level`.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_voiceover_start(
+    app: AppHandle,
+    session_id: u64,
+    programme_ms: u64,
+) -> Result<crate::record::voiceover::VoiceoverState, String> {
+    editor_blocking(move || crate::record::editor_ipc::voiceover_start(&app, session_id, programme_ms)).await
+}
+
+/// Ends the take and adds it as a voiceover track; the UI records the answer as one undo step.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_voiceover_stop(app: AppHandle, session_id: u64) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::voiceover_stop(&app, session_id)).await
+}
+
+/// Ends the take without a track and removes its file.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_voiceover_cancel(app: AppHandle, session_id: u64) -> Result<(), String> {
+    editor_blocking(move || crate::record::editor_ipc::voiceover_cancel(&app, session_id)).await
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_seek(app: AppHandle, programme_ms: u64) -> Result<Option<crate::record::editor_ipc::SourcePos>, String> {

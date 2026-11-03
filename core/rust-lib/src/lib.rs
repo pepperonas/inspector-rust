@@ -1258,6 +1258,12 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_import_take,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_voiceover_start,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_voiceover_stop,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_voiceover_cancel,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_assets,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_import_asset,

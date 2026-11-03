@@ -5503,6 +5503,32 @@ export function editorDuplicateClip(sessionId: number, index: number): Promise<R
 export function editorImportTake(sessionId: number, projectDir: string): Promise<RecordEditorView> {
   return invoke("editor_import_take", { sessionId, projectDir });
 }
+/** A running voiceover take (see `editorVoiceoverStart`). */
+export interface EditorVoiceoverState {
+  sessionId: number;
+  /** File name under `<project>/assets/`. */
+  file: string;
+  programmeMs: number;
+  /** The take ends by itself after this long (the programme's end). */
+  maxMs: number;
+  clip: number;
+  sourceMs: number;
+}
+/** `record-voiceover-level`, about 10× a second while a take runs; `ended` once at the programme's end. */
+export interface EditorVoiceoverLevel { rms: number; elapsedMs: number; ended: boolean }
+export const EV_VOICEOVER_LEVEL = "record-voiceover-level";
+/** Records a voiceover from `programmeMs` (native microphone); Rust also starts the preview there. */
+export function editorVoiceoverStart(sessionId: number, programmeMs: number): Promise<EditorVoiceoverState> {
+  return invoke("editor_voiceover_start", { sessionId, programmeMs: ms(programmeMs) });
+}
+/** Ends the take and adds it as a voiceover track; record the answer as one undo step. */
+export function editorVoiceoverStop(sessionId: number): Promise<RecordEditorView> {
+  return invoke("editor_voiceover_stop", { sessionId });
+}
+/** Ends the take without a track (its file is removed). */
+export function editorVoiceoverCancel(sessionId: number): Promise<void> {
+  return invoke("editor_voiceover_cancel", { sessionId });
+}
 /** Source → programme on the open document; does not move the playhead. */
 export function editorToProgramme(clip: number, sourceMs: number): Promise<number> {
   return invoke("editor_to_programme", { clip, sourceMs: ms(sourceMs) });

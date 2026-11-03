@@ -410,6 +410,22 @@ pub struct Transport {
     /// Document clip index → the scene's clip index (clips of a missing take are not in the
     /// scene). Empty = the same index.
     scene_index: Vec<Option<usize>>,
+    /// Counts continuous playbacks: play, pause, seek and stopping at the end each start a new
+    /// run (an edit or a re-aim does not — the clock stays continuous).
+    run: u64,
+    /// A voiceover take follows one run: its id, and the position where that run ended.
+    watch: Option<(u64, Option<u64>)>,
+}
+
+/// Where a watched run (a voiceover take) stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunState {
+    /// No take is watched.
+    Unwatched,
+    /// Still playing; the programme position now.
+    Running(u64),
+    /// Paused, seeked, restarted or at the end; the position where it stopped.
+    Ended(u64),
 }
 
 impl Transport {
@@ -421,6 +437,39 @@ impl Transport {
             clip: Some(0),
             programme_ms: editor::programme_duration_ms(doc),
             scene_index: Vec::new(),
+            run: 0,
+            watch: None,
+        }
+    }
+
+    /// The current run ends here (before the transport changes): a watched run records the
+    /// position it stopped at.
+    fn break_run(&mut self, now_ms: u64) {
+        let pos = self.position(now_ms);
+        if let Some((run, end @ None)) = &mut self.watch {
+            if *run == self.run {
+                *end = Some(pos);
+            }
+        }
+        self.run += 1;
+    }
+
+    /// Follows the current run (a voiceover take started with it).
+    pub fn watch(&mut self) {
+        self.watch = Some((self.run, None));
+    }
+
+    pub fn unwatch(&mut self) {
+        self.watch = None;
+    }
+
+    pub fn watched(&self, now_ms: u64) -> RunState {
+        match self.watch {
+            None => RunState::Unwatched,
+            Some((_, Some(end))) => RunState::Ended(end),
+            Some((run, None)) if run == self.run && self.playing => RunState::Running(self.position(now_ms)),
+            // A run that ended without passing through `break_run` cannot exist; be safe.
+            Some((_, None)) => RunState::Ended(self.position(now_ms)),
         }
     }
 
@@ -466,6 +515,7 @@ impl Transport {
         if self.programme_ms == 0 {
             return Vec::new();
         }
+        self.break_run(now_ms);
         let mut pos = self.position(now_ms);
         if pos >= self.programme_ms {
             pos = 0; // play from the end starts over
@@ -479,12 +529,14 @@ impl Transport {
     }
 
     pub fn pause(&mut self, now_ms: u64) -> Vec<Command> {
+        self.break_run(now_ms);
         self.base_ms = self.position(now_ms);
         self.playing = false;
         vec![Command::SetPlaying { playing: false }]
     }
 
     pub fn seek(&mut self, doc: &EditDoc, now_ms: u64, prog_ms: u64) -> (Vec<Command>, Option<SourcePos>) {
+        self.break_run(now_ms);
         self.base_ms = prog_ms.min(self.programme_ms);
         self.started_ms = now_ms;
         let pos = self.base_ms;
@@ -498,6 +550,7 @@ impl Transport {
         }
         let pos = self.position(now_ms);
         if pos >= self.programme_ms {
+            self.break_run(now_ms);
             self.base_ms = self.programme_ms;
             self.playing = false;
             return vec![Command::SetPlaying { playing: false }];
@@ -992,8 +1045,15 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         .map(|db| super::RecordConfig::load(&db).auto_zoom)
         .unwrap_or(true);
     let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom, &take_metas(&takes));
-    // A take of the previous project ends unsaved: its session is replaced.
+    // A running take of the previous project ends unsaved: its session is replaced.
     voiceover::abort();
+    *VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    // Takes an interrupted run left behind (crash, kill): no track uses them.
+    let used: HashSet<String> = doc.audio_tracks.iter().map(|t| t.file.clone()).collect();
+    let swept = voiceover::sweep_orphans(&dir.join(super::scene_json::PROJECT_ASSETS_DIR), &used, std::time::SystemTime::now(), voiceover::ORPHAN_AGE);
+    if swept > 0 {
+        tracing::info!(target: "record::voiceover", "removed {swept} voiceover file(s) no track uses");
+    }
     // A different project open before: its edits are saved first.
     flush_save();
     let (scene, preview, init) = {
@@ -1465,8 +1525,10 @@ pub fn close(app: &AppHandle, close_window: bool, expected: Option<u64>) {
     if !should_close(session().as_ref().map(|s| s.id), expected) {
         return;
     }
-    // A take of the closing session has nowhere to go.
+    // A running take of the closing session has nowhere to go (an ended one was already laid
+    // under the programme by itself).
     voiceover::abort();
+    *VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner()) = None;
     flush_save();
     {
         let mut guard = session();
@@ -1531,15 +1593,34 @@ pub fn import_asset(session_id: u64, src: &Path, kind: AssetKind) -> Result<Stri
 
 // ── voiceover ──────────────────────────────────────────────────────────────
 
+/// Serialises finishing a take: [`voiceover_stop`] and the level thread's auto-finish never
+/// race over one take, and a stop that comes second finds the auto-finished result.
+static VOICEOVER_FINISH: Mutex<()> = Mutex::new(());
+/// A take that ended by itself and was laid under the programme (or failed to be): handed
+/// out once by [`voiceover_stop`] for its session.
+static VOICEOVER_DONE: Mutex<Option<(u64, Result<EditorView, String>)>> = Mutex::new(None);
+
+/// Where session `session_id`'s watched run stands, in ms into a take started at `start_ms`.
+fn take_progress(session_id: u64, start_ms: u64) -> voiceover::Progress {
+    let guard = session();
+    let Some(s) = guard.as_ref().filter(|s| s.id == session_id) else { return voiceover::Progress::Gone };
+    match s.transport.watched(now_ms()) {
+        RunState::Unwatched => voiceover::Progress::Waiting,
+        RunState::Running(pos) => voiceover::Progress::Running(pos.saturating_sub(start_ms)),
+        RunState::Ended(pos) => voiceover::Progress::Ended(pos.saturating_sub(start_ms)),
+    }
+}
+
 /// Starts a voiceover take at `programme_ms` of session `session_id`: the microphone records
-/// into `<project>/assets/voiceover-<ts>.wav` while the preview plays from there (the playback
-/// is started here, so the take's clock and the picture start together). The take ends by
-/// itself at the programme's end ([`voiceover::EV_LEVEL`] reports `ended`); the UI then calls
-/// [`voiceover_stop`].
+/// into `<project>/assets/voiceover-<ts>.wav` while the preview plays from there (started here,
+/// together with the take's clock). The take follows that one run of the transport: a pause,
+/// seek, stall or the programme's end ends it, and it is laid under the programme by itself
+/// ([`voiceover::EV_FINISHED`]); the UI may also end it with [`voiceover_stop`].
 pub fn voiceover_start(app: &AppHandle, session_id: u64, programme_ms: u64) -> Result<VoiceoverState, String> {
     if voiceover::ACTIVE.lock().is_some() {
         return Err(voiceover::ERR_BUSY.into());
     }
+    *VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner()) = None;
     let (dir, plan) = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
@@ -1548,45 +1629,141 @@ pub fn voiceover_start(app: &AppHandle, session_id: u64, programme_ms: u64) -> R
     voiceover::check_access(voiceover::mic_access())?;
     let wall_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
     let take = Take::create(session_id, &dir, plan, wall_ms)?;
-    // The input warms up while the preview seeks; chunks before `arm` are dropped.
-    take.open_mic(Some(app.clone()));
-    let state = voiceover::install(&mut voiceover::ACTIVE.lock(), take)?;
-    let started = seek(app, programme_ms).and_then(|_| {
-        if let Some(t) = voiceover::ACTIVE.lock().as_ref() {
-            t.arm();
+    let handle = app.clone();
+    let opened = take.open_mic(app.clone(), move || take_progress(session_id, programme_ms), move || {
+        let _guard = VOICEOVER_FINISH.lock().unwrap_or_else(|p| p.into_inner());
+        let Ok(take) = voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id) else { return };
+        let result = finish_take(&handle, session_id, take);
+        if let Err(e) = &result {
+            tracing::warn!(target: "record::voiceover", "take ended without a track: {e}");
         }
-        play(app, true)
+        *VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner()) = Some((session_id, result));
+        let _ = handle.emit(voiceover::EV_FINISHED, serde_json::json!({ "sessionId": session_id }));
     });
+    if let Err(e) = opened {
+        take.discard();
+        return Err(e);
+    }
+    // No chunk at all: no input, or a refused permission. Never a silent take.
+    if !take.wait_for_input(voiceover::INPUT_TIMEOUT) {
+        take.discard();
+        return Err(voiceover::silent_input_error(voiceover::mic_access()).into());
+    }
+    let arm = take.arm_handle();
+    let state = voiceover::install(&mut voiceover::ACTIVE.lock(), take)?;
+    let cmds = {
+        let mut guard = session();
+        match guard.as_mut().filter(|s| s.id == session_id) {
+            None => None,
+            Some(s) => {
+                let now = now_ms();
+                s.last_frame_ms = now;
+                let (mut cmds, _) = s.transport.seek(&s.play, now, programme_ms);
+                arm.arm();
+                cmds.extend(s.transport.play(&s.play, now));
+                s.transport.watch();
+                Some(cmds)
+            }
+        }
+    };
+    let started = match cmds {
+        None => Err(ERR_NO_SESSION.to_string()),
+        Some(cmds) => ensure_client(app, true).and_then(|c| send_all(&c, &cmds)),
+    };
     if let Err(e) = started {
         voiceover::abort();
+        if let Some(s) = session().as_mut() {
+            s.transport.unwatch();
+        }
         return Err(e);
     }
     Ok(state)
 }
 
-/// Ends the running take and lays it under the programme where it was recorded: a voiceover
-/// track (0 dB, no fades, the recorded length) anchored at the clip/source time of the take's
-/// start. The UI records the answer as one undo step.
+/// Ends the take: at the transport's position now (or where its run already stopped), pauses
+/// the preview and lays the take under the programme where it was recorded — a voiceover track
+/// (0 dB, no fades, the recorded length) anchored at the picture of the take's start. The UI
+/// records the answer as one undo step. A take that already ended by itself is handed out here.
 pub fn voiceover_stop(app: &AppHandle, session_id: u64) -> Result<EditorView, String> {
-    let take = voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id)?;
-    let plan = take.plan;
-    let finished = take.finish();
-    let _ = play(app, false);
-    let (file, span) = finished?;
-    let next = {
-        let guard = session();
-        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
-        doc_with_voiceover(&s.doc, &s.play, &plan, &file, span)
-    };
-    update(app, session_id, next)
+    let _guard = VOICEOVER_FINISH.lock().unwrap_or_else(|p| p.into_inner());
+    match voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id) {
+        Ok(take) => finish_take(app, session_id, take),
+        Err(e) => {
+            let mut done = VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner());
+            match done.take() {
+                Some((id, result)) if id == session_id => result,
+                other => {
+                    *done = other;
+                    Err(e)
+                }
+            }
+        }
+    }
 }
 
-/// Ends the running take without a track: the file is removed.
-pub fn voiceover_cancel(app: &AppHandle, session_id: u64) -> Result<(), String> {
+/// Ends the running take without a track: the file is removed and the preview paused.
+pub fn voiceover_cancel(_app: &AppHandle, session_id: u64) -> Result<(), String> {
+    let _guard = VOICEOVER_FINISH.lock().unwrap_or_else(|p| p.into_inner());
     let take = voiceover::take_for(&mut voiceover::ACTIVE.lock(), session_id)?;
     take.discard();
-    let _ = play(app, false);
+    let cmds = end_run(session_id).1;
+    if let Some(c) = current_client() {
+        let _ = send_all(&c, &cmds);
+    }
     Ok(())
+}
+
+/// Stops following the take's run: where it stopped (or the playhead now, which then pauses).
+/// `None` = the session is gone.
+fn end_run(session_id: u64) -> (Option<u64>, Vec<Command>) {
+    let mut guard = session();
+    let Some(s) = guard.as_mut().filter(|s| s.id == session_id) else { return (None, Vec::new()) };
+    let now = now_ms();
+    let (pos, cmds) = match s.transport.watched(now) {
+        RunState::Running(pos) => (pos, s.transport.pause(now)),
+        RunState::Ended(pos) => (pos, Vec::new()),
+        RunState::Unwatched => (s.transport.position(now), Vec::new()),
+    };
+    s.transport.unwatch();
+    (Some(pos), cmds)
+}
+
+/// Finishes `take` (see [`voiceover_stop`]); the file is removed whenever no track keeps it.
+fn finish_take(app: &AppHandle, session_id: u64, take: Take) -> Result<EditorView, String> {
+    let (pos, cmds) = end_run(session_id);
+    if let Some(c) = current_client() {
+        let _ = send_all(&c, &cmds);
+    }
+    let Some(pos) = pos else {
+        take.discard();
+        return Err(ERR_NO_SESSION.into());
+    };
+    // Permission refused while the take ran: what it holds is silence.
+    if voiceover::mic_denied() {
+        take.discard();
+        return Err(voiceover::ERR_MIC_DENIED.into());
+    }
+    let plan = take.plan.clone();
+    let path = take.path().to_path_buf();
+    let (file, span) = take.finish_at(voiceover::span_from_run(pos, &plan))?;
+    let next = {
+        let guard = session();
+        guard.as_ref().filter(|s| s.id == session_id).map(|s| doc_with_voiceover(&s.doc, &s.play, &plan, &file, span))
+    };
+    let result = match next {
+        Some(next) => update(app, session_id, next),
+        None => Err(ERR_NO_SESSION.into()),
+    };
+    if result.is_err() && !voiceover_kept(session_id, &file) {
+        let _ = std::fs::remove_file(&path);
+    }
+    result
+}
+
+/// Does the session's document hold a track of `file` (an `update` that failed after the
+/// document was applied keeps it)?
+fn voiceover_kept(session_id: u64, file: &str) -> bool {
+    session().as_ref().filter(|s| s.id == session_id).is_some_and(|s| s.doc.audio_tracks.iter().any(|t| t.file == file))
 }
 
 /// `doc` with the finished take added as a voiceover track (see [`voiceover::anchor`]).
@@ -2356,6 +2533,49 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 
+    /// A take follows one run of the transport: pause, seek and the programme's end end it
+    /// where it was; an edit (continuous clock) or a re-aim does not.
+    #[test]
+    fn a_take_follows_one_run_of_the_transport() {
+        let d = doc(&[(0, 10_000)]);
+        let mut t = Transport::new(&d);
+        assert_eq!(t.watched(0), RunState::Unwatched);
+        t.seek(&d, 0, 1_000);
+        t.play(&d, 0);
+        t.watch();
+        assert_eq!(t.watched(500), RunState::Running(1_500));
+        t.set_doc(&d, 600);
+        t.reaim(&d, 700);
+        assert_eq!(t.watched(800), RunState::Running(1_800), "an edit or re-aim keeps the run");
+        t.pause(1_500);
+        assert_eq!(t.watched(9_000), RunState::Ended(2_500), "paused: ended where it paused");
+        t.play(&d, 9_000);
+        assert_eq!(t.watched(9_500), RunState::Ended(2_500), "playing again is another run");
+        // A stall pause (the frame watchdog) is a pause, a seek ends the run where it was.
+        let mut t = Transport::new(&d);
+        t.play(&d, 0);
+        t.watch();
+        t.seek(&d, 2_000, 8_000);
+        assert_eq!(t.watched(2_100), RunState::Ended(2_000));
+        // The programme's end.
+        let mut t = Transport::new(&d);
+        t.seek(&d, 0, 9_000);
+        t.play(&d, 0);
+        t.watch();
+        t.tick(&d, 5_000);
+        assert_eq!(t.watched(5_000), RunState::Ended(10_000));
+        // Play at the end (no tick in between) starts over at 0: that jump ends the run too.
+        let mut t = Transport::new(&d);
+        t.seek(&d, 0, 9_000);
+        t.play(&d, 0);
+        t.watch();
+        t.play(&d, 5_000);
+        assert_eq!(t.watched(5_100), RunState::Ended(10_000));
+        // The take's length is the run's.
+        let p = voiceover::Plan { programme_ms: 1_000, clip: 0, source: None, source_ms: 1_000, max_ms: 9_000 };
+        assert_eq!(voiceover::span_from_run(2_500, &p), 1_500);
+    }
+
     /// A finished take becomes a voiceover track at the clip/source time of the playhead it
     /// started from, and plays there on the programme clock.
     #[test]
@@ -2368,7 +2588,8 @@ mod tests {
         let s = slot.as_ref().unwrap();
         let plan = voiceover::plan(&s.play, 4_500).unwrap();
         assert_eq!((plan.clip, plan.source_ms, plan.max_ms), (1, 6_000, 2_500));
-        let take = Take::create(6, &dir, plan, 42).unwrap();
+        let take = Take::create(6, &dir, plan.clone(), 42).unwrap();
+        take.push_at(0, &[0.1; 4_800], 48_000);
         let (file, span) = take.finish_at(1_200).unwrap();
         let next = doc_with_voiceover(&s.doc, &s.play, &plan, &file, span);
         let (view, _, _) = apply_update(&mut slot, 6, next, 0).unwrap();

@@ -5517,11 +5517,16 @@ export interface EditorVoiceoverState {
 /** `record-voiceover-level`, about 10× a second while a take runs; `ended` once at the programme's end. */
 export interface EditorVoiceoverLevel { rms: number; elapsedMs: number; ended: boolean }
 export const EV_VOICEOVER_LEVEL = "record-voiceover-level";
-/** Records a voiceover from `programmeMs` (native microphone); Rust also starts the preview there. */
+/** `{ sessionId }`: the take ended by itself (pause, seek, stall, programme end) and was laid
+ * under the programme; `editorVoiceoverStop` hands out the resulting view once. */
+export const EV_VOICEOVER_FINISHED = "record-voiceover-finished";
+/** Records a voiceover from `programmeMs` (native microphone); Rust also starts the preview there.
+ * The take follows that one run of the preview: pausing, seeking or reaching the end ends it. */
 export function editorVoiceoverStart(sessionId: number, programmeMs: number): Promise<EditorVoiceoverState> {
   return invoke("editor_voiceover_start", { sessionId, programmeMs: ms(programmeMs) });
 }
-/** Ends the take and adds it as a voiceover track; record the answer as one undo step. */
+/** Ends the take (or collects one that ended by itself) and adds it as a voiceover track;
+ * record the answer as one undo step. */
 export function editorVoiceoverStop(sessionId: number): Promise<RecordEditorView> {
   return invoke("editor_voiceover_stop", { sessionId });
 }

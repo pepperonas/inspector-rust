@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advance, applyDropped, applyFinal, applyHypothesis, MAX_PIECES, prune, showsLabel, type Piece } from "./ticker";
+import { advance, applyDropped, applyFinal, applyHypothesis, MAX_PIECES, prune, showsLabel, TICKER_CHOICES, tickerChoice, tickerPatchFor, type Piece } from "./ticker";
 
 const hyp = (source: "mic" | "sys", stable: string, pending = "") => ({ source, seq: 1, stable, pending });
 
@@ -88,5 +88,23 @@ describe("ticker modes", () => {
     const p = ["a", "b", "c"].map((id) => ({ id, source: "mic" as const, text: id, final: true }));
     expect(lastLines(p, 2).map((x) => x.id)).toEqual(["b", "c"]);
     expect(lastLines(p, 0)).toEqual([]);
+  });
+});
+
+describe("ticker choice (meeting panel control)", () => {
+  it("a hidden ticker reads as off, whatever its size", () => {
+    expect(tickerChoice(false, "max")).toBe("off");
+    expect(tickerChoice(true, "mini")).toBe("mini");
+    expect(tickerChoice(true, "bar")).toBe("bar");
+  });
+
+  it("off hides it and keeps its size; a size shows it again", () => {
+    expect(tickerPatchFor("off")).toEqual({ visible: false });
+    expect(tickerPatchFor("bar")).toEqual({ visible: true, mode: "bar" });
+    expect(tickerPatchFor("max")).toEqual({ visible: true, mode: "max" });
+  });
+
+  it("offers every choice once, off first", () => {
+    expect(TICKER_CHOICES).toEqual(["off", "bar", "mini", "max"]);
   });
 });

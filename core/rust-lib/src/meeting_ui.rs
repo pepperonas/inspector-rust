@@ -4,7 +4,7 @@
 use crate::meeting::{self, MeetingConfig, MeetingState};
 use parking_lot::Mutex;
 use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use transcribe_protocol::Source;
 
 pub struct MeetingTrayItems {
@@ -131,12 +131,18 @@ pub fn on_sources(app: &AppHandle, state: &MeetingState) {
 }
 
 /// Settings changed: tray checks and the ticker follow.
+/// Emitted with the new [`MeetingConfig`] after every config change.
+pub const EVENT_CONFIG: &str = "meeting-config-changed";
+
 pub fn apply_config(app: &AppHandle, cfg: &MeetingConfig) {
     with_items(app, |i| {
         let _ = i.mic.set_checked(cfg.mic);
         let _ = i.sys.set_checked(cfg.sys);
         let _ = i.ticker.set_checked(cfg.ticker.visible);
     });
+    // The meeting panel shows the ticker controls; keep it in step with
+    // changes made from the ticker itself, the tray or the hotkey.
+    let _ = app.emit(EVENT_CONFIG, cfg);
     ticker_refresh(app);
 }
 
@@ -170,7 +176,6 @@ pub fn toggle_recording(app: &AppHandle) {
             // Needs a decision in the app (model download, permission): open it.
             if e == transcribe_protocol::models::ERR_MISSING || e == meeting::ERR_MIC_DENIED {
                 let _ = crate::hotkey::show_popup(app);
-                use tauri::Emitter;
                 let _ = app.emit("open-meeting", ());
             }
         }

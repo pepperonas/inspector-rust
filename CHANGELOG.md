@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.235.0] — 2026-11-03
+
+### Added
+- **Turn the ticker back on from the `meeting` panel.** A row of chips (Off · Bar · Mini · Large) shows whether the ticker is shown and in which size; picking a size brings a closed ticker back. A dragged ticker can be docked to the screen edge from there too. The panel follows changes made on the ticker itself, in the tray or with the hotkey.
+
 ## [0.234.0] — 2026-11-03
 
 ### Added

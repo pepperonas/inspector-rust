@@ -4651,7 +4651,17 @@
   "tick.max": "Maximise",
   "tick.restore": "Normal size",
   "tick.dock": "Back to the screen edge",
-  "tick.off": "Turn the ticker off (Ctrl+Shift+Alt+K turns it on again)",
+  "tick.off": "Turn the ticker off (turn it back on in the meeting panel or with ⌃⇧⌥K)",
   "mtg.lang_live": "applies from the next sentence",
-  "mtg.lang.auto_short": "Auto"
+  "mtg.lang.auto_short": "Auto",
+  "mtg.ticker.off": "Off",
+  "mtg.ticker.bar": "Bar",
+  "mtg.ticker.mini": "Mini",
+  "mtg.ticker.max": "Large",
+  "mtg.ticker.off_help": "Hide the ticker",
+  "mtg.ticker.bar_help": "One line at the screen edge",
+  "mtg.ticker.mini_help": "A small pill",
+  "mtg.ticker.max_help": "Several lines",
+  "mtg.ticker.dock": "Back to the edge",
+  "mtg.ticker.when": "appears while a transcription runs"
 }

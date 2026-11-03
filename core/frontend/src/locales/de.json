@@ -4651,7 +4651,17 @@
   "tick.max": "Maximieren",
   "tick.restore": "Normale Größe",
   "tick.dock": "Zurück an den Bildschirmrand",
-  "tick.off": "Laufband ausschalten (⌃⇧⌥K schaltet es wieder ein)",
+  "tick.off": "Laufband ausschalten (im meeting-Panel oder mit ⌃⇧⌥K wieder einschalten)",
   "mtg.lang_live": "gilt ab dem nächsten Satz",
-  "mtg.lang.auto_short": "Auto"
+  "mtg.lang.auto_short": "Auto",
+  "mtg.ticker.off": "Aus",
+  "mtg.ticker.bar": "Leiste",
+  "mtg.ticker.mini": "Mini",
+  "mtg.ticker.max": "Groß",
+  "mtg.ticker.off_help": "Laufband ausblenden",
+  "mtg.ticker.bar_help": "Eine Zeile am Bildschirmrand",
+  "mtg.ticker.mini_help": "Kleine Pille",
+  "mtg.ticker.max_help": "Mehrere Zeilen",
+  "mtg.ticker.dock": "Zurück an den Rand",
+  "mtg.ticker.when": "erscheint, sobald eine Transkription läuft"
 }

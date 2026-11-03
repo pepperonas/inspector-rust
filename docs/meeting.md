@@ -26,6 +26,9 @@ icon shows a red dot and the tray menu says "Stop transcription".
   (the place is remembered, per screen as fractions of the free space), −
   for a short pill, ⤢ for five wrapped lines, ⌖ to dock it at the screen
   edge again, × to switch it off.
+- **Ticker in the panel:** the `meeting` panel's chips Off · Bar · Mini ·
+  Large show the ticker's state and bring a closed ticker back in the chosen
+  size; "Back to the edge" docks a dragged one. ⌃⇧⌥K and the tray still work.
 - **Speakers:** MIC (this Mac's microphone, you) and SYS (what the Mac plays,
   the other side) are kept apart. Several people *within* SYS (or several in
   the room on MIC) are not told apart — there is no speaker recognition yet.

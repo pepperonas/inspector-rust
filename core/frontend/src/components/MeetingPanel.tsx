@@ -13,6 +13,7 @@ import {
   meetingStop,
   revealPath,
   setMeetingConfig,
+  tickerUpdate,
   type MeetingConfig,
   type MeetingModel,
   type MeetingSession,
@@ -21,6 +22,7 @@ import {
 } from "../lib/ipc";
 import { useT } from "../lib/i18n";
 import { LangChips } from "./LangChips";
+import { TICKER_CHOICES, tickerChoice, tickerPatchFor, type TickerChoice } from "../lib/ticker";
 import {
   clockTime,
   downloadPercent,
@@ -68,6 +70,9 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
     void getMeetingConfig().then(setCfg).catch(() => {});
   }, [refresh]);
 
+  // The ticker's own buttons, the tray and the hotkey change the config too.
+  useTauriEvent<MeetingConfig>("meeting-config-changed", (e) => setCfg(e.payload));
+
   useTauriEvent<MeetingState>("meeting-changed", (e) => {
     setState(e.payload);
     if (!e.payload.running && !e.payload.starting) {
@@ -112,6 +117,25 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
     try {
       setCfg(await setMeetingConfig(next));
       await meetingSetSource(s, next[s]);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const setTicker = async (c: TickerChoice) => {
+    if (!cfg) return;
+    const patch = tickerPatchFor(c);
+    setCfg({ ...cfg, ticker: { ...cfg.ticker, ...patch } });
+    try {
+      setCfg(await tickerUpdate(patch));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const dockTicker = async () => {
+    try {
+      setCfg(await tickerUpdate({ reset_place: true }));
     } catch (e) {
       setError(String(e));
     }
@@ -211,6 +235,38 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
             }}
           />
           {running && <span className="text-[11px]">{t("mtg.lang_live")}</span>}
+        </div>
+      )}
+
+      {cfg && (
+        <div className="flex flex-wrap items-center gap-2 text-[12px] text-[var(--color-muted)]" data-testid="meeting-ticker">
+          <span>{t("mtg.set.ticker")}</span>
+          <div className="inline-flex overflow-hidden rounded-md border border-[var(--color-border)]">
+            {TICKER_CHOICES.map((c) => {
+              const on = tickerChoice(cfg.ticker.visible, cfg.ticker.mode) === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  data-testid={`ticker-choice-${c}`}
+                  aria-pressed={on}
+                  title={t(`mtg.ticker.${c}_help`)}
+                  onClick={() => void setTicker(c)}
+                  className={`px-2 py-0.5 text-[11px] font-semibold transition-colors duration-(--duration-fast) ${
+                    on ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]" : "hover:bg-[var(--color-surface)]"
+                  }`}
+                >
+                  {t(`mtg.ticker.${c}`)}
+                </button>
+              );
+            })}
+          </div>
+          {cfg.ticker.place && cfg.ticker.visible && (
+            <button type="button" data-testid="ticker-dock" className="text-[11px] underline" onClick={() => void dockTicker()}>
+              {t("mtg.ticker.dock")}
+            </button>
+          )}
+          {cfg.ticker.visible && !running && <span className="text-[11px]">{t("mtg.ticker.when")}</span>}
         </div>
       )}
 

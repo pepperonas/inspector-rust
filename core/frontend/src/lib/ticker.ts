@@ -112,3 +112,17 @@ export function nextMode(current: "bar" | "mini" | "max", clicked: "mini" | "max
 export function showsLabel(pieces: Piece[], index: number): boolean {
   return index === 0 || pieces[index - 1].source !== pieces[index].source;
 }
+
+/** What the meeting panel's ticker control shows: hidden, or one of the sizes. */
+export type TickerChoice = "off" | "bar" | "mini" | "max";
+export const TICKER_CHOICES: readonly TickerChoice[] = ["off", "bar", "mini", "max"];
+
+/** A hidden ticker reads as off, whatever size it would come back in. Pure. */
+export function tickerChoice(visible: boolean, mode: "bar" | "mini" | "max"): TickerChoice {
+  return visible ? mode : "off";
+}
+
+/** The `ticker_update` patch for a choice: off keeps the size, a size shows it. Pure. */
+export function tickerPatchFor(choice: TickerChoice): { visible: boolean; mode?: "bar" | "mini" | "max" } {
+  return choice === "off" ? { visible: false } : { visible: true, mode: choice };
+}

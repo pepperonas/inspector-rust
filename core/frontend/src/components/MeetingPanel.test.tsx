@@ -31,9 +31,16 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
   meetingStart: () => meetingStart(),
   meetingStop: () => meetingStop(),
   setMeetingConfig: (c: MeetingConfig) => setMeetingConfig(c),
+  tickerUpdate: (p: unknown) => tickerUpdate(p),
 }));
+const tickerUpdate = vi.fn(async (_p: unknown) => cfg);
 const setMeetingConfig = vi.fn(async (c: MeetingConfig) => c);
-vi.mock("../hooks/useTauriEvent", () => ({ useTauriEvent: () => undefined }));
+const handlers: Record<string, (e: { payload: unknown }) => void> = {};
+vi.mock("../hooks/useTauriEvent", () => ({
+  useTauriEvent: (name: string, fn: (e: { payload: unknown }) => void) => {
+    handlers[name] = fn;
+  },
+}));
 
 import { MeetingPanel } from "./MeetingPanel";
 
@@ -89,5 +96,36 @@ describe("MeetingPanel language", () => {
     fireEvent.click(en);
     await waitFor(() => expect(setMeetingConfig).toHaveBeenCalled());
     expect(setMeetingConfig.mock.calls[setMeetingConfig.mock.calls.length - 1][0].lang).toBe("en");
+  });
+});
+
+describe("MeetingPanel ticker control", () => {
+  it("shows a closed ticker as off and opens it again from the panel", async () => {
+    const hidden = { ...cfg, ticker: { ...cfg.ticker, visible: false } };
+    tickerUpdate.mockResolvedValueOnce({ ...cfg, ticker: { ...cfg.ticker, visible: true, mode: "bar" } });
+    const { getMeetingConfig } = await import("../lib/ipc");
+    vi.mocked(getMeetingConfig).mockResolvedValueOnce(hidden);
+    render(<MeetingPanel focused={false} runSignal={0} onExit={() => undefined} />);
+    const off = await screen.findByTestId("ticker-choice-off");
+    expect(off.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByTestId("ticker-choice-bar"));
+    await waitFor(() => expect(tickerUpdate).toHaveBeenCalledWith({ visible: true, mode: "bar" }));
+    await waitFor(() => expect(screen.getByTestId("ticker-choice-bar").getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  it("follows a change made from the ticker itself", async () => {
+    render(<MeetingPanel focused={false} runSignal={0} onExit={() => undefined} />);
+    await screen.findByTestId("ticker-choice-bar");
+    act(() => handlers["meeting-config-changed"]({ payload: { ...cfg, ticker: { ...cfg.ticker, visible: false } } }));
+    expect(screen.getByTestId("ticker-choice-off").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("offers docking only when the ticker was dragged away", async () => {
+    render(<MeetingPanel focused={false} runSignal={0} onExit={() => undefined} />);
+    await screen.findByTestId("ticker-choice-bar");
+    expect(screen.queryByTestId("ticker-dock")).toBeNull();
+    act(() => handlers["meeting-config-changed"]({ payload: { ...cfg, ticker: { ...cfg.ticker, place: [0.2, 0.3] } } }));
+    fireEvent.click(screen.getByTestId("ticker-dock"));
+    await waitFor(() => expect(tickerUpdate).toHaveBeenCalledWith({ reset_place: true }));
   });
 });

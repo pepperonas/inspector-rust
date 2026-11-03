@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.237.0] — 2026-11-03
+
+### Added
+- **Captions in the recording editor.** Transcribe a project on the device (Captions tab → Transcribe, German, English or automatic); every take is transcribed with word timings, from the microphone or, without one, from the system audio. Captions appear in the preview and the export, styled like OpenScreen (font, size, plate, position, words per line, four looks), and switch on by themselves after the first transcript.
+- **Transcript editing.** The Transcript tab (key T) lists the words per clip: click a word to jump there, double-click to correct it (an empty word is hidden), select words and press Backspace or Delete to cut them out of the video. Cut words stay struck through and one click restores the cut.
+
+### Changed
+- Splitting a clip (S, or a transcript cut) now keeps a zoom or annotation that spans the cut in both halves instead of shortening it.
+
 ## [0.236.0] — 2026-11-03
 
 ### Added

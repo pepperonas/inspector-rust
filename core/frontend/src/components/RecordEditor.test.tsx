@@ -885,6 +885,42 @@ describe("RecordEditor shortcuts", () => {
     expect((lastSent() as RecordEditDoc).clips).toHaveLength(2);
   });
 
+  it("Enter on a focused button presses the button, even when Enter is bound to an action", async () => {
+    getRecordShortcuts.mockResolvedValueOnce({ split: { key: "Enter" } });
+    const { getByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const button = getByTestId("ed-inspector-toggle");
+    button.focus();
+    let ev!: KeyboardEvent;
+    await act(async () => {
+      ev = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+      button.dispatchEvent(ev);
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(ev.defaultPrevented).toBe(false);
+    expect(editorUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toHaveLength(2);
+  });
+
+  it("an action that lost its key to a stored one shows as not assigned in the dialog", async () => {
+    getRecordShortcuts.mockResolvedValueOnce({ addZoom: { key: "s" } });
+    const { getByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-shortcuts-open"));
+    });
+    expect(getByTestId("ed-key-split").textContent).toBe("not assigned");
+    expect(getByTestId("ed-key-addZoom").textContent).toBe("S");
+  });
+
   it("empty lanes name the key that fills them, in the current map", async () => {
     getRecordShortcuts.mockResolvedValueOnce({ addZoom: { key: "q" } });
     const { getAllByTestId } = await mount();
@@ -895,5 +931,14 @@ describe("RecordEditor shortcuts", () => {
     expect(hints).toContain("Q: add zoom");
     expect(hints).toContain("A: add annotation");
     expect(hints).toContain("M: music · V: voiceover");
+  });
+
+  it("an unassigned action's lane has no hint", async () => {
+    getRecordShortcuts.mockResolvedValueOnce({ addAudio: null });
+    const { getAllByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(getAllByTestId("ed-lane-hint").map((e) => e.textContent)).toContain("V: voiceover");
   });
 });

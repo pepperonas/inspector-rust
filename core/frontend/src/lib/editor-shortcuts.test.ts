@@ -112,6 +112,38 @@ describe("editor shortcuts", () => {
     expect(mergeWithDefaults([1, 2])).toEqual(DEFAULT_BINDINGS);
   });
 
+  it("a stored key that collides with another default leaves that action visibly unassigned", () => {
+    // "s" stored for zoom: zoom keeps it, split (whose default is S) is unassigned, not shadowed.
+    const m = mergeWithDefaults({ addZoom: { key: "s" } });
+    expect(m.addZoom).toEqual({ key: "s" });
+    expect(m.split).toBe(null);
+    expect(matchAction(key("s"), m)).toBe("addZoom");
+    // No chord is ever held by two actions.
+    const held = ACTIONS.flatMap((a) => (m[a] ? [JSON.stringify(m[a])] : []));
+    expect(new Set(held).size).toBe(held.length);
+    // Two stored keys on one chord: the first in display order keeps it.
+    const two = mergeWithDefaults({ split: { key: "q" }, crop: { key: "q" } });
+    expect(two.split).toEqual({ key: "q" });
+    expect(two.crop).toEqual(DEFAULT_BINDINGS.crop);
+    // Explicitly unassigned survives the round trip.
+    expect(storedDeviations(m)).toEqual({ addZoom: { key: "s" }, split: null });
+    expect(mergeWithDefaults(storedDeviations(m))).toEqual(m);
+    expect(findConflict(m, "split", { key: "x" })).toBe(null);
+  });
+
+  it("Enter and Space on a focused button press the button, whatever they are bound to", () => {
+    const b = { ...DEFAULT_BINDINGS, addZoom: { key: "Enter" } };
+    const button = document.createElement("button");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    expect(matchAction(key("Enter", {}, button), b)).toBe(null);
+    expect(matchAction(key(" ", {}, button), b)).toBe(null);
+    expect(matchAction(key(" ", {}, box), b)).toBe(null);
+    expect(matchAction(key("Enter", {}, document.body), b)).toBe("addZoom");
+    expect(matchAction(key(" ", {}, document.body), b)).toBe("playPause");
+    expect(matchAction(key("s", {}, button), b)).toBe("split");
+  });
+
   it("stores only the deviations", () => {
     expect(storedDeviations(DEFAULT_BINDINGS)).toEqual({});
     expect(storedDeviations({ ...DEFAULT_BINDINGS, split: { key: "x" } })).toEqual({ split: { key: "x" } });

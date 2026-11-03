@@ -1,7 +1,7 @@
 {
-  "loc": 273950,
+  "loc": 274244,
   "loc_rust": 143998,
-  "loc_ts": 129952,
+  "loc_ts": 130246,
   "tests": 6396,
   "tests_rust": 2491,
   "tests_frontend": 3905,
@@ -12,7 +12,7 @@
   "crates": 890,
   "ipc": 541,
   "components": 114,
-  "suites": 372,
+  "suites": 373,
   "tables": 29,
   "events": 69,
   "completion": 24,

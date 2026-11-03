@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
 import { EV_RECORD_SHORTCUTS, getRecordShortcuts, setRecordShortcuts } from "../../lib/ipc";
@@ -9,7 +9,6 @@ import {
   FIXED_KEYS,
   bindingFromEvent,
   findConflict,
-  formatBinding,
   mergeWithDefaults,
   storedDeviations,
   swapBinding,
@@ -18,6 +17,7 @@ import {
   type Bindings,
 } from "../../lib/editor-shortcuts";
 import { useT } from "../../lib/i18n";
+import { useKeyLabel } from "./bindings-context";
 
 /**
  * The editor key map from the `record.shortcuts` setting, kept in step across windows (the
@@ -45,12 +45,6 @@ export function useEditorShortcuts(): [Bindings, (next: Bindings) => void] {
   return [bindings, save];
 }
 
-/** How a binding reads in the editor (tooltips, lane hints, the dialog). */
-export function useBindingLabel(): (b: Binding) => string {
-  const t = useT();
-  return useCallback((b: Binding) => formatBinding(b, t("rec4.keys.space")), [t]);
-}
-
 type Pending = { action: ActionId; binding: Binding; other: ActionId } | { action: ActionId; binding: Binding; fixed: true };
 
 /**
@@ -67,17 +61,26 @@ export function ShortcutsDialog({
   onClose: () => void;
 }) {
   const t = useT();
-  const label = useBindingLabel();
+  const label = useKeyLabel();
   const [recording, setRecording] = useState<ActionId | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  const box = useRef<HTMLDivElement>(null);
 
-  // Capture phase: the dialog owns the keyboard while open — no editor key, and Escape never
-  // reaches the popup's close-on-Esc fallback.
+  // Focus moves into the dialog (first key) and back to where it was on close.
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    box.current?.querySelector<HTMLElement>("[data-action] button")?.focus();
+    return () => before?.focus?.();
+  }, []);
+
+  // Capture phase on the window: the dialog owns the keyboard while open. Every key stops here —
+  // no editor key, no popup handler, and Escape never reaches the popup's close-on-Esc fallback.
+  // Only Enter/Space on a focused dialog button keep their default (they press it).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation();
       if (recording) {
         e.preventDefault();
-        e.stopPropagation();
         if (e.key === "Escape") {
           setRecording(null);
           return;
@@ -98,10 +101,22 @@ export function ShortcutsDialog({
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        e.stopPropagation();
         if (pending) setPending(null);
         else onClose();
+        return;
       }
+      if (e.key === "Tab") {
+        // Focus trap: Tab and ⇧Tab cycle through the dialog's own controls.
+        e.preventDefault();
+        const items = [...(box.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
+        if (items.length === 0) return;
+        const at = items.indexOf(document.activeElement as HTMLElement);
+        const next = at < 0 ? 0 : (at + (e.shiftKey ? -1 : 1) + items.length) % items.length;
+        items[next].focus();
+        return;
+      }
+      const presses = (e.key === "Enter" || e.key === " ") && e.target instanceof Element && !!e.target.closest("button") && !!box.current?.contains(e.target);
+      if (!presses) e.preventDefault();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -110,14 +125,16 @@ export function ShortcutsDialog({
   const keyText = (a: ActionId) => {
     const b = bindings[a];
     // Delete works like Backspace wherever Backspace is bound.
-    return b.key === "Backspace" && !b.ctrl && !b.alt && !b.shift ? "⌫ / ⌦" : label(b);
+    return b && b.key === "Backspace" && !b.ctrl && !b.alt && !b.shift ? "⌫ / ⌦" : label(b);
   };
   const kbd = "rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-[11px] tabular-nums";
 
   return (
     <div className="md3-overlay-in fixed inset-0 z-30 flex items-center justify-center bg-black/50" onPointerDown={onClose}>
       <div
+        ref={box}
         role="dialog"
+        aria-modal="true"
         aria-label={t("rec4.keys.title")}
         data-testid="ed-shortcuts"
         className="md3-pop-in flex max-h-[90vh] w-[420px] flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl"
@@ -145,7 +162,11 @@ export function ShortcutsDialog({
                   className={
                     kbd +
                     " hover:bg-[var(--color-bg)]" +
-                    (recording === a ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")
+                    (recording === a
+                      ? " border-[var(--color-accent)] text-[var(--color-accent)]"
+                      : bindings[a]
+                        ? ""
+                        : " italic text-[var(--color-muted)]")
                   }
                 >
                   {recording === a ? t("rec4.keys.press") : keyText(a)}

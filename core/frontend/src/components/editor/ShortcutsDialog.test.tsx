@@ -93,6 +93,55 @@ describe("ShortcutsDialog", () => {
     }
   });
 
+  it("an unassigned action reads 'not assigned' and can be given a key", () => {
+    const { getByTestId, onSave } = setup({ ...DEFAULT_BINDINGS, addZoom: { key: "s" }, split: null });
+    expect(getByTestId("ed-key-split").textContent).toBe("not assigned");
+    fireEvent.click(getByTestId("ed-key-split"));
+    press("y");
+    expect(onSave).toHaveBeenCalledWith({ ...DEFAULT_BINDINGS, addZoom: { key: "s" }, split: { key: "y" } });
+  });
+
+  it("focus starts on the first key and Tab stays inside the dialog", () => {
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+    try {
+      outside.focus();
+      const { getByTestId } = setup();
+      expect(document.activeElement).toBe(getByTestId("ed-key-playPause"));
+      const reset = getByTestId("ed-keys-reset");
+      reset.focus();
+      press("Tab");
+      // After the last control, Tab wraps to the first (the close button).
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Close");
+      press("Tab", { shiftKey: true });
+      expect(document.activeElement).toBe(reset);
+      cleanup();
+      expect(document.activeElement, "focus goes back where it was").toBe(outside);
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it("no key leaves the dialog: other window and document handlers never see it", () => {
+    setup();
+    const outer = vi.fn();
+    window.addEventListener("keydown", outer);
+    document.addEventListener("keydown", outer, true);
+    try {
+      for (const k of ["s", "Escape", "Backspace", "?"]) {
+        const ev = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+        act(() => {
+          document.body.dispatchEvent(ev);
+        });
+        expect(ev.defaultPrevented, k).toBe(true);
+      }
+      expect(outer).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", outer);
+      document.removeEventListener("keydown", outer, true);
+    }
+  });
+
   it("reset all saves the defaults", () => {
     const { getByTestId, onSave } = setup({ ...DEFAULT_BINDINGS, split: { key: "x" } });
     expect(getByTestId("ed-key-split").textContent).toBe("X");

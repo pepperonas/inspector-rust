@@ -22,6 +22,7 @@ import {
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
 import { Chip, Chips, Group, RangeSlider, chipClass } from "./InspectorParts";
+import { useBindings, useKeyLabel } from "./bindings-context";
 
 /** The CSS family the editor registers each bundled annotation font under. */
 export const annotationFontFamily = (family: string) => `IR ${family}`;
@@ -133,11 +134,15 @@ export interface AnnotationTabProps {
  */
 export function AnnotationTab(props: AnnotationTabProps) {
   const t = useT();
+  const keyLabel = useKeyLabel();
+  const addKey = useBindings().addAnnotation;
   const { doc, selected, onAdd } = props;
   const a = selected ? doc.annotations.find((x) => x.id === selected) : undefined;
+  // The add key is named as currently bound; an unassigned one is left out.
+  const addHint = addKey ? `${t("rec4.ann.add_hint")} ${t("rec4.ann.add_hint_key", { key: keyLabel(addKey) })}` : t("rec4.ann.add_hint");
   return (
     <>
-      <Group label={t("rec4.ann.add")} hint={t("rec4.ann.add_hint")}>
+      <Group label={t("rec4.ann.add")} hint={addHint}>
         <Chips>
           {ANNOTATION_KINDS.map((k) => (
             <button key={k.id} type="button" className={chipClass(false)} onClick={() => onAdd(k.id)} data-testid={`ed-ann-add-${k.id}`}>

@@ -1,6 +1,6 @@
 import { Mic, Music, Square, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import type { RecordAudioTrack, RecordEditDoc } from "../../lib/ipc";
-import { useActionKey } from "./bindings-context";
+import { useBindings, useKeyTitle } from "./bindings-context";
 import {
   FADE_MAX_MS,
   MAX_MIC_DB,
@@ -63,7 +63,8 @@ export interface AudioTabProps {
  */
 export function AudioTab(p: AudioTabProps) {
   const t = useT();
-  const actionKey = useActionKey();
+  const keyTitle = useKeyTitle();
+  const bindings = useBindings();
   const doc = p.doc;
   const cur = () => p.getDoc?.() ?? doc;
   const sel = p.selected ? (doc.audioTracks.find((x) => x.id === p.selected) ?? null) : null;
@@ -100,7 +101,7 @@ export function AudioTab(p: AudioTabProps) {
           type="button"
           onClick={p.onAddMusic}
           disabled={p.musicBusy}
-          title={`${t("rec4.audio.add_music_hint")} (${actionKey("addAudio")})`}
+          title={keyTitle(t("rec4.audio.add_music_hint"), bindings.addAudio)}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40"
           data-testid="ed-add-music"
         >
@@ -109,7 +110,7 @@ export function AudioTab(p: AudioTabProps) {
         <button
           type="button"
           onClick={p.onVoiceover}
-          title={`${t("rec4.audio.voiceover_hint")} (${actionKey("addVoiceover")})`}
+          title={keyTitle(t("rec4.audio.voiceover_hint"), bindings.addVoiceover)}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
           data-testid="ed-voiceover"
         >
@@ -231,7 +232,8 @@ export function VoiceoverPanel({
   compact?: boolean;
 }) {
   const t = useT();
-  const actionKey = useActionKey();
+  const keyTitle = useKeyTitle();
+  const bindings = useBindings();
   const busy = take.phase !== "recording";
   const meter = (
     <span className="relative block h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg)]" aria-hidden>
@@ -255,7 +257,7 @@ export function VoiceoverPanel({
         type="button"
         onClick={onStop}
         disabled={busy}
-        title={`${t("rec4.audio.vo_stop")} (${actionKey("addVoiceover")})`}
+        title={keyTitle(t("rec4.audio.vo_stop"), bindings.addVoiceover)}
         className="flex items-center gap-1.5 rounded-lg bg-red-500 px-2.5 py-1.5 text-[12px] font-medium text-white disabled:opacity-40"
         data-testid="ed-vo-stop"
       >

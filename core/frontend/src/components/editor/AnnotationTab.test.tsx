@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAnnotation, RecordAnnotationBody, RecordAnnotationKind, RecordEditDoc } from "../../lib/ipc";
 import { TEXT_FONTS, defaultAnnotationBody } from "../../lib/editor";
+import { BindingsContext } from "./bindings-context";
+import { DEFAULT_BINDINGS, type Bindings } from "../../lib/editor-shortcuts";
 import { AnnotationTab, annotationFontCss, registerAnnotationFonts, type AnnotationTabProps } from "./AnnotationTab";
 
 afterEach(cleanup);
@@ -37,7 +39,7 @@ const doc = (annotations: RecordAnnotation[]): RecordEditDoc =>
     systemGainDb: 0,
   }) as RecordEditDoc;
 
-function mount(d: RecordEditDoc, selected: string | null, over: Partial<AnnotationTabProps> = {}) {
+function mount(d: RecordEditDoc, selected: string | null, over: Partial<AnnotationTabProps> = {}, bindings: Bindings = DEFAULT_BINDINGS) {
   const props: AnnotationTabProps = {
     doc: d,
     selected,
@@ -50,13 +52,29 @@ function mount(d: RecordEditDoc, selected: string | null, over: Partial<Annotati
     projectAssetUrl: (f) => `asset://proj/${f}`,
     ...over,
   };
-  render(<AnnotationTab {...props} />);
+  render(
+    <BindingsContext.Provider value={bindings}>
+      <AnnotationTab {...props} />
+    </BindingsContext.Provider>,
+  );
   return props;
 }
 
 const body = (d: RecordEditDoc) => d.annotations[0].body;
 
 describe("AnnotationTab", () => {
+  it("the add hint names the bound key, and leaves it out when unassigned", () => {
+    mount(doc([]), null);
+    expect(document.body.textContent).toContain("lasts 2 s. A adds a text.");
+    cleanup();
+    mount(doc([]), null, {}, { ...DEFAULT_BINDINGS, addAnnotation: { key: "q" } });
+    expect(document.body.textContent).toContain("Q adds a text.");
+    cleanup();
+    mount(doc([]), null, {}, { ...DEFAULT_BINDINGS, addAnnotation: null });
+    expect(document.body.textContent).toContain("lasts 2 s.");
+    expect(document.body.textContent).not.toContain("adds a text");
+  });
+
   it("offers all four kinds to add, and a hint when nothing is selected", () => {
     const p = mount(doc([]), null);
     for (const k of ["text", "image", "arrow", "blur"] as const) fireEvent.click(screen.getByTestId(`ed-ann-add-${k}`));

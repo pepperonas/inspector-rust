@@ -162,6 +162,16 @@ type Drag = { index: number; id: string; mode: TrackDragMode; x0: number; dx: nu
  * resolved in Rust (`resolveEdge`) because a voiceover's file skips what a cut removed.
  * Every drag is clamped to the programme and is one step.
  */
+/** An empty lane names the key that fills it (shared with the timeline's own lanes). */
+export function LaneHint({ text }: { text: string | null }) {
+  if (!text) return null;
+  return (
+    <span className="pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] text-[var(--color-muted)]" data-testid="ed-lane-hint">
+      {text}
+    </span>
+  );
+}
+
 export function AudioLane({
   view,
   scale,
@@ -206,9 +216,7 @@ export function AudioLane({
     if (!emptyHint) return null;
     return (
       <div className="relative mt-1 h-5" data-testid="ed-audio-lane-empty">
-        <span className="pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] text-[var(--color-muted)]" data-testid="ed-lane-hint">
-          {emptyHint}
-        </span>
+        <LaneHint text={emptyHint} />
       </div>
     );
   }

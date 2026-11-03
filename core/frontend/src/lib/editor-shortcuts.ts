@@ -25,7 +25,8 @@ export type ActionId =
   | "openProject"
   | "showShortcuts";
 
-export type Bindings = Record<ActionId, Binding>;
+/** Every action's key; `null` = not assigned (it lost its key to another action). */
+export type Bindings = Record<ActionId, Binding | null>;
 
 /** Display order (also the order `matchAction` tries them in). */
 export const ACTIONS: readonly ActionId[] = [
@@ -45,7 +46,7 @@ export const ACTIONS: readonly ActionId[] = [
   "showShortcuts",
 ];
 
-export const DEFAULT_BINDINGS: Bindings = {
+export const DEFAULT_BINDINGS: Record<ActionId, Binding> = {
   playPause: { key: "Space" },
   split: { key: "s" },
   crop: { key: "c" },
@@ -110,7 +111,8 @@ function normalize(b: Binding): Binding {
   return out;
 }
 
-export function sameBinding(a: Binding, b: Binding): boolean {
+export function sameBinding(a: Binding | null, b: Binding | null): boolean {
+  if (!a || !b) return false;
   const x = normalize(a);
   const y = normalize(b);
   return x.key === y.key && !!x.ctrl === !!y.ctrl && !!x.shift === !!y.shift && !!x.alt === !!y.alt;
@@ -129,9 +131,21 @@ export function isFixed(b: Binding): boolean {
   return n.key === "z" && !!n.ctrl && !n.alt;
 }
 
-/** The action a key press triggers. Nothing while typing in a text field. */
+/** Controls that Enter / Space press by themselves. */
+function pressesItself(t: EventTarget | null): boolean {
+  if (!(t instanceof Element)) return false;
+  if (t.closest("button, a[href], summary, [role=button], [role=switch], [role=checkbox], [role=tab]")) return true;
+  if (t instanceof HTMLInputElement) return ["button", "submit", "reset", "checkbox", "radio"].includes(t.type);
+  return false;
+}
+
+/**
+ * The action a key press triggers. Nothing while typing in a text field, and never Enter or
+ * Space on a focused button: those press the button, whatever they are bound to.
+ */
 export function matchAction(e: KeyboardEvent, bindings: Bindings): ActionId | null {
   if (isTypingTarget(e.target)) return null;
+  if ((e.key === "Enter" || e.key === " ") && pressesItself(e.target)) return null;
   const b = bindingFromEvent(e);
   if (!b) return null;
   return ACTIONS.find((a) => sameBinding(bindings[a], b)) ?? null;
@@ -162,14 +176,32 @@ function asBinding(v: unknown): Binding | null {
   return normalize({ key: o.key, ctrl: o.ctrl as boolean, shift: o.shift as boolean, alt: o.alt as boolean });
 }
 
-/** The stored deviations laid over the defaults; anything unusable keeps its default. */
+/**
+ * The stored deviations laid over the defaults. Anything unusable keeps its default. A stored key
+ * wins over another action's default: that action is left unassigned (`null`), never silently
+ * unreachable behind a duplicate. `null` stored = deliberately unassigned.
+ */
 export function mergeWithDefaults(stored: unknown): Bindings {
   const out: Bindings = { ...DEFAULT_BINDINGS };
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) return out;
   const s = stored as Record<string, unknown>;
+  const fromStore = new Set<ActionId>();
   for (const a of ACTIONS) {
+    if (s[a] === null) {
+      out[a] = null;
+      fromStore.add(a);
+      continue;
+    }
     const b = asBinding(s[a]);
-    if (b && !isFixed(b)) out[a] = b;
+    if (!b || isFixed(b)) continue;
+    // Two stored keys on one chord: the first (display order) keeps it.
+    if (ACTIONS.some((o) => fromStore.has(o) && sameBinding(out[o], b))) continue;
+    out[a] = b;
+    fromStore.add(a);
+  }
+  for (const a of ACTIONS) {
+    if (fromStore.has(a)) continue;
+    if (ACTIONS.some((o) => fromStore.has(o) && sameBinding(out[o], out[a]))) out[a] = null;
   }
   return out;
 }
@@ -177,7 +209,11 @@ export function mergeWithDefaults(stored: unknown): Bindings {
 /** Only what differs from the defaults is stored, so a later default change still arrives. */
 export function storedDeviations(bindings: Bindings): Partial<Bindings> {
   const out: Partial<Bindings> = {};
-  for (const a of ACTIONS) if (!sameBinding(bindings[a], DEFAULT_BINDINGS[a])) out[a] = normalize(bindings[a]);
+  for (const a of ACTIONS) {
+    const b = bindings[a];
+    if (!b) out[a] = null;
+    else if (!sameBinding(b, DEFAULT_BINDINGS[a])) out[a] = normalize(b);
+  }
   return out;
 }
 

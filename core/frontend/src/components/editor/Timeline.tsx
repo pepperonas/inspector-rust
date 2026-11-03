@@ -29,8 +29,9 @@ import {
 import { useT, type MessageKey } from "../../lib/i18n";
 import { copyRegions, cutRegions, pasteRegions, selectionAfterPaste, type ClipboardRegions, type Selection } from "../../lib/clipboard-regions";
 import { snapGuide, snapTargets, type Snapping } from "../../lib/timeline-snap";
-import { AudioLane, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
-import { DEFAULT_BINDINGS, formatBinding, matchAction, type Bindings } from "../../lib/editor-shortcuts";
+import { AudioLane, LaneHint, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
+import { useKeyLabel } from "./bindings-context";
+import { DEFAULT_BINDINGS, matchAction, type Binding, type Bindings } from "../../lib/editor-shortcuts";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -45,15 +46,6 @@ const ANN_LABEL: Record<RecordAnnotationKind, MessageKey> = {
   arrow: "rec4.ann.kind_arrow",
   blur: "rec4.ann.kind_blur",
 };
-
-/** An empty lane names the key that fills it. */
-function LaneHint({ text }: { text: string }) {
-  return (
-    <span className="pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] text-[var(--color-muted)]" data-testid="ed-lane-hint">
-      {text}
-    </span>
-  );
-}
 
 const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
 /** Upward drag of this many px doubles a region's speed. */
@@ -157,7 +149,12 @@ export function Timeline({
   bindings?: Bindings;
 }) {
   const t = useT();
-  const keyLabel = (b: Bindings[keyof Bindings]) => formatBinding(b, t("rec4.keys.space"));
+  const keyLabel = useKeyLabel();
+  /** An empty lane's note: "Z: add zoom"; nothing when the action has no key. */
+  const hint = (key: MessageKey, b: Binding | null) => (b ? t(key, { key: keyLabel(b) }) : null);
+  const audioHint = [hint("rec4.keys.hint_music", bindings.addAudio), hint("rec4.keys.hint_voiceover", bindings.addVoiceover)]
+    .filter(Boolean)
+    .join(" · ");
   const track = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -646,7 +643,7 @@ export function Timeline({
         {/* Annotation lane (above the zoom track): blocks from Rust's programme spans */}
         {annotationSpans.length === 0 && (
           <div className="relative mt-1 h-5" data-testid="ed-ann-track-empty">
-            <LaneHint text={t("rec4.keys.hint_annotation", { key: keyLabel(bindings.addAnnotation) })} />
+            <LaneHint text={hint("rec4.keys.hint_annotation", bindings.addAnnotation)} />
           </div>
         )}
         {annotationSpans.length > 0 && (
@@ -710,7 +707,7 @@ export function Timeline({
 
         {/* Zoom track */}
         <div className="relative mt-1 h-5" data-testid="ed-zoom-track">
-          {view.zooms.length === 0 && <LaneHint text={t("rec4.keys.hint_zoom", { key: keyLabel(bindings.addZoom) })} />}
+          {view.zooms.length === 0 && <LaneHint text={hint("rec4.keys.hint_zoom", bindings.addZoom)} />}
           {view.zooms.map((span) => {
             const z = doc.zooms[span.index];
             const clipSpan = z ? view.clips[z.clip] : undefined;
@@ -771,7 +768,7 @@ export function Timeline({
           resolveEdge={resolveTrackEdge}
           snapping={snapping}
           onGuide={setLaneGuide}
-          emptyHint={t("rec4.keys.hint_audio", { music: keyLabel(bindings.addAudio), voice: keyLabel(bindings.addVoiceover) })}
+          emptyHint={audioHint || undefined}
         />
 
         {/* Snap guide: while a drag sits on a target */}

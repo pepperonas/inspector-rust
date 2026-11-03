@@ -1,0 +1,129 @@
+{
+  "about": "Golden cases for layout::composite_layout. 'upstream:' cases copy the inputs and the asserted values of OpenScreen v2.1.2 src/lib/compositeLayout.test.ts (only what that test asserts is listed under expect). 'derived:' cases were computed by hand from the rules in compositeLayout.ts:447-646; the arithmetic is in 'math'. Rects are output pixels [x, y, width, height]; maxContentSize = canvas is padding 0, 1536x864 in 1920x1080 is padding 50 (fixed format). Upstream's default mask is 'rectangle' with roundness 0.4 and size 40, anchor bottom-right.",
+  "cases": [
+    {
+      "name": "small screen scaled up to the canvas",
+      "source": "upstream: computeCompositeLayout > scales small screen content up to the export canvas when no padding is applied",
+      "out": [1280, 720], "screen": [854, 480], "camera": null,
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [0, 0, 1280, 720]}
+    },
+    {
+      "name": "rounding-only aspect gap snaps to the canvas",
+      "source": "upstream: computeCompositeLayout > snaps rounding-only source aspect gaps to the full canvas",
+      "out": [319, 199], "screen": [1680, 1050], "camera": null,
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [0, 0, 319, 199]}
+    },
+    {
+      "name": "dual-frame without a camera falls back to the screen",
+      "source": "upstream: computeCompositeLayout > falls back to the screen alone in dual-frame when the clip has no camera (screen, camera) + masks the screen with its box for the two block presets only (dual-frame without a camera -> screenCover false)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": null,
+      "look": {"preset": "dual-frame", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 50, "frame": "none", "even_border": false,
+      "expect": {"screen": [192, 108, 1536, 864], "camera": null, "screen_cover": false}
+    },
+    {
+      "name": "vertical-stack without a camera falls back to the screen",
+      "source": "upstream: computeCompositeLayout > falls back to the screen alone in vertical-stack when the clip has no camera",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": null,
+      "look": {"preset": "vertical-stack", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 50, "frame": "none", "even_border": false,
+      "expect": {"screen": [192, 108, 1536, 864], "camera": null}
+    },
+    {
+      "name": "camera capped at 60 % of the short side",
+      "source": "upstream: computeCompositeLayout > caps the camera at 60% of the short side (648 x 365) + keeps the same margin from the border at every anchor (bottom-right: right edge 1920-22, bottom edge 1080-22, margin = round(1080*0.02) = 22; x = 1898-648, y = 1058-365)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 60, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera": [1250, 693, 648, 365]}
+    },
+    {
+      "name": "size above the range clamps to 60",
+      "source": "upstream: computeCompositeLayout > caps the camera at 60% of the short side (size 80 -> height 365)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 80, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera_height": 365}
+    },
+    {
+      "name": "top-left anchor at the minimum size",
+      "source": "upstream: computeCompositeLayout > keeps the same margin from the border at every anchor (top-left at WEBCAM_SIZE_MIN: x = y = margin = 22)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 15, "mask": "rectangle", "roundness": 0.4, "anchor": "top-left"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera_x": 22, "camera_y": 22}
+    },
+    {
+      "name": "fully round square is a circle",
+      "source": "upstream: computeCompositeLayout > rounds by the roundness, and a fully round square is a circle (width == height, borderRadius = width / 2)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 25, "mask": "square", "roundness": 1, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera_square": true, "camera_radius_frac": 0.5, "mask": "square"}
+    },
+    {
+      "name": "roundness 0 draws square corners",
+      "source": "upstream: computeCompositeLayout > rounds by the roundness, and a fully round square is a circle (roundness 0 -> borderRadius 0)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera_radius_frac": 0.0, "screen_radius_frac": null, "screen_cover": false}
+    },
+    {
+      "name": "picture-in-picture does not cover the screen",
+      "source": "upstream: computeCompositeLayout > masks the screen with its box for the two block presets only (picture-in-picture -> false)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen_cover": false}
+    },
+    {
+      "name": "no-webcam does not cover the screen and has no camera",
+      "source": "upstream: computeCompositeLayout > masks the screen with its box for the two block presets only (no-webcam -> false)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "no-webcam", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen_cover": false, "camera": null, "screen": [0, 0, 1920, 1080]}
+    },
+    {
+      "name": "dual-frame, 16:9 in 16:9, no padding",
+      "source": "derived",
+      "math": "h = 0.5625, cross = h; alongForFill = (1920/1080)*0.5625 - 1 - 0.02 = -0.02 -> clamped to cross/1.25 = 0.45; block = (1 + 0.02 + 0.45, 0.5625) = (1.47, 0.5625); scale = min(1920/1.47, 1080/0.5625) = 1306.1224; originX = 0, originY = (1080 - 734.6939)/2 = 172.6531; screen = snap(0, 172.65, 1306.12, 734.69) = [0, 173, 1306, 907-173=734]; camera = snap(1.02*1306.12=1332.24, 172.65, 0.45*1306.12=587.76, 734.69) = [1332, 173, 1920-1332=588, 734]; radius = min(24, max(12, round(min(588,734)*0.06 = 35.28) = 35)) = 24 on both; frac = 24/734 for the screen (short side 734), 24/588 for the camera",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "dual-frame", "size_pct": 40, "mask": "square", "roundness": 0.7, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [0, 173, 1306, 734], "camera": [1332, 173, 588, 734], "screen_radius_px": 24, "camera_radius_px": 24, "screen_cover": true, "mask": "rectangle"}
+    },
+    {
+      "name": "vertical-stack, 16:9 in 16:9, no padding",
+      "source": "derived",
+      "math": "h = 0.5625, cross = 1; alongForFill = 1/(1920/1080) - 0.5625 - 0.02 = -0.02 -> clamped to 1/1.25 = 0.8; block = (1, 0.5625 + 0.02 + 0.8) = (1, 1.3825); scale = min(1920/1, 1080/1.3825) = 781.1935; originX = (1920 - 781.1935)/2 = 569.4033, originY = 0; screen = snap(569.40, 0, 781.19, 439.42) = [569, 0, 1351-569=782, 439]; camera = snap(569.40, 0.5825*781.19 = 455.05, 781.19, 0.8*781.19 = 624.95) = [569, 455, 782, 1080-455=625]; radius = min(24, max(8, round(min(782,625)*0.06 = 37.5) = 38)) = 24 on both",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "vertical-stack", "size_pct": 40, "mask": "square", "roundness": 0.7, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [569, 0, 782, 439], "camera": [569, 455, 782, 625], "screen_radius_px": 24, "camera_radius_px": 24, "screen_cover": true, "mask": "rectangle"}
+    },
+    {
+      "name": "picture-in-picture default size, rectangle, bottom-right",
+      "source": "derived",
+      "math": "margin = round(1080*0.02) = 22; max = 1080*0.40 = 432; scale = min(432/1280, 432/720) = 0.3375; w = round(432) = 432, h = round(243) = 243; x = round(22 + 1*(1920 - 44 - 432)) = 1466; y = round(22 + 1*(1080 - 44 - 243)) = 815; radius = round(0.4*243/2 = 48.6) = 49",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [0, 0, 1920, 1080], "camera": [1466, 815, 432, 243], "camera_radius_px": 49, "screen_radius_frac": null, "mask": "rectangle"}
+    },
+    {
+      "name": "camera-only fills the frame",
+      "source": "derived",
+      "math": "compositeLayout.ts:466-479: webcamRect = [0, 0, canvas], radius 0, rectangle; screenRect = centerRect(canvas, screen, maxContent) = whole canvas for a 16:9 screen at padding 0",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "camera-only", "size_pct": 40, "mask": "square", "roundness": 0.7, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen": [0, 0, 1920, 1080], "camera": [0, 0, 1920, 1080], "camera_radius_frac": 0.0, "screen_cover": false, "mask": "rectangle"}
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 //! mirror `vendor/openscreen-compositor/src/scene.rs` (serde camelCase) exactly — the port of
 //! OpenScreen v2.1.2 `buildSceneDescription` (`src/native/sceneDescription.ts`) for one recording
 //! without webcam: effects, background, `layout.screenRect` (+ `layoutByClip`) from
-//! [`layout::screen_rect`], zoom regions bounded by [`layout::max_zoom_scale`], the cursor with
+//! [`layout::composite_layout`] (no camera yet: [`layout::screen_rect`]), zoom regions bounded by [`layout::max_zoom_scale`], the cursor with
 //! its sprite map, and the click sound. Stage-7 fields stay off (`rotation: null`,
 //! `model3d: false`, `depthOfField: false`).
 //!
@@ -86,7 +86,10 @@ pub fn screen_boxes(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, out:
     (0..doc.clips.len())
         .map(|i| {
             let src = editor::clip_source_size(meta, takes, doc, i);
-            (layout::screen_rect(out, src.0 as f64 / src.1 as f64, a.padding, a.frame, even_border), src)
+            // No camera in the document yet: every clip resolves to `no-webcam` (stage 5 Task 4
+            // passes the clip's real camera and look here).
+            let look = layout::CameraLook::none();
+            (layout::composite_layout(out, src.0 as f64 / src.1 as f64, None, &look, a.padding, a.frame, even_border).screen, src)
         })
         .collect()
 }

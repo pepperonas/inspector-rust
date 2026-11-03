@@ -1564,7 +1564,7 @@ pub fn clip_source_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, 
 /// (crop included), the padding and the frame (OpenScreen `autoAspectRatioValue`).
 pub fn auto_ratio(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc) -> f64 {
     let (w, h) = clip_source_size(meta, takes, doc, 0);
-    super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame)
+    super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame, super::layout::LayoutPreset::NoWebcam)
 }
 
 /// Export frame size of `doc` for `target`. `Aspect::Auto` takes `auto_ratio`; its LONG side

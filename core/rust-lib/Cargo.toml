@@ -30,6 +30,8 @@ base64 = { workspace = true }
 # `record` editor: wire protocol of the `ir-record-render` helper (platform-free).
 record-render-protocol = { path = "../../record-render-protocol" }
 dirs = { workspace = true }
+# Live transcription: wire types + session files; the engine runs in `ir-transcribe`.
+transcribe-protocol = { path = "../../transcribe-protocol" }
 clipboard-rs = { workspace = true }
 # `tls` (rustls) enables HTTPS for the Shazam discovery API (shazam.rs); the
 # other ureq callers (hue LAN, ip-api) use plain HTTP and are unaffected.

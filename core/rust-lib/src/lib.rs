@@ -66,6 +66,9 @@ mod mailcheck;
 mod md_to_pdf;
 mod transcribe;
 mod live_transcribe;
+mod meeting;
+mod meeting_ui;
+mod transcribe_client;
 mod media_name;
 mod media_trim;
 mod meme;
@@ -519,6 +522,14 @@ pub fn run(context: tauri::Context<Wry>) {
             sync::start(app.handle().clone(), db_handle.clone());
             device_sync::start(app.handle().clone(), db_handle.clone());
             auto_backup::start(app.handle().clone(), db_handle.clone());
+            // Live transcription: events from the helper, and sessions a
+            // previous run left open (kill -9, crash) marked aborted.
+            meeting::init(app.handle());
+            {
+                let app = app.handle().clone();
+                let db = db_handle.clone();
+                std::thread::spawn(move || meeting::recover_at_start(&app, &db));
+            }
             // AI tasks: approved scripts on their intervals/schedules/events.
             ai_tasks::scheduler::start(app.handle().clone(), db_handle.clone());
 
@@ -1322,6 +1333,17 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::social_metadata,
             commands::zdf_page_videos,
             commands::transcribe_live_start,
+            commands::meeting_start,
+            commands::meeting_stop,
+            commands::meeting_status,
+            commands::meeting_set_source,
+            commands::meeting_sessions,
+            commands::get_meeting_config,
+            commands::set_meeting_config,
+            commands::meeting_model_status,
+            commands::meeting_model_download,
+            commands::meeting_model_cancel,
+            commands::meeting_input_devices,
             commands::transcribe_live_stop,
             commands::transcribe_live_status,
             commands::transcribe_live_cancel,
@@ -1379,6 +1401,7 @@ pub fn run(context: tauri::Context<Wry>) {
             record::editor_ipc::shutdown(_app);
             boom::shutdown();
             live_transcribe::restore_output();
+            transcribe_client::shutdown();
         }
     });
 }

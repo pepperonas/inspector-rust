@@ -9630,3 +9630,81 @@ pub fn set_github_config(
     config.save(&db)?;
     Ok(crate::github::service::GithubConfig::load(&db))
 }
+
+
+// ── meeting: live transcription of microphone + system audio ────────────────
+
+#[tauri::command]
+pub async fn meeting_start(
+    db: State<'_, DbHandle>,
+    sources: Option<Vec<transcribe_protocol::Source>>,
+) -> Result<crate::meeting::MeetingState, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::meeting::start(&db, sources))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn meeting_stop() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::meeting::stop).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn meeting_status() -> crate::meeting::MeetingState {
+    crate::meeting::status()
+}
+
+#[tauri::command]
+pub async fn meeting_set_source(source: transcribe_protocol::Source, on: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::meeting::set_source(source, on))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn meeting_sessions(db: State<'_, DbHandle>) -> Result<Vec<transcribe_protocol::session::SessionSummary>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::meeting::sessions(&db))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_meeting_config(db: State<'_, DbHandle>) -> crate::meeting::MeetingConfig {
+    crate::meeting::MeetingConfig::load(&db)
+}
+
+#[tauri::command]
+pub fn set_meeting_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    config: crate::meeting::MeetingConfig,
+) -> Result<crate::meeting::MeetingConfig, String> {
+    let cfg = config.normalized();
+    cfg.save(&db)?;
+    crate::meeting_ui::apply_config(&app, &cfg);
+    Ok(cfg)
+}
+
+#[tauri::command]
+pub fn meeting_model_status() -> Vec<crate::meeting::ModelStatus> {
+    crate::meeting::model_status()
+}
+
+#[tauri::command]
+pub async fn meeting_model_download(model: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::meeting::download_model(&model))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn meeting_model_cancel() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::meeting::cancel_download).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn meeting_input_devices() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(crate::meeting::input_devices).await.map_err(|e| e.to_string())
+}

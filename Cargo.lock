@@ -3129,6 +3129,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "transcribe-protocol",
  "trash",
  "tungstenite",
  "ureq 2.12.1",

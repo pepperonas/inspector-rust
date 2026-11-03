@@ -848,7 +848,7 @@ export function Timeline({
                   key={r.id}
                   data-testid="ed-layout"
                   data-preset={r.preset}
-                  aria-selected={sel}
+                  data-selected={sel ? "" : undefined}
                   title={t("rec5.cam.region_block", { preset: name })}
                   onPointerDown={(e) => {
                     e.stopPropagation();
@@ -857,7 +857,7 @@ export function Timeline({
                     setDrag({ kind: "layout", id: r.id, clip: r.clip, x0: e.clientX, dx: 0, span, clipSpan });
                   }}
                   className={
-                    "absolute top-0 flex h-full cursor-ew-resize items-center overflow-hidden rounded-sm border border-teal-400 bg-teal-500/60 px-1.5 text-[10px] font-medium text-white " +
+                    "absolute top-0 flex h-full cursor-grab items-center overflow-hidden rounded-sm border border-teal-400 bg-teal-500/60 px-1.5 text-[10px] font-medium text-white " +
                     (sel ? " ring-2 ring-[var(--color-accent)]" : "")
                   }
                   style={{ left: left * scale, width: Math.max(10, (span.progEndMs - left) * scale) }}

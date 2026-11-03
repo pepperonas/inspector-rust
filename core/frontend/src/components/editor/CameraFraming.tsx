@@ -101,7 +101,6 @@ export function CameraFraming({
         tabIndex={disabled ? -1 : 0}
         role="group"
         aria-label={t("rec5.cam.framing")}
-        title={t("rec5.cam.framing_hint")}
         onKeyDown={onKey}
         className="relative w-full overflow-hidden rounded-md bg-black outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         style={{ aspectRatio: String(aspect) }}

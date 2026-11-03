@@ -217,6 +217,7 @@ export function Inspector(props: InspectorProps) {
             onLive={props.onLive}
             onLiveEnd={props.onLiveEnd}
             onAddRegion={props.onAddLayoutRegion ?? (() => undefined)}
+            selected={selectedLayout}
           />
         )}
         {tab === "zoom" && <ZoomTab {...props} />}

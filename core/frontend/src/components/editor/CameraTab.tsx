@@ -31,7 +31,7 @@ export interface CameraTabProps {
   view: Pick<RecordEditorView, "doc" | "layoutSpans" | "clipCameras">;
   /** Playhead, programme ms. */
   positionMs: number;
-  /** Whether the helper can cut the camera's background out; `null` while asking. */
+  /** Whether the helper can cut the camera's background out; `null` while asking (effects stay offered). */
   segmentation: boolean | null;
   /** The camera file to frame on (asset URL), `null` when none can be shown. */
   cameraSrc: string | null;
@@ -42,6 +42,8 @@ export interface CameraTabProps {
   onCommit: (doc: RecordEditDoc) => void;
   onLive: (doc: RecordEditDoc) => void;
   onLiveEnd: () => void;
+  /** The layout region selected on the timeline: it is the one "from here" edits, wherever the playhead is. */
+  selected?: string | null;
   /** "From here" outside any region: a region with `preset` at the playhead (Rust maps it). */
   onAddRegion: (preset: RecordLayoutPreset) => void;
 }
@@ -125,7 +127,15 @@ export function CameraTab(p: CameraTabProps) {
   const c = doc.camera;
   const hasCamera = hasAnyCamera(p.view);
   const regions = (doc.layoutRegions ?? []).length > 0;
-  const passage = regions ? passageAt(p.view, p.positionMs) : null;
+  // A selected region wins over the playhead's (its passage from Rust's span).
+  const selectedSpan = p.selected
+    ? (p.view.layoutSpans ?? []).find((s) => p.view.doc.layoutRegions[s.index]?.id === p.selected)
+    : undefined;
+  const passage = !regions
+    ? null
+    : selectedSpan
+      ? { id: p.selected as string, progStartMs: selectedSpan.progStartMs, progEndMs: selectedSpan.progEndMs }
+      : passageAt(p.view, p.positionMs);
   // "From here" when the playhead sits in a region; the user's choice otherwise (until it moves in/out).
   const [scopeChoice, setScopeChoice] = useState<"all" | "here" | null>(null);
   const [seenPassage, setSeenPassage] = useState(passage?.id ?? null);
@@ -145,7 +155,9 @@ export function CameraTab(p: CameraTabProps) {
     else p.onAddRegion(preset);
   };
   const isPip = shownPreset === "picture-in-picture";
-  const segOk = p.segmentation === true;
+  // Effects stay offered until the helper says a definite no (`null` = still asking: no lock
+  // without a reason; a scene effect the helper cannot run is drawn without it).
+  const segOk = p.segmentation !== false;
   const bg = c.background;
   const roundness = effectiveRoundness(c);
 

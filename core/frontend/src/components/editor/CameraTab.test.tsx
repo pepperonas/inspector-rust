@@ -98,6 +98,20 @@ describe("camera tab", () => {
     expect(lastCommit(p).layoutRegions[0].preset).toBe("camera-only");
   });
 
+  it("a selected region far from the playhead is the one edited", () => {
+    const d = doc({ layoutRegions: [{ id: "far", clip: 0, startMs: 8_000, preset: "camera-only" }] });
+    const view = { doc: d, layoutSpans: [{ index: 0, progStartMs: 8_000, progEndMs: 10_000 }], clipCameras: [true] };
+    const p = mount(d, { view, positionMs: 2_000, selected: "far" });
+    expect(screen.getByRole("button", { name: "From here" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("ed-camera-scope").textContent).toContain("0:08");
+    expect(screen.getByRole("button", { name: "Camera only" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Dual frame" }));
+    const next = lastCommit(p);
+    expect(next.layoutRegions).toEqual([{ id: "far", clip: 0, startMs: 8_000, preset: "dual-frame" }]);
+    expect(next.camera.preset).toBe("picture-in-picture");
+    expect(p.onAddRegion).not.toHaveBeenCalled();
+  });
+
   it("'from here' before any region adds one at the playhead", () => {
     const d = doc({ layoutRegions: [{ id: "r", clip: 0, startMs: 4_000, preset: "camera-only" }] });
     const view = { doc: d, layoutSpans: [{ index: 0, progStartMs: 4_000, progEndMs: 10_000 }], clipCameras: [true] };
@@ -153,6 +167,12 @@ describe("camera tab", () => {
     const p = mount(doc(), { segmentation: true });
     fireEvent.click(screen.getByRole("button", { name: "Blur" }));
     expect(lastCommit(p).camera.background.mode).toBe("blur");
+    expect(screen.queryByTestId("ed-camera-seg-off")).toBeNull();
+  });
+
+  it("while the helper is still asked, the effects stay offered (only a definite no locks them)", () => {
+    mount(doc(), { segmentation: null });
+    expect((screen.getByRole("button", { name: "Blur" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByTestId("ed-camera-seg-off")).toBeNull();
   });
 

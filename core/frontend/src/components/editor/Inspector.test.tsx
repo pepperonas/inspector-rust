@@ -197,6 +197,17 @@ describe("Inspector", () => {
     expect(screen.getByTestId("ed-camera-controls")).toBeTruthy();
   });
 
+  it("a layout block selected far from the playhead is the region the camera tab edits", () => {
+    const base = doc0();
+    const d = { ...base, camera: { ...base.camera, preset: "picture-in-picture" as const }, layoutRegions: [{ id: "far", clip: 0, startMs: 8_000, preset: "camera-only" as const }] };
+    const view = { doc: d, layoutSpans: [{ index: 0, progStartMs: 8_000, progEndMs: 10_000 }], clipCameras: [true] };
+    const { props } = mount({ doc: d, view, positionMs: 2_000, selectedLayout: "far" });
+    fireEvent.click(screen.getByRole("button", { name: "Dual frame" }));
+    const next = (props.onCommit as ReturnType<typeof vi.fn>).mock.calls[0][0] as RecordEditDoc;
+    expect(next.layoutRegions).toEqual([{ id: "far", clip: 0, startMs: 8_000, preset: "dual-frame" }]);
+    expect(next.camera.preset).toBe("picture-in-picture");
+  });
+
   describe("zoom tab", () => {
     const z = (id: string, origin: "auto" | "manual", over: Partial<RecordEditDoc["zooms"][number]> = {}) => ({
       id,

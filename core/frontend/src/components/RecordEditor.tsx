@@ -501,7 +501,6 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       });
   }, [playing, applyPlayback, report]);
 
-  /** Source position of the playhead, without moving it. */
   // The helper names its model once it is ready: ask per session and after a restart.
   useEffect(() => {
     if (!init || fatal) return;
@@ -514,6 +513,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     };
   }, [init?.sessionId, fatal]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Source position of the playhead, without moving it. */
   const sourceHere = useCallback(
     () =>
       editorToSource(posRef.current).catch((e) => {

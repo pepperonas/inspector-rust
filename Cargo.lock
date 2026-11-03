@@ -7413,12 +7413,16 @@ name = "transcribe-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dirs 5.0.1",
  "flate2",
  "hound",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
+ "tracing",
  "transcribe-protocol",
+ "ureq 2.12.1",
 ]
 
 [[package]]

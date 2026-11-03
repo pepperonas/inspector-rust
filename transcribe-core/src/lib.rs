@@ -6,3 +6,4 @@ pub mod writer;
 pub mod segment;
 pub mod dedupe;
 pub mod queue;
+pub mod model;

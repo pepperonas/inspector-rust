@@ -151,6 +151,29 @@ impl Stream {
     }
 }
 
+/// The pipeline's `Transcriber` on top of one shared engine: a whisper
+/// state per source.
+pub struct WhisperTranscriber {
+    engine: std::sync::Arc<Engine>,
+    streams: std::collections::HashMap<crate::protocol::Source, Stream>,
+}
+
+impl WhisperTranscriber {
+    pub fn new(engine: std::sync::Arc<Engine>) -> Self {
+        WhisperTranscriber { engine, streams: Default::default() }
+    }
+}
+
+impl crate::pipeline::Transcriber for WhisperTranscriber {
+    fn decode(&mut self, source: crate::protocol::Source, samples: &[f32], opts: &DecodeOpts) -> Result<Decoded, String> {
+        if !self.streams.contains_key(&source) {
+            let s = self.engine.new_stream()?;
+            self.streams.insert(source, s);
+        }
+        self.streams.get_mut(&source).expect("just inserted").decode(samples, opts)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

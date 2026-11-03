@@ -63,6 +63,7 @@ cp "${REPO_ROOT}/target/${TRIPLE}/release/ir-ocr" "${APP}/Contents/MacOS/ir-ocr"
 # for the x86_64 DMG the script is a no-op and the editor reports the helper
 # as missing). Before signing, like the ir-ocr helper.
 bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${APP}" "${TRIPLE}"
+bash "${REPO_ROOT}/scripts/bundle-transcribe.sh" "${APP}" "${TRIPLE}"
 
 echo "▸ Sealing ${APP} (ad-hoc deep sign)…"
 
@@ -75,6 +76,9 @@ if [[ -f "${INFO_PLIST}" ]]; then
     "${INFO_PLIST}"
   plutil -replace NSMicrophoneUsageDescription -string \
     'Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").' \
+    "${INFO_PLIST}"
+  plutil -replace NSAudioCaptureUsageDescription -string \
+    'Inspector Rust transcribes system audio only while you run a transcription.' \
     "${INFO_PLIST}"
   plutil -replace NSCameraUsageDescription -string \
     'Inspector Rust uses the camera to record you as a separate track in screen recordings ("record") — only when you turn the camera on for a recording.' \

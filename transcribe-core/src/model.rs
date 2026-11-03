@@ -64,7 +64,11 @@ pub fn find(id: &str) -> Option<&'static ModelInfo> {
     MODELS.iter().find(|m| m.id == id)
 }
 
+/// `IR_TRANSCRIBE_MODELS_DIR` overrides the folder (tests, diagnostics).
 pub fn models_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("IR_TRANSCRIBE_MODELS_DIR") {
+        return PathBuf::from(d);
+    }
     dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("InspectorRust")

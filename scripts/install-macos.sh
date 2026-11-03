@@ -109,6 +109,7 @@ source_sha256() {
            core/frontend/package.json core/frontend/tsconfig.json \
            core/frontend/vite.config.ts \
            ocr-helper record-render record-render-protocol \
+           transcribe-core transcribe-helper transcribe-protocol scripts/bundle-transcribe.sh \
            vendor/openscreen-compositor vendor/ffmpeg-licence \
            scripts/bundle-record-render.sh scripts/build-ffmpeg-macos.sh \
            macos/src-tauri/src macos/src-tauri/Cargo.toml \
@@ -414,11 +415,13 @@ if [[ -f "${INFO_PLIST}" ]]; then
   if [[ "${OS_LANG}" == de* ]]; then
     AE_DESC='Inspector Rust nutzt Apple Events, um deine Finder-Auswahl zu lesen, damit das Popup Aktionen (Größe ändern, OCR, …) auf die ausgewählten Dateien anwenden kann.'
     MIC_DESC='Inspector Rust nutzt das Mikrofon zur Live-BPM-Erkennung („bpm“ im Popup) und, wenn du es wählst, um deine Stimme bei Bildschirmaufnahmen („record“) als eigene Spur aufzunehmen.'
+    AUDIO_CAPTURE_DESC='Inspector Rust transkribiert den Systemton nur, während du eine Transkription startest.'
     CAM_DESC='Inspector Rust nutzt die Kamera, um dich bei Bildschirmaufnahmen („record“) als eigene Spur aufzunehmen — nur wenn du die Kamera für eine Aufnahme einschaltest.'
     BT_DESC='Inspector Rust nutzt Bluetooth für den „btsniff“-Live-Scan — er listet nahe sendende Bluetooth-LE-Geräte zur Inspektion. Aufzeichnungen bleiben auf diesem Mac.'
   else
     AE_DESC='Inspector Rust uses Apple Events to read your Finder selection so the popup can run actions (resize, OCR, …) on the files you have selected.'
     MIC_DESC='Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").'
+    AUDIO_CAPTURE_DESC='Inspector Rust transcribes system audio only while you run a transcription.'
     CAM_DESC='Inspector Rust uses the camera to record you as a separate track in screen recordings ("record") — only when you turn the camera on for a recording.'
     BT_DESC='Inspector Rust uses Bluetooth for the "btsniff" live scan — it lists nearby advertising Bluetooth LE devices for inspection. Captures stay on this Mac.'
   fi
@@ -440,6 +443,11 @@ if [[ -f "${INFO_PLIST}" ]]; then
   else
     echo "  ⚠ plutil replace of NSMicrophoneUsageDescription failed — Microphone prompt may show generic copy"
   fi
+
+  # NSAudioCaptureUsageDescription: the Core Audio process tap of the live
+  # transcription (ir-transcribe) asks for "audio capture" with this text.
+  plutil -replace NSAudioCaptureUsageDescription -string "${AUDIO_CAPTURE_DESC}" \
+       "${INFO_PLIST}" 2>/dev/null || echo "  ⚠ plutil replace of NSAudioCaptureUsageDescription failed"
 
   # Same trick for NSCameraUsageDescription — required by macOS before
   # AVFoundation may ask for the camera; without it TCC ends the process
@@ -508,6 +516,8 @@ fi
 # failure: a bundle whose helper points at a build-machine path must not ship.
 # See scripts/bundle-record-render.sh.
 bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${INSTALL_PATH}"
+# The live transcription helper (whisper.cpp on Metal). See scripts/bundle-transcribe.sh.
+bash "${REPO_ROOT}/scripts/bundle-transcribe.sh" "${INSTALL_PATH}"
 
 # Stamp the source hash *before* signing so the file is covered by the
 # code signature's resource seal. Writing it afterwards adds an unsealed

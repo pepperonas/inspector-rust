@@ -5356,6 +5356,8 @@ export interface RecordEditorView {
   speed: { index: number; progStartMs: number; progEndMs: number }[];
   /** Zoom regions in programme ms (`index` into `doc.zooms`; Rust's mapping). */
   zooms: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Annotations in programme ms (`index` into `doc.annotations`; Rust's mapping). */
+  annotationSpans?: { index: number; progStartMs: number; progEndMs: number }[];
   /** Recorded clicks on the programme clock (the preview's click sound). */
   clickHits: RecordClickHit[];
   /** Per clip: the screen's box in the output `[x, y, w, h]` (fractions). */
@@ -5563,6 +5565,8 @@ export interface EditorAssets {
   /** Click sound press / release WAVs (null when the bundle lacks them). */
   clickDown: string | null;
   clickUp: string | null;
+  /** The bundled annotation fonts (absolute paths; the picker shows each name in its face). */
+  fonts?: { family: string; regular: string; bold: string }[];
 }
 export function editorAssets(): Promise<EditorAssets> {
   return invoke("editor_assets");

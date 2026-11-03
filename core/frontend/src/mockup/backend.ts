@@ -592,7 +592,26 @@ let edDoc: EdDoc = {
   },
   zooms: [],
   autoZoomDone: true,
-  annotations: [],
+  // Invented annotations, one of each kind (stage 4): a title, an arrow, a blur over an
+  // "e-mail address", and an image waiting for its file.
+  annotations: [
+    {
+      id: "ann-title", clip: 0, startMs: 1_000, endMs: 5_500, x: 8, y: 8, w: 44, h: 12, zIndex: 1,
+      body: {
+        kind: "text", content: "Welcome to Northwind", color: "#ffffff", background: "rgba(0, 0, 0, 0.7)", fontSize: 48,
+        fontFamily: "Inter", bold: true, italic: false, underline: false, align: "center", animation: "rise",
+      },
+    },
+    { id: "ann-arrow", clip: 0, startMs: 3_000, endMs: 7_000, x: 60, y: 40, w: 14, h: 14, zIndex: 2, body: { kind: "arrow", direction: "down-left", color: "#34B27B", strokeWidth: 6 } },
+    {
+      id: "ann-blur", clip: 1, startMs: 12_000, endMs: 18_000, x: 55, y: 18, w: 30, h: 10, zIndex: 3,
+      body: {
+        kind: "blur", style: "mosaic", shape: "freehand", color: "white", intensity: 12, blockSize: 12,
+        points: [[10, 30], [25, 10], [55, 8], [82, 20], [90, 45], [78, 72], [52, 90], [22, 84], [8, 58]],
+      },
+    },
+    { id: "ann-image", clip: 1, startMs: 19_000, endMs: 22_000, x: 70, y: 70, w: 20, h: 20, zIndex: 4, body: { kind: "image", file: "" } },
+  ],
   audioTracks: [],
   systemGainDb: 0,
 };
@@ -640,12 +659,20 @@ function edView(doc: EdDoc) {
       const off = clips[z.clip].progStartMs - doc.clips[z.clip].startMs;
       return { index, progStartMs: z.startMs + off, progEndMs: z.endMs + off };
     });
+  // Annotations the same way (mockup only; the app gets these spans from Rust).
+  const annotationSpans = ((doc.annotations ?? []) as { clip: number; startMs: number; endMs: number }[])
+    .map((a, index) => ({ a, index }))
+    .filter(({ a }) => doc.clips[a.clip])
+    .map(({ a, index }) => {
+      const off = clips[a.clip].progStartMs - doc.clips[a.clip].startMs;
+      return { index, progStartMs: a.startMs + off, progEndMs: a.endMs + off };
+    });
   const clickHits = [4_200, 9_800, 15_300].flatMap((ms) => [
     { progMs: ms, gain: 1, release: false },
     { progMs: ms + 90, gain: 0.7, release: true },
   ]);
   const screenRects = doc.clips.map(() => [0.06, 0.06, 0.88, 0.88] as [number, number, number, number]);
-  return { doc, programmeMs: Math.round(t), clips, speed, zooms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  return { doc, programmeMs: Math.round(t), clips, speed, zooms, annotationSpans, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;

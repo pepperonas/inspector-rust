@@ -100,7 +100,8 @@ const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   // Spans for the mock only (1× everywhere): the component never computes them itself.
   const speed = doc.speed.map((r, index) => ({ index, progStartMs: r.startMs, progEndMs: r.endMs }));
   const zooms = doc.zooms.map((z, index) => ({ index, progStartMs: z.startMs, progEndMs: z.endMs }));
-  return { doc, programmeMs: t, clips, speed, zooms, clickHits: [], screenRects: doc.clips.map(() => [0, 0, 1, 1]), outputSize: [1920, 1080] };
+  const annotationSpans = doc.annotations.map((a, index) => ({ index, progStartMs: a.startMs, progEndMs: a.endMs }));
+  return { doc, programmeMs: t, clips, speed, zooms, annotationSpans, clickHits: [], screenRects: doc.clips.map(() => [0, 0, 1, 1]), outputSize: [1920, 1080] };
 };
 const init = (helperError: string | null = null, sessionId = 1, title = "Take", view = viewOf(doc0)): EditorInit => ({
   sessionId,
@@ -605,5 +606,43 @@ describe("RecordEditor", () => {
     });
     expect(editorDuplicateClip).toHaveBeenCalledWith(1, 1);
   });
-});
 
+  it("an annotation picked with Tab opens its settings and preview handles; typing in it drives nothing", async () => {
+    const note: RecordEditDoc = {
+      ...doc0,
+      annotations: [
+        {
+          id: "t1", clip: 0, startMs: 1_000, endMs: 3_000, x: 10, y: 10, w: 30, h: 20, zIndex: 1,
+          body: {
+            kind: "text", content: "", color: "#ffffff", background: "transparent", fontSize: 32, fontFamily: "Inter",
+            bold: true, italic: false, underline: false, align: "center", animation: "none",
+          },
+        },
+      ],
+    };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf(note)));
+    const { getByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "Tab" });
+    });
+    expect(getByTestId("ed-ann-overlay")).toBeTruthy();
+    const field = getByTestId("ed-ann-content");
+    editorToSource.mockClear();
+    await act(async () => {
+      for (const key of ["s", "S", "c", "a", "z", " ", "Tab", "Backspace", "Delete"]) fireEvent.keyDown(field, { key });
+      fireEvent.change(field, { target: { value: "sacz" } });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    // No split, crop, new annotation or zoom, no delete: the keys were text.
+    expect(editorToSource).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-testid="ed-crop"]')).toBeNull();
+    await act(async () => {
+      fireEvent.blur(field);
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    const sent = lastSent() as RecordEditDoc;
+    expect(sent.clips).toEqual(note.clips);
+    expect(sent.annotations).toHaveLength(1);
+    expect(sent.annotations[0].body).toMatchObject({ kind: "text", content: "sacz" });
+  });
+});

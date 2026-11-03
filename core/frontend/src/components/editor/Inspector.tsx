@@ -1,6 +1,7 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useState } from "react";
 import type {
   EditorAssets,
+  RecordAnnotationKind,
   RecordAspect,
   RecordBackground,
   RecordEditDoc,
@@ -12,10 +13,8 @@ import {
   BOUNCE_LEVELS,
   COLOR_PRESETS,
   GRADIENT_PRESETS,
-  INSPECTOR_RANGES,
   SHADOW_LEVELS,
   ZOOM_DEPTHS,
-  clampSetting,
   fmtZoom,
   motionAllowed,
   removeAutoZooms,
@@ -24,8 +23,9 @@ import {
   setCursorStyle,
   updateZoom,
   zoomScale,
-  type InspectorSetting,
 } from "../../lib/editor";
+import { Chip, Chips, Group, Slider, Swatch, Toggle, chipClass } from "./InspectorParts";
+import { AnnotationTab } from "./AnnotationTab";
 import { useT, type MessageKey } from "../../lib/i18n";
 
 export interface InspectorProps {
@@ -49,14 +49,20 @@ export interface InspectorProps {
   onSelectZoom: (id: string | null) => void;
   /** Plans auto-zooms (Rust `editor_auto_zoom`); the editor records the answer as one step. */
   onAutoZoom: () => void;
+  /** The annotation (`id`) selected on the timeline or with Tab; the annotation tab edits it. */
+  selectedAnnotation?: string | null;
+  onSelectAnnotation?: (id: string | null) => void;
+  /** A new annotation of `kind` at the playhead. */
+  onAddAnnotation?: (kind: RecordAnnotationKind) => void;
 }
 
-type Tab = "background" | "frame" | "cursor" | "zoom";
+type Tab = "background" | "frame" | "cursor" | "zoom" | "annotation";
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
   { id: "frame", label: "rec3.insp.tab_frame" },
   { id: "cursor", label: "rec3.insp.tab_cursor" },
   { id: "zoom", label: "rec3.zoom.tab" },
+  { id: "annotation", label: "rec4.ann.tab" },
 ];
 const MOTIONS: { id: RecordWallpaperMotion; label: MessageKey }[] = [
   { id: "none", label: "rec3.insp.motion_none" },
@@ -93,16 +99,22 @@ const fmt = (v: number, digits: number) => (Math.round(v * 10 ** digits) / 10 **
  */
 export function Inspector(props: InspectorProps) {
   const t = useT();
-  const [tab, setTab] = useState<Tab>(props.selectedZoom ? "zoom" : "background");
-  // Selecting a zoom on the timeline brings its settings up (derived during render).
+  const selectedAnnotation = props.selectedAnnotation ?? null;
+  const [tab, setTab] = useState<Tab>(props.selectedZoom ? "zoom" : selectedAnnotation ? "annotation" : "background");
+  // Selecting a zoom or an annotation brings its settings up (derived during render).
   const [seenZoom, setSeenZoom] = useState(props.selectedZoom);
   if (props.selectedZoom !== seenZoom) {
     setSeenZoom(props.selectedZoom);
     if (props.selectedZoom) setTab("zoom");
   }
+  const [seenAnnotation, setSeenAnnotation] = useState(selectedAnnotation);
+  if (selectedAnnotation !== seenAnnotation) {
+    setSeenAnnotation(selectedAnnotation);
+    if (selectedAnnotation) setTab("annotation");
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ed-inspector">
-      <div role="tablist" aria-label={t("rec3.insp.title")} className="flex gap-1 border-b border-[var(--color-border)] px-3 py-2">
+      <div role="tablist" aria-label={t("rec3.insp.title")} className="flex flex-wrap gap-1 border-b border-[var(--color-border)] px-3 py-2">
         {TABS.map((x) => (
           <button
             key={x.id}
@@ -123,6 +135,19 @@ export function Inspector(props: InspectorProps) {
         {tab === "frame" && <FrameTab {...props} />}
         {tab === "cursor" && <CursorTab {...props} />}
         {tab === "zoom" && <ZoomTab {...props} />}
+        {tab === "annotation" && (
+          <AnnotationTab
+            doc={props.doc}
+            selected={selectedAnnotation}
+            onSelect={props.onSelectAnnotation ?? (() => undefined)}
+            onAdd={props.onAddAnnotation ?? (() => undefined)}
+            onCommit={props.onCommit}
+            onLive={props.onLive}
+            onLiveEnd={props.onLiveEnd}
+            onImport={props.onImport}
+            projectAssetUrl={props.projectAssetUrl}
+          />
+        )}
       </div>
     </div>
   );
@@ -499,122 +524,5 @@ function ZoomTab({ doc, assets, selectedZoom, onSelectZoom, onAutoZoom, onCommit
         </>
       )}
     </>
-  );
-}
-
-// ── small parts ─────────────────────────────────────────────────────────────
-
-function Group({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className="space-y-1.5">
-      <h3 className="text-[11px] font-medium text-[var(--color-muted)]">{label}</h3>
-      {children}
-      {hint && <p className="text-[11px] text-[var(--color-muted)]">{hint}</p>}
-    </section>
-  );
-}
-
-const Chips = ({ children }: { children: ReactNode }) => <div className="flex flex-wrap gap-1">{children}</div>;
-
-const chipClass = (active: boolean) =>
-  "rounded-md border px-2 py-1 text-[11px] transition-colors duration-(--duration-fast) ease-sharp disabled:opacity-40 " +
-  (active
-    ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-    : "border-[var(--color-border)] hover:bg-[var(--color-bg)]");
-
-function Chip({ label, active, disabled, onClick }: { label: string; active: boolean; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button type="button" aria-pressed={active} disabled={disabled} onClick={onClick} className={chipClass(active)}>
-      {label}
-    </button>
-  );
-}
-
-function Swatch({
-  label,
-  title,
-  active,
-  onClick,
-  className,
-  style,
-  children,
-}: {
-  label: string;
-  title?: string;
-  active: boolean;
-  onClick: () => void;
-  className?: string;
-  style?: CSSProperties;
-  children?: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      aria-pressed={active}
-      title={title ?? label}
-      onClick={onClick}
-      style={style}
-      className={
-        "rounded-md border-2 p-0 transition-colors duration-(--duration-fast) ease-sharp " +
-        (active ? "border-[var(--color-accent)]" : "border-transparent hover:border-[var(--color-border)]") +
-        (className ? ` ${className}` : "")
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between gap-2 text-[12px]">
-      {label}
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-    </label>
-  );
-}
-
-function Slider({
-  label,
-  setting,
-  value,
-  format,
-  onLive,
-  onEnd,
-  bare,
-}: {
-  label: string;
-  setting: InspectorSetting;
-  value: number;
-  format: (v: number) => string;
-  onLive: (v: number) => void;
-  onEnd: () => void;
-  /** Inside a group that already shows the label. */
-  bare?: boolean;
-}) {
-  const r = INSPECTOR_RANGES[setting];
-  return (
-    <label className="block space-y-1 text-[12px]">
-      {!bare && (
-        <span className="flex justify-between">
-          <span>{label}</span>
-          <span className="tabular-nums text-[var(--color-muted)]">{format(value)}</span>
-        </span>
-      )}
-      <input
-        type="range"
-        min={r.min}
-        max={r.max}
-        step={r.step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onLive(clampSetting(setting, Number(e.target.value)))}
-        onPointerUp={onEnd}
-        onKeyUp={onEnd}
-        onBlur={onEnd}
-        className="w-full"
-      />
-    </label>
   );
 }

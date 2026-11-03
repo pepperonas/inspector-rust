@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Scissors,
   Trash2,
+  Type,
   Undo2,
   ZoomIn,
   WandSparkles,
@@ -39,6 +40,7 @@ import {
   type EditorInit,
   type EditorPlayback,
   type EditorSourcePos,
+  type RecordAnnotationKind,
   type RecordEditDoc,
   type RecordEditorView,
 } from "../lib/ipc";
@@ -47,6 +49,7 @@ import {
   LiveGesture,
   MAX_MIC_DB,
   MIN_MIC_DB,
+  addAnnotation,
   addSpeed,
   addZoom,
   clipAt,
@@ -61,7 +64,9 @@ import {
   setMicGain,
   setSpeedValue,
   splitAt,
+  updateAnnotation,
   updateZoom,
+  zoomActiveAt,
   type ClipMedia,
   type CropPreset,
 } from "../lib/editor";
@@ -74,6 +79,8 @@ import { TakePicker } from "./editor/TakePicker";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
 import { FocusOverlay } from "./editor/FocusOverlay";
+import { AnnotationOverlay, type AnnotationPatch } from "./editor/AnnotationOverlay";
+import { registerAnnotationFonts } from "./editor/AnnotationTab";
 
 const POSITION_POLL_MS = 66;
 const THUMB_DEBOUNCE_MS = 600;
@@ -163,7 +170,17 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [],
   );
   const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
-  const [selectedZoom, setSelectedZoom] = useState<string | null>(null);
+  const [selectedZoom, setSelectedZoomRaw] = useState<string | null>(null);
+  const [selectedAnnotation, setSelectedAnnotationRaw] = useState<string | null>(null);
+  // One region is selected at a time: Delete and the inspector act on exactly one.
+  const setSelectedZoom = useCallback((id: string | null) => {
+    setSelectedZoomRaw(id);
+    if (id) setSelectedAnnotationRaw(null);
+  }, []);
+  const setSelectedAnnotation = useCallback((id: string | null) => {
+    setSelectedAnnotationRaw(id);
+    if (id) setSelectedZoomRaw(null);
+  }, []);
   /** Neutral one-liner beside the save state (e.g. what auto-zoom added). */
   const [info, setInfo] = useState<string | null>(null);
   const infoTimer = useRef(0);
@@ -190,7 +207,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           setView(i.view);
           setFatal(i.helperError);
           editorAssets()
-            .then((a) => !dead && setAssets(a))
+            .then((a) => {
+              if (dead) return;
+              setAssets(a);
+              registerAnnotationFonts(a.fonts ?? [], shippedUrl);
+            })
             .catch((e) => !dead && report(e));
         }
       })
@@ -443,7 +464,21 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     if (next === doc || !made) return;
     commit(next);
     setSelectedZoom(made.id);
-  }, [commit, sourceHere, cur]);
+  }, [commit, sourceHere, cur, setSelectedZoom]);
+
+  const addAnnotationHere = useCallback(
+    async (kind: RecordAnnotationKind) => {
+      const at = await sourceHere();
+      const doc = cur();
+      if (!at || !doc) return;
+      const next = addAnnotation(doc, kind, at.clip, at.sourceMs);
+      const made = next.annotations[next.annotations.length - 1];
+      if (next === doc || !made) return;
+      commit(next);
+      setSelectedAnnotation(made.id);
+    },
+    [commit, sourceHere, cur, setSelectedAnnotation],
+  );
 
   /** Auto-zoom: Rust plans and stores; the answer becomes one undo step here. */
   const autoZoom = useCallback(() => {
@@ -630,6 +665,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const asset = (f: string) => convertFileSrc(`${dir}/${f}`);
   const zoomSel = selectedZoom ? (doc.zooms.find((z) => z.id === selectedZoom) ?? null) : null;
   const zoomRect = zoomSel ? (view.screenRects?.[zoomSel.clip] ?? ([0, 0, 1, 1] as [number, number, number, number])) : null;
+  const annSel = selectedAnnotation ? (doc.annotations.find((a) => a.id === selectedAnnotation) ?? null) : null;
+  const annPatch = (p: AnnotationPatch) => {
+    if (!annSel) return null;
+    const { points, ...box } = p;
+    const base = cur() ?? doc;
+    return updateAnnotation(base, annSel.id, points ? { ...box, body: { points } } : box);
+  };
   const hasCursorData = !!assets?.hasCursorData;
   const mainMedia = { width: meta.width, height: meta.height, systemAudio: meta.systemAudio, micOffsetMs: meta.mic?.offsetMs ?? null };
   const fileOf = (m: ClipMedia, f: string) => asset(m.dir ? `${m.dir}/${f}` : f);
@@ -689,7 +731,22 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
+          annSel && !cropMode && !fatal ? (
+            <AnnotationOverlay
+              annotation={annSel}
+              screenRect={view.screenRects?.[annSel.clip] ?? null}
+              zoomActive={zoomActiveAt(view, annSel.clip, pos)}
+              onLive={(p) => {
+                const next = annPatch(p);
+                if (next) inspectorLive(next);
+              }}
+              onEnd={inspectorLiveEnd}
+              onCommit={(p) => {
+                const next = annPatch(p);
+                if (next) commit(next);
+              }}
+            />
+          ) : zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
             <FocusOverlay
               rect={zoomRect}
               focus={{ x: zoomSel.focusX, y: zoomSel.focusY }}
@@ -760,6 +817,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             selectedZoom={zoomSel?.id ?? null}
             onSelectZoom={setSelectedZoom}
             onAutoZoom={autoZoom}
+            selectedAnnotation={annSel?.id ?? null}
+            onSelectAnnotation={setSelectedAnnotation}
+            onAddAnnotation={(k) => void addAnnotationHere(k)}
           />
         )}
       </aside>
@@ -806,6 +866,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         </button>
         <button className={iconBtn} onClick={() => void addZoomHere()} title={t("rec3.zoom.add_hint")}>
           <ZoomIn size={14} /> {t("rec3.zoom.add")}
+        </button>
+        <button className={iconBtn} onClick={() => void addAnnotationHere("text")} title={t("rec4.ann.toolbar_hint")} data-testid="ed-add-annotation">
+          <Type size={14} /> {t("rec4.ann.toolbar")}
         </button>
         <button
           className={iconBtn}
@@ -864,6 +927,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onSelectZoom={setSelectedZoom}
           keysEnabled={!exportOpen && !cropMode}
           onMoveClip={moveClip}
+          selectedAnnotation={annSel?.id ?? null}
+          onSelectAnnotation={setSelectedAnnotation}
         />
       </div>
 

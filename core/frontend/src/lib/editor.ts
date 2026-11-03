@@ -751,3 +751,154 @@ export function setSystemGain(doc: RecordEditDoc, db: number): RecordEditDoc {
   const [lo, hi] = SYSTEM_GAIN_RANGE;
   return { ...doc, systemGainDb: Number.isFinite(db) ? Math.min(hi, Math.max(lo, db)) : 0 };
 }
+
+// ── annotation editing (stage 4, Task 6) ────────────────────────────────────
+
+/** An annotation box `{x, y, w, h}` in percent (0…100) of its anchor (frame or screen). */
+export type AnnBox = { x: number; y: number; w: number; h: number };
+/** Smallest box side, percent (Rust's `normalize` clamps w/h to 1…100). */
+export const MIN_ANNOTATION_PCT = 1;
+/** A free-form blur keeps at least this many points (fewer: Rust falls back to the default). */
+export const MIN_FREEHAND_POINTS = 3;
+/** What a pointer grabs on the box: its body, or one of the 8 size handles (compass points). */
+export type BoxHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+export const BOX_HANDLES: readonly Exclude<BoxHandle, "move">[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+/**
+ * `box` after a drag of `(dx, dy)` percent on `handle`. Moving keeps the size and stays inside
+ * 0…100; a size handle moves only its own edges — the opposite edge or corner stays put — and
+ * stops at the anchor's edge and at `MIN_ANNOTATION_PCT`.
+ */
+export function dragAnnotationBox(box: AnnBox, handle: BoxHandle, dx: number, dy: number): AnnBox {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const w = clamp(box.w, MIN_ANNOTATION_PCT, 100);
+  const h = clamp(box.h, MIN_ANNOTATION_PCT, 100);
+  if (handle === "move") {
+    return { x: clamp(box.x + dx, 0, 100 - w), y: clamp(box.y + dy, 0, 100 - h), w, h };
+  }
+  let left = box.x;
+  let top = box.y;
+  let right = box.x + w;
+  let bottom = box.y + h;
+  if (handle.includes("w")) left = clamp(left + dx, 0, right - MIN_ANNOTATION_PCT);
+  if (handle.includes("e")) right = clamp(right + dx, left + MIN_ANNOTATION_PCT, 100);
+  if (handle.includes("n")) top = clamp(top + dy, 0, bottom - MIN_ANNOTATION_PCT);
+  if (handle.includes("s")) bottom = clamp(bottom + dy, top + MIN_ANNOTATION_PCT, 100);
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/**
+ * The annotation Tab (`back`: Shift+Tab) selects next: ordered by programme start (Rust's
+ * `annotationSpans`), ties by list order. Nothing selected: the first (Shift: the last).
+ * `null` when there are none. Returns the annotation's id.
+ */
+export function nextAnnotationId(
+  doc: Pick<RecordEditDoc, "annotations">,
+  spans: readonly { index: number; progStartMs: number }[],
+  current: string | null,
+  back: boolean,
+): string | null {
+  const order = [...spans]
+    .filter((s) => doc.annotations[s.index])
+    .sort((a, b) => a.progStartMs - b.progStartMs || a.index - b.index)
+    .map((s) => doc.annotations[s.index].id);
+  if (order.length === 0) return null;
+  const at = current ? order.indexOf(current) : -1;
+  if (at < 0) return back ? order[order.length - 1] : order[0];
+  return order[(at + (back ? -1 : 1) + order.length) % order.length];
+}
+
+/** Squared distance from `p` to the segment `a–b`. */
+function segDist2(p: readonly [number, number], a: readonly [number, number], b: readonly [number, number]): number {
+  const vx = b[0] - a[0];
+  const vy = b[1] - a[1];
+  const len2 = vx * vx + vy * vy;
+  const t = len2 > 0 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / len2)) : 0;
+  const dx = p[0] - (a[0] + t * vx);
+  const dy = p[1] - (a[1] + t * vy);
+  return dx * dx + dy * dy;
+}
+
+const clampPct = (v: number) => Math.min(100, Math.max(0, v));
+
+/** The outline with `p` (percent of the box) inserted into its nearest edge (closed polygon). */
+export function insertFreehandPoint(points: readonly (readonly [number, number])[], p: readonly [number, number]): [number, number][] {
+  const q: [number, number] = [clampPct(p[0]), clampPct(p[1])];
+  const out = points.map(([x, y]) => [x, y] as [number, number]);
+  if (out.length < 2) return [...out, q];
+  let best = 0;
+  let bestD = Infinity;
+  for (let i = 0; i < out.length; i++) {
+    const d = segDist2(q, out[i], out[(i + 1) % out.length]);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  out.splice(best + 1, 0, q);
+  return out;
+}
+
+/** Point `i` moved to `p` (clamped into the box). */
+export function moveFreehandPoint(points: readonly (readonly [number, number])[], i: number, p: readonly [number, number]): [number, number][] {
+  return points.map(([x, y], j) => (j === i ? [clampPct(p[0]), clampPct(p[1])] : [x, y]));
+}
+
+/** Point `i` removed — unless that would leave fewer than `MIN_FREEHAND_POINTS` (unchanged then). */
+export function removeFreehandPoint(points: readonly (readonly [number, number])[], i: number): [number, number][] {
+  const copy = points.map(([x, y]) => [x, y] as [number, number]);
+  if (copy.length <= MIN_FREEHAND_POINTS || i < 0 || i >= copy.length) return copy;
+  copy.splice(i, 1);
+  return copy;
+}
+
+/**
+ * Where an annotation's box sits in the output, `[x, y, w, h]` in fractions: text, image and
+ * arrow measure the frame (the output itself); a blur measures the clip's screen box (Rust's
+ * `screenRects`, the unzoomed layout — never re-derived here).
+ */
+export function annotationOutputRect(
+  a: Pick<RecordAnnotation, "x" | "y" | "w" | "h" | "body">,
+  screen: readonly [number, number, number, number] | null,
+): [number, number, number, number] {
+  const [ox, oy, ow, oh] = a.body.kind === "blur" && screen ? screen : [0, 0, 1, 1];
+  return [ox + (a.x / 100) * ow, oy + (a.y / 100) * oh, (a.w / 100) * ow, (a.h / 100) * oh];
+}
+
+/**
+ * Whether a zoom of `clip` covers programme time `progMs` (Rust's zoom spans). A blur follows
+ * the zoomed content there, so its box no longer sits where the overlay would draw it.
+ */
+export function zoomActiveAt(view: Pick<RecordEditorView, "doc" | "zooms">, clip: number, progMs: number): boolean {
+  return view.zooms.some((s) => view.doc.zooms[s.index]?.clip === clip && s.progStartMs <= progMs && progMs < s.progEndMs);
+}
+
+/**
+ * Row per span so overlapping annotations stack instead of hiding each other (greedy, by
+ * programme start); at most `maxRows` rows — later overlaps share the last row.
+ */
+export function laneRows(spans: readonly { index: number; progStartMs: number; progEndMs: number }[], maxRows = 3): Map<number, number> {
+  const rowEnds: number[] = [];
+  const rows = new Map<number, number>();
+  for (const s of [...spans].sort((a, b) => a.progStartMs - b.progStartMs || a.index - b.index)) {
+    let r = rowEnds.findIndex((end) => end <= s.progStartMs);
+    if (r < 0) r = rowEnds.length < maxRows ? rowEnds.length : maxRows - 1;
+    rowEnds[r] = Math.max(rowEnds[r] ?? 0, s.progEndMs);
+    rows.set(s.index, r);
+  }
+  return rows;
+}
+
+/**
+ * The annotation `id` showing image `file`, under a FRESH id: the compositor caches an image
+ * per annotation id and only reloads when the path's length changes, and every imported file
+ * name has the same length — a new picture under the old id would keep the old texture.
+ */
+export function replaceAnnotationImage(doc: RecordEditDoc, id: string, file: string, newId: string): RecordEditDoc {
+  const a = doc.annotations.find((x) => x.id === id);
+  if (!a || a.body.kind !== "image") return doc;
+  return {
+    ...doc,
+    annotations: doc.annotations.map((x) => (x.id === id ? { ...x, id: newId, body: { kind: "image", file } } : x)),
+  };
+}

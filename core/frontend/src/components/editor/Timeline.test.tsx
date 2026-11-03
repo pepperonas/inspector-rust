@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { RecordEditDoc, RecordEditorView, RecordZoomRegion } from "../../lib/ipc";
+import type { RecordAnnotation, RecordAnnotationBody, RecordEditDoc, RecordEditorView, RecordZoomRegion } from "../../lib/ipc";
+import { defaultAnnotationBody } from "../../lib/editor";
 
 const toSource = vi.fn();
 vi.mock("../../lib/ipc", () => ({ editorToSource: (p: number) => toSource(p) }));
@@ -285,3 +286,145 @@ describe("Timeline clip reorder", () => {
   });
 });
 
+
+describe("Timeline annotation lane", () => {
+  const text = (id: string, clip: number, startMs: number, endMs: number, content = ""): RecordAnnotation => ({
+    id,
+    clip,
+    startMs,
+    endMs,
+    x: 50,
+    y: 50,
+    w: 30,
+    h: 20,
+    zIndex: 1,
+    body: { ...(defaultAnnotationBody("text") as Extract<RecordAnnotationBody, { kind: "text" }>), content },
+  });
+
+  /** Spans are Rust's answer; deliberately NOT what clip offsets would give (proves no TS math). */
+  function setupAnn(
+    annotations: RecordAnnotation[],
+    spans: { index: number; progStartMs: number; progEndMs: number }[],
+    over: { selectedAnnotation?: string | null; positionMs?: number } = {},
+  ) {
+    const doc = { ...doc0(), annotations } as RecordEditDoc;
+    const view: RecordEditorView = { ...view0(doc), annotationSpans: spans };
+    const onChange = vi.fn();
+    const onSelectAnnotation = vi.fn();
+    render(
+      <Timeline
+        view={view}
+        thumbs={[]}
+        positionMs={over.positionMs ?? 0}
+        durationMs={11_000}
+        selectedClip={null}
+        onSelect={() => undefined}
+        onSeek={() => undefined}
+        getDoc={() => doc}
+        onChange={onChange}
+        onError={() => undefined}
+        onSpeedValue={() => undefined}
+        onSpeedRemove={() => undefined}
+        onWidth={() => undefined}
+        selectedAnnotation={over.selectedAnnotation ?? null}
+        onSelectAnnotation={onSelectAnnotation}
+      />,
+    );
+    return { onChange, onSelectAnnotation };
+  }
+
+  it("draws one block per span where Rust placed it, labelled and coloured by kind", () => {
+    const arrow: RecordAnnotation = { ...text("b", 1, 7_000, 8_000), body: defaultAnnotationBody("arrow") };
+    setupAnn([text("a", 0, 1_000, 2_000, "Hello"), arrow], [
+      { index: 0, progStartMs: 3_000, progEndMs: 4_000 },
+      { index: 1, progStartMs: 8_200, progEndMs: 9_500 },
+    ]);
+    const blocks = screen.getAllByTestId("ed-ann");
+    expect(blocks.map((b) => b.style.left)).toEqual(["300px", "820px"]);
+    expect(blocks.map((b) => b.style.width)).toEqual(["100px", "130px"]);
+    expect(blocks.map((b) => b.getAttribute("data-kind"))).toEqual(["text", "arrow"]);
+    expect(blocks[0].textContent).toBe("Hello");
+    expect(blocks[0].className).not.toBe(blocks[1].className);
+  });
+
+  it("overlapping annotations stack on separate rows", () => {
+    setupAnn([text("a", 0, 0, 3_000), text("b", 0, 1_000, 2_000), text("c", 0, 3_500, 4_000)], [
+      { index: 0, progStartMs: 0, progEndMs: 3_000 },
+      { index: 1, progStartMs: 1_000, progEndMs: 2_000 },
+      { index: 2, progStartMs: 3_500, progEndMs: 4_000 },
+    ]);
+    expect(screen.getAllByTestId("ed-ann").map((b) => b.style.top)).toEqual(["0px", "20px", "0px"]);
+  });
+
+  it("Tab walks annotations by programme start, Shift+Tab backwards, wrapping", () => {
+    // List order a, b, c; programme order c (1 s), a (4 s), b (6 s).
+    const anns = [text("a", 0, 0, 1_000), text("b", 0, 0, 1_000), text("c", 0, 0, 1_000)];
+    const spans = [
+      { index: 0, progStartMs: 4_000, progEndMs: 5_000 },
+      { index: 1, progStartMs: 6_000, progEndMs: 7_000 },
+      { index: 2, progStartMs: 1_000, progEndMs: 2_000 },
+    ];
+    const tab = (shiftKey = false) => {
+      const ev = new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      return ev;
+    };
+    const none = setupAnn(anns, spans);
+    expect(tab().defaultPrevented).toBe(true);
+    expect(none.onSelectAnnotation).toHaveBeenLastCalledWith("c");
+    cleanup();
+    const fromA = setupAnn(anns, spans, { selectedAnnotation: "a" });
+    tab();
+    expect(fromA.onSelectAnnotation).toHaveBeenLastCalledWith("b");
+    tab(true);
+    expect(fromA.onSelectAnnotation).toHaveBeenLastCalledWith("c");
+    cleanup();
+    const fromB = setupAnn(anns, spans, { selectedAnnotation: "b" });
+    tab();
+    expect(fromB.onSelectAnnotation).toHaveBeenLastCalledWith("c");
+  });
+
+  it("Tab on a focused button keeps moving the focus", () => {
+    const { onSelectAnnotation } = setupAnn([text("a", 0, 0, 1_000)], [{ index: 0, progStartMs: 0, progEndMs: 1_000 }]);
+    const btn = document.createElement("button");
+    document.body.appendChild(btn);
+    const ev = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onSelectAnnotation).not.toHaveBeenCalled();
+    btn.remove();
+  });
+
+  it("A adds a text annotation at the playhead and selects it", async () => {
+    const { onChange, onSelectAnnotation } = setupAnn([], [], { positionMs: 7_000 });
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true, cancelable: true }));
+    await flush();
+    const next = onChange.mock.calls[0][0] as RecordEditDoc;
+    expect(next.annotations).toHaveLength(1);
+    expect(next.annotations[0]).toMatchObject({ clip: 1, startMs: 8_000, endMs: 10_000 });
+    expect(next.annotations[0].body.kind).toBe("text");
+    expect(onSelectAnnotation).toHaveBeenCalledWith(next.annotations[0].id);
+  });
+
+  it("Delete removes the selected annotation (and nothing else)", () => {
+    const { onChange, onSelectAnnotation } = setupAnn([text("a", 0, 0, 1_000), text("b", 0, 0, 1_000)], [], { selectedAnnotation: "a" });
+    const ev = new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).annotations.map((a) => a.id)).toEqual(["b"]);
+    expect(onSelectAnnotation).toHaveBeenCalledWith(null);
+  });
+
+  it("dragging a block moves the annotation in its clip (no origin field)", async () => {
+    const { onChange, onSelectAnnotation } = setupAnn([text("a", 0, 1_000, 2_000)], [{ index: 0, progStartMs: 1_000, progEndMs: 2_000 }]);
+    const block = screen.getByTestId("ed-ann");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerUp(block, { clientX: 250, pointerId: 1 });
+    await flush();
+    expect(onSelectAnnotation).toHaveBeenCalledWith("a");
+    const a = (onChange.mock.calls[0][0] as RecordEditDoc).annotations[0];
+    expect(a).toMatchObject({ startMs: 2_000, endMs: 3_000 });
+    expect("origin" in a).toBe(false);
+  });
+});

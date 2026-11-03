@@ -92,7 +92,7 @@
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~268k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~270k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 2484 Rust + 3792 Frontend, alle grün">
@@ -127,7 +127,7 @@
   [![Crates](https://img.shields.io/badge/crates-890-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-538-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
   [![UI components](https://img.shields.io/badge/UI%20components-114-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
-  [![Test suites](https://img.shields.io/badge/test%20suites-363-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
+  [![Test suites](https://img.shields.io/badge/test%20suites-365-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-46-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
@@ -254,7 +254,7 @@
   [![Time tracking](.github/badges/timesheet-event-based-encrypted-ce422b-9f407ee0.svg)](./docs/timesheet.md)
   [![Privacy](.github/badges/privacy-offline-no-telemetry-success-1b1e254a.svg)](./docs/encryption.md)
   [![Rust LoC](https://img.shields.io/badge/Rust-~143k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![TS LoC](https://img.shields.io/badge/TypeScript-~125k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
+  [![TS LoC](https://img.shields.io/badge/TypeScript-~126k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
   [![Features](https://img.shields.io/badge/features-222-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](.github/badges/xdr-up-to-1600-nits-ffb300-683a54d2.svg)](#)
   [![Audio presets](.github/badges/boom-20-eq-presets-1db954-38c8049c.svg)](#)

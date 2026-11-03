@@ -677,6 +677,15 @@ pub struct ZoomSpan {
     pub prog_end_ms: u64,
 }
 
+/// One annotation on the programme timeline. `index` points into `EditDoc::annotations`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnotationSpan {
+    pub index: usize,
+    pub prog_start_ms: u64,
+    pub prog_end_ms: u64,
+}
+
 /// What the editor UI draws its timeline from.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -687,6 +696,9 @@ pub struct EditorView {
     pub speed: Vec<SpeedSpan>,
     /// Zoom regions in programme ms (Rust's mapping; the UI never converts source ms itself).
     pub zooms: Vec<ZoomSpan>,
+    /// Annotations in programme ms (Rust's mapping, like zooms): the annotation lane and the
+    /// Tab order (by programme start) read these, never source ms.
+    pub annotation_spans: Vec<AnnotationSpan>,
     /// The recorded clicks on the programme clock (`click_cues::click_hits`), for the preview's
     /// click sound. Filled by the editor session (empty from [`view`], which has no cursor data).
     pub click_hits: Vec<super::click_cues::ClickHit>,
@@ -1469,12 +1481,24 @@ pub fn view(doc: &EditDoc) -> EditorView {
             prog_end_ms: source_to_programme(doc, z.clip, z.end_ms),
         })
         .collect();
+    let annotation_spans = doc
+        .annotations
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| a.clip < doc.clips.len())
+        .map(|(index, a)| AnnotationSpan {
+            index,
+            prog_start_ms: source_to_programme(doc, a.clip, a.start_ms),
+            prog_end_ms: source_to_programme(doc, a.clip, a.end_ms),
+        })
+        .collect();
     EditorView {
         doc: doc.clone(),
         programme_ms: programme_duration_ms(doc),
         clips,
         speed,
         zooms,
+        annotation_spans,
         click_hits: Vec::new(),
         screen_rects: Vec::new(),
         output_size: [0, 0],
@@ -2150,6 +2174,35 @@ pub(crate) mod tests {
 
     fn with_annotations(clips: Vec<EditClip>, annotations: Vec<Annotation>) -> EditDoc {
         EditDoc { annotations, ..doc(clips, vec![]) }
+    }
+
+    #[test]
+    fn annotation_spans_in_programme_time() {
+        // Clip 0 = source 1–3 s (programme 0–2 s), clip 1 = source 6–10 s with a 2× region on
+        // 6–8 s (programme 2–3 s at 2×, then 3–5 s).
+        let mut d = with_annotations(
+            vec![clip(1_000, 3_000), clip(6_000, 10_000)],
+            vec![ann(1, 7_000, 9_000, text("late")), ann(0, 1_500, 2_500, text("early"))],
+        );
+        d.speed = vec![sr(1, 6_000, 8_000, 2.0)];
+        let v = view(&d);
+        assert_eq!(
+            v.annotation_spans,
+            vec![
+                AnnotationSpan { index: 0, prog_start_ms: 2_500, prog_end_ms: 4_000 },
+                AnnotationSpan { index: 1, prog_start_ms: 500, prog_end_ms: 1_500 },
+            ]
+        );
+        for s in &v.annotation_spans {
+            let a = &d.annotations[s.index];
+            assert_eq!(s.prog_start_ms, source_to_programme(&d, a.clip, a.start_ms));
+            assert_eq!(s.prog_end_ms, source_to_programme(&d, a.clip, a.end_ms));
+        }
+        // An annotation naming a clip that does not exist gets no span.
+        d.annotations.push(ann(5, 0, 1_000, text("orphan")));
+        assert_eq!(view(&d).annotation_spans.len(), 2);
+        let j = serde_json::to_value(view(&d)).unwrap();
+        assert_eq!(j["annotationSpans"][0]["progStartMs"], 2_500);
     }
 
     #[test]

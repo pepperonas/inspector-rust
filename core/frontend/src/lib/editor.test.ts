@@ -470,3 +470,90 @@ describe("clipMedia", () => {
   });
 });
 
+
+describe("annotation editing helpers (stage 4, Task 6)", () => {
+  it("dragAnnotationBox: a non-moving drag keeps the box; sizes never go under 1 %", async () => {
+    const { dragAnnotationBox } = await import("./editor");
+    const b = { x: 10, y: 20, w: 30, h: 40 };
+    expect(dragAnnotationBox(b, "move", 0, 0)).toEqual(b);
+    expect(dragAnnotationBox(b, "w", 500, 0)).toEqual({ x: 39, y: 20, w: 1, h: 40 });
+    expect(dragAnnotationBox(b, "n", 0, -500)).toEqual({ x: 10, y: 0, w: 30, h: 60 });
+    // A box bigger than the anchor (hand-edited) still moves inside 0…100.
+    expect(dragAnnotationBox({ x: 0, y: 0, w: 100, h: 100 }, "move", 30, 30)).toEqual({ x: 0, y: 0, w: 100, h: 100 });
+  });
+
+  it("nextAnnotationId ignores spans whose annotation is gone; ties keep list order", async () => {
+    const { nextAnnotationId } = await import("./editor");
+    const doc = { annotations: [{ id: "a" }, { id: "b" }] } as unknown as Pick<RecordEditDoc, "annotations">;
+    const spans = [
+      { index: 1, progStartMs: 0 },
+      { index: 0, progStartMs: 0 },
+      { index: 7, progStartMs: 0 },
+    ];
+    expect(nextAnnotationId(doc, spans, null, false)).toBe("a");
+    expect(nextAnnotationId(doc, spans, "a", false)).toBe("b");
+    expect(nextAnnotationId(doc, spans, "b", false)).toBe("a");
+    expect(nextAnnotationId(doc, spans, null, true)).toBe("b");
+    expect(nextAnnotationId({ annotations: [] }, [], null, false)).toBeNull();
+  });
+
+  it("freehand points: insert into the nearest edge, move clamped, remove keeps three", async () => {
+    const { insertFreehandPoint, moveFreehandPoint, removeFreehandPoint } = await import("./editor");
+    const tri: [number, number][] = [
+      [0, 0],
+      [100, 0],
+      [50, 100],
+    ];
+    // Nearest to the closing edge 50,100 → 0,0: inserted at the end.
+    expect(insertFreehandPoint(tri, [20, 50])).toEqual([[0, 0], [100, 0], [50, 100], [20, 50]]);
+    expect(insertFreehandPoint(tri, [50, -10])).toEqual([[0, 0], [50, 0], [100, 0], [50, 100]]);
+    expect(moveFreehandPoint(tri, 1, [150, -3])).toEqual([[0, 0], [100, 0], [50, 100]]);
+    expect(moveFreehandPoint(tri, 2, [40, 60])).toEqual([[0, 0], [100, 0], [40, 60]]);
+    expect(removeFreehandPoint(tri, 0)).toEqual(tri);
+    expect(removeFreehandPoint([...tri, [0, 50]], 3)).toEqual(tri);
+    // The input is never mutated.
+    expect(tri).toHaveLength(3);
+  });
+
+  it("annotationOutputRect: frame space for text/image/arrow, the screen box for a blur", async () => {
+    const { annotationOutputRect, defaultAnnotationBody } = await import("./editor");
+    const box = { x: 50, y: 50, w: 20, h: 10 };
+    expect(annotationOutputRect({ ...box, body: defaultAnnotationBody("text") }, [0.25, 0, 0.5, 1])).toEqual([0.5, 0.5, 0.2, 0.1]);
+    expect(annotationOutputRect({ ...box, body: defaultAnnotationBody("blur") }, [0.25, 0, 0.5, 1])).toEqual([0.5, 0.5, 0.1, 0.1]);
+    expect(annotationOutputRect({ ...box, body: defaultAnnotationBody("blur") }, null)).toEqual([0.5, 0.5, 0.2, 0.1]);
+  });
+
+  it("zoomActiveAt reads Rust's zoom spans of the same clip only", async () => {
+    const { zoomActiveAt } = await import("./editor");
+    const view = {
+      doc: { zooms: [{ clip: 0 }, { clip: 1 }] },
+      zooms: [
+        { index: 0, progStartMs: 1_000, progEndMs: 2_000 },
+        { index: 1, progStartMs: 5_000, progEndMs: 6_000 },
+      ],
+    } as unknown as Pick<RecordEditorView, "doc" | "zooms">;
+    expect(zoomActiveAt(view, 0, 1_500)).toBe(true);
+    expect(zoomActiveAt(view, 0, 2_000)).toBe(false);
+    expect(zoomActiveAt(view, 0, 5_500)).toBe(false);
+    expect(zoomActiveAt(view, 1, 5_500)).toBe(true);
+  });
+
+  it("laneRows stacks overlaps greedily and caps the rows", async () => {
+    const { laneRows } = await import("./editor");
+    const s = (index: number, a: number, b: number) => ({ index, progStartMs: a, progEndMs: b });
+    const rows = laneRows([s(0, 0, 10), s(1, 2, 4), s(2, 3, 5), s(3, 4, 6), s(4, 10, 12)], 3);
+    expect([0, 1, 2, 3, 4].map((i) => rows.get(i))).toEqual([0, 1, 2, 1, 0]);
+    // A fourth simultaneous one shares the last row.
+    expect(laneRows([s(0, 0, 9), s(1, 0, 9), s(2, 0, 9), s(3, 0, 9)], 3).get(3)).toBe(2);
+  });
+
+  it("replaceAnnotationImage swaps file and id of an image only", async () => {
+    const { replaceAnnotationImage, addAnnotation } = await import("./editor");
+    const start = addAnnotation(addAnnotation(base(), "image", 0, 0), "text", 0, 0);
+    const [img, txt] = start.annotations;
+    const next = replaceAnnotationImage(start, img.id, "new.png", "fresh");
+    expect(next.annotations[0]).toMatchObject({ id: "fresh", body: { kind: "image", file: "new.png" }, x: img.x, zIndex: img.zIndex });
+    expect(next.annotations[1]).toBe(txt);
+    expect(replaceAnnotationImage(start, txt.id, "x.png", "z")).toBe(start);
+  });
+});

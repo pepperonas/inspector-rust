@@ -97,6 +97,15 @@ pub struct ThemeAsset {
     pub preview: String,
 }
 
+/// One text-annotation font family, regular and bold (absolute paths), for the inspector's
+/// font picker: it shows each name in its own face.
+#[derive(Debug, Clone, Serialize)]
+pub struct FontAsset {
+    pub family: String,
+    pub regular: String,
+    pub bold: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditorAssets {
@@ -107,6 +116,8 @@ pub struct EditorAssets {
     /// The click sound's press / release WAVs (the preview plays the export's files).
     pub click_down: Option<String>,
     pub click_up: Option<String>,
+    /// The bundled annotation fonts (only families whose two files exist).
+    pub fonts: Vec<FontAsset>,
 }
 
 /// What the inspector offers: the shipped wallpapers and pointer themes (only those whose
@@ -127,12 +138,23 @@ pub fn editor_assets_for(assets: &AssetRoot, cursor: Option<&CursorRecording>) -
         .collect();
     let (down, up) = assets.click_sounds();
     let file = |p: PathBuf| p.is_file().then(|| p.to_string_lossy().into_owned());
+    let fonts_dir = assets.fonts_dir();
+    let fonts = super::editor::TEXT_FONTS
+        .iter()
+        .filter_map(|family| {
+            let stem = family.replace(' ', "");
+            let regular = file(fonts_dir.join(format!("{stem}-Regular.ttf")))?;
+            let bold = file(fonts_dir.join(format!("{stem}-Bold.ttf")))?;
+            Some(FontAsset { family: (*family).to_string(), regular, bold })
+        })
+        .collect();
     EditorAssets {
         wallpapers,
         themes,
         has_cursor_data: has_cursor_data(cursor),
         click_down: file(down),
         click_up: file(up),
+        fonts,
     }
 }
 
@@ -1574,6 +1596,7 @@ pub fn assets(app: &AppHandle) -> Result<EditorAssets, String> {
         (root.join("wallpapers").join("thumbs"), false),
         (root.join("cursors"), true),
         (root.join("sounds"), false),
+        (root.join("fonts"), false),
     ] {
         if let Err(e) = scope.allow_directory(&dir, recursive) {
             tracing::warn!(target: "record::editor", "asset scope {}: {e}", dir.display());
@@ -1874,6 +1897,10 @@ mod tests {
         assert_eq!(a.themes[0].id, "default");
         assert!(a.themes.iter().all(|t| t.preview.ends_with("arrow.png") && Path::new(&t.preview).is_file()));
         assert!(!a.has_cursor_data);
+        // The annotation font picker: every family, regular and bold, in TEXT_FONTS order.
+        let families: Vec<_> = a.fonts.iter().map(|f| f.family.as_str()).collect();
+        assert_eq!(families, crate::record::editor::TEXT_FONTS);
+        assert!(a.fonts.iter().all(|f| Path::new(&f.regular).is_file() && f.bold.ends_with("-Bold.ttf")));
         let json = serde_json::to_value(&a).unwrap();
         assert!(json.get("hasCursorData").is_some(), "{json}");
     }

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { editorToSource, type RecordEditDoc, type RecordEditorView } from "../../lib/ipc";
+import { editorToSource, type RecordAnnotationKind, type RecordEditDoc, type RecordEditorView } from "../../lib/ipc";
 import {
   MAX_SPEED,
+  addAnnotation,
+  laneRows,
+  nextAnnotationId,
+  removeAnnotation,
+  updateAnnotation,
   MIN_CLIP_MS,
   MIN_SPEED,
   SPEED_STEPS,
@@ -20,7 +25,21 @@ import {
   zoomScale,
   zoomSourceAt,
 } from "../../lib/editor";
-import { useT } from "../../lib/i18n";
+import { useT, type MessageKey } from "../../lib/i18n";
+
+/** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
+const ANN_COLOR: Record<RecordAnnotationKind, string> = {
+  text: "border-sky-400 bg-sky-500/70 text-white",
+  image: "border-emerald-400 bg-emerald-500/70 text-white",
+  arrow: "border-orange-400 bg-orange-500/70 text-white",
+  blur: "border-slate-300 bg-slate-500/70 text-white",
+};
+const ANN_LABEL: Record<RecordAnnotationKind, MessageKey> = {
+  text: "rec4.ann.kind_text",
+  image: "rec4.ann.kind_image",
+  arrow: "rec4.ann.kind_arrow",
+  blur: "rec4.ann.kind_blur",
+};
 
 const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
 /** Upward drag of this many px doubles a region's speed. */
@@ -41,6 +60,8 @@ type Drag =
   | { kind: "speed"; index: number; y0: number; value: number; moved: boolean }
   | {
       kind: "zoom";
+      /** Which lane the block lives on: both share the region geometry. */
+      lane: "zoom" | "annotation";
       id: string;
       mode: "move" | "start" | "end";
       x0: number;
@@ -78,6 +99,8 @@ export function Timeline({
   onSelectZoom = () => undefined,
   keysEnabled = true,
   onMoveClip,
+  selectedAnnotation = null,
+  onSelectAnnotation = () => undefined,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -101,6 +124,9 @@ export function Timeline({
   keysEnabled?: boolean;
   /** A clip dragged into another gap: Rust reorders (`editor_move_clip`). Off: no drag. */
   onMoveClip?: (from: number, to: number) => void;
+  /** The annotation (`id`) the inspector edits. */
+  selectedAnnotation?: string | null;
+  onSelectAnnotation?: (id: string | null) => void;
 }) {
   const t = useT();
   const track = useRef<HTMLDivElement>(null);
@@ -108,6 +134,7 @@ export function Timeline({
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
   const total = Math.max(1, view.programmeMs);
+  const rows = laneRows(view.annotationSpans ?? []);
   const scale = width / total;
   const doc = view.doc;
 
@@ -124,9 +151,10 @@ export function Timeline({
   }, [onWidth]);
 
   // Latest values for the window key handler (registered once per enable flip).
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom });
+  const annotationSpans = view.annotationSpans ?? [];
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans };
   });
   useEffect(() => {
     if (!keysEnabled) return;
@@ -135,7 +163,34 @@ export function Timeline({
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
       const cur = live.current;
-      if (e.key.toLowerCase() === "z") {
+      if (e.key === "Tab") {
+        // Tab between buttons and sliders keeps moving the focus; elsewhere it walks the
+        // annotations by programme start (Rust's spans).
+        if (e.target instanceof Element && e.target.closest("button, input, select, textarea, a[href], [tabindex]")) return;
+        const id = nextAnnotationId(cur.getDoc(), cur.annotationSpans, cur.selectedAnnotation, e.shiftKey);
+        if (!id) return;
+        e.preventDefault();
+        cur.onSelectAnnotation(id);
+        return;
+      }
+      if (e.key.toLowerCase() === "a" && !e.shiftKey) {
+        e.preventDefault();
+        void editorToSource(cur.positionMs)
+          .then((at) => {
+            if (!at) return;
+            const doc = cur.getDoc();
+            const next = addAnnotation(doc, "text", at.clip, at.sourceMs);
+            const made = next.annotations[next.annotations.length - 1];
+            if (next === doc || !made) return;
+            cur.onChange(next);
+            cur.onSelectAnnotation(made.id);
+          })
+          .catch(() => undefined);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedAnnotation) {
+        e.preventDefault();
+        cur.onChange(removeAnnotation(cur.getDoc(), cur.selectedAnnotation));
+        cur.onSelectAnnotation(null);
+      } else if (e.key.toLowerCase() === "z") {
         e.preventDefault();
         void editorToSource(cur.positionMs)
           .then((at) => {
@@ -202,10 +257,10 @@ export function Timeline({
     return d.mode === "move" ? moveZoomProg(d.span, d.clipSpan, delta) : trimZoomProg(d.span, d.clipSpan, d.mode, delta);
   };
 
-  /** Commits a zoom drag: programme edges → source through Rust, inside the zoom's clip. */
+  /** Commits a zoom or annotation drag: programme edges → source through Rust, inside its clip. */
   const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {
     const doc = getDoc();
-    const z = doc.zooms.find((x) => x.id === d.id);
+    const z = d.lane === "zoom" ? doc.zooms.find((x) => x.id === d.id) : doc.annotations.find((x) => x.id === d.id);
     const c = z ? doc.clips[z.clip] : undefined;
     if (!z || !c) return;
     const target = zoomPreview(d);
@@ -219,8 +274,9 @@ export function Timeline({
     } else if (d.mode === "start") startMs = await at(target.progStartMs);
     else endMs = await at(target.progEndMs);
     if (startMs === z.startMs && endMs === z.endMs) return;
+    if (d.lane === "annotation") onChange(updateAnnotation(getDoc(), d.id, { startMs, endMs }));
     // A planned zoom the user moved or trimmed is theirs now: "Remove auto-zooms" keeps it.
-    onChange(updateZoom(getDoc(), d.id, { startMs, endMs, origin: "manual" }));
+    else onChange(updateZoom(getDoc(), d.id, { startMs, endMs, origin: "manual" }));
   };
 
   /** Where a clip drag would drop (`null`: nowhere new, or still a click). */
@@ -466,13 +522,73 @@ export function Timeline({
           })}
         </div>
 
+        {/* Annotation lane (above the zoom track): blocks from Rust's programme spans */}
+        {annotationSpans.length > 0 && (
+          <div
+            className="relative mt-1"
+            style={{ height: 20 * (Math.max(0, ...rows.values()) + 1) }}
+            data-testid="ed-ann-track"
+          >
+            {annotationSpans.map((span) => {
+              const a = doc.annotations[span.index];
+              const clipSpan = a ? view.clips[a.clip] : undefined;
+              if (!a || !clipSpan) return null;
+              const d = drag?.kind === "zoom" && drag.lane === "annotation" && drag.id === a.id ? drag : null;
+              const g = d ? zoomPreview(d) : span;
+              const sel = selectedAnnotation === a.id;
+              const kind = a.body.kind;
+              const label =
+                kind === "text" && a.body.content.trim() ? a.body.content.trim() : t(ANN_LABEL[kind]);
+              const start = (mode: "move" | "start" | "end") => (e: ReactPointerEvent) => {
+                e.stopPropagation();
+                capture(e);
+                onSelectAnnotation(a.id);
+                setDrag({ kind: "zoom", lane: "annotation", id: a.id, mode, x0: e.clientX, dx: 0, span, clipSpan });
+              };
+              return (
+                <div
+                  key={a.id}
+                  data-testid="ed-ann"
+                  data-kind={kind}
+                  aria-selected={sel}
+                  title={`${t(ANN_LABEL[kind])} · ${label}`}
+                  onPointerDown={start("move")}
+                  className={
+                    "absolute flex h-[18px] cursor-grab items-center overflow-hidden rounded-sm border px-1.5 text-[10px] font-medium " +
+                    ANN_COLOR[kind] +
+                    (sel ? " ring-2 ring-[var(--color-accent)]" : "")
+                  }
+                  style={{
+                    left: g.progStartMs * scale,
+                    top: 20 * (rows.get(span.index) ?? 0),
+                    width: Math.max(10, (g.progEndMs - g.progStartMs) * scale),
+                  }}
+                >
+                  <span className="truncate">{label}</span>
+                  {(["start", "end"] as const).map((edge) => (
+                    <span
+                      key={edge}
+                      aria-label={edge === "start" ? t("rec4.ann.trim_start") : t("rec4.ann.trim_end")}
+                      onPointerDown={start(edge)}
+                      className={
+                        "absolute top-0 h-full w-1.5 cursor-ew-resize bg-white/60 opacity-0 transition-opacity duration-(--duration-fast) ease-sharp hover:opacity-100 " +
+                        (edge === "start" ? "left-0" : "right-0")
+                      }
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Zoom track */}
         <div className="relative mt-1 h-5" data-testid="ed-zoom-track">
           {view.zooms.map((span) => {
             const z = doc.zooms[span.index];
             const clipSpan = z ? view.clips[z.clip] : undefined;
             if (!z || !clipSpan) return null;
-            const d = drag?.kind === "zoom" && drag.id === z.id ? drag : null;
+            const d = drag?.kind === "zoom" && drag.lane === "zoom" && drag.id === z.id ? drag : null;
             const g = d ? zoomPreview(d) : span;
             const sel = selectedZoom === z.id;
             const auto = z.origin === "auto";
@@ -480,7 +596,7 @@ export function Timeline({
               e.stopPropagation();
               capture(e);
               onSelectZoom(z.id);
-              setDrag({ kind: "zoom", id: z.id, mode, x0: e.clientX, dx: 0, span, clipSpan });
+              setDrag({ kind: "zoom", lane: "zoom", id: z.id, mode, x0: e.clientX, dx: 0, span, clipSpan });
             };
             return (
               <div

@@ -21,7 +21,7 @@ use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, PEAKS_TIMEOUT};
 use super::click_cues::click_hits_by_source;
-use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, set_model_path, take_metas, TakeSources};
+use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
 use std::collections::{HashMap, HashSet};
 use super::voiceover::{self, Take, VoiceoverState};
 use super::zoom_plan::plan_auto_zooms;
@@ -723,7 +723,8 @@ struct Session {
     save_pending: bool,
     peaks: PeakStore,
     /// The segmentation model the helper reported in its last `Ready` (`None`: no camera
-    /// background effects). Goes into every scene's `webcamEffect.modelPath`.
+    /// background effects). Only answers `editor_segmentation_available`: scenes never name a
+    /// model, the helper puts its own in.
     segmentation_model: Option<PathBuf>,
 }
 
@@ -805,9 +806,12 @@ impl Session {
     }
 
     fn scene(&self, out: (u32, u32), fps: u32) -> Value {
-        let mut scene = scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes);
-        set_model_path(&mut scene, self.segmentation_model.as_deref());
-        scene
+        scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
+    }
+
+    /// Whether this session's helper reported a usable segmentation model in `Ready`.
+    fn segmentation_available(&self) -> bool {
+        self.segmentation_model.is_some()
     }
 
     fn preview_scene(&self) -> Value {
@@ -1581,8 +1585,8 @@ pub fn to_source(programme_ms: u64) -> Result<Option<SourcePos>, String> {
     Ok(locate(&s.play, programme_ms))
 }
 
-/// Keeps the model the helper just reported (`Open` → `Ready`) in the session. A scene that
-/// named another one is re-sent on the next edit; the helper fills a scene without one itself.
+/// Keeps the model the helper just reported (`Open` → `Ready`) in the session, for
+/// `editor_segmentation_available`.
 fn note_segmentation_model(model: Option<PathBuf>) {
     if let Some(s) = session().as_mut() {
         s.segmentation_model = model;
@@ -1592,7 +1596,7 @@ fn note_segmentation_model(model: Option<PathBuf>) {
 /// `editor_segmentation_available`: whether the open session's helper can run the camera
 /// segmentation (model and runtime present). `false` without a session or before `Ready`.
 pub fn segmentation_available() -> bool {
-    session().as_ref().is_some_and(|s| s.segmentation_model.is_some())
+    session().as_ref().is_some_and(Session::segmentation_available)
 }
 
 /// `editor_track_edge`: an edge drag of track `id` (at `index`) to programme `programme_ms`,
@@ -2335,10 +2339,10 @@ mod tests {
         s
     }
 
-    /// The model the helper reported reaches every scene the session builds (preview, thumbs,
-    /// export), and only a session whose helper reported one offers the effects.
+    /// Scenes never name a segmentation model (the helper puts its own in and ignores a sent
+    /// one); the model the helper reported only decides whether the effects are offered.
     #[test]
-    fn session_scenes_carry_the_reported_model() {
+    fn session_offers_effects_only_with_a_reported_model() {
         let dir = tmp_project("seg-model", "take");
         let mut s = session_for(&dir, 1);
         s.project.recording.camera = Some(crate::record::project::CameraMeta {
@@ -2346,10 +2350,12 @@ mod tests {
         });
         s.doc.camera.background.mode = editor::CameraBgMode::Blur;
         s.sync_play();
-        assert!(s.preview_scene()["webcamEffect"].get("modelPath").is_none(), "no model before Ready");
+        assert!(!s.segmentation_available(), "nothing reported yet");
         s.segmentation_model = Some(PathBuf::from("/R/selfie.onnx"));
-        assert_eq!(s.preview_scene()["webcamEffect"]["modelPath"], "/R/selfie.onnx");
-        assert_eq!(s.scene((1280, 720), 30)["webcamEffect"]["modelPath"], "/R/selfie.onnx");
+        assert!(s.segmentation_available());
+        let scene = s.preview_scene();
+        assert_eq!(scene["webcamEffect"]["mode"], "blur");
+        assert!(scene["webcamEffect"].get("modelPath").is_none(), "the app names no model: {scene}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3105,8 +3111,8 @@ mod tests {
     /// (`record-render/tests/helper_live.rs` `camera_preview_matches_still`). A COPY of a real
     /// project gets a synthetic 6 s `camera.mp4` (dev `ffmpeg`, `testsrc2`, shorter than the
     /// screen on purpose — patch 17), then picture-in-picture, side by side, camera only and
-    /// picture-in-picture with a blurred background go through `scene_json_with` +
-    /// `set_model_path` exactly as the editor builds them, one `<style>.json` each, into
+    /// picture-in-picture with a blurred background go through `scene_json_with` exactly as
+    /// the editor builds them (no model — the helper adds its own), one `<style>.json` each, into
     /// `IR_CAMERA_SCENES`:
     /// `IR_EDITOR_PROJECT=<project> IR_CAMERA_SCENES=<dir> cargo test -p inspector-rust-core --lib camera_live_scenes -- --ignored --nocapture`.
     #[test]
@@ -3136,7 +3142,6 @@ mod tests {
         });
         project::write_atomic(&dir, PROJECT_FILE, &project).unwrap();
         let cursor = read_cursor(&dir);
-        let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/selfie-segmentation/selfie_segmentation_landscape.onnx");
         let styles = [
             ("pip", editor::LayoutPreset::PictureInPicture, editor::CameraBgMode::None),
             ("side-by-side", editor::LayoutPreset::DualFrame, editor::CameraBgMode::None),
@@ -3153,8 +3158,7 @@ mod tests {
             let doc = editor::playable(&doc, &TakeMetas::new());
             // 960×540 = the still's and the preview's size: a 1080p still scaled down would
             // differ from a preview drawn at 960 in every glyph, which is not what is measured.
-            let mut scene = scene_json_with(&dir, &project, &doc, (960, 540), 30, &AssetRoot::dev(), cursor.as_ref(), &TakeSources::new());
-            set_model_path(&mut scene, Some(&model));
+            let scene = scene_json_with(&dir, &project, &doc, (960, 540), 30, &AssetRoot::dev(), cursor.as_ref(), &TakeSources::new());
             std::fs::write(out.join(format!("{name}.json")), serde_json::to_vec_pretty(&scene).unwrap()).unwrap();
         }
         eprintln!("camera scenes in {}", out.display());

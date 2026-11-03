@@ -264,8 +264,9 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      `src/segmentation.rs` and the two macOS tests of `src/compositor_macos.rs`
      (`compositor_linux.rs` untouched); `the_vendored_model_is_where_the_loader_expects_it` runs
      again. The model is copied unchanged (457 447 B, sha256 `daa5d389…9e94`, README there).
-   - The model path reaches the compositor as `webcamEffect.modelPath`, filled by the app
-     (from the helper's `Ready`) or by the helper itself — no compositor change.
+   - The model path reaches the compositor as `webcamEffect.modelPath`, always set by the
+     `ir-record-render` helper to its own resolved model (a path arriving in a scene is
+     replaced, or removed when the helper has none) — no compositor change.
    + tests `segmenter_runs_on_workspace_ort` (load + inference on a 256×144 frame, not ignored),
      `missing_model_draws_camera_plain` (a `modelPath` to a missing file composes byte for byte
      like no effect, and switches the effect off). The inference tests that upstream skips

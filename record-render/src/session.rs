@@ -107,6 +107,9 @@ pub fn run() -> i32 {
     }
 
     let mut state = State::new(out.clone(), exports);
+    if let Some(model) = state.model.clone() {
+        spawn_warm_up(model);
+    }
     while let Ok(incoming) = rx.recv() {
         let shutdown = matches!(incoming.cmd, Command::Shutdown);
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -325,7 +328,8 @@ impl State {
 
     /// Runs one command. `Err` only when the output channel is broken.
     fn handle(&mut self, mut incoming: Incoming) -> io::Result<()> {
-        // Every scene names the model before it reaches the compositor (see `fill_model_path`).
+        // Every scene names the helper's own model before it reaches the compositor, whatever
+        // it arrived with (see `fill_model_path`).
         if let Command::Open { scene, .. } | Command::SetScene { scene } | Command::Thumbs { scene, .. } | Command::Export { scene, .. } =
             &mut incoming.cmd
         {
@@ -736,15 +740,50 @@ fn segmentation_model() -> Option<std::path::PathBuf> {
     resolve_model(std::env::var_os(MODEL_ENV), exe.as_deref())
 }
 
-/// Puts this helper's model into a scene effect that names none (the first `Open` precedes
-/// `Ready`, so the app cannot know it yet). A path the app sent is kept.
+/// Loads the model and runs one inference on a blank 256×144 frame: pays ONNX Runtime's
+/// one-time costs (environment, file cache, first-run allocation) so the compositor's own lazy
+/// load on the first frame with an effect is fast. Returns (load, first inference) times.
+fn warm_up(model: &Path) -> Result<(Duration, Duration)> {
+    use openscreen_compositor::segmentation::{Segmenter, MODEL_HEIGHT, MODEL_WIDTH};
+    let t0 = Instant::now();
+    let mut seg = Segmenter::load(model)?;
+    let loaded = t0.elapsed();
+    let frame = vec![0u8; (MODEL_WIDTH * MODEL_HEIGHT * 3) as usize];
+    let t1 = Instant::now();
+    seg.run(&frame)?;
+    Ok((loaded, t1.elapsed()))
+}
+
+/// [`warm_up`] on its own thread: never the render thread, never in the way of `Open`/`Ready`.
+/// One log line; a failure is only logged — the compositor's own load still decides.
+fn spawn_warm_up(model: std::path::PathBuf) {
+    let _ = std::thread::Builder::new().name("ir-render-seg-warmup".into()).spawn(move || {
+        match catch_unwind(AssertUnwindSafe(|| warm_up(&model))) {
+            Ok(Ok((load, run))) => eprintln!(
+                "ir-record-render: segmentation warmed up (load {} ms, first inference {} ms)",
+                load.as_millis(),
+                run.as_millis()
+            ),
+            Ok(Err(e)) => eprintln!("ir-record-render: segmentation warm-up skipped: {e:#}"),
+            Err(_) => eprintln!("ir-record-render: segmentation warm-up panicked"),
+        }
+    });
+}
+
+/// Sets a scene effect's `modelPath` to this helper's own model, or removes it when the helper
+/// has none. A path that arrives in a scene is never honoured: the compositor would load
+/// whatever file it names. Only the model `segmentation_model` resolved may reach it.
 fn fill_model_path(scene: &mut Value, model: Option<&Path>) {
-    let (Some(effect), Some(model)) = (scene.get_mut("webcamEffect").and_then(Value::as_object_mut), model) else {
+    let Some(effect) = scene.get_mut("webcamEffect").and_then(Value::as_object_mut) else {
         return;
     };
-    let named = effect.get("modelPath").and_then(Value::as_str).is_some_and(|p| !p.is_empty());
-    if !named {
-        effect.insert("modelPath".into(), Value::String(model.to_string_lossy().into_owned()));
+    match model {
+        Some(m) => {
+            effect.insert("modelPath".into(), Value::String(m.to_string_lossy().into_owned()));
+        }
+        None => {
+            effect.remove("modelPath");
+        }
     }
 }
 
@@ -901,27 +940,44 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// The warm-up loads the shipped model and runs it; a missing model is an error the caller
+    /// only logs. Prints the cold and the warm times (the warm ones are what the compositor's
+    /// lazy load pays after a warm-up).
     #[test]
-    fn a_scene_effect_without_a_model_gets_the_helpers() {
+    fn warm_up_loads_and_runs_the_model() {
+        let model = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vendor/selfie-segmentation/selfie_segmentation_landscape.onnx");
+        let (load, run) = super::warm_up(&model).expect("warm-up on the shipped model");
+        let (load2, run2) = super::warm_up(&model).expect("second load");
+        eprintln!("cold: load {load:?} + run {run:?}; after warm-up: load {load2:?} + run {run2:?}");
+        assert!(super::warm_up(std::path::Path::new("/nonexistent/m.onnx")).is_err());
+    }
+
+    /// The compositor loads whatever `modelPath` names, so only the helper's own, resolved
+    /// model may reach it: a path that arrives in a scene (from the app or anyone writing to
+    /// the pipe) is replaced, and without a model of its own the helper removes it.
+    #[test]
+    fn scene_effect_carries_model_path() {
         use super::fill_model_path;
         use serde_json::json;
         let m = std::path::Path::new("/R/selfie.onnx");
         let mut plain = json!({"clips": []});
         fill_model_path(&mut plain, Some(m));
         assert_eq!(plain, json!({"clips": []}), "no effect, nothing added");
-        for missing in [json!({"mode": "blur"}), json!({"mode": "blur", "modelPath": null}), json!({"mode": "blur", "modelPath": ""})] {
-            let mut s = json!({"webcamEffect": missing});
+        for sent in [json!({"mode": "blur"}), json!({"mode": "blur", "modelPath": null}), json!({"mode": "blur", "modelPath": ""})] {
+            let mut s = json!({"webcamEffect": sent});
             fill_model_path(&mut s, Some(m));
             assert_eq!(s["webcamEffect"]["modelPath"], "/R/selfie.onnx");
         }
-        // The app's own path is kept.
-        let mut s = json!({"webcamEffect": {"mode": "blur", "modelPath": "/app.onnx"}});
+        // A foreign path is replaced, never honoured.
+        let mut s = json!({"webcamEffect": {"mode": "blur", "modelPath": "/tmp/evil.onnx"}});
         fill_model_path(&mut s, Some(m));
-        assert_eq!(s["webcamEffect"]["modelPath"], "/app.onnx");
-        // Without a model nothing is invented.
-        let mut s = json!({"webcamEffect": {"mode": "blur"}});
+        assert_eq!(s["webcamEffect"]["modelPath"], "/R/selfie.onnx");
+        // Without a model of its own, any sent path is removed.
+        let mut s = json!({"webcamEffect": {"mode": "blur", "modelPath": "/tmp/evil.onnx"}});
         fill_model_path(&mut s, None);
-        assert!(s["webcamEffect"].get("modelPath").is_none());
+        assert!(s["webcamEffect"].get("modelPath").is_none(), "{s}");
+        assert_eq!(s["webcamEffect"]["mode"], "blur", "the effect itself stays");
     }
 
     #[test]

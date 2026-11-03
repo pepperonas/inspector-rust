@@ -15,6 +15,8 @@ pub mod capture;
 pub mod pipeline;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod engine;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub mod activity_macos;
 
 #[cfg(test)]
 pub(crate) mod test_support {

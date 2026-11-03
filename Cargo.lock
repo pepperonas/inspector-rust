@@ -7451,10 +7451,17 @@ name = "transcribe-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "block2 0.6.2",
  "chrono",
+ "cpal",
  "dirs 5.0.1",
+ "dispatch2",
  "flate2",
  "hound",
+ "objc2 0.6.4",
+ "objc2-core-media",
+ "objc2-foundation 0.3.2",
+ "objc2-screen-capture-kit",
  "rubato",
  "serde",
  "serde_json",

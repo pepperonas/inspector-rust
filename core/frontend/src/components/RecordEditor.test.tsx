@@ -17,6 +17,9 @@ const editorImportAsset = vi.fn();
 const editorDuplicateClip = vi.fn();
 const editorMoveClip = vi.fn();
 const editorImportTake = vi.fn();
+const editorVoiceoverStart = vi.fn();
+const editorVoiceoverStop = vi.fn();
+const editorVoiceoverCancel = vi.fn();
 const openDialog = vi.fn();
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
@@ -38,6 +41,11 @@ vi.mock("../lib/ipc", () => ({
   editorDuplicateClip: (id: number, i: number) => editorDuplicateClip(id, i),
   editorMoveClip: (id: number, f: number, t: number) => editorMoveClip(id, f, t),
   editorImportTake: (id: number, d: string) => editorImportTake(id, d),
+  editorVoiceoverStart: (id: number, ms: number) => editorVoiceoverStart(id, ms),
+  editorVoiceoverStop: (id: number) => editorVoiceoverStop(id),
+  editorVoiceoverCancel: (id: number) => editorVoiceoverCancel(id),
+  EV_VOICEOVER_LEVEL: "record-voiceover-level",
+  EV_VOICEOVER_FINISHED: "record-voiceover-finished",
   recordListProjects: async () => [],
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
@@ -101,7 +109,14 @@ const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   const speed = doc.speed.map((r, index) => ({ index, progStartMs: r.startMs, progEndMs: r.endMs }));
   const zooms = doc.zooms.map((z, index) => ({ index, progStartMs: z.startMs, progEndMs: z.endMs }));
   const annotationSpans = doc.annotations.map((a, index) => ({ index, progStartMs: a.startMs, progEndMs: a.endMs }));
-  return { doc, programmeMs: t, clips, speed, zooms, annotationSpans, clickHits: [], screenRects: doc.clips.map(() => [0, 0, 1, 1]), outputSize: [1920, 1080] };
+  const tracks = doc.audioTracks.map((a, index) => {
+    const len = a.spanMs ?? a.durationMs - a.offsetMs;
+    return {
+      index, repeat: 0, progStartMs: a.startMs, progEndMs: a.startMs + len, fileStartMs: a.offsetMs, fileEndMs: a.offsetMs + len,
+      fadeInMs: a.fadeInMs, fadeOutMs: a.fadeOutMs, gainDb: a.gainDb, kind: a.kind, muted: a.muted,
+    };
+  });
+  return { doc, programmeMs: t, clips, speed, zooms, annotationSpans, tracks, clickHits: [], screenRects: doc.clips.map(() => [0, 0, 1, 1]), outputSize: [1920, 1080] };
 };
 const init = (helperError: string | null = null, sessionId = 1, title = "Take", view = viewOf(doc0)): EditorInit => ({
   sessionId,
@@ -142,8 +157,10 @@ beforeEach(() => {
   editorThumbs.mockResolvedValue([]);
   editorRestart.mockResolvedValue(playback(false));
   editorAssets.mockResolvedValue({ wallpapers: [], themes: [], hasCursorData: true, clickDown: null, clickUp: null });
-  editorImportAsset.mockResolvedValue("img.png");
+  editorImportAsset.mockResolvedValue({ file: "img.png" });
   openDialog.mockResolvedValue(null);
+  editorVoiceoverStart.mockResolvedValue({ sessionId: 1, file: "voiceover-1.wav", programmeMs: 4000, maxMs: 6000, clip: 0, sourceMs: 4000 });
+  editorVoiceoverCancel.mockResolvedValue(undefined);
 });
 afterEach(() => {
   cleanup();
@@ -644,5 +661,114 @@ describe("RecordEditor", () => {
     expect(sent.clips).toEqual(note.clips);
     expect(sent.annotations).toHaveLength(1);
     expect(sent.annotations[0].body).toMatchObject({ kind: "text", content: "sacz" });
+  });
+  describe("audio", () => {
+    const voTrack = {
+      id: "vo-1", kind: "voiceover" as const, file: "voiceover-1.wav", clip: 0, startMs: 4000, durationMs: 2000, offsetMs: 0,
+      spanMs: 2000, gainDb: 0, looped: false, fadeInMs: 0, fadeOutMs: 0, muted: false, label: "",
+    };
+
+    it("M picks an audio file, copies it as audio and lays a music track at the playhead", async () => {
+      openDialog.mockResolvedValue("/Users/ana/Music/Calm Piano.m4a");
+      editorImportAsset.mockResolvedValue({ file: "f00d.m4a", durationMs: 61_000 });
+      const { getByTestId } = await mount();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "m" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      const opts = openDialog.mock.calls[0][0] as { filters: { extensions: string[] }[] };
+      expect(opts.filters[0].extensions).toEqual(["mp3", "m4a", "aac", "wav", "flac"]);
+      expect(editorImportAsset).toHaveBeenCalledWith(1, "/Users/ana/Music/Calm Piano.m4a", "audio");
+      const t = (lastSent() as RecordEditDoc).audioTracks[0];
+      expect(t).toMatchObject({ kind: "music", file: "f00d.m4a", durationMs: 61_000, clip: 0, startMs: 4000, gainDb: -18, label: "Calm Piano" });
+      // The new track is selected: the audio tab shows its settings.
+      expect(getByTestId("ed-audio-track-settings")).toBeTruthy();
+    });
+
+    it("V starts a take at the playhead, V again stops it: start, then stop, one undo step", async () => {
+      const withVo = { ...doc0, audioTracks: [voTrack] };
+      editorVoiceoverStop.mockResolvedValue(viewOf(withVo));
+      const { getByTestId, getAllByTestId, queryByTestId } = await mount();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "v" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(editorVoiceoverStart).toHaveBeenCalledWith(1, 0);
+      expect(getByTestId("ed-vo-panel")).toBeTruthy();
+      // Editing is off while the take runs: the timeline is inert, S does nothing.
+      expect(getByTestId("ed-track").closest("[data-locked]")).toBeTruthy();
+      await act(async () => {
+        listeners.get("record-voiceover-level")?.({ payload: { rms: 0.1, elapsedMs: 1200, ended: false } });
+        fireEvent.keyDown(window, { key: "s" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(editorUpdate).not.toHaveBeenCalled();
+      for (const m of getAllByTestId("ed-vo-meter")) expect(m.style.transform).not.toBe("scaleX(0)");
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "v" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(editorVoiceoverStop).toHaveBeenCalledWith(1);
+      expect(editorVoiceoverStart.mock.invocationCallOrder[0]).toBeLessThan(editorVoiceoverStop.mock.invocationCallOrder[0]);
+      expect(queryByTestId("ed-vo-panel")).toBeNull();
+      expect(getByTestId("ed-audio-bar")).toBeTruthy();
+      // ⌘Z takes the voiceover back out.
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "z", metaKey: true });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect((lastSent() as RecordEditDoc).audioTracks).toEqual([]);
+    });
+
+    it("Esc discards a running take", async () => {
+      const { queryByTestId } = await mount();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "v" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Escape" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(editorVoiceoverCancel).toHaveBeenCalledWith(1);
+      expect(editorVoiceoverStop).not.toHaveBeenCalled();
+      expect(queryByTestId("ed-vo-panel")).toBeNull();
+    });
+
+    for (const signal of ["ended", "finished"] as const) {
+      it(`a take that ends by itself is collected and shows its track (${signal})`, async () => {
+        editorVoiceoverStop.mockResolvedValue(viewOf({ ...doc0, audioTracks: [voTrack] }));
+        const { getByTestId, queryByTestId } = await mount();
+        await act(async () => {
+          fireEvent.keyDown(window, { key: "v" });
+          await vi.advanceTimersByTimeAsync(5);
+        });
+        await act(async () => {
+          if (signal === "ended") listeners.get("record-voiceover-level")?.({ payload: { rms: 0, elapsedMs: 6000, ended: true } });
+          // A second signal for the same take collects nothing more.
+          else for (let i = 0; i < 2; i += 1) listeners.get("record-voiceover-finished")?.({ payload: { sessionId: 1 } });
+          await vi.advanceTimersByTimeAsync(5);
+        });
+        expect(editorVoiceoverStop).toHaveBeenCalledTimes(1);
+        expect(queryByTestId("ed-vo-panel")).toBeNull();
+        expect(getByTestId("ed-audio-bar")).toBeTruthy();
+      });
+    }
+
+    it("waveforms arriving later are drawn without an edit", async () => {
+      const { queryAllByTestId } = await mount();
+      expect(queryAllByTestId("ed-wave")).toHaveLength(0);
+      await act(async () => {
+        listeners.get("record-editor-waveforms")?.({
+          payload: { sessionId: 1, waveforms: [{ kind: "mic", clip: 0, track: null, repeat: 0, progStartMs: 0, progEndMs: 10_000, peaks: [-0.5, 0.5, -0.2, 0.3] }] },
+        });
+      });
+      expect(queryAllByTestId("ed-wave")).toHaveLength(1);
+      // Another session's waveforms are ignored.
+      await act(async () => {
+        listeners.get("record-editor-waveforms")?.({ payload: { sessionId: 9, waveforms: [] } });
+      });
+      expect(queryAllByTestId("ed-wave")).toHaveLength(1);
+    });
   });
 });

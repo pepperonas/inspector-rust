@@ -80,6 +80,13 @@ pub const ERR_IMPORT_TOO_BIG: &str = "record.editor.import_too_big";
 pub const ERR_IMPORT_FAILED: &str = "record.editor.import_failed";
 /// Imported images and pointers are copied into the project up to this size.
 pub const MAX_IMPORT_BYTES: u64 = 25 * 1024 * 1024;
+/// Imported music is not MP3, M4A, AAC, WAV or FLAC.
+pub const ERR_IMPORT_AUDIO_TYPE: &str = "record.editor.import_audio_type";
+pub const ERR_IMPORT_AUDIO_TOO_BIG: &str = "record.editor.import_audio_too_big";
+/// The helper found no audio it can play in an imported music file.
+pub const ERR_IMPORT_AUDIO_UNREADABLE: &str = "record.editor.import_audio_unreadable";
+/// Imported music is copied into the project up to this size.
+pub const MAX_AUDIO_IMPORT_BYTES: u64 = 200 * 1024 * 1024;
 
 // ── assets (inspector) ──────────────────────────────────────────────────────
 
@@ -164,6 +171,58 @@ pub fn editor_assets_for(assets: &AssetRoot, cursor: Option<&CursorRecording>) -
 pub enum AssetKind {
     Image,
     Cursor,
+    /// Music (MP3, M4A, AAC, WAV, FLAC); its duration is read through the helper.
+    Audio,
+}
+
+/// What `editor_import_asset` answers: the file name under `<project>/assets/`, and for
+/// audio its length (read through the helper's decode, which also leaves the waveform cache).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedAsset {
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+}
+
+/// The container an audio file's first bytes say it is (`None`: none we take).
+fn sniff_audio(path: &Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut head = [0u8; 12];
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut n = 0;
+    while n < head.len() {
+        match f.read(&mut head[n..]) {
+            Ok(0) | Err(_) => break,
+            Ok(k) => n += k,
+        }
+    }
+    let h = &head[..n];
+    if h.len() >= 12 && &h[..4] == b"RIFF" && &h[8..12] == b"WAVE" {
+        Some("wav")
+    } else if h.len() >= 4 && &h[..4] == b"fLaC" {
+        Some("flac")
+    } else if h.len() >= 8 && &h[4..8] == b"ftyp" {
+        Some("mp4")
+    } else if h.len() >= 3 && &h[..3] == b"ID3" {
+        Some("mp3")
+    } else if h.len() >= 2 && h[0] == 0xFF && h[1] & 0xF6 == 0xF0 {
+        // ADTS: 12 sync bits, layer 00.
+        Some("aac")
+    } else if h.len() >= 2 && h[0] == 0xFF && h[1] & 0xE0 == 0xE0 {
+        // MPEG audio frame sync (11 bits).
+        Some("mp3")
+    } else {
+        None
+    }
+}
+
+/// Extension and content agree on an audio container we take.
+fn audio_content_ok(ext: &str, sniffed: Option<&str>) -> bool {
+    matches!(
+        (ext, sniffed),
+        ("mp3", Some("mp3")) | ("m4a", Some("mp4")) | ("aac", Some("aac" | "mp4")) | ("wav", Some("wav")) | ("flac", Some("flac"))
+    )
 }
 
 fn sniff_image(path: &Path) -> Option<&'static str> {
@@ -198,10 +257,12 @@ pub fn import_asset_into(project_dir: &Path, src: &Path, kind: AssetKind) -> Res
     let wrong = || match kind {
         AssetKind::Image => ERR_IMPORT_TYPE.to_string(),
         AssetKind::Cursor => ERR_IMPORT_CURSOR_TYPE.to_string(),
+        AssetKind::Audio => ERR_IMPORT_AUDIO_TYPE.to_string(),
     };
     let allowed: &[&str] = match kind {
         AssetKind::Image => &["png", "jpg", "jpeg"],
         AssetKind::Cursor => &["png"],
+        AssetKind::Audio => &["mp3", "m4a", "aac", "wav", "flac"],
     };
     if !allowed.contains(&ext.as_str()) {
         return Err(wrong());
@@ -210,10 +271,17 @@ pub fn import_asset_into(project_dir: &Path, src: &Path, kind: AssetKind) -> Res
     if !meta.is_file() {
         return Err(ERR_IMPORT_FAILED.into());
     }
-    if meta.len() > MAX_IMPORT_BYTES {
-        return Err(ERR_IMPORT_TOO_BIG.into());
+    let (cap, too_big) = match kind {
+        AssetKind::Audio => (MAX_AUDIO_IMPORT_BYTES, ERR_IMPORT_AUDIO_TOO_BIG),
+        _ => (MAX_IMPORT_BYTES, ERR_IMPORT_TOO_BIG),
+    };
+    if meta.len() > cap {
+        return Err(too_big.into());
     }
-    let content_ok = matches!((sniff_image(src), ext.as_str()), (Some("png"), "png") | (Some("jpeg"), "jpg" | "jpeg"));
+    let content_ok = match kind {
+        AssetKind::Audio => audio_content_ok(&ext, sniff_audio(src)),
+        _ => matches!((sniff_image(src), ext.as_str()), (Some("png"), "png") | (Some("jpeg"), "jpg" | "jpeg")),
+    };
     if !content_ok {
         return Err(wrong());
     }
@@ -1605,13 +1673,51 @@ pub fn assets(app: &AppHandle) -> Result<EditorAssets, String> {
     Ok(out)
 }
 
-/// Copies an image or pointer into the open project (see [`import_asset_into`]).
-pub fn import_asset(session_id: u64, src: &Path, kind: AssetKind) -> Result<String, String> {
+/// Copies an image, pointer or music file into the open project (see [`import_asset_into`]);
+/// music also gets its length from the helper (one decode, which leaves the waveform cache
+/// the timeline then reuses). A file the helper cannot read is removed again.
+pub fn import_asset(app: &AppHandle, session_id: u64, src: &Path, kind: AssetKind) -> Result<ImportedAsset, String> {
     let dir = {
         let guard = session();
         guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?.dir.clone()
     };
-    import_asset_into(&dir, src, kind)
+    import_with_duration(&dir, src, kind, |file, cache| {
+        let client = ensure_client(app, true)?;
+        client
+            .peaks(file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned(), PEAKS_TIMEOUT)
+            .map(|(_, duration_ms)| duration_ms)
+            .map_err(|e| format!("{e:?}"))
+    })
+}
+
+/// [`import_asset_into`], then for audio `probe(file, peaks_cache) -> duration_ms`. A probe
+/// that fails or finds no length removes the copy (`ERR_IMPORT_AUDIO_UNREADABLE`).
+pub fn import_with_duration(
+    project_dir: &Path,
+    src: &Path,
+    kind: AssetKind,
+    probe: impl FnOnce(&Path, &Path) -> Result<u64, String>,
+) -> Result<ImportedAsset, String> {
+    let file = import_asset_into(project_dir, src, kind)?;
+    if kind != AssetKind::Audio {
+        return Ok(ImportedAsset { file, duration_ms: None });
+    }
+    let path = project_dir.join(super::scene_json::PROJECT_ASSETS_DIR).join(&file);
+    let cache = peaks::cache_name_for(&path).map(|n| project_dir.join(n));
+    let duration = match cache {
+        Some(cache) => probe(&path, &cache),
+        None => Err("no metadata".into()),
+    };
+    match duration {
+        Ok(ms) if ms > 0 => Ok(ImportedAsset { file, duration_ms: Some(ms) }),
+        other => {
+            if let Err(e) = other {
+                tracing::warn!(target: "record::editor", "import: {} unreadable: {e}", src.display());
+            }
+            let _ = std::fs::remove_file(&path);
+            Err(ERR_IMPORT_AUDIO_UNREADABLE.into())
+        }
+    }
 }
 
 // ── voiceover ──────────────────────────────────────────────────────────────
@@ -1884,6 +1990,87 @@ mod tests {
         assert_ne!(a, b, "every import gets its own file");
         assert!(a.ends_with(".png"));
         assert!(std::fs::read(&png).is_ok(), "the source stays where it was");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_audio_checks_type_size_and_reads_the_length() {
+        let dir = import_dir("audio");
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let mut wav = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
+        wav.extend_from_slice(&[0; 32]);
+        let cases: [(&str, &[u8]); 6] = [
+            ("song.mp3", b"ID3\x04\0\0\0\0\0\0"),
+            ("frame.mp3", &[0xFF, 0xFB, 0x90, 0x64]),
+            ("song.m4a", b"\0\0\0\x20ftypM4A "),
+            ("song.aac", &[0xFF, 0xF1, 0x50, 0x80]),
+            ("song.flac", b"fLaC\0\0\0\x22"),
+            ("Song.WAV", &wav),
+        ];
+        for (name, bytes) in cases {
+            let src = dir.join(name);
+            std::fs::write(&src, bytes).unwrap();
+            let probed = std::cell::Cell::new(false);
+            let got = import_with_duration(&project, &src, AssetKind::Audio, |file, cache| {
+                probed.set(true);
+                assert!(file.starts_with(project.join(crate::record::scene_json::PROJECT_ASSETS_DIR)));
+                assert!(cache.file_name().unwrap().to_string_lossy().starts_with("peaks-"), "{}", cache.display());
+                Ok(61_250)
+            })
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(probed.get());
+            assert_eq!(got.duration_ms, Some(61_250));
+            assert!(crate::record::scene_json::project_asset(&project, &got.file).is_some(), "{name}");
+        }
+        // Content must match the extension.
+        let fake = dir.join("fake.mp3");
+        std::fs::write(&fake, b"not audio at all").unwrap();
+        assert_eq!(import_with_duration(&project, &fake, AssetKind::Audio, |_, _| Ok(1)).unwrap_err(), ERR_IMPORT_AUDIO_TYPE);
+        let ogg = dir.join("song.ogg");
+        std::fs::write(&ogg, b"OggS\0\0\0\0").unwrap();
+        assert_eq!(import_with_duration(&project, &ogg, AssetKind::Audio, |_, _| Ok(1)).unwrap_err(), ERR_IMPORT_AUDIO_TYPE);
+        // An image is not music.
+        let png = dir.join("pic.png");
+        std::fs::write(&png, PNG_BYTES).unwrap();
+        assert_eq!(import_with_duration(&project, &png, AssetKind::Audio, |_, _| Ok(1)).unwrap_err(), ERR_IMPORT_AUDIO_TYPE);
+        // Over 200 MB (the image cap of 25 MB does not apply to music).
+        let big = dir.join("big.wav");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(MAX_AUDIO_IMPORT_BYTES + 1).unwrap();
+        drop(f);
+        let mut head = std::fs::OpenOptions::new().write(true).open(&big).unwrap();
+        std::io::Write::write_all(&mut head, &wav).unwrap();
+        drop(head);
+        assert_eq!(import_with_duration(&project, &big, AssetKind::Audio, |_, _| Ok(1)).unwrap_err(), ERR_IMPORT_AUDIO_TOO_BIG);
+        let mid = dir.join("mid.wav");
+        let f = std::fs::File::create(&mid).unwrap();
+        f.set_len(MAX_IMPORT_BYTES + 1).unwrap();
+        drop(f);
+        let mut head = std::fs::OpenOptions::new().write(true).open(&mid).unwrap();
+        std::io::Write::write_all(&mut head, &wav).unwrap();
+        drop(head);
+        assert!(import_with_duration(&project, &mid, AssetKind::Audio, |_, _| Ok(1)).is_ok());
+        // Images report no length and are never probed.
+        let img = import_with_duration(&project, &png, AssetKind::Image, |_, _| panic!("no probe for images")).unwrap();
+        assert_eq!(img.duration_ms, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_audio_is_removed_again() {
+        let dir = import_dir("audio-bad");
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let src = dir.join("broken.flac");
+        std::fs::write(&src, b"fLaC\0garbage").unwrap();
+        let assets = project.join(crate::record::scene_json::PROJECT_ASSETS_DIR);
+        let failed = import_with_duration(&project, &src, AssetKind::Audio, |_, _| Err("no audio stream".into()));
+        assert_eq!(failed.unwrap_err(), ERR_IMPORT_AUDIO_UNREADABLE);
+        assert_eq!(std::fs::read_dir(&assets).unwrap().count(), 0, "the copy is gone");
+        // A length of 0 is no length either.
+        assert_eq!(import_with_duration(&project, &src, AssetKind::Audio, |_, _| Ok(0)).unwrap_err(), ERR_IMPORT_AUDIO_UNREADABLE);
+        assert_eq!(std::fs::read_dir(&assets).unwrap().count(), 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
+import type { RecordTrackSpan } from "../../lib/ipc";
 import { AudioPreview, type ClickPreview } from "./AudioPreview";
 
 const played: { src: string; volume: number }[] = [];
@@ -85,5 +86,130 @@ describe("AudioPreview click sound", () => {
     r.rerender(el(950, false, clicks()));
     vi.advanceTimersByTime(500);
     expect(played).toEqual([]);
+  });
+});
+
+// ── the mix (stage 4) ────────────────────────────────────────────────────────
+
+class FakeParam {
+  value = 1;
+  setTargetAtTime(v: number) {
+    this.value = v;
+  }
+}
+const mixLog: { gains: { gain: FakeParam; el: HTMLMediaElement }[]; curve: Float32Array | null; ctx: number } = { gains: [], curve: null, ctx: 0 };
+class FakeCtx {
+  currentTime = 0;
+  destination = {};
+  constructor() {
+    mixLog.ctx += 1;
+  }
+  createWaveShaper() {
+    return {
+      oversample: "none",
+      set curve(c: Float32Array) {
+        mixLog.curve = c;
+      },
+      connect() {},
+    };
+  }
+  createMediaElementSource(el: HTMLMediaElement) {
+    return { connect: () => undefined, el };
+  }
+  createGain() {
+    const g = { gain: new FakeParam(), connect: () => undefined };
+    return g;
+  }
+  resume() {
+    return Promise.resolve();
+  }
+  close() {
+    return Promise.resolve();
+  }
+}
+
+const trackSpan = (over: Partial<RecordTrackSpan> = {}): RecordTrackSpan => ({
+  index: 0,
+  repeat: 0,
+  progStartMs: 1_000,
+  progEndMs: 5_000,
+  fileStartMs: 2_000,
+  fileEndMs: 6_000,
+  fadeInMs: 0,
+  fadeOutMs: 0,
+  gainDb: 12,
+  kind: "music",
+  muted: false,
+  ...over,
+});
+
+function mixEl(over: Partial<Parameters<typeof AudioPreview>[0]> = {}) {
+  return (
+    <AudioPreview
+      screenSrc="screen.mp4"
+      micSrc={null}
+      micOffsetMs={0}
+      micGainDb={0}
+      playing
+      source={{ clip: 0, sourceMs: 0 }}
+      speed={1}
+      positionMs={2_000}
+      tracks={[{ index: 0, src: "song.m4a" }]}
+      spans={[trackSpan()]}
+      {...over}
+    />
+  );
+}
+
+describe("AudioPreview mix", () => {
+  beforeEach(() => {
+    mixLog.gains = [];
+    mixLog.curve = null;
+    mixLog.ctx = 0;
+    vi.useRealTimers();
+    // Element playback is a no-op in the test DOM.
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  });
+
+  it("levels above 0 dB reach the mix, which ends in the −2 dBTP limiter", () => {
+    vi.stubGlobal("AudioContext", FakeCtx);
+    const gains: number[] = [];
+    vi.spyOn(FakeParam.prototype, "setTargetAtTime").mockImplementation(function (this: FakeParam, v: number) {
+      this.value = v;
+      gains.push(v);
+    });
+    render(mixEl({ systemGainDb: 6 }));
+    expect(mixLog.ctx).toBe(1);
+    expect(Math.max(...Array.from(mixLog.curve ?? [], Math.abs))).toBeLessThanOrEqual(10 ** (-2 / 20) + 1e-6);
+    expect(gains).toContain(10 ** (6 / 20));
+    expect(gains).toContain(10 ** (12 / 20));
+  });
+
+  it("plays each track from Rust's entry: file time under the playhead, its level and fades", () => {
+    const { container } = render(mixEl({ spans: [trackSpan({ gainDb: -6, fadeInMs: 2_000 })] }));
+    const el = container.querySelector('[data-testid="ed-audio-track"]') as HTMLAudioElement;
+    // 1 s into the entry, whose file window starts at 2 s.
+    expect(el.currentTime).toBe(3);
+    // No WebAudio here: the volume is the level × the half-way fade.
+    expect(el.volume).toBeCloseTo(10 ** (-6 / 20) * 0.5, 6);
+    expect(el.crossOrigin).toBe("anonymous");
+  });
+
+  it("a muted track or a playhead outside every entry stays silent", () => {
+    const pause = vi.mocked(HTMLMediaElement.prototype.pause);
+    const r = render(mixEl({ spans: [trackSpan({ muted: true })] }));
+    expect(pause).toHaveBeenCalled();
+    pause.mockClear();
+    r.rerender(mixEl({ positionMs: 6_000 }));
+    expect(pause).toHaveBeenCalled();
+  });
+
+  it("a running take ducks everything", () => {
+    const { container } = render(mixEl({ spans: [trackSpan({ gainDb: 0 })], duckDb: -12 }));
+    const el = container.querySelector('[data-testid="ed-audio-track"]') as HTMLAudioElement;
+    const sys = container.querySelector('[data-testid="ed-audio-system"]') as HTMLAudioElement;
+    expect(el.volume).toBeCloseTo(10 ** (-12 / 20), 6);
+    expect(sys.volume).toBeCloseTo(10 ** (-12 / 20), 6);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -36,6 +36,13 @@ import {
   editorThumbs,
   editorToSource,
   editorUpdate,
+  editorVoiceoverCancel,
+  editorVoiceoverStart,
+  editorVoiceoverStop,
+  EV_VOICEOVER_FINISHED,
+  EV_VOICEOVER_LEVEL,
+  type EditorVoiceoverLevel,
+  type RecordWaveformsEvent,
   type EditorAssets,
   type EditorInit,
   type EditorPlayback,
@@ -51,6 +58,7 @@ import {
   MIN_MIC_DB,
   addAnnotation,
   addSpeed,
+  addTrack,
   addZoom,
   clipAt,
   clipMedia,
@@ -65,6 +73,7 @@ import {
   setSpeedValue,
   splitAt,
   updateAnnotation,
+  updateTrack,
   updateZoom,
   zoomActiveAt,
   annotationShownAt,
@@ -82,6 +91,8 @@ import { Inspector } from "./editor/Inspector";
 import { FocusOverlay } from "./editor/FocusOverlay";
 import { AnnotationOverlay, type AnnotationPatch } from "./editor/AnnotationOverlay";
 import { registerAnnotationFonts } from "./editor/AnnotationTab";
+import { VoiceoverPanel, type VoiceoverView } from "./editor/AudioTab";
+import { VOICEOVER_DUCK_DB } from "../lib/audio-mix";
 
 const POSITION_POLL_MS = 66;
 const THUMB_DEBOUNCE_MS = 600;
@@ -100,6 +111,12 @@ function readInspectorOpen(): boolean {
     return true;
   }
 }
+
+/** Music the editor imports (Rust checks extension and content again). */
+export const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "wav", "flac"] as const;
+/** A track's default name: the picked file's name without folder and extension. */
+export const fileStem = (path: string) =>
+  (path.split(/[\\/]/).pop() ?? "").replace(/\.[^.]+$/, "").trim().slice(0, 80);
 
 /** A shipped asset's path → URL (a `data:` URL, as the mockup sends, passes unchanged). */
 const shippedUrl = (p: string) => (p.startsWith("data:") ? p : convertFileSrc(p));
@@ -173,15 +190,38 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
   const [selectedZoom, setSelectedZoomRaw] = useState<string | null>(null);
   const [selectedAnnotation, setSelectedAnnotationRaw] = useState<string | null>(null);
+  const [selectedTrack, setSelectedTrackRaw] = useState<string | null>(null);
   // One region is selected at a time: Delete and the inspector act on exactly one.
   const setSelectedZoom = useCallback((id: string | null) => {
     setSelectedZoomRaw(id);
-    if (id) setSelectedAnnotationRaw(null);
+    if (id) {
+      setSelectedAnnotationRaw(null);
+      setSelectedTrackRaw(null);
+    }
   }, []);
   const setSelectedAnnotation = useCallback((id: string | null) => {
     setSelectedAnnotationRaw(id);
-    if (id) setSelectedZoomRaw(null);
+    if (id) {
+      setSelectedZoomRaw(null);
+      setSelectedTrackRaw(null);
+    }
   }, []);
+  const setSelectedTrack = useCallback((id: string | null) => {
+    setSelectedTrackRaw(id);
+    if (id) {
+      setSelectedZoomRaw(null);
+      setSelectedAnnotationRaw(null);
+    }
+  }, []);
+  /** A running voiceover take (state for the UI, ref for event handlers). */
+  const [voiceover, setVoiceoverState] = useState<VoiceoverView | null>(null);
+  const voRef = useRef<VoiceoverView | null>(null);
+  const setVoiceover = useCallback((v: VoiceoverView | null) => {
+    voRef.current = v;
+    setVoiceoverState(v);
+  }, []);
+  /** Esc while the take was still starting: discard it once Rust answered. */
+  const voCancelAsked = useRef(false);
   /** Neutral one-liner beside the save state (e.g. what auto-zoom added). */
   const [info, setInfo] = useState<string | null>(null);
   const infoTimer = useRef(0);
@@ -226,6 +266,15 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     const off = listen<{ reason: string }>("record-editor-fatal", (e) => {
       setFatal(e.payload.reason || "?");
       setPlaying(false);
+    });
+    return () => void off.then((u) => u());
+  }, []);
+
+  // Waveforms arrive once their peaks are decoded (Rust: `record-editor-waveforms`).
+  useEffect(() => {
+    const off = listen<RecordWaveformsEvent>("record-editor-waveforms", (e) => {
+      if (e.payload.sessionId !== sessionId.current) return;
+      setView((v) => (v ? { ...v, waveforms: e.payload.waveforms } : v));
     });
     return () => void off.then((u) => u());
   }, []);
@@ -346,7 +395,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
               : [{ name: t("rec3.insp.filter_images"), extensions: ["png", "jpg", "jpeg"] }],
         });
         if (typeof picked !== "string") return null;
-        return await editorImportAsset(sessionId.current, picked, kind);
+        return (await editorImportAsset(sessionId.current, picked, kind)).file;
       } catch (e) {
         report(e);
         return null;
@@ -552,6 +601,126 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [rustEdit],
   );
 
+  /** M: picks a music file, copies it into the project and lays it at the playhead. */
+  const addMusic = useCallback(async () => {
+    if (voRef.current) return;
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: t("rec4.audio.filter_audio"), extensions: [...AUDIO_EXTENSIONS] }],
+      });
+      if (typeof picked !== "string") return;
+      const imported = await editorImportAsset(sessionId.current, picked, "audio");
+      const at = await sourceHere();
+      const doc = cur();
+      if (!at || !doc) return;
+      const next = addTrack(doc, "music", imported.file, imported.durationMs ?? 0, at.clip, at.sourceMs);
+      const made = next.audioTracks[next.audioTracks.length - 1];
+      if (next === doc || !made) return;
+      commit(updateTrack(next, made.id, { label: fileStem(picked) }));
+      setSelectedTrack(made.id);
+    } catch (e) {
+      report(e);
+    }
+  }, [commit, cur, report, setSelectedTrack, sourceHere, t]);
+
+  /** Re-reads the transport (a take started or ended playback in Rust). */
+  const syncPlayback = useCallback(() => {
+    editorPosition()
+      .then((s) => {
+        if (s) applyPlayback(s);
+        else setPlaying(false);
+      })
+      .catch(report);
+  }, [applyPlayback, report]);
+
+  /** Ends a take: Rust lays the recording under the programme; the answer is one undo step. */
+  const finishVoiceover = useCallback(() => {
+    const v = voRef.current;
+    if (!v || v.phase !== "recording") return;
+    setVoiceover({ ...v, phase: "finishing" });
+    const h = history.current;
+    const before = new Set(h?.present.audioTracks.map((x) => x.id) ?? []);
+    const next = chain.current.then(async () => {
+      try {
+        const out = await editorVoiceoverStop(sessionId.current);
+        seq.current += 1;
+        if (h) {
+          h.push(out.doc);
+          setUndoable({ undo: h.canUndo(), redo: h.canRedo() });
+        }
+        setView(out);
+        const made = out.doc.audioTracks.find((x) => !before.has(x.id));
+        if (made) setSelectedTrack(made.id);
+      } catch (e) {
+        report(e);
+      } finally {
+        setVoiceover(null);
+        syncPlayback();
+      }
+    });
+    chain.current = next;
+  }, [report, setSelectedTrack, setVoiceover, syncPlayback]);
+
+  /** Esc: the take is discarded (its file removed), playback stops. */
+  const cancelVoiceover = useCallback(() => {
+    const v = voRef.current;
+    if (!v || v.phase === "finishing") return;
+    if (v.phase === "starting") {
+      voCancelAsked.current = true;
+      return;
+    }
+    setVoiceover(null);
+    setPlaying(false);
+    editorVoiceoverCancel(sessionId.current)
+      .catch(report)
+      .finally(syncPlayback);
+  }, [report, setVoiceover, syncPlayback]);
+
+  /** V: records a voiceover from the playhead (native microphone; Rust starts playback). */
+  const startVoiceover = useCallback(async () => {
+    if (voRef.current || fatal || cropMode || exportOpen) return;
+    voCancelAsked.current = false;
+    setVoiceover({ phase: "starting", rms: 0, elapsedMs: 0, maxMs: 0 });
+    try {
+      // Pending edits land first: the take is laid under the document Rust has.
+      await chain.current;
+      const st = await editorVoiceoverStart(sessionId.current, posRef.current);
+      const v = voRef.current as VoiceoverView | null;
+      setVoiceover({ phase: "recording", rms: v?.rms ?? 0, elapsedMs: v?.elapsedMs ?? 0, maxMs: st.maxMs });
+      setPlaying(true);
+      if (voCancelAsked.current) {
+        voCancelAsked.current = false;
+        cancelVoiceover();
+      }
+    } catch (e) {
+      setVoiceover(null);
+      report(e);
+    }
+  }, [fatal, cropMode, exportOpen, setVoiceover, report, cancelVoiceover]);
+
+  const finishRef = useRef(finishVoiceover);
+  useEffect(() => {
+    finishRef.current = finishVoiceover;
+  });
+  // The take's level, and its end: Rust ends it at a pause, a seek or the programme's end.
+  useEffect(() => {
+    const offLevel = listen<EditorVoiceoverLevel>(EV_VOICEOVER_LEVEL, (e) => {
+      const v = voRef.current;
+      if (!v) return;
+      if (v.phase !== "finishing") setVoiceover({ ...v, rms: e.payload.rms, elapsedMs: e.payload.elapsedMs });
+      if (e.payload.ended) finishRef.current();
+    });
+    const offDone = listen<{ sessionId: number }>(EV_VOICEOVER_FINISHED, (e) => {
+      if (e.payload.sessionId === sessionId.current) finishRef.current();
+    });
+    return () => {
+      void offLevel.then((u) => u());
+      void offDone.then((u) => u());
+    };
+  }, [setVoiceover]);
+
   const enterCrop = useCallback(async () => {
     const d = history.current?.present;
     // A clip whose recording is missing has no frame to crop.
@@ -569,6 +738,18 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     const onKey = (e: KeyboardEvent) => {
       // The timeline took the key (Z, Delete on a selected zoom).
       if (e.defaultPrevented || exportOpen || isTypingTarget(e.target) || !view) return;
+      // A take runs: Esc discards it, V or Space ends it, nothing else edits meanwhile.
+      if (voRef.current) {
+        if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelVoiceover();
+        } else if (e.key.toLowerCase() === "v" || e.key === " ") {
+          e.preventDefault();
+          finishVoiceover();
+        }
+        return;
+      }
       const arrow = e.key === "ArrowLeft" || e.key === "ArrowRight";
       // Held keys repeat only for stepping; a focused slider keeps its own arrows.
       if (e.repeat && !arrow) return;
@@ -611,11 +792,45 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         e.preventDefault();
         if (cropMode) setCropMode(false);
         else void enterCrop();
+      } else if (k === "m" && !cropMode) {
+        e.preventDefault();
+        void addMusic();
+      } else if (k === "v" && !cropMode) {
+        e.preventDefault();
+        void startVoiceover();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, init, exportOpen, cropMode, togglePlay, seek, split, removeClip, enterCrop, undo, redo, duplicateClip]);
+  }, [
+    view,
+    init,
+    exportOpen,
+    cropMode,
+    togglePlay,
+    seek,
+    split,
+    removeClip,
+    enterCrop,
+    undo,
+    redo,
+    duplicateClip,
+    addMusic,
+    startVoiceover,
+    finishVoiceover,
+    cancelVoiceover,
+  ]);
+
+  // The preview plays the music/voiceover files from Rust's programme entries.
+  const projectDir = init?.project.dir ?? "";
+  const audioTracksDoc = view?.doc.audioTracks;
+  const previewTracks = useMemo(
+    () =>
+      (audioTracksDoc ?? []).flatMap((tr, index) =>
+        tr.file ? [{ index, src: convertFileSrc(`${projectDir}/assets/${tr.file}`) }] : [],
+      ),
+    [audioTracksDoc, projectDir],
+  );
 
   // Mic gain: live while dragging (preview volume only), one undo step per gesture.
   const micLive = (db: number) => {
@@ -708,10 +923,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </span>
         )}
         <div className="flex-1" />
-        <button className={iconBtn} onClick={undo} disabled={!undoable.undo} title={t("rec2.ed.undo")} aria-label={t("rec2.ed.undo")}>
+        <button className={iconBtn} onClick={undo} disabled={!undoable.undo || !!voiceover} title={t("rec2.ed.undo")} aria-label={t("rec2.ed.undo")}>
           <Undo2 size={14} />
         </button>
-        <button className={iconBtn} onClick={redo} disabled={!undoable.redo} title={t("rec2.ed.redo")} aria-label={t("rec2.ed.redo")}>
+        <button className={iconBtn} onClick={redo} disabled={!undoable.redo || !!voiceover} title={t("rec2.ed.redo")} aria-label={t("rec2.ed.redo")}>
           <Redo2 size={14} />
         </button>
         <button
@@ -719,7 +934,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             if (playing) togglePlay();
             setExportOpen(true);
           }}
-          className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
+          disabled={!!voiceover}
+          className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
         >
           <Download size={14} /> {t("rec2.ed.export")}
         </button>
@@ -732,7 +948,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          annSel && !cropMode && !fatal ? (
+          voiceover ? null : annSel && !cropMode && !fatal ? (
             <AnnotationOverlay
               annotation={annSel}
               screenRect={view.screenRects?.[annSel.clip] ?? null}
@@ -823,6 +1039,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             onSelectAnnotation={setSelectedAnnotation}
             onAddAnnotation={(k) => void addAnnotationHere(k)}
             getDoc={() => cur() ?? doc}
+            hasMic={!!meta.mic}
+            selectedTrack={selectedTrack}
+            onSelectTrack={setSelectedTrack}
+            onAddMusic={() => void addMusic()}
+            onVoiceover={() => void startVoiceover()}
+            voiceover={voiceover}
+            onVoiceoverStop={finishVoiceover}
+            onVoiceoverCancel={cancelVoiceover}
           />
         )}
       </aside>
@@ -833,7 +1057,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <button
           className={iconBtn}
           onClick={togglePlay}
-          disabled={!!fatal}
+          disabled={!!fatal || !!voiceover}
           aria-label={playing ? t("rec2.ed.pause") : t("rec2.ed.play")}
           title={`${playing ? t("rec2.ed.pause") : t("rec2.ed.play")} (Space)`}
         >
@@ -843,6 +1067,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           {formatTimecode(pos)} <span className="text-[var(--color-muted)]">/ {formatTimecode(programmeMs)}</span>
         </span>
         <div className="mx-2 h-5 w-px bg-[var(--color-border)]" />
+        {voiceover && <VoiceoverPanel take={voiceover} onStop={finishVoiceover} onCancel={cancelVoiceover} compact />}
+        <div className={"flex min-w-0 flex-1 items-center gap-2 " + (voiceover ? "hidden" : "")} inert={!!voiceover}>
         <button className={iconBtn} onClick={() => void split()} title={`${t("rec2.ed.split")} (S)`}>
           <Scissors size={14} /> {t("rec2.ed.split")}
         </button>
@@ -909,6 +1135,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             <span className="w-12 tabular-nums">{Math.round(doc.micGainDb)} dB</span>
           </label>
         )}
+        </div>
       </div>
 
       <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -932,6 +1159,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onMoveClip={moveClip}
           selectedAnnotation={annSel?.id ?? null}
           onSelectAnnotation={setSelectedAnnotation}
+          selectedTrack={selectedTrack}
+          onSelectTrack={setSelectedTrack}
+          locked={!!voiceover}
         />
       </div>
 
@@ -944,6 +1174,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         source={cue.source}
         speed={cue.speed}
         positionMs={pos}
+        systemGainDb={doc.systemGainDb}
+        tracks={previewTracks}
+        spans={view.tracks ?? []}
+        duckDb={voiceover ? VOICEOVER_DUCK_DB : 0}
         clicks={{
           hits: view.clickHits ?? [],
           downSrc: assets?.clickDown ? shippedUrl(assets.clickDown) : null,

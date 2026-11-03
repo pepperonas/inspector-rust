@@ -5571,8 +5571,14 @@ export interface EditorAssets {
 export function editorAssets(): Promise<EditorAssets> {
   return invoke("editor_assets");
 }
-/** Copies a picked file into the project's `assets/`; resolves to the file name. */
-export function editorImportAsset(sessionId: number, src: string, kind: "image" | "cursor"): Promise<string> {
+/** A file copied into the project: its name under `assets/`, music also its length. */
+export interface EditorImportedAsset {
+  file: string;
+  durationMs?: number;
+}
+/** Copies a picked file into the project's `assets/` (music: MP3, M4A, AAC, WAV, FLAC ≤ 200 MB,
+ * its length read through the render helper). */
+export function editorImportAsset(sessionId: number, src: string, kind: "image" | "cursor" | "audio"): Promise<EditorImportedAsset> {
   return invoke("editor_import_asset", { sessionId, src, kind });
 }
 export function editorExport(opts: EditorExportOptions): Promise<string> {

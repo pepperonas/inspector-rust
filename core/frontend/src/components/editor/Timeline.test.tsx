@@ -428,3 +428,78 @@ describe("Timeline annotation lane", () => {
     expect("origin" in a).toBe(false);
   });
 });
+
+describe("Timeline audio", () => {
+  const music = {
+    id: "m1", kind: "music" as const, file: "song.m4a", clip: 0, startMs: 0, durationMs: 4_000, offsetMs: 0, spanMs: null,
+    gainDb: -18, looped: false, fadeInMs: 1_000, fadeOutMs: 1_000, muted: false, label: "",
+  };
+  function setupAudio(selectedTrack: string | null, locked = false) {
+    const doc = { ...doc0(), audioTracks: [music] };
+    const onChange = vi.fn();
+    const onSelectTrack = vi.fn();
+    const onSeek = vi.fn();
+    const view: RecordEditorView = {
+      ...view0(doc),
+      tracks: [
+        {
+          index: 0, repeat: 0, progStartMs: 0, progEndMs: 4_000, fileStartMs: 0, fileEndMs: 4_000, fadeInMs: 1_000, fadeOutMs: 1_000,
+          gainDb: -18, kind: "music", muted: false,
+        },
+      ],
+      waveforms: [
+        { kind: "mic", clip: 0, track: null, repeat: 0, progStartMs: 0, progEndMs: 5_000, peaks: [-0.2, 0.2, -0.4, 0.4] },
+        { kind: "system", clip: 1, track: null, repeat: 0, progStartMs: 5_000, progEndMs: 10_000, peaks: [-0.1, 0.1, -0.3, 0.3] },
+      ],
+    };
+    render(
+      <Timeline
+        view={view}
+        thumbs={[]}
+        positionMs={0}
+        durationMs={11_000}
+        selectedClip={null}
+        onSelect={() => undefined}
+        onSeek={onSeek}
+        getDoc={() => doc}
+        onChange={onChange}
+        onError={() => undefined}
+        onSpeedValue={() => undefined}
+        onSpeedRemove={() => undefined}
+        onWidth={() => undefined}
+        selectedTrack={selectedTrack}
+        onSelectTrack={onSelectTrack}
+        locked={locked}
+      />,
+    );
+    return { onChange, onSelectTrack, onSeek };
+  }
+
+  it("the audio lane sits under the clips, the clips carry their mic and system waveforms", () => {
+    setupAudio(null);
+    expect(screen.getByTestId("ed-audio-bar")).toBeTruthy();
+    const clips = screen.getAllByTestId("ed-clip");
+    expect(clips[0].querySelectorAll('[data-testid="ed-wave"]')).toHaveLength(1);
+    expect(clips[1].querySelectorAll('[data-testid="ed-wave"]')).toHaveLength(1);
+  });
+
+  it("Delete removes the selected track (before the editor deletes a clip)", () => {
+    const { onChange, onSelectTrack } = setupAudio("m1");
+    const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).audioTracks).toEqual([]);
+    expect(onSelectTrack).toHaveBeenCalledWith(null);
+  });
+
+  it("while a take runs the timeline is inert: no keys, no seeking", () => {
+    const { onChange, onSeek } = setupAudio("m1", true);
+    const ev = new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    fireEvent.pointerDown(screen.getByTestId("ed-track"), { clientX: 500, pointerId: 1 });
+    expect(onSeek).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId("ed-track").closest("[inert]")).toBeTruthy();
+  });
+});

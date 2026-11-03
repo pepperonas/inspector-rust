@@ -612,7 +612,13 @@ let edDoc: EdDoc = {
     },
     { id: "ann-image", clip: 1, startMs: 19_000, endMs: 22_000, x: 70, y: 70, w: 20, h: 20, zIndex: 4, body: { kind: "image", file: "" } },
   ],
-  audioTracks: [],
+  // An invented music bed (a looping piano clip) under the whole take.
+  audioTracks: [
+    {
+      id: "trk-piano", kind: "music", file: "3a9e1c40-7f2b-4d18-9c55-0e6b2d4f8a17.m4a", clip: 0, startMs: 500, durationMs: 7_000,
+      offsetMs: 0, spanMs: null, gainDb: -18, looped: true, fadeInMs: 1_000, fadeOutMs: 1_000, muted: false, label: "Calm Piano Loop",
+    },
+  ],
   systemGainDb: 0,
 };
 /** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
@@ -667,12 +673,44 @@ function edView(doc: EdDoc) {
       const off = clips[a.clip].progStartMs - doc.clips[a.clip].startMs;
       return { index, progStartMs: a.startMs + off, progEndMs: a.endMs + off };
     });
+  // Tracks and waveforms (mockup only; the app gets both from Rust).
+  const programme = Math.round(t);
+  const tracks: Record<string, unknown>[] = [];
+  ((doc.audioTracks ?? []) as { clip: number; startMs: number; durationMs: number; offsetMs: number; spanMs: number | null; looped: boolean; fadeInMs: number; fadeOutMs: number; gainDb: number; kind: string; muted: boolean }[])
+    .forEach((a, index) => {
+      if (!doc.clips[a.clip]) return;
+      const head = a.startMs + clips[a.clip].progStartMs - doc.clips[a.clip].startMs;
+      const window = Math.max(1, a.durationMs - a.offsetMs);
+      const span = a.spanMs ?? (a.looped ? programme - head : window);
+      for (let played = 0, repeat = 0; played < span && repeat < 1000; played += window, repeat += 1) {
+        const len = Math.min(window, span - played);
+        tracks.push({
+          index, repeat, progStartMs: head + played, progEndMs: head + played + len, fileStartMs: a.offsetMs, fileEndMs: a.offsetMs + len,
+          fadeInMs: played === 0 ? a.fadeInMs : 0, fadeOutMs: played + len >= span ? a.fadeOutMs : 0, gainDb: a.gainDb, kind: a.kind, muted: a.muted,
+        });
+        if (!a.looped) break;
+      }
+    });
+  const wave = (seed: number, n: number, loud: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const v = loud * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.13 + seed) * Math.sin(i * 0.031 + seed * 2)));
+      return [-v * (0.8 + 0.2 * Math.sin(i * 0.7)), v];
+    }).flat();
+  const waveforms = [
+    ...clips.flatMap((c, ci) => [
+      { kind: "system", clip: ci, track: null, repeat: 0, progStartMs: c.progStartMs, progEndMs: c.progEndMs, peaks: wave(ci + 1, 160, 0.35) },
+      { kind: "mic", clip: ci, track: null, repeat: 0, progStartMs: c.progStartMs, progEndMs: c.progEndMs, peaks: wave(ci + 4, 160, 0.75) },
+    ]),
+    ...tracks.map((e) => ({
+      kind: "track", clip: null, track: e.index, repeat: e.repeat, progStartMs: e.progStartMs, progEndMs: e.progEndMs, peaks: wave(9, 120, 0.6),
+    })),
+  ];
   const clickHits = [4_200, 9_800, 15_300].flatMap((ms) => [
     { progMs: ms, gain: 1, release: false },
     { progMs: ms + 90, gain: 0.7, release: true },
   ]);
   const screenRects = doc.clips.map(() => [0.06, 0.06, 0.88, 0.88] as [number, number, number, number]);
-  return { doc, programmeMs: Math.round(t), clips, speed, zooms, annotationSpans, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -1090,7 +1128,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false },
         { dir: "/Users/ana/Movies/Inspector Rust/2026-09-28 Release notes", title: "Release notes", createdAt: Date.parse("2026-09-28T15:40:00Z"), durationMs: 41_500, status: "ready", failure: null, active: false },
       ];
-    case "editor_import_asset": return "6f1c2a8e-4b1d-4c5e-9a3f-2d7b8e0c1a44.png";
+    case "editor_import_asset":
+      return args.kind === "audio"
+        ? { file: "5b2d7e90-1c3a-4f6b-8d42-a9e0c7f31b65.mp3", durationMs: 42_000 }
+        : { file: "6f1c2a8e-4b1d-4c5e-9a3f-2d7b8e0c1a44.png" };
     default:
       if (!misses.has(cmd)) {
         misses.add(cmd);

@@ -6,6 +6,7 @@ import {
   laneRows,
   nextAnnotationId,
   removeAnnotation,
+  removeTrack,
   updateAnnotation,
   MIN_CLIP_MS,
   MIN_SPEED,
@@ -26,6 +27,7 @@ import {
   zoomSourceAt,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
+import { AudioLane, WaveLayer } from "./AudioLane";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -101,6 +103,9 @@ export function Timeline({
   onMoveClip,
   selectedAnnotation = null,
   onSelectAnnotation = () => undefined,
+  selectedTrack = null,
+  onSelectTrack = () => undefined,
+  locked = false,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -127,6 +132,11 @@ export function Timeline({
   /** The annotation (`id`) the inspector edits. */
   selectedAnnotation?: string | null;
   onSelectAnnotation?: (id: string | null) => void;
+  /** The music/voiceover track (`id`) the inspector edits. */
+  selectedTrack?: string | null;
+  onSelectTrack?: (id: string | null) => void;
+  /** A voiceover take runs: no seeking, no drags, no edits. */
+  locked?: boolean;
 }) {
   const t = useT();
   const track = useRef<HTMLDivElement>(null);
@@ -152,12 +162,12 @@ export function Timeline({
 
   // Latest values for the window key handler (registered once per enable flip).
   const annotationSpans = view.annotationSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans });
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack };
   });
   useEffect(() => {
-    if (!keysEnabled) return;
+    if (!keysEnabled || locked) return;
     // Registered before the editor's own handler (a child's effect runs first): a key this
     // track uses is `preventDefault`ed and the editor leaves it alone.
     const onKey = (e: KeyboardEvent) => {
@@ -186,6 +196,10 @@ export function Timeline({
             cur.onSelectAnnotation(made.id);
           })
           .catch(() => undefined);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedTrack) {
+        e.preventDefault();
+        cur.onChange(removeTrack(cur.getDoc(), cur.selectedTrack));
+        cur.onSelectTrack(null);
       } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedAnnotation) {
         e.preventDefault();
         cur.onChange(removeAnnotation(cur.getDoc(), cur.selectedAnnotation));
@@ -211,7 +225,7 @@ export function Timeline({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keysEnabled]);
+  }, [keysEnabled, locked]);
 
   const progAt = (clientX: number) => {
     const r = track.current?.getBoundingClientRect();
@@ -344,6 +358,9 @@ export function Timeline({
   return (
     <div
       className="flex select-none flex-col gap-1 px-4 pb-3 pt-2"
+      inert={locked}
+      aria-disabled={locked || undefined}
+      data-locked={locked ? "" : undefined}
       onPointerMove={onMove}
       onPointerUp={onUp}
       onPointerCancel={() => setDrag(null)}
@@ -352,6 +369,7 @@ export function Timeline({
         ref={track}
         className="relative cursor-text"
         onPointerDown={(e) => {
+          if (locked) return;
           capture(e);
           setMenu(null);
           setDrag({ kind: "head" });
@@ -413,7 +431,19 @@ export function Timeline({
                 }`}
                 aria-label={missing ? t("record.editor.take_missing") : undefined}
               >
-                <span className="truncate">
+                <WaveLayer
+                  waves={(view.waveforms ?? []).filter((w) => w.kind === "system" && w.clip === i)}
+                  startMs={span.progStartMs}
+                  endMs={span.progEndMs}
+                  className="text-[var(--color-muted)] opacity-40"
+                />
+                <WaveLayer
+                  waves={(view.waveforms ?? []).filter((w) => w.kind === "mic" && w.clip === i)}
+                  startMs={span.progStartMs}
+                  endMs={span.progEndMs}
+                  className="text-[var(--color-accent)] opacity-50"
+                />
+                <span className="relative truncate">
                   {drag?.kind === "trim" && drag.clip === i
                     ? formatTimecode(drag.sourceMs)
                     : formatTimecode(span.progEndMs - span.progStartMs)}
@@ -631,6 +661,18 @@ export function Timeline({
             );
           })}
         </div>
+
+        {/* Audio lane: music and voiceover tracks (Rust's programme entries) */}
+        <AudioLane
+          view={view}
+          scale={scale}
+          getDoc={getDoc}
+          onChange={onChange}
+          onError={onError}
+          selected={selectedTrack}
+          onSelect={onSelectTrack}
+          locked={locked}
+        />
 
         {/* Playhead */}
         <div

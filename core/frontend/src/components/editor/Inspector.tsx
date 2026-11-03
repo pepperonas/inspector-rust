@@ -26,6 +26,7 @@ import {
 } from "../../lib/editor";
 import { Chip, Chips, Group, Slider, Swatch, Toggle, chipClass } from "./InspectorParts";
 import { AnnotationTab } from "./AnnotationTab";
+import { AudioTab, VoiceoverPanel, type VoiceoverView } from "./AudioTab";
 import { useT, type MessageKey } from "../../lib/i18n";
 
 export interface InspectorProps {
@@ -56,15 +57,29 @@ export interface InspectorProps {
   onAddAnnotation?: (kind: RecordAnnotationKind) => void;
   /** The newest document (for edits that finish after an await). */
   getDoc?: () => RecordEditDoc;
+  /** The project has a microphone recording. */
+  hasMic?: boolean;
+  /** The music/voiceover track (`id`) selected on the timeline; the audio tab edits it. */
+  selectedTrack?: string | null;
+  onSelectTrack?: (id: string | null) => void;
+  /** Picks a music file and lays it under the playhead. */
+  onAddMusic?: () => void;
+  /** Starts a voiceover take at the playhead. */
+  onVoiceover?: () => void;
+  /** A running voiceover take: the column shows only it (editing is off meanwhile). */
+  voiceover?: VoiceoverView | null;
+  onVoiceoverStop?: () => void;
+  onVoiceoverCancel?: () => void;
 }
 
-type Tab = "background" | "frame" | "cursor" | "zoom" | "annotation";
+type Tab = "background" | "frame" | "cursor" | "zoom" | "annotation" | "audio";
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
   { id: "frame", label: "rec3.insp.tab_frame" },
   { id: "cursor", label: "rec3.insp.tab_cursor" },
   { id: "zoom", label: "rec3.zoom.tab" },
   { id: "annotation", label: "rec4.ann.tab" },
+  { id: "audio", label: "rec4.audio.tab" },
 ];
 const MOTIONS: { id: RecordWallpaperMotion; label: MessageKey }[] = [
   { id: "none", label: "rec3.insp.motion_none" },
@@ -102,7 +117,10 @@ const fmt = (v: number, digits: number) => (Math.round(v * 10 ** digits) / 10 **
 export function Inspector(props: InspectorProps) {
   const t = useT();
   const selectedAnnotation = props.selectedAnnotation ?? null;
-  const [tab, setTab] = useState<Tab>(props.selectedZoom ? "zoom" : selectedAnnotation ? "annotation" : "background");
+  const selectedTrack = props.selectedTrack ?? null;
+  const [tab, setTab] = useState<Tab>(
+    props.selectedZoom ? "zoom" : selectedAnnotation ? "annotation" : selectedTrack ? "audio" : "background",
+  );
   // Selecting a zoom or an annotation brings its settings up (derived during render).
   const [seenZoom, setSeenZoom] = useState(props.selectedZoom);
   if (props.selectedZoom !== seenZoom) {
@@ -113,6 +131,25 @@ export function Inspector(props: InspectorProps) {
   if (selectedAnnotation !== seenAnnotation) {
     setSeenAnnotation(selectedAnnotation);
     if (selectedAnnotation) setTab("annotation");
+  }
+  const [seenTrack, setSeenTrack] = useState(selectedTrack);
+  if (selectedTrack !== seenTrack) {
+    setSeenTrack(selectedTrack);
+    if (selectedTrack) setTab("audio");
+  }
+  // A running take: the column shows the take only (and the audio tab once it is over).
+  const take = props.voiceover ?? null;
+  const [sawTake, setSawTake] = useState(!!take);
+  if (!!take !== sawTake) {
+    setSawTake(!!take);
+    if (take) setTab("audio");
+  }
+  if (take) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col px-3 py-3" data-testid="ed-inspector">
+        <VoiceoverPanel take={take} onStop={props.onVoiceoverStop ?? (() => undefined)} onCancel={props.onVoiceoverCancel ?? (() => undefined)} />
+      </div>
+    );
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="ed-inspector">
@@ -148,6 +185,20 @@ export function Inspector(props: InspectorProps) {
             onLiveEnd={props.onLiveEnd}
             onImport={props.onImport}
             projectAssetUrl={props.projectAssetUrl}
+            getDoc={props.getDoc}
+          />
+        )}
+        {tab === "audio" && (
+          <AudioTab
+            doc={props.doc}
+            hasMic={!!props.hasMic}
+            selected={selectedTrack}
+            onSelect={props.onSelectTrack ?? (() => undefined)}
+            onCommit={props.onCommit}
+            onLive={props.onLive}
+            onLiveEnd={props.onLiveEnd}
+            onAddMusic={props.onAddMusic ?? (() => undefined)}
+            onVoiceover={props.onVoiceover ?? (() => undefined)}
             getDoc={props.getDoc}
           />
         )}

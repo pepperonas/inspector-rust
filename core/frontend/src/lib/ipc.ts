@@ -5684,6 +5684,31 @@ export function editorSegmentationAvailable(): Promise<boolean> {
 export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
   return invoke("editor_auto_zoom", { sessionId });
 }
+/** Progress of `editorTranscribe` (`record-editor-transcribe`): `done` of `total` recordings,
+ *  `source` = the one running (`null` = the project's own take), its position in the audio
+ *  file, recordings without sound in `skipped`; `finished` on the last event. */
+export interface RecordTranscribeProgress {
+  sessionId: number;
+  done: number;
+  total: number;
+  source: string | null;
+  fileDoneMs: number;
+  fileTotalMs: number;
+  skipped: (string | null)[];
+  finished: boolean;
+}
+export const EV_RECORD_TRANSCRIBE = "record-editor-transcribe";
+/** Transcribes every recording the clips play (model from the meeting settings) and puts the
+ *  transcripts into the document; the caller records the answer as one undo step. Errors:
+ *  `record.editor.transcribe_busy`, `record.editor.no_audio`, `model.missing`,
+ *  `transcribe.file_cancelled` (cancelled before any recording finished). */
+export function editorTranscribe(sessionId: number, lang: "auto" | "de" | "en"): Promise<RecordEditorView> {
+  return invoke("editor_transcribe", { sessionId, lang });
+}
+/** Stops the editor's transcription; recordings already done are kept. */
+export function editorTranscribeCancel(): Promise<boolean> {
+  return invoke("editor_transcribe_cancel");
+}
 /** Clip `from` to position `to` (with everything on it); Rust answers with the new view. */
 export function editorMoveClip(sessionId: number, from: number, to: number): Promise<RecordEditorView> {
   return invoke("editor_move_clip", { sessionId, from, to });

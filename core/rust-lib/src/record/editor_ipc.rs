@@ -16,7 +16,7 @@
 //! helper's own message.
 
 use super::assets::AssetRoot;
-use super::editor::{self, EditDoc, EditorView, OutputTarget, TakeMetas};
+use super::editor::{self, EditDoc, EditorView, OutputTarget, TakeMetas, Transcript, TranscriptWord};
 use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, PEAKS_TIMEOUT};
@@ -1538,6 +1538,308 @@ pub fn auto_zoom(app: &AppHandle, session_id: u64) -> Result<EditorView, String>
     update(app, session_id, next)
 }
 
+
+// ---- Transcription of the project's recordings (stage 6) ----------------------------------
+
+/// Progress of `editor_transcribe`: `done` of `total` recordings finished, `source` the one
+/// being transcribed (`None` = the project's own take), with the helper's position in that
+/// file. `skipped` = recordings without any sound; `finished` is set on the last event.
+pub const EV_TRANSCRIBE: &str = "record-editor-transcribe";
+/// An export runs, or the transcription helper is busy (meeting, dictation, a file job, or
+/// this editor's own transcription).
+pub const ERR_TRANSCRIBE_BUSY: &str = "record.editor.transcribe_busy";
+/// No recording of the project has sound (neither `mic.wav` nor system audio).
+pub const ERR_NO_AUDIO: &str = "record.editor.no_audio";
+/// Longest silence from the helper before a recording counts as lost (as `transcribe`).
+const TRANSCRIBE_SILENCE: Duration = Duration::from_secs(600);
+
+static TRANSCRIBING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static TRANSCRIBE_CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscribeProgress {
+    pub session_id: u64,
+    pub done: usize,
+    pub total: usize,
+    pub source: Option<String>,
+    pub file_done_ms: u64,
+    pub file_total_ms: u64,
+    pub skipped: Vec<Option<String>>,
+    pub finished: bool,
+}
+
+/// The audio a recording's words are heard in, and the offset that puts the file's time on
+/// the recording's clock: the microphone (`mic.wav` + its offset) when there is one, else the
+/// system sound inside `screen.mp4` (+ 0), else nothing.
+pub fn audio_source(project_dir: &Path, meta: &RecordingMeta) -> Option<(PathBuf, i64)> {
+    let plain = |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.is_file());
+    if let Some(mic) = &meta.mic {
+        let p = project_dir.join(MIC_FILE);
+        if plain(&p) {
+            return Some((p, mic.offset_ms));
+        }
+    }
+    if meta.system_audio {
+        let p = project_dir.join(SCREEN_FILE);
+        if plain(&p) {
+            return Some((p, 0));
+        }
+    }
+    None
+}
+
+fn shift_ms(t: u64, offset: i64) -> u64 {
+    if offset >= 0 {
+        t.saturating_add(offset as u64)
+    } else {
+        t.saturating_sub(offset.unsigned_abs())
+    }
+}
+
+/// The helper's words on the recording's clock (file time + `offset_ms`), ids `w<n>`. A word
+/// the user corrected in `old` keeps the correction when the recognizer heard the same text
+/// again at an overlapping time (each correction used once) — like `carryOverEdits` in TS.
+pub fn to_transcript(
+    source: Option<String>,
+    words: Vec<transcribe_protocol::Word>,
+    offset_ms: i64,
+    lang: Option<String>,
+    old: Option<&Transcript>,
+) -> Transcript {
+    let edits: Vec<&TranscriptWord> = old.map(|t| t.words.iter().filter(|w| w.original_text.is_some()).collect()).unwrap_or_default();
+    let mut used = vec![false; edits.len()];
+    let words = words
+        .into_iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let start_ms = shift_ms(w.start_ms, offset_ms);
+            let end_ms = shift_ms(w.end_ms, offset_ms).max(start_ms);
+            let text = w.text.trim().to_string();
+            let mut word = TranscriptWord { id: format!("w{i}"), start_ms, end_ms, text, original_text: None };
+            let hit = edits.iter().enumerate().position(|(k, o)| {
+                !used[k]
+                    && o.original_text.as_deref().unwrap_or("").trim() == word.text
+                    && o.start_ms < word.end_ms
+                    && word.start_ms < o.end_ms
+            });
+            if let Some(k) = hit {
+                used[k] = true;
+                word.text = edits[k].text.clone();
+                word.original_text = edits[k].original_text.clone();
+            }
+            word
+        })
+        .collect();
+    let lang = lang.filter(|l| !l.trim().is_empty()).or_else(|| old.map(|t| t.lang.clone())).unwrap_or_default();
+    Transcript { source, lang, words }
+}
+
+/// Refuses a transcription while the helper exports, while `active` (meeting / dictation /
+/// file job) uses the transcription helper, or while one already runs here.
+pub fn transcribe_refusal(exporting: bool, active: Option<&str>, running: bool) -> Result<(), String> {
+    if exporting || active.is_some() || running {
+        Err(ERR_TRANSCRIBE_BUSY.into())
+    } else {
+        Ok(())
+    }
+}
+
+/// One recording to transcribe: its source, audio file and offset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TranscribeJob {
+    pub source: Option<String>,
+    pub file: PathBuf,
+    pub offset_ms: i64,
+}
+
+/// The recordings the clips play, in the order they first appear, with their audio; those
+/// without sound come back as `skipped`.
+pub fn transcribe_plan(dir: &Path, own: &RecordingMeta, takes: &TakeSources, doc: &EditDoc) -> (Vec<TranscribeJob>, Vec<Option<String>>) {
+    let mut seen = HashSet::new();
+    let (mut jobs, mut skipped) = (Vec::new(), Vec::new());
+    for source in doc.clips.iter().map(|c| c.source.clone()) {
+        if !seen.insert(source.clone()) {
+            continue;
+        }
+        let meta = match &source {
+            None => Some(own),
+            Some(id) => takes.get(id).map(|t| &t.meta),
+        };
+        let found = meta.and_then(|m| audio_source(&editor::take_dir(dir, source.as_deref()), m));
+        match found {
+            Some((file, offset_ms)) => jobs.push(TranscribeJob { source, file, offset_ms }),
+            None => skipped.push(source),
+        }
+    }
+    (jobs, skipped)
+}
+
+/// `doc` with each result's transcript put in (one per source, replacing the old one, whose
+/// corrections carry over).
+pub fn with_transcripts(doc: &EditDoc, results: Vec<(TranscribeJob, Vec<transcribe_protocol::Word>, Option<String>)>) -> EditDoc {
+    let mut next = doc.clone();
+    for (job, words, lang) in results {
+        let old = next.transcripts.iter().position(|t| t.source == job.source);
+        let t = to_transcript(job.source.clone(), words, job.offset_ms, lang, old.map(|i| &next.transcripts[i]));
+        match old {
+            Some(i) => next.transcripts[i] = t,
+            None => next.transcripts.push(t),
+        }
+    }
+    next
+}
+
+/// What one helper event means for the running recording.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WordsStep {
+    Progress { done_ms: u64, total_ms: u64 },
+    Done { words: Vec<transcribe_protocol::Word>, lang: Option<String> },
+    Cancelled,
+    Failed(String),
+}
+
+/// Pure: a helper event of the words job (`None` = not about the file).
+pub fn words_step(ev: &transcribe_protocol::Event) -> Option<WordsStep> {
+    use transcribe_protocol::Event;
+    match ev {
+        Event::FileProgress { done_ms, total_ms } => Some(WordsStep::Progress { done_ms: *done_ms, total_ms: *total_ms }),
+        Event::FileWords { words, lang } => Some(WordsStep::Done { words: words.clone(), lang: lang.clone() }),
+        Event::FileError { error } if error == crate::transcribe::ERR_FILE_CANCELLED => Some(WordsStep::Cancelled),
+        Event::FileError { error } => Some(WordsStep::Failed(error.clone())),
+        _ => None,
+    }
+}
+
+/// Clears the running flag however the transcription ends.
+struct TranscribingGuard;
+impl Drop for TranscribingGuard {
+    fn drop(&mut self) {
+        TRANSCRIBING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The helper's words of one recording and the language it heard.
+type HeardWords = (Vec<transcribe_protocol::Word>, Option<String>);
+
+/// One recording through the helper: `Ok(Some)` = words, `Ok(None)` = cancelled.
+fn transcribe_one(
+    job: &TranscribeJob,
+    lang: transcribe_protocol::Lang,
+    model: &str,
+    progress: &dyn Fn(u64, u64),
+) -> Result<Option<HeardWords>, String> {
+    let (tx, rx) = std::sync::mpsc::channel::<WordsStep>();
+    let tx = Mutex::new(tx);
+    let sub = crate::transcribe_client::subscribe(move |ev| {
+        if let Some(step) = words_step(ev) {
+            let _ = tx.lock().unwrap_or_else(|p| p.into_inner()).send(step);
+        }
+    });
+    let cmd = transcribe_protocol::Command::TranscribeWords { path: job.file.clone(), lang, model: model.to_string() };
+    let result = crate::transcribe_client::send(&cmd).and_then(|_| loop {
+        match rx.recv_timeout(TRANSCRIBE_SILENCE) {
+            Ok(WordsStep::Progress { done_ms, total_ms }) => progress(done_ms, total_ms),
+            Ok(WordsStep::Done { words, lang }) => break Ok(Some((words, lang))),
+            Ok(WordsStep::Cancelled) => break Ok(None),
+            Ok(WordsStep::Failed(e)) => break Err(e),
+            Err(_) => {
+                let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+                break Err(crate::transcribe_client::ERR_HELPER_DIED.to_string());
+            }
+        }
+    });
+    crate::transcribe_client::unsubscribe(sub);
+    result
+}
+
+/// `editor_transcribe`: transcribes every recording the clips play, one after another, with
+/// the model chosen in the `meeting` settings, and puts the transcripts into the open
+/// document (one undo step in the UI, which records the returned doc). A cancel keeps the
+/// recordings already done; only when none finished does it end with the cancel sentinel.
+pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_protocol::Lang) -> Result<EditorView, String> {
+    if !crate::transcribe_client::supported() {
+        return Err(crate::transcribe_client::ERR_UNSUPPORTED.into());
+    }
+    let active = crate::meeting::active_kind(
+        crate::meeting::is_running(),
+        crate::live_transcribe::is_active(),
+        crate::transcribe::status().is_some_and(|j| j.is_active()) || crate::transcribe_client::is_busy(),
+    );
+    transcribe_refusal(current_client().is_some_and(|c| c.exporting()), active, TRANSCRIBING.load(Ordering::SeqCst))?;
+    let model = app
+        .try_state::<crate::db::DbHandle>()
+        .map(|db| crate::meeting::MeetingConfig::load(&db).model)
+        .unwrap_or_else(|| transcribe_protocol::models::DEFAULT_MODEL.into());
+    crate::meeting::model_ready(&model)?;
+    let (jobs, skipped) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        transcribe_plan(&s.dir, &s.project.recording, &s.takes, &s.doc)
+    };
+    if jobs.is_empty() {
+        return Err(ERR_NO_AUDIO.into());
+    }
+    if TRANSCRIBING.swap(true, Ordering::SeqCst) {
+        return Err(ERR_TRANSCRIBE_BUSY.into());
+    }
+    let _running = TranscribingGuard;
+    TRANSCRIBE_CANCELLED.store(false, Ordering::SeqCst);
+    let total = jobs.len();
+    let emit = |done: usize, source: Option<String>, file: (u64, u64), finished: bool| {
+        let p = TranscribeProgress {
+            session_id,
+            done,
+            total,
+            source,
+            file_done_ms: file.0,
+            file_total_ms: file.1,
+            skipped: skipped.clone(),
+            finished,
+        };
+        let _ = app.emit(EV_TRANSCRIBE, p);
+    };
+    let mut results = Vec::new();
+    let mut error = None;
+    for (i, job) in jobs.into_iter().enumerate() {
+        if TRANSCRIBE_CANCELLED.load(Ordering::SeqCst) {
+            break;
+        }
+        emit(i, job.source.clone(), (0, 0), false);
+        let source = job.source.clone();
+        match transcribe_one(&job, lang, &model, &|d, t| emit(i, source.clone(), (d, t), false)) {
+            Ok(Some((words, lang))) => results.push((job, words, lang)),
+            Ok(None) => break,
+            Err(e) => {
+                tracing::warn!(target: "record::editor", "transcription of {} failed: {e}", job.file.display());
+                error = Some(e);
+                break;
+            }
+        }
+    }
+    emit(results.len(), None, (0, 0), true);
+    if results.is_empty() {
+        return Err(error.unwrap_or_else(|| crate::transcribe::ERR_FILE_CANCELLED.into()));
+    }
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        with_transcripts(&s.doc, results)
+    };
+    update(app, session_id, next)
+}
+
+/// `editor_transcribe_cancel`: stops the running transcription after the current recording's
+/// helper answer (finished recordings stay). `false` = nothing ran.
+pub fn transcribe_cancel() -> bool {
+    if !TRANSCRIBING.load(Ordering::SeqCst) {
+        return false;
+    }
+    TRANSCRIBE_CANCELLED.store(true, Ordering::SeqCst);
+    let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+    true
+}
+
 /// `editor_move_clip`: clip `from` to position `to` with everything on it (one undo step in
 /// the UI, which records the returned doc).
 pub fn move_clip(app: &AppHandle, session_id: u64, from: usize, to: usize) -> Result<EditorView, String> {
@@ -2707,6 +3009,199 @@ mod tests {
         let path = std::env::var_os("IR_E2E_SCENE_OUT").map(PathBuf::from).unwrap_or_else(|| dir.join("scene-e2e.json"));
         std::fs::write(&path, serde_json::to_vec_pretty(&scene).unwrap()).unwrap();
         println!("scene written: {}", path.display());
+    }
+
+    fn word(text: &str, start_ms: u64, end_ms: u64) -> transcribe_protocol::Word {
+        transcribe_protocol::Word { text: text.into(), start_ms, end_ms, p: 1.0 }
+    }
+
+    fn audio_dir(name: &str, files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ir-editor-trx-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        dir
+    }
+
+    fn with_mic(offset_ms: i64, system_audio: bool) -> RecordingMeta {
+        RecordingMeta {
+            duration_ms: 10_000,
+            system_audio,
+            mic: Some(project::MicMeta { offset_ms, sample_rate: 48_000 }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn audio_source_prefers_the_mic_with_its_offset() {
+        let dir = audio_dir("mic", &[MIC_FILE, SCREEN_FILE]);
+        assert_eq!(audio_source(&dir, &with_mic(120, true)), Some((dir.join(MIC_FILE), 120)));
+        // A named mic whose file is gone falls back to the system sound.
+        std::fs::remove_file(dir.join(MIC_FILE)).unwrap();
+        assert_eq!(audio_source(&dir, &with_mic(120, true)), Some((dir.join(SCREEN_FILE), 0)));
+    }
+
+    #[test]
+    fn audio_source_falls_back_to_system_audio() {
+        let dir = audio_dir("system", &[SCREEN_FILE]);
+        let meta = RecordingMeta { system_audio: true, ..Default::default() };
+        assert_eq!(audio_source(&dir, &meta), Some((dir.join(SCREEN_FILE), 0)));
+    }
+
+    #[test]
+    fn audio_source_none_without_any_audio() {
+        let dir = audio_dir("silent", &[SCREEN_FILE]);
+        assert_eq!(audio_source(&dir, &RecordingMeta::default()), None, "screen.mp4 without system audio has no sound");
+        let no_files = audio_dir("silent-empty", &[]);
+        assert_eq!(audio_source(&no_files, &with_mic(0, true)), None);
+    }
+
+    #[test]
+    fn transcribe_plan_skips_recordings_without_sound() {
+        let dir = audio_dir("plan", &[MIC_FILE]);
+        let take_dir = editor::take_dir(&dir, Some("t1"));
+        std::fs::create_dir_all(&take_dir).unwrap();
+        let mut takes = TakeSources::new();
+        takes.insert("t1".into(), super::super::scene_json::TakeSource { meta: RecordingMeta::default(), cursor: None });
+        let mut doc = doc(&[(0, 1000), (0, 1000), (2000, 3000)]);
+        doc.clips[1].source = Some("t1".into());
+        let (jobs, skipped) = transcribe_plan(&dir, &with_mic(40, false), &takes, &doc);
+        assert_eq!(jobs, vec![TranscribeJob { source: None, file: dir.join(MIC_FILE), offset_ms: 40 }], "each recording once");
+        assert_eq!(skipped, vec![Some("t1".to_string())]);
+    }
+
+    #[test]
+    fn to_transcript_adds_the_offset() {
+        let t = to_transcript(None, vec![word(" Guten", 0, 280), word("Morgen,", 280, 980)], 500, Some("de".into()), None);
+        assert_eq!(t.lang, "de");
+        assert_eq!(t.source, None);
+        let got: Vec<_> = t.words.iter().map(|w| (w.id.as_str(), w.start_ms, w.end_ms, w.text.as_str())).collect();
+        assert_eq!(got, vec![("w0", 500, 780, "Guten"), ("w1", 780, 1480, "Morgen,")]);
+        // A negative offset (mic started before the video) never goes below zero.
+        let neg = to_transcript(Some("t1".into()), vec![word("a", 100, 400)], -200, None, None);
+        assert_eq!((neg.words[0].start_ms, neg.words[0].end_ms), (0, 200));
+        assert_eq!(neg.source.as_deref(), Some("t1"));
+    }
+
+    #[test]
+    fn to_transcript_carries_corrections_over() {
+        let old = Transcript {
+            source: None,
+            lang: "de".into(),
+            words: vec![
+                TranscriptWord { id: "w0".into(), start_ms: 1000, end_ms: 1400, text: "Qwen".into(), original_text: Some("Quinn".into()) },
+                TranscriptWord { id: "w1".into(), start_ms: 5000, end_ms: 5300, text: "".into(), original_text: Some("äh".into()) },
+            ],
+        };
+        // "Quinn" heard again at an overlapping time keeps the fix; "äh" moved far away does not.
+        let t = to_transcript(None, vec![word("Quinn", 1100, 1500), word("äh", 9000, 9200), word("Quinn", 1300, 1600)], 0, None, Some(&old));
+        assert_eq!((t.words[0].text.as_str(), t.words[0].original_text.as_deref()), ("Qwen", Some("Quinn")));
+        assert_eq!((t.words[1].text.as_str(), t.words[1].original_text.as_deref()), ("äh", None));
+        assert_eq!((t.words[2].text.as_str(), t.words[2].original_text.as_deref()), ("Quinn", None), "each correction once");
+        assert_eq!(t.lang, "de", "no detected language keeps the old one");
+    }
+
+    #[test]
+    fn with_transcripts_replaces_the_sources_transcript() {
+        let mut doc = doc(&[(0, 1000)]);
+        doc.transcripts = vec![
+            Transcript { source: Some("t1".into()), lang: "en".into(), words: vec![] },
+            Transcript { source: None, lang: "de".into(), words: vec![] },
+        ];
+        let job = TranscribeJob { source: None, file: PathBuf::from("/x/mic.wav"), offset_ms: 0 };
+        let next = with_transcripts(&doc, vec![(job, vec![word("Hallo", 0, 300)], Some("de".into()))]);
+        assert_eq!(next.transcripts.len(), 2);
+        assert_eq!(next.transcripts[1].words.len(), 1, "own take replaced in place");
+        assert_eq!(next.transcripts[0].source.as_deref(), Some("t1"), "other take untouched");
+    }
+
+    #[test]
+    fn transcribe_refuses_while_exporting_or_another_session_is_open() {
+        assert_eq!(transcribe_refusal(false, None, false), Ok(()));
+        assert_eq!(transcribe_refusal(true, None, false), Err(ERR_TRANSCRIBE_BUSY.to_string()));
+        for kind in ["meeting", "dictation", "file"] {
+            assert_eq!(transcribe_refusal(false, Some(kind), false), Err(ERR_TRANSCRIBE_BUSY.to_string()));
+        }
+        assert_eq!(transcribe_refusal(false, None, true), Err(ERR_TRANSCRIBE_BUSY.to_string()));
+        assert_eq!(ERR_TRANSCRIBE_BUSY, "record.editor.transcribe_busy");
+        assert_eq!(ERR_NO_AUDIO, "record.editor.no_audio");
+        // The wired check uses all three, and a file job (the helper's file slot) counts.
+        let src = include_str!("editor_ipc.rs");
+        let body = src.split("pub fn transcribe_project(").nth(1).unwrap().split("pub fn transcribe_cancel").next().unwrap();
+        assert!(body.contains("c.exporting()"));
+        assert!(body.contains("crate::transcribe_client::is_busy()"));
+        assert!(body.contains("TRANSCRIBING.load"));
+        assert!(body.contains("return Err(ERR_NO_AUDIO.into())"));
+        // A file job started while the editor transcribes would steal its answers.
+        let cmds = include_str!("../commands.rs");
+        let run = cmds.split("pub async fn transcribe_run(").nth(1).unwrap().split("crate::transcribe::ERR_BUSY").next().unwrap();
+        assert!(run.contains("crate::transcribe_client::is_busy()"));
+    }
+
+    #[test]
+    fn words_step_maps_the_helper_answers() {
+        use transcribe_protocol::Event;
+        assert_eq!(words_step(&Event::FileProgress { done_ms: 1, total_ms: 2 }), Some(WordsStep::Progress { done_ms: 1, total_ms: 2 }));
+        assert_eq!(
+            words_step(&Event::FileWords { words: vec![word("a", 0, 1)], lang: None }),
+            Some(WordsStep::Done { words: vec![word("a", 0, 1)], lang: None })
+        );
+        assert_eq!(words_step(&Event::FileError { error: crate::transcribe::ERR_FILE_CANCELLED.into() }), Some(WordsStep::Cancelled));
+        assert_eq!(words_step(&Event::FileError { error: "transcribe.busy".into() }), Some(WordsStep::Failed("transcribe.busy".into())));
+        assert_eq!(words_step(&Event::FileDone { txt: "/x.txt".into(), lang: None }), None, "a text-file job's answer is not ours");
+    }
+
+    /// The real helper path: a `say` sentence as a recording's `mic.wav` → words on the
+    /// recording's clock. Needs `cargo build --release -p transcribe-helper` and the meeting
+    /// model; `IR_TRANSCRIBE_HELPER` points at the helper.
+    #[test]
+    #[ignore]
+    fn transcribe_live_say_through_the_helper() {
+        if std::env::var_os("IR_TRANSCRIBE_HELPER").is_none() {
+            let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/release/ir-transcribe");
+            std::env::set_var("IR_TRANSCRIBE_HELPER", helper);
+        }
+        let dir = audio_dir("live", &[]);
+        let ok = std::process::Command::new("say")
+            .args(["-v", "Anna", "--data-format=LEI16@16000", "-o"])
+            .arg(dir.join(MIC_FILE))
+            .arg("Guten Morgen, heute besprechen wir den Zeitplan.")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "say failed");
+        let (file, offset) = audio_source(&dir, &with_mic(250, false)).unwrap();
+        let job = TranscribeJob { source: None, file, offset_ms: offset };
+        let model = transcribe_protocol::models::DEFAULT_MODEL;
+        let started = Instant::now();
+        let progress = std::sync::atomic::AtomicUsize::new(0);
+        let got = transcribe_one(&job, transcribe_protocol::Lang::De, model, &|_, _| {
+            progress.fetch_add(1, Ordering::SeqCst);
+        })
+        .expect("helper answered")
+        .expect("not cancelled");
+        let t = to_transcript(None, got.0, job.offset_ms, got.1, None);
+        println!("{} ms, {} progress events, lang {}", started.elapsed().as_millis(), progress.load(Ordering::SeqCst), t.lang);
+        for w in &t.words {
+            println!("  {:>6}–{:>6} {} {}", w.start_ms, w.end_ms, w.id, w.text);
+        }
+        assert!(t.words.len() >= 5, "words: {:?}", t.words);
+        assert!(t.words[0].start_ms >= 250, "offset added");
+        assert!(t.words.windows(2).all(|p| p[0].start_ms <= p[1].start_ms));
+        crate::transcribe_client::shutdown();
+    }
+
+    #[test]
+    fn transcribe_ipc_is_registered() {
+        let lib = include_str!("../lib.rs");
+        assert!(lib.contains("commands::editor_transcribe,"));
+        assert!(lib.contains("commands::editor_transcribe_cancel,"));
+        let ipc = include_str!("../../../frontend/src/lib/ipc.ts");
+        assert!(ipc.contains("\"editor_transcribe\", { sessionId, lang }"));
+        assert!(ipc.contains("\"editor_transcribe_cancel\""));
+        assert!(ipc.contains(&format!("\"{EV_TRANSCRIBE}\"")));
     }
 
     #[test]

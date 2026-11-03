@@ -68,6 +68,7 @@ mod transcribe;
 mod live_transcribe;
 mod meeting;
 mod meeting_ui;
+mod ticker;
 mod transcribe_client;
 mod media_name;
 mod media_trim;
@@ -1483,6 +1484,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     app.manage(RetroTrayItem(retro_item.clone()));
     let clear_item = MenuItemBuilder::with_id("clear", i18n::t("tray.clear")).build(app)?;
     texts.push((clear_item.clone(), "tray.clear", None));
+    // Live transcription (Apple Silicon): start/stop, sources, ticker. The
+    // items are kept in a managed handle so `meeting_ui` can relabel them.
+    let meeting = meeting_ui::build_tray_items(app)?;
     // Probe the current state on tray build so the checkmark reflects
     // reality at launch — including the case where the plist / registry
     // entry was created outside the app.
@@ -1519,6 +1523,10 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     ]);
     #[cfg(target_os = "macos")]
     let menu = menu.item(&finder_item);
+    let menu = match &meeting {
+        Some(m) => menu.items(&[&m.sep, &m.toggle, &m.mic, &m.sys, &m.ticker, &m.open]),
+        None => menu,
+    };
     let menu = menu
         .items(&[
             &sep,
@@ -1561,6 +1569,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "screenshot" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::Screenshot),
             "color" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::PickColor),
             "retro_stop" => crate::retro::control::stop_async(app),
+            id if id.starts_with("meeting_") => meeting_ui::on_tray(app, id),
             "pause" => {
                 if let Some(state) = app.try_state::<WatcherState>() {
                     let now = state.paused.load(Ordering::Relaxed);

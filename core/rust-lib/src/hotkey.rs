@@ -642,10 +642,12 @@ pub enum ActionId {
     RetroToggle,
     RetroFocus,
     GestureUnintended,
+    MeetingToggle,
+    TickerToggle,
 }
 
 impl ActionId {
-    pub const ALL: [ActionId; 13] = [
+    pub const ALL: [ActionId; 15] = [
         ActionId::Ocr,
         ActionId::Screenshot,
         ActionId::Color,
@@ -659,6 +661,8 @@ impl ActionId {
         ActionId::RetroToggle,
         ActionId::RetroFocus,
         ActionId::GestureUnintended,
+        ActionId::MeetingToggle,
+        ActionId::TickerToggle,
     ];
 
     pub fn key(self) -> &'static str {
@@ -676,6 +680,8 @@ impl ActionId {
             ActionId::RetroToggle => "retrotoggle",
             ActionId::RetroFocus => "retrofocus",
             ActionId::GestureUnintended => "gestureunintended",
+            ActionId::MeetingToggle => "meeting_toggle",
+            ActionId::TickerToggle => "ticker_toggle",
         }
     }
 
@@ -699,6 +705,8 @@ impl ActionId {
             ActionId::RetroToggle => "action.retrotoggle",
             ActionId::RetroFocus => "action.retrofocus",
             ActionId::GestureUnintended => "action.gestureunintended",
+            ActionId::MeetingToggle => "action.meeting_toggle",
+            ActionId::TickerToggle => "action.ticker_toggle",
         })
     }
 
@@ -725,6 +733,10 @@ impl ActionId {
             // G for gesture. Saves the last 3 s of touch data as a misfire
             // report; the toast says what was saved.
             ActionId::GestureUnintended => "Ctrl+Shift+Alt+KeyG",
+            // L for live. A toast confirms every start and stop, and the tray
+            // icon turns red while recording — never a silent recording.
+            ActionId::MeetingToggle => "Ctrl+Shift+Alt+KeyL",
+            ActionId::TickerToggle => "Ctrl+Shift+Alt+KeyK",
         }
     }
 
@@ -946,6 +958,14 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
             let app = app.clone();
             std::thread::spawn(move || crate::gestures::mark_unintended_and_announce(&app));
         }
+        ActionId::MeetingToggle => {
+            let app = app.clone();
+            std::thread::spawn(move || crate::meeting_ui::toggle_recording(&app));
+        }
+        ActionId::TickerToggle => {
+            let app = app.clone();
+            std::thread::spawn(move || crate::meeting_ui::toggle_ticker(&app));
+        }
     }
 }
 
@@ -959,7 +979,8 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
 /// other apps instead of being swallowed by a no-op (the action and its
 /// setting stay, so the binding survives a later port).
 pub fn action_registers_on(id: ActionId, os: &str) -> bool {
-    !(id == ActionId::Record && os != "macos")
+    let mac_only = matches!(id, ActionId::Record | ActionId::MeetingToggle | ActionId::TickerToggle);
+    !(mac_only && os != "macos")
 }
 
 pub fn apply_action_hotkeys(app: &AppHandle) {
@@ -1445,8 +1466,18 @@ mod tests {
         assert!(action_registers_on(ActionId::Record, "macos"));
         assert!(!action_registers_on(ActionId::Record, "windows"));
         assert!(!action_registers_on(ActionId::Record, "linux"));
-        for id in ActionId::ALL.into_iter().filter(|&i| i != ActionId::Record) {
+        let mac_only = [ActionId::Record, ActionId::MeetingToggle, ActionId::TickerToggle];
+        for id in ActionId::ALL.into_iter().filter(|i| !mac_only.contains(i)) {
             assert!(action_registers_on(id, "linux"), "{} stays registered", id.key());
+        }
+    }
+
+    #[test]
+    fn meeting_hotkeys_exist_only_where_transcription_does() {
+        for id in [ActionId::MeetingToggle, ActionId::TickerToggle] {
+            assert!(action_registers_on(id, "macos"));
+            assert!(!action_registers_on(id, "windows"), "{}", id.key());
+            assert!(!action_registers_on(id, "linux"), "{}", id.key());
         }
     }
 
@@ -1570,7 +1601,7 @@ mod tests {
         // so it must be a deliberate decision. Bump consciously, never
         // reflexively — and never restate the number in the message, or the
         // two drift apart (the `commands.test.ts` lesson).
-        assert_eq!(keys.len(), 13, "action-hotkey count changed — is the new binding really free?");
+        assert_eq!(keys.len(), 15, "action-hotkey count changed — is the new binding really free?");
         assert_eq!(ActionId::from_key("nope"), None);
     }
 

@@ -931,10 +931,32 @@ mod tests {
         let mut c = cfg(tmp.path().join("root"));
         c.sources = vec![Source::Mic];
         let p = Pipeline::start(c, Arc::new(move |e| ev.lock().unwrap().push(e)), deps).unwrap();
-        std::thread::sleep(wait);
+        // Every script ends in `Speak`: wait at least `wait`, then until its
+        // transcript arrived (a loaded test machine needs longer than 600 ms
+        // for several retries — a fixed sleep made these tests flaky).
+        let started = std::time::Instant::now();
+        let deadline = wait * 8;
+        loop {
+            std::thread::sleep(Duration::from_millis(20));
+            let done = events.lock().unwrap().iter().any(|e| matches!(e, Event::Final { .. }));
+            let elapsed = started.elapsed();
+            if (done && elapsed >= wait) || elapsed >= deadline {
+                break;
+            }
+        }
         p.stop();
         let out = events.lock().unwrap().clone();
         (out, calls.load(Ordering::SeqCst))
+    }
+
+    /// The last state, ignoring the "no audio" restarts that follow once a
+    /// script's audio is used up (their timing races the test's stop).
+    fn settled(st: &[(SourceStatus, Option<String>)]) -> SourceStatus {
+        st.iter()
+            .rev()
+            .find(|(_, d)| !d.as_deref().unwrap_or("").contains("no audio"))
+            .map(|(s, _)| *s)
+            .expect("at least one state")
     }
 
     fn mic_states(ev: &[Event]) -> Vec<(SourceStatus, Option<String>)> {
@@ -1017,7 +1039,7 @@ mod tests {
         let (ev, calls) = run_scripted(acts, Timing { slow_retry: Duration::from_secs(60), no_data: None, ..fast() }, 0, Duration::from_millis(600));
         let st = mic_states(&ev);
         assert!(st.iter().all(|(_, d)| !d.as_deref().unwrap_or("").contains("gave up")), "{st:?}");
-        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+        assert_eq!(settled(&st), SourceStatus::Running, "{st:?}");
         assert_eq!(calls, 7);
     }
 
@@ -1029,7 +1051,7 @@ mod tests {
         let (ev, _) = run_scripted(acts, fast(), 0, Duration::from_millis(600));
         let st = mic_states(&ev);
         assert!(st.iter().any(|(_, d)| d.as_deref().unwrap_or("").contains("gave up")), "{st:?}");
-        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+        assert_eq!(settled(&st), SourceStatus::Running, "{st:?}");
     }
 
     #[test]
@@ -1046,7 +1068,7 @@ mod tests {
     fn a_vad_that_fails_at_first_is_tried_again() {
         let (ev, _) = run_scripted(vec![Act::Speak], fast(), 2, Duration::from_millis(600));
         let st = mic_states(&ev);
-        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+        assert_eq!(settled(&st), SourceStatus::Running, "{st:?}");
         assert!(ev.iter().any(|e| matches!(e, Event::Final { .. })));
     }
 

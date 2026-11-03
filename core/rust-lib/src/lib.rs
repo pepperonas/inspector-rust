@@ -1274,6 +1274,20 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_import_asset,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_presets_list,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_preset_save,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_preset_apply,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_preset_rename,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_preset_delete,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_preset_set_default,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_presets_reveal,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_export,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_cancel_export,

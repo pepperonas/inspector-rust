@@ -509,7 +509,7 @@ mod tests {
         CursorRecording { version: 1, provider: CursorProvider::Native, samples, assets: vec![] }
     }
     fn doc(duration_ms: u64, clips: &[(u64, u64)]) -> EditDoc {
-        let mut d = default_doc(&RecordingMeta { duration_ms, ..Default::default() });
+        let mut d = default_doc(&RecordingMeta { duration_ms, ..Default::default() }, None);
         d.clips = clips.iter().map(|&(a, b)| EditClip::main(a, b)).collect();
         d.crop = vec![None; clips.len()];
         d

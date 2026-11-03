@@ -215,7 +215,7 @@ mod tests {
     use crate::record::editor::{EditClip, SpeedRegion};
 
     fn doc(clips: &[(u64, u64)]) -> EditDoc {
-        let mut d = crate::record::editor::default_doc(&crate::record::editor::tests::meta(60_000));
+        let mut d = crate::record::editor::default_doc(&crate::record::editor::tests::meta(60_000), None);
         d.clips = clips.iter().map(|&(s, e)| EditClip::main(s, e)).collect();
         d.crop = vec![None; clips.len()];
         d

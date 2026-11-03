@@ -7,6 +7,14 @@ import type { ClipEntry, Note, Snippet } from "../lib/types";
 const misses = new Set<string>();
 /** The editor key map's stored deviations (record.shortcuts). */
 let mockShortcuts: object = {};
+/** Invented style presets of the mockup recordings folder (stage 4), one of them damaged. */
+let mockPresets: { name: string; file: string; ok: boolean; error: string | null }[] = [
+  { name: "Northwind launch", file: "Northwind launch.irpreset", ok: true, error: null },
+  { name: "Phone portrait", file: "Phone portrait.irpreset", ok: true, error: null },
+  { name: "Plain dark", file: "Plain dark.irpreset", ok: true, error: null },
+  { name: "Old export", file: "Old export.irpreset", ok: false, error: "record.editor.preset_version" },
+];
+let mockDefaultPreset: string | null = "Northwind launch.irpreset";
 const NOW = Date.now();
 const min = 60_000;
 
@@ -1127,6 +1135,36 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "editor_voiceover_cancel":
       edVoiceover = null;
       return null;
+    case "record_presets_list": return { presets: mockPresets, defaultFile: mockDefaultPreset };
+    case "record_preset_save": {
+      const name = String(args.name).trim();
+      const entry = { name, file: `${name}.irpreset`, ok: true, error: null };
+      if (mockPresets.some((p) => p.name.toLowerCase() === name.toLowerCase())) throw "record.editor.preset_name_taken";
+      mockPresets = [...mockPresets, entry].sort((a, b) => a.name.localeCompare(b.name));
+      return entry;
+    }
+    case "record_preset_apply": {
+      const portrait = String(args.file).startsWith("Phone");
+      edDoc = {
+        ...edDoc,
+        output: { aspect: portrait ? "9:16" : "16:9" },
+        appearance: { ...(edDoc.appearance as object), padding: portrait ? 12 : 30, frame: portrait ? "phone" : "laptop", frameTheme: "dark" },
+      };
+      return edView(edDoc);
+    }
+    case "record_preset_rename": {
+      const name = String(args.name).trim();
+      const entry = { name, file: `${name}.irpreset`, ok: true, error: null };
+      mockPresets = mockPresets.map((p) => (p.file === args.file ? entry : p));
+      if (mockDefaultPreset === args.file) mockDefaultPreset = entry.file;
+      return entry;
+    }
+    case "record_preset_delete":
+      mockPresets = mockPresets.filter((p) => p.file !== args.file);
+      if (mockDefaultPreset === args.file) mockDefaultPreset = null;
+      return null;
+    case "record_preset_set_default": mockDefaultPreset = (args.file as string | null) ?? null; return null;
+    case "record_presets_reveal": return null;
     case "record_list_projects":
       return [
         { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false },

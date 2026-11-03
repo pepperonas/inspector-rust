@@ -265,6 +265,24 @@ impl RecordConfig {
     }
 }
 
+const K_DEFAULT_PRESET: &str = "record.default_preset";
+
+/// The style preset new projects start with (its file name in the presets folder), if any.
+pub fn parse_default_preset(raw: Option<String>) -> Option<String> {
+    raw.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn load_default_preset(db: &crate::db::DbHandle) -> Option<String> {
+    parse_default_preset(crate::settings::get(db, K_DEFAULT_PRESET).ok().flatten())
+}
+
+/// `None` clears the default (new projects take the standard look).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn save_default_preset(db: &crate::db::DbHandle, file: Option<&str>) -> anyhow::Result<()> {
+    crate::settings::set(db, K_DEFAULT_PRESET, file.unwrap_or("").trim())
+}
+
 const K_SHORTCUTS: &str = "record.shortcuts";
 
 /// The editor's key map as stored: only the deviations from the defaults, a JSON object the

@@ -5510,6 +5510,44 @@ export function editorMoveClip(sessionId: number, from: number, to: number): Pro
 export function editorDuplicateClip(sessionId: number, index: number): Promise<RecordEditorView> {
   return invoke("editor_duplicate_clip", { sessionId, index });
 }
+/** One file of the presets folder; a broken one (`ok: false`) can only be deleted or shown. */
+export interface RecordPresetEntry {
+  name: string;
+  /** File name inside the presets folder: the handle the preset commands take. */
+  file: string;
+  ok: boolean;
+  /** Reason key (`record.editor.preset_*`) when `ok` is false. */
+  error: string | null;
+}
+export interface RecordPresetsList {
+  presets: RecordPresetEntry[];
+  /** The preset new projects start with (null: the standard look). */
+  defaultFile: string | null;
+}
+export function recordPresetsList(): Promise<RecordPresetsList> {
+  return invoke("record_presets_list");
+}
+/** Saves the open document's look (background, frame, pointer, aspect) as a preset. */
+export function recordPresetSave(sessionId: number, name: string): Promise<RecordPresetEntry> {
+  return invoke("record_preset_save", { sessionId, name });
+}
+/** Applies a preset to the open document; the caller records the answer as one undo step. */
+export function recordPresetApply(sessionId: number, file: string): Promise<RecordEditorView> {
+  return invoke("record_preset_apply", { sessionId, file });
+}
+export function recordPresetRename(file: string, name: string): Promise<RecordPresetEntry> {
+  return invoke("record_preset_rename", { file, name });
+}
+export function recordPresetDelete(file: string): Promise<void> {
+  return invoke("record_preset_delete", { file });
+}
+/** The preset new projects start with; null clears it. */
+export function recordPresetSetDefault(file: string | null): Promise<void> {
+  return invoke("record_preset_set_default", { file });
+}
+export function recordPresetsReveal(): Promise<void> {
+  return invoke("record_presets_reveal");
+}
 /** Copies another finished project into the open one and appends it as a clip. */
 export function editorImportTake(sessionId: number, projectDir: string): Promise<RecordEditorView> {
   return invoke("editor_import_take", { sessionId, projectDir });

@@ -923,8 +923,17 @@ pub fn with_auto_zooms(doc: &EditDoc, cursor: Option<&CursorRecording>, duration
 /// unset) it gets the planner's zooms once when `auto_zoom` (`record.auto_zoom`) is on and the
 /// take has pointer data — and is marked done either way, so zooms are never added behind the
 /// user's back later (deleting them all and reopening plans nothing). `true` = changed (save).
-pub fn doc_for_open(project: &Project, cursor: Option<&CursorRecording>, auto_zoom: bool, takes: &TakeMetas) -> (EditDoc, bool) {
-    let doc = editor::load(project, takes);
+///
+/// A new project (no readable editor block) starts with `new_style`'s look — the default style
+/// preset, its files already copied into the project (`presets::resolve_for_project`).
+pub fn doc_for_open(
+    project: &Project,
+    cursor: Option<&CursorRecording>,
+    auto_zoom: bool,
+    takes: &TakeMetas,
+    new_style: Option<&super::presets::Preset>,
+) -> (EditDoc, bool) {
+    let doc = editor::load_with(project, takes, new_style);
     if doc.auto_zoom_done {
         return (doc, false);
     }
@@ -1134,7 +1143,8 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         .try_state::<crate::db::DbHandle>()
         .map(|db| super::RecordConfig::load(&db).auto_zoom)
         .unwrap_or(true);
-    let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom, &take_metas(&takes));
+    let new_style = if editor::is_new(&project) { default_style_for(app, &dir) } else { None };
+    let (doc, planned) = doc_for_open(&project, cursor.as_ref(), auto_zoom, &take_metas(&takes), new_style.as_ref());
     // A running take of the previous project ends unsaved: its session is replaced.
     voiceover::abort();
     *VOICEOVER_DONE.lock().unwrap_or_else(|p| p.into_inner()) = None;
@@ -1191,6 +1201,44 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     let _ = app.emit(EV_OPENED, serde_json::json!({ "sessionId": init.session_id }));
     ensure_peaks(app);
     Ok(EditorInit { helper_error, ..init })
+}
+
+/// The default style preset (`record.default_preset`) with its files copied into `dir`, or
+/// none (no default set, file gone or unusable — the standard look then).
+fn default_style_for(app: &AppHandle, dir: &Path) -> Option<super::presets::Preset> {
+    let db = app.try_state::<crate::db::DbHandle>()?;
+    let file = super::session::load_default_preset(&db)?;
+    let root = super::RecordConfig::load(&db).root();
+    match super::presets::read_preset(&root, &file) {
+        Ok(p) => Some(super::presets::resolve_for_project(&p, &root, dir)),
+        Err(e) => {
+            tracing::warn!(target: "record::presets", "default preset {file}: {e}");
+            None
+        }
+    }
+}
+
+/// `record_preset_save`: the open document's look saved as a preset in `root`'s presets folder.
+pub fn preset_save(session_id: u64, root: &Path, name: &str) -> Result<super::presets::PresetEntry, String> {
+    let (doc, dir) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        (s.doc.clone(), s.dir.clone())
+    };
+    super::presets::save_preset(root, name, &doc, &dir)
+}
+
+/// `record_preset_apply`: the preset's look and aspect on the open document (its files copied
+/// into the project first; one undo step in the UI, which records the returned doc).
+pub fn preset_apply(app: &AppHandle, session_id: u64, root: &Path, file: &str) -> Result<EditorView, String> {
+    let preset = super::presets::read_preset(root, file)?;
+    let (doc, dir) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        (s.doc.clone(), s.dir.clone())
+    };
+    let next = super::presets::apply_preset(&doc, &preset, root, &dir);
+    update(app, session_id, next)
 }
 
 /// Refuses an open while the helper exports (see [`ERR_OPEN_EXPORTING`]).
@@ -2331,10 +2379,10 @@ mod tests {
         p.recording.duration_ms = 20_000;
         let rec = clicks_take();
         // Off: no zooms, but the open still marks it done.
-        let (off, changed) = doc_for_open(&p, Some(&rec), false, &TakeMetas::new());
+        let (off, changed) = doc_for_open(&p, Some(&rec), false, &TakeMetas::new(), None);
         assert!(changed && off.auto_zoom_done && off.zooms.is_empty());
         // On: the first open plans.
-        let (first, changed) = doc_for_open(&p, Some(&rec), true, &TakeMetas::new());
+        let (first, changed) = doc_for_open(&p, Some(&rec), true, &TakeMetas::new(), None);
         assert!(changed && first.auto_zoom_done);
         assert_eq!(first.zooms.len(), 2);
         // Saved, every zoom deleted, reopened: nothing comes back.
@@ -2342,14 +2390,41 @@ mod tests {
         editor::store(&mut p, &cleared);
         project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
         let p2 = project::read_project(&dir).unwrap();
-        let (second, changed) = doc_for_open(&p2, Some(&rec), true, &TakeMetas::new());
+        let (second, changed) = doc_for_open(&p2, Some(&rec), true, &TakeMetas::new(), None);
         assert!(!changed);
         assert!(second.zooms.is_empty(), "a second open never plans again");
         // A v1 project never gets zooms either.
         let mut old = p2.clone();
         old.editor = serde_json::json!({"version": 1, "clips": [{"startMs": 0, "endMs": 20000}]});
-        let (v1, changed) = doc_for_open(&old, Some(&rec), true, &TakeMetas::new());
+        let (v1, changed) = doc_for_open(&old, Some(&rec), true, &TakeMetas::new(), None);
         assert!(!changed && v1.zooms.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn new_project_opens_with_the_default_preset_look_only_once() {
+        let dir = tmp_project("default-preset", "d");
+        let p = project::read_project(&dir).unwrap();
+        let preset = super::super::presets::Preset {
+            format: super::super::presets::PRESET_FORMAT.into(),
+            version: 1,
+            name: "Look".into(),
+            appearance: editor::Appearance { padding: 7.0, ..editor::Appearance::default() },
+            cursor: editor::CursorStyle { size: 5.5, ..editor::CursorStyle::default() },
+            aspect: editor::Aspect::W1H1,
+        };
+        assert!(editor::is_new(&p));
+        let (doc, changed) = doc_for_open(&p, None, false, &TakeMetas::new(), Some(&preset));
+        assert!(changed, "the first open is saved");
+        assert_eq!((doc.appearance.padding, doc.cursor.size), (7.0, 5.5));
+        assert_eq!(doc.output.aspect, editor::Aspect::Auto);
+        // Stored once: a later open reads the stored look, a changed default does not touch it.
+        let mut stored = p.clone();
+        editor::store(&mut stored, &doc);
+        assert!(!editor::is_new(&stored));
+        let other = super::super::presets::Preset { appearance: editor::Appearance::plain(), ..preset };
+        let (again, _) = doc_for_open(&stored, None, false, &TakeMetas::new(), Some(&other));
+        assert_eq!(again.appearance.padding, 7.0);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2399,7 +2474,7 @@ mod tests {
         let project = project::read_project(&dir).expect("project.json");
         let cursor = read_cursor(&dir);
         println!("cursor samples: {}", cursor.as_ref().map_or(0, |c| c.samples.len()));
-        let (mut doc, planned) = doc_for_open(&project, cursor.as_ref(), true, &TakeMetas::new());
+        let (mut doc, planned) = doc_for_open(&project, cursor.as_ref(), true, &TakeMetas::new(), None);
         println!("first open planned={planned}, zooms:");
         for z in &doc.zooms {
             println!("  {} clip {} {}–{} ms depth {} focus ({:.2},{:.2}) {:?}", z.id, z.clip, z.start_ms, z.end_ms, z.depth, z.focus_x, z.focus_y, z.origin);

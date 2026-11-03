@@ -10,6 +10,7 @@ import {
   FilePlus2,
   Gauge,
   Keyboard,
+  Palette,
   PanelRightClose,
   PanelRightOpen,
   Pause,
@@ -26,6 +27,8 @@ import {
 import {
   editorAssets,
   editorAutoZoom,
+  recordPresetApply,
+  type RecordPresetEntry,
   editorCurrent,
   editorDuplicateClip,
   editorImportAsset,
@@ -92,6 +95,7 @@ import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { BindingsContext, useKeyTitle } from "./editor/bindings-context";
 import { matchAction } from "../lib/editor-shortcuts";
 import { TakePicker } from "./editor/TakePicker";
+import { PresetsMenu } from "./editor/PresetsMenu";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
 import { FocusOverlay } from "./editor/FocusOverlay";
@@ -609,6 +613,23 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [rustEdit, setSelected],
   );
 
+  const [presetsOpen, setPresetsOpen] = useState(false);
+  /** A style preset: Rust copies its files and answers with the doc — one undo step. */
+  const applyPreset = useCallback(
+    (entry: RecordPresetEntry) => {
+      setPresetsOpen(false);
+      rustEdit(
+        () => recordPresetApply(sessionId.current, entry.file),
+        () => {
+          setInfo(t("rec4.preset.applied", { name: entry.name }));
+          window.clearTimeout(infoTimer.current);
+          infoTimer.current = window.setTimeout(() => setInfo(null), NOTICE_MS);
+        },
+      );
+    },
+    [rustEdit, t],
+  );
+
   /** A music file is being imported (copied and decoded for its length). */
   const [importingMusic, setImportingMusic] = useState(false);
   const importingRef = useRef(false);
@@ -983,6 +1004,21 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </span>
         )}
         <div className="flex-1" />
+        <div className="relative">
+          <button
+            className={iconBtn + (presetsOpen ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")}
+            onClick={() => setPresetsOpen((o) => !o)}
+            disabled={!!voiceover}
+            title={t("rec4.preset.title")}
+            aria-expanded={presetsOpen}
+            data-testid="ed-presets-open"
+          >
+            <Palette size={14} /> {t("rec4.preset.button")}
+          </button>
+          {presetsOpen && (
+            <PresetsMenu sessionId={init.sessionId} onApply={applyPreset} onClose={() => setPresetsOpen(false)} />
+          )}
+        </div>
         <button
           className={iconBtn}
           onClick={() => {

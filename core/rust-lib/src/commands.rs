@@ -7388,6 +7388,121 @@ pub async fn editor_import_asset(
     editor_blocking(move || crate::record::editor_ipc::import_asset(&app, session_id, std::path::Path::new(&src), kind)).await
 }
 
+// ── record (stage 4): style presets ──────────────────────────────────────
+
+/// The presets folder's files and the one new projects start with (if it still exists).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordPresetsList {
+    pub presets: Vec<crate::record::presets::PresetEntry>,
+    pub default_file: Option<String>,
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_presets_list(db: State<'_, DbHandle>) -> Result<RecordPresetsList, String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    let default_file = crate::record::session::load_default_preset(&db);
+    editor_blocking(move || {
+        let presets = crate::record::presets::list_presets(&root);
+        let default_file = default_file.filter(|f| presets.iter().any(|p| p.ok && &p.file == f));
+        Ok(RecordPresetsList { presets, default_file })
+    })
+    .await
+}
+
+/// Saves the open document's look (background, frame, pointer, aspect) as a preset.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_preset_save(
+    db: State<'_, DbHandle>,
+    session_id: u64,
+    name: String,
+) -> Result<crate::record::presets::PresetEntry, String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    editor_blocking(move || crate::record::editor_ipc::preset_save(session_id, &root, &name)).await
+}
+
+/// Applies a preset to the open document; the editor records the answer as one undo step.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_preset_apply(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    session_id: u64,
+    file: String,
+) -> Result<crate::record::editor::EditorView, String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    editor_blocking(move || crate::record::editor_ipc::preset_apply(&app, session_id, &root, &file)).await
+}
+
+/// Renames a preset; a renamed default stays the default.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_preset_rename(
+    db: State<'_, DbHandle>,
+    file: String,
+    name: String,
+) -> Result<crate::record::presets::PresetEntry, String> {
+    let db = db.inner().clone();
+    editor_blocking(move || {
+        let root = crate::record::RecordConfig::load(&db).root();
+        let entry = crate::record::presets::rename_preset(&root, &file, &name)?;
+        if crate::record::session::load_default_preset(&db).as_deref() == Some(file.as_str()) {
+            crate::record::session::save_default_preset(&db, Some(&entry.file)).map_err(|e| e.to_string())?;
+        }
+        Ok(entry)
+    })
+    .await
+}
+
+/// Deletes a preset file; a deleted default is no longer the default.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_preset_delete(db: State<'_, DbHandle>, file: String) -> Result<(), String> {
+    let db = db.inner().clone();
+    editor_blocking(move || {
+        let root = crate::record::RecordConfig::load(&db).root();
+        crate::record::presets::delete_preset(&root, &file)?;
+        if crate::record::session::load_default_preset(&db).as_deref() == Some(file.as_str()) {
+            crate::record::session::save_default_preset(&db, None).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// The preset new projects start with (`null` = the standard look). Only a readable preset
+/// can be the default.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_preset_set_default(db: State<'_, DbHandle>, file: Option<String>) -> Result<(), String> {
+    let db = db.inner().clone();
+    editor_blocking(move || {
+        if let Some(f) = &file {
+            let root = crate::record::RecordConfig::load(&db).root();
+            crate::record::presets::read_preset(&root, f)?;
+        }
+        crate::record::session::save_default_preset(&db, file.as_deref()).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// Shows the presets folder in the Finder (created when missing, so there is something to show).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_presets_reveal(db: State<'_, DbHandle>) -> Result<(), String> {
+    let root = crate::record::RecordConfig::load(&db).root();
+    editor_blocking(move || {
+        let dir = crate::record::presets::presets_dir(&root);
+        std::fs::create_dir_all(&dir).map_err(|_| crate::record::presets::ERR_WRITE.to_string())?;
+        reveal_in_file_manager(&dir);
+        Ok(())
+    })
+    .await
+}
+
 /// Start an export into ~/Downloads; returns the target path. Progress and the outcome
 /// arrive as `record-export-progress` / `record-export-done` / `record-export-failed`.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

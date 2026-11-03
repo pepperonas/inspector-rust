@@ -20,6 +20,7 @@ const editorImportTake = vi.fn();
 const editorVoiceoverStart = vi.fn();
 const editorVoiceoverStop = vi.fn();
 const editorVoiceoverCancel = vi.fn();
+const recordPresetApply = vi.fn();
 const openDialog = vi.fn();
 const getRecordShortcuts = vi.fn(async (): Promise<unknown> => ({}));
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
@@ -50,6 +51,8 @@ vi.mock("../lib/ipc", () => ({
   EV_VOICEOVER_LEVEL: "record-voiceover-level",
   EV_VOICEOVER_FINISHED: "record-voiceover-finished",
   recordListProjects: async () => [],
+  recordPresetsList: async () => ({ presets: [{ name: "Dark", file: "Dark.irpreset", ok: true, error: null }], defaultFile: null }),
+  recordPresetApply: (id: number, file: string) => recordPresetApply(id, file),
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
   EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
@@ -538,6 +541,40 @@ describe("RecordEditor", () => {
       await vi.advanceTimersByTimeAsync(5);
     });
     expect((lastSent() as RecordEditDoc).clips).toEqual(doc0.clips);
+  });
+
+  it("applying a style preset goes through Rust and is one undo step", async () => {
+    const styled: RecordEditDoc = {
+      ...doc0,
+      output: { aspect: "9:16" },
+      appearance: { ...doc0.appearance, padding: 12, frame: "laptop" },
+    };
+    recordPresetApply.mockResolvedValue(viewOf(styled));
+    const { getByTestId, getByText, queryByTestId } = await mount();
+    fireEvent.click(getByTestId("ed-presets-open"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.click(getByText("Dark"));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(recordPresetApply).toHaveBeenCalledTimes(1);
+    expect(recordPresetApply).toHaveBeenCalledWith(1, "Dark.irpreset");
+    expect(queryByTestId("ed-presets")).toBeNull();
+    expect(getByTestId("ed-info").textContent).toBe("Style “Dark” applied");
+    // One step back is the look before the preset, in one go.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(lastSent() as RecordEditDoc).toEqual(doc0);
+    // …and forward again is the preset's look.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(lastSent() as RecordEditDoc).toEqual(styled);
   });
 
   it("the audio preview plays the inserted take's files in its clip", async () => {

@@ -721,8 +721,10 @@ pub struct EditorView {
     pub waveforms: Vec<super::peaks::WaveSpan>,
 }
 
-/// One clip spanning the whole recording, speed 1, no crop.
-pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
+/// One clip spanning the whole recording, speed 1, no crop. With a `preset` (the default
+/// style preset, its files already in the project — `presets::resolve_for_project`) the look
+/// is the preset's; its aspect never carries over to a new project.
+pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>) -> EditDoc {
     EditDoc {
         version: EDITOR_VERSION,
         clips: vec![EditClip::main(0, meta.duration_ms)],
@@ -730,8 +732,8 @@ pub fn default_doc(meta: &RecordingMeta) -> EditDoc {
         crop: vec![None],
         output: OutputShape { aspect: Aspect::Auto },
         mic_gain_db: 0.0,
-        appearance: Appearance::default(),
-        cursor: CursorStyle::default(),
+        appearance: preset.map(|p| p.appearance.clone()).unwrap_or_default(),
+        cursor: preset.map(|p| p.cursor.clone()).unwrap_or_default(),
         zooms: Vec::new(),
         auto_zoom_done: false,
         annotations: Vec::new(),
@@ -771,11 +773,23 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
 /// The stored document, normalised. Empty, unparseable or unknown-version blocks fall back
 /// to `default_doc` — an editor that cannot read its block must still open the recording.
 pub fn load(project: &Project, takes: &TakeMetas) -> EditDoc {
+    load_with(project, takes, None)
+}
+
+/// [`load`]; a project without a readable editor block (a new one) starts with `preset`'s look.
+pub fn load_with(project: &Project, takes: &TakeMetas, preset: Option<&super::presets::Preset>) -> EditDoc {
     let meta = &project.recording;
     match migrate(project.editor.clone()) {
         Some(doc) => normalize(doc, meta.duration_ms, takes),
-        None => default_doc(meta),
+        // A hand-edited preset file is clamped like any stored look.
+        None if preset.is_some() => normalize(default_doc(meta, preset), meta.duration_ms, takes),
+        None => default_doc(meta, None),
     }
+}
+
+/// No stored editor block can be read: the project opens as new.
+pub fn is_new(project: &Project) -> bool {
+    migrate(project.editor.clone()).is_none()
 }
 
 pub fn store(project: &mut Project, doc: &EditDoc) {
@@ -1673,7 +1687,7 @@ pub(crate) mod tests {
 
     #[test]
     fn default_doc_from_meta() {
-        let d = default_doc(&meta(7_500));
+        let d = default_doc(&meta(7_500), None);
         assert_eq!(d.version, EDITOR_VERSION);
         assert_eq!(d.clips, vec![clip(0, 7_500)]);
         assert!(d.speed.is_empty());
@@ -1684,7 +1698,7 @@ pub(crate) mod tests {
 
     #[test]
     fn load_falls_back_on_garbage() {
-        let def = default_doc(&meta(10_000));
+        let def = default_doc(&meta(10_000), None);
         for editor in [
             serde_json::json!({}),
             serde_json::json!(null),
@@ -1910,7 +1924,7 @@ pub(crate) mod tests {
     #[test]
     fn output_size_auto_follows_layout() {
         let m = meta(1_000);
-        let mut d = default_doc(&m); // Auto, 50 % padding, no frame
+        let mut d = default_doc(&m, None); // Auto, 50 % padding, no frame
         // e' = 0.8 · 3024/1964 + 0.2 = 1.4318; the long side is the target's.
         assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P1080), (1920, 1340));
         assert_eq!(output_size(&m, &NO_TAKES, &d, OutputTarget::P720), (1280, 894));
@@ -1961,7 +1975,7 @@ pub(crate) mod tests {
 
     #[test]
     fn new_doc_gets_upstream_defaults() {
-        let d = default_doc(&meta(5_000));
+        let d = default_doc(&meta(5_000), None);
         assert_eq!(d.output.aspect, Aspect::Auto);
         let a = &d.appearance;
         assert_eq!((a.padding, a.radius_px, a.shadow, a.background_blur, a.motion_blur), (50.0, 40.0, 0.6, 0.0, 0.2));
@@ -1978,7 +1992,7 @@ pub(crate) mod tests {
     fn unknown_version_falls_back_to_default() {
         let json = serde_json::json!({"version": 99, "clips": [{"startMs": 0, "endMs": 5000}]});
         assert!(migrate(json.clone()).is_none());
-        assert_eq!(load(&project_with(json), &NO_TAKES), default_doc(&meta(10_000)));
+        assert_eq!(load(&project_with(json), &NO_TAKES), default_doc(&meta(10_000), None));
     }
 
     #[test]
@@ -2079,7 +2093,7 @@ pub(crate) mod tests {
 
     #[test]
     fn serde_roundtrip_v2() {
-        let mut d = default_doc(&meta(10_000));
+        let mut d = default_doc(&meta(10_000), None);
         d.appearance.background = Background::Gradient { angle_deg: 135.0, stops: vec!["#111111".into(), "#eeeeee".into()] };
         d.appearance.frame = Frame::Laptop;
         d.appearance.frame_theme = FrameTheme::Dark;
@@ -2395,7 +2409,7 @@ pub(crate) mod tests {
 
     #[test]
     fn serde_roundtrip_v3() {
-        let mut d = default_doc(&meta(10_000));
+        let mut d = default_doc(&meta(10_000), None);
         d.clips[0].source = Some("take-2".into());
         d.annotations = vec![
             ann(0, 0, 2_000, text("Hallo")),

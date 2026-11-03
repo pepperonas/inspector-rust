@@ -1354,7 +1354,15 @@ mod mac {
         let st = app.state::<RecordState>();
         st.transition(Action::Pick)?;
         emit_status(app);
-        picker_macos::present(app, kind)
+        // The HUD floats above everything and would cover the picker's own
+        // "Share window" button on the hovered window: out of the way while
+        // the system picker is open, back when it answers.
+        set_hud_visible(app, false);
+        let res = picker_macos::present(app, kind);
+        if res.is_err() {
+            set_hud_visible(app, true);
+        }
+        res
     }
 
     /// Called by the picker observer after a pick or a cancel.
@@ -1362,7 +1370,20 @@ mod mac {
         if let Some(st) = app.try_state::<RecordState>() {
             let _ = st.transition(Action::PickDone);
         }
+        set_hud_visible(app, true);
         emit_status(app);
+    }
+
+    /// Hide (order out) or re-show the HUD window, if it exists. Hiding keeps
+    /// the webview and its state; showing brings it back focused.
+    fn set_hud_visible(app: &AppHandle, visible: bool) {
+        let Some(w) = app.get_webview_window(HUD_LABEL) else { return };
+        if visible {
+            let _ = w.show();
+            let _ = w.set_focus();
+        } else {
+            let _ = w.hide();
+        }
     }
 
     pub fn start(app: &AppHandle, opts: StartOptions) -> Result<RecordStatus, String> {

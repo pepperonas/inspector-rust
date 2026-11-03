@@ -189,28 +189,35 @@ fn entries_of(doc: &EditDoc, index: usize, t: &AudioTrack, programme: f64) -> Ve
             after_cut = false;
         }
         kept.retain(|(_, fs, fe)| fe > fs);
-        let n = kept.len();
-        return (0..n)
+        // A piece plays at 1×; it stops where the next one begins on the programme.
+        let pieces: Vec<(f64, f64, f64)> = (0..kept.len())
             .map(|i| {
-                let (prog, fs, mut fe) = kept[i];
-                // A piece plays at 1×; it stops where the next one begins on the programme.
-                if let Some(next) = kept.get(i + 1) {
-                    fe = fe.min(fs + (next.0 - prog));
-                }
-                entry(0, prog, fs, fe, if i == 0 { fade_in } else { 0.0 }, if i == n - 1 { fade_out } else { 0.0 })
+                let (prog, fs, fe) = kept[i];
+                let fe = kept.get(i + 1).map_or(fe, |next| fe.min(fs + (next.0 - prog)));
+                (prog, fs, fe)
             })
-            .filter(|e| e.file_end_ms > e.file_start_ms)
+            .filter(|(_, fs, fe)| fe > fs)
+            .collect();
+        // The fades go on the outer pieces of what is left.
+        let n = pieces.len();
+        return pieces
+            .into_iter()
+            .enumerate()
+            .map(|(i, (prog, fs, fe))| entry(0, prog, fs, fe, if i == 0 { fade_in } else { 0.0 }, if i + 1 == n { fade_out } else { 0.0 }))
             .collect();
     }
 
     // Music (and a looping voiceover): the span is the raw length less the cuts it covers. A
     // loop without a set span fills the programme from its head.
-    let raw_len = match track_span_ms(t) {
-        Some(s) => s as f64,
+    let span = match track_span_ms(t) {
+        Some(raw_len) => {
+            let raw_len = raw_len as f64;
+            let Some(pieces) = walk(doc, t.clip, t.start_ms, raw_len) else { return Vec::new() };
+            raw_len - removed_ms(&pieces)
+        }
+        // A loop without a set span fills the programme from its head (no cut walk).
         None => (programme - head_prog).max(0.0),
     };
-    let Some(pieces) = walk(doc, t.clip, t.start_ms, raw_len) else { return Vec::new() };
-    let span = if t.looped && t.span_ms.is_none() { raw_len } else { raw_len - removed_ms(&pieces) };
     if span <= 0.0 {
         return Vec::new();
     }
@@ -348,6 +355,23 @@ mod tests {
         let mut d = doc(&[(0, 10_000), (10_000, 30_000)]);
         d.audio_tracks = vec![track(TrackKind::Voiceover, 0, 8_000, 10_000)];
         assert_eq!(track_entries(&d).len(), 1);
+    }
+
+    /// Under heavy speed-up the first piece is cut short by the next one's start; the fades
+    /// stay on the outer pieces (they are given out after the pieces are final).
+    #[test]
+    fn voiceover_fades_stay_on_the_outer_pieces() {
+        // Clip 0 at 16× lasts 250 ms of programme: its piece stops there. Cut 4–6 s.
+        let mut d = doc(&[(0, 4_000), (6_000, 30_000)]);
+        d.speed = vec![SpeedRegion { clip: 0, start_ms: 0, end_ms: 4_000, speed: 16.0 }];
+        let mut t = track(TrackKind::Voiceover, 0, 0, 30_000);
+        t.fade_in_ms = 500;
+        t.fade_out_ms = 700;
+        d.audio_tracks = vec![t];
+        let e = track_entries(&d);
+        assert!(!e.is_empty());
+        assert_eq!(e[0].fade_in_ms, 500.0);
+        assert_eq!(e.last().unwrap().fade_out_ms, 700.0, "{e:?}");
     }
 
     #[test]

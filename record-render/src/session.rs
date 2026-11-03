@@ -96,12 +96,13 @@ pub fn run() -> i32 {
     };
     let exports = ExportSlot::default();
     let (tx, rx) = mpsc::channel::<Incoming>();
+    let peaks = spawn_peaks_worker(out.clone());
     {
         let out = out.clone();
         let exports = exports.clone();
         std::thread::Builder::new()
             .name("ir-render-stdin".into())
-            .spawn(move || read_commands(io::stdin().lock(), tx, out, exports))
+            .spawn(move || read_commands(io::stdin().lock(), tx, out, exports, peaks))
             .expect("spawn stdin reader");
     }
 
@@ -185,7 +186,48 @@ impl ExportSlot {
     }
 }
 
-fn read_commands(mut input: impl io::Read, tx: mpsc::Sender<Incoming>, out: Out, exports: ExportSlot) {
+/// One `Peaks` request for the decode thread.
+struct PeaksJob {
+    id: u64,
+    path: String,
+    cache: String,
+}
+
+/// The decode thread: one `Peaks` at a time, off the render thread (a long decode must never
+/// freeze the preview or hold back edits). A failure or a panic answers `PeaksFailed`; it
+/// never ends the helper.
+fn spawn_peaks_worker(out: Out) -> mpsc::Sender<PeaksJob> {
+    let (tx, rx) = mpsc::channel::<PeaksJob>();
+    std::thread::Builder::new()
+        .name("ir-render-peaks".into())
+        .spawn(move || {
+            while let Ok(job) = rx.recv() {
+                let ev = peaks_event(&job);
+                if send_event(&out, &ev).is_err() {
+                    return;
+                }
+            }
+        })
+        .expect("spawn peaks worker");
+    tx
+}
+
+fn peaks_event(job: &PeaksJob) -> Event {
+    let result = catch_unwind(AssertUnwindSafe(|| peaks_into_cache(&job.path, Path::new(&job.cache))));
+    match result {
+        Ok(Ok((blocks, duration_ms))) => Event::Peaks { id: job.id, blocks, duration_ms },
+        Ok(Err(e)) => Event::PeaksFailed { id: job.id, msg: format!("{e:#}") },
+        Err(panic) => Event::PeaksFailed { id: job.id, msg: format!("decoder crashed: {}", panic_message(&*panic)) },
+    }
+}
+
+fn read_commands(
+    mut input: impl io::Read,
+    tx: mpsc::Sender<Incoming>,
+    out: Out,
+    exports: ExportSlot,
+    peaks: mpsc::Sender<PeaksJob>,
+) {
     let mut next_export = 0u64;
     loop {
         let (tag, body) = match read_frame(&mut input) {
@@ -214,6 +256,13 @@ fn read_commands(mut input: impl io::Read, tx: mpsc::Sender<Incoming>, out: Out,
         let control = match &cmd {
             Command::Cancel => {
                 exports.cancel();
+                continue;
+            }
+            Command::Peaks { id, path, cache } => {
+                let job = PeaksJob { id: *id, path: path.clone(), cache: cache.clone() };
+                if peaks.send(job).is_err() {
+                    let _ = send_event(&out, &Event::PeaksFailed { id: *id, msg: "peaks worker gone".into() });
+                }
                 continue;
             }
             Command::Shutdown => {
@@ -339,12 +388,8 @@ impl State {
                     }
                 }
             }
-            Command::Peaks { path, cache } => match peaks_into_cache(&path, Path::new(&cache)) {
-                Ok((blocks, duration_ms)) => self.event(Event::Peaks { blocks, duration_ms }),
-                Err(e) => self.error(format!("{e:#}")),
-            },
-            // Handled by the reader thread; never queued.
-            Command::Cancel => Ok(()),
+            // Handled by the reader thread (Peaks by its decode thread); never queued.
+            Command::Cancel | Command::Peaks { .. } => Ok(()),
             Command::Shutdown => {
                 // May block if the preview thread is wedged; the app kills the helper after a timeout (Task 5).
                 // Let the preview's render thread wind down before the process exits.
@@ -904,10 +949,11 @@ mod tests {
         let slot = ExportSlot::default();
         let (feed_tx, feed_rx) = mpsc::channel();
         let (tx, rx) = mpsc::channel();
+        let (peaks_tx, _peaks_rx) = mpsc::channel();
         let reader = {
             let (out, slot) = (out.clone(), slot.clone());
             std::thread::spawn(move || {
-                read_commands(Feed { rx: feed_rx, buf: io::Cursor::new(Vec::new()) }, tx, out, slot)
+                read_commands(Feed { rx: feed_rx, buf: io::Cursor::new(Vec::new()) }, tx, out, slot, peaks_tx)
             })
         };
         let t = Duration::from_secs(5);
@@ -945,6 +991,50 @@ mod tests {
         assert!(matches!(rx.recv_timeout(t).unwrap().cmd, Command::Shutdown));
         assert!(third_control.check().is_err());
         reader.join().unwrap();
+    }
+
+    /// `Peaks` never reaches the render queue: the reader hands it to the decode thread, so a
+    /// long decode cannot hold back frames or edits (review fix 2).
+    #[test]
+    fn peaks_go_to_the_decode_thread_not_the_render_queue() {
+        let sink = Sink::default();
+        let out: Out = Arc::new(Mutex::new(Box::new(sink.clone())));
+        let (feed_tx, feed_rx) = mpsc::channel();
+        let (tx, rx) = mpsc::channel();
+        let (peaks_tx, peaks_rx) = mpsc::channel::<PeaksJob>();
+        let reader = std::thread::spawn(move || {
+            read_commands(Feed { rx: feed_rx, buf: io::Cursor::new(Vec::new()) }, tx, out, ExportSlot::default(), peaks_tx)
+        });
+        let t = Duration::from_secs(5);
+        feed_tx.send(encoded(&Command::Peaks { id: 7, path: "/a.wav".into(), cache: "/p.f32".into() })).unwrap();
+        feed_tx.send(encoded(&Command::SetPlaying { playing: true })).unwrap();
+        assert!(matches!(rx.recv_timeout(t).unwrap().cmd, Command::SetPlaying { playing: true }));
+        let job = peaks_rx.recv_timeout(t).unwrap();
+        assert_eq!((job.id, job.path.as_str(), job.cache.as_str()), (7, "/a.wav", "/p.f32"));
+        drop(feed_tx);
+        reader.join().unwrap();
+    }
+
+    /// The decode thread answers each job by id, a failure as `PeaksFailed` — and keeps going.
+    #[test]
+    fn peaks_worker_answers_by_id_and_survives_failures() {
+        let dir = std::env::temp_dir().join(format!("ir-peaks-worker-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("a.wav");
+        write_sine_wav(&wav, 1.0, 0.5);
+        let sink = Sink::default();
+        let jobs = spawn_peaks_worker(Arc::new(Mutex::new(Box::new(sink.clone()))));
+        jobs.send(PeaksJob { id: 1, path: "/no/such.wav".into(), cache: dir.join("x.f32").display().to_string() }).unwrap();
+        jobs.send(PeaksJob { id: 2, path: wav.display().to_string(), cache: dir.join("a.f32").display().to_string() }).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while sink.events().len() < 2 {
+            assert!(Instant::now() < deadline, "worker did not answer");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let ev = sink.events();
+        assert!(matches!(&ev[0], Event::PeaksFailed { id: 1, .. }), "{:?}", ev[0]);
+        assert!(matches!(ev[1], Event::Peaks { id: 2, blocks: 200, .. }), "{:?}", ev[1]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

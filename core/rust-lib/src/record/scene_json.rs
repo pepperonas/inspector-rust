@@ -261,9 +261,10 @@ pub fn scene_json_with(
                 "webcamOffsetSec": 0.0,
                 "hasAudio": m.system_audio,
                 "cursorPath": path_str(&dir.join(CURSOR_FILE)),
-                // Patch 14: the mic is the voice (loudness-normalised); the system sound keeps
-                // its recorded level, moved by the document's system level.
-                "normalise": "voice",
+                // Patch 14 (ruling R6): with a mic, the mic is the voice (loudness-normalised)
+                // and the system sound keeps its recorded level; without one, the screen
+                // audio is normalised as upstream. The system level applies either way.
+                "normalise": if m.mic.is_some() { "voice" } else { "screen" },
                 "systemGainDb": doc.system_gain_db,
             });
             if let Some(mic) = &m.mic {
@@ -1108,10 +1109,25 @@ mod tests {
         let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
         for c in v["clips"].as_array().unwrap() {
             assert_eq!(c["systemGainDb"], -6.5);
-            assert_eq!(c["normalise"], "voice");
+            assert_eq!(c["normalise"], "voice", "the test project has a mic");
         }
         // The master level stays at 0: the system level is the screen audio's alone.
         assert!(v.get("audio").is_none());
+    }
+
+    /// Ruling R6: a recording without a mic keeps upstream's normalisation of its screen audio.
+    #[test]
+    fn mic_less_clip_normalises_the_screen_audio() {
+        let mut p = project();
+        p.recording.mic = None;
+        let mut d = doc();
+        d.system_gain_db = 3.0;
+        let v = scene_json_with(Path::new(DIR), &p, &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        for c in v["clips"].as_array().unwrap() {
+            assert_eq!(c["normalise"], "screen");
+            assert_eq!(c["systemGainDb"], 3.0);
+            assert!(c.get("extraAudio").is_none());
+        }
     }
 
     #[test]

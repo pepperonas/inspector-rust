@@ -22,7 +22,8 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command as Proc, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -38,8 +39,23 @@ pub const THUMBS_TIMEOUT_BASE: Duration = Duration::from_secs(15);
 pub const THUMBS_TIMEOUT_PER_FRAME: Duration = Duration::from_secs(2);
 /// `Shutdown` may hang on the preview thread; after this the helper is killed.
 pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
-/// A waveform decode of an hour of audio takes seconds; a minute means a wedged decoder.
-pub const PEAKS_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long [`RenderClient::peaks`] waits for one decode. Generous: the decode runs on the
+/// helper's own thread and blocks nothing, so the wait only bounds a decode that never ends —
+/// and running out of it only fails that one file, it never kills the helper.
+pub const PEAKS_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Why [`RenderClient::peaks`] has no peaks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeaksError {
+    /// The helper answered `PeaksFailed` (no audio, unreadable file, decoder panic).
+    Failed(String),
+    /// No answer within the wait. The helper lives on; a late answer is dropped.
+    TimedOut,
+    /// The helper is gone (died, shut down): not the file's fault.
+    Gone(String),
+}
+
+type PeaksAnswer = Result<(u32, u64), String>;
 
 /// Notices the client pushes on its own (from the reader thread).
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +124,9 @@ struct Shared {
     export_target: Mutex<Option<PathBuf>>,
     pid: u32,
     sink: Sink,
+    /// `Peaks` requests waiting for their out-of-band answer, by id.
+    peaks: Mutex<HashMap<u64, Sender<PeaksAnswer>>>,
+    next_peaks_id: AtomicU64,
 }
 
 /// An export the helper can no longer finish (killed, crashed, shut down mid-export).
@@ -151,6 +170,8 @@ impl Shared {
             }
             *dead = Some(reason.clone());
         }
+        // Waiting `peaks` calls see a closed channel: the helper is gone.
+        self.peaks.lock().unwrap_or_else(|p| p.into_inner()).clear();
         {
             let mut child = self.child.lock().unwrap_or_else(|p| p.into_inner());
             let _ = child.kill();
@@ -283,6 +304,8 @@ impl RenderClient {
             closing: AtomicBool::new(false),
             exporting: AtomicBool::new(false),
             sink,
+            peaks: Mutex::new(HashMap::new()),
+            next_peaks_id: AtomicU64::new(1),
         });
         let (tx, rx) = mpsc::channel();
         {
@@ -436,20 +459,24 @@ impl RenderClient {
     }
 
     /// The waveform of `path` written to `cache` (`Command::Peaks`): `(blocks, duration_ms)`.
-    /// Holds the request slot while the helper decodes (the preview answers `Busy` meanwhile).
-    pub fn peaks(&self, path: String, cache: String) -> Result<(u32, u64), String> {
-        if self.exporting() {
-            return Err("record.editor.busy".into());
+    /// Out of band: it takes no request slot (preview, thumbnails and edits go on while the
+    /// helper's decode thread works) and waits at most `wait`; a timeout never kills the helper.
+    pub fn peaks(&self, path: String, cache: String, wait: Duration) -> Result<(u32, u64), PeaksError> {
+        let id = self.shared.next_peaks_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = mpsc::channel();
+        self.shared.peaks.lock().unwrap_or_else(|p| p.into_inner()).insert(id, tx);
+        if let Err(e) = self.send(&Command::Peaks { id, path, cache }) {
+            self.shared.peaks.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+            return Err(PeaksError::Gone(e));
         }
-        let rx = self.replies.lock().unwrap_or_else(|p| p.into_inner());
-        let rx = self.begin(rx, &Command::Peaks { path, cache })?;
-        let deadline = Instant::now() + PEAKS_TIMEOUT;
-        loop {
-            match self.next(&rx, deadline, "Peaks")? {
-                Reply::Event(Event::Peaks { blocks, duration_ms }) => return Ok((blocks, duration_ms)),
-                Reply::Event(Event::Error { msg }) => return Err(msg),
-                other => tracing::debug!(target: "record::render", "ignoring {other:?} while computing peaks"),
+        match rx.recv_timeout(wait) {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(msg)) => Err(PeaksError::Failed(msg)),
+            Err(RecvTimeoutError::Timeout) => {
+                self.shared.peaks.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+                Err(PeaksError::TimedOut)
             }
+            Err(RecvTimeoutError::Disconnected) => Err(PeaksError::Gone(self.dead_err())),
         }
     }
 
@@ -552,6 +579,20 @@ fn read_loop(mut stdout: impl std::io::Read, tx: Sender<Reply>, shared: Arc<Shar
                     fatal = Some(msg);
                     continue;
                 }
+                // Out of band (the decode thread): to its waiting call, never to the request
+                // slot. An answer nobody waits for any more (timed out) is dropped.
+                Ok(Event::Peaks { id, blocks, duration_ms }) => {
+                    if let Some(tx) = shared.peaks.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) {
+                        let _ = tx.send(Ok((blocks, duration_ms)));
+                    }
+                    continue;
+                }
+                Ok(Event::PeaksFailed { id, msg }) => {
+                    if let Some(tx) = shared.peaks.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) {
+                        let _ = tx.send(Err(msg));
+                    }
+                    continue;
+                }
                 Ok(ev) => Reply::Event(ev),
                 Err(e) => {
                     tracing::warn!(target: "record::render", "bad event: {e}");
@@ -629,29 +670,48 @@ mod tests {
         }
     }
 
-    /// `Peaks` waits for the helper's answer (sent only after the command arrived) and hands
-    /// back the block count and the duration; an `Error` reply is the error.
+    /// `Peaks` is answered out of band, by id: it does not block a `Frame` request sent while
+    /// the decode runs, an answer for another id is ignored, a failure is `Failed`, and a
+    /// timeout leaves the helper alive.
     #[test]
-    fn peaks_returns_blocks_and_duration() {
-        let ok = script(
-            "peaks",
-            r#"head -c 5 >/dev/null
-printf '\002\055\000\000\000{"event":"peaks","blocks":3,"duration_ms":15}'
-sleep 2"#,
+    fn peaks_answer_out_of_band_and_never_kill_the_helper() {
+        // Reads the Peaks command (25+ bytes), then answers a Frame with an empty preview
+        // BEFORE the Peaks answer (id 9 first: nobody waits for it), then Peaks id 1.
+        let empty_preview = r#"printf '\003\020\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000'"#;
+        let body = format!(
+            "{READY}\nhead -c 5 >/dev/null\nsleep 0.3\n{empty_preview}\n\
+             printf '\\002\\063\\000\\000\\000{{\"event\":\"peaks\",\"id\":9,\"blocks\":7,\"duration_ms\":1}}'\n\
+             printf '\\002\\063\\000\\000\\000{{\"event\":\"peaks\",\"id\":1,\"blocks\":3,\"duration_ms\":5}}'\n\
+             sleep 3"
         );
+        let helper = script("peaks-oob", &body);
         let (sink, _) = collecting();
-        let client = RenderClient::spawn_with(ok, Vec::new(), sink).unwrap();
-        assert_eq!(client.peaks("/a.mp4".into(), "/p/peaks-x.f32".into()), Ok((3, 15)));
+        let client = Arc::new(RenderClient::spawn_with(helper, Vec::new(), sink).unwrap());
+        client.open(serde_json::json!({}), 64, 36).unwrap();
+        let c = client.clone();
+        let waiting = std::thread::spawn(move || c.peaks("/a.mp4".into(), "/p.f32".into(), Duration::from_secs(5)));
+        std::thread::sleep(Duration::from_millis(100));
+        // The request slot is free while the decode runs.
+        assert_eq!(client.frame(0), Ok(FrameAnswer::NoneNewer));
+        assert_eq!(waiting.join().unwrap(), Ok((3, 5)));
         client.shutdown();
-        let err = script(
-            "peaks-err",
+
+        let fails = script(
+            "peaks-failed",
             r#"head -c 5 >/dev/null
-printf '\002\042\000\000\000{"event":"error","msg":"no audio"}'
-sleep 2"#,
+printf '\002\067\000\000\000{"event":"peaks_failed","id":1,"msg":"no audio stream"}'
+sleep 3"#,
         );
         let (sink, _) = collecting();
-        let client = RenderClient::spawn_with(err, Vec::new(), sink).unwrap();
-        assert_eq!(client.peaks("/a.mp4".into(), "/p/peaks-x.f32".into()), Err("no audio".into()));
+        let client = RenderClient::spawn_with(fails, Vec::new(), sink).unwrap();
+        assert_eq!(client.peaks("/a".into(), "/p".into(), Duration::from_secs(5)), Err(PeaksError::Failed("no audio stream".into())));
+        client.shutdown();
+
+        let silent = script("peaks-silent", "sleep 5");
+        let (sink, _) = collecting();
+        let client = RenderClient::spawn_with(silent, Vec::new(), sink).unwrap();
+        assert_eq!(client.peaks("/a".into(), "/p".into(), Duration::from_millis(200)), Err(PeaksError::TimedOut));
+        assert!(!client.is_dead(), "a slow decode must not kill the helper");
         client.shutdown();
     }
 

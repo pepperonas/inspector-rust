@@ -12,11 +12,14 @@
 //!
 //! Replies: `Open` → `Ready`; `Frame` → exactly one `0x03` frame (an EMPTY one — `w = h = 0`,
 //! `gen = since_gen`, no pixels — when nothing newer exists); `Thumbs` → one `0x04` per
-//! rendered frame, then `ThumbsDone`; `Peaks` → `Peaks` (the file named by `cache` is written
-//! first) or `Error`; `Export` → `ExportProgress`… then `ExportDone` or
+//! rendered frame, then `ThumbsDone`; `Export` → `ExportProgress`… then `ExportDone` or
 //! `ExportFailed`. The setters (`SetScene`, `SetActiveClip`, `SetPlaying`, `SetTime`, `Resize`)
 //! answer only on failure (`Error`). `Cancel` is handled out of band (it must reach an export
-//! that is blocking the helper's render thread). Any command may also produce `Error`; `Fatal`
+//! that is blocking the helper's render thread). `Peaks` runs on the helper's own decode thread,
+//! one at a time, beside everything else: its answer (`Peaks` or `PeaksFailed`, carrying the
+//! request's `id`; the file named by `cache` is written first) may arrive at any point, between
+//! any other replies — the app routes it by `id`, never as the reply to the request it is
+//! waiting on. Any command may also produce `Error`; `Fatal`
 //! means the helper is about to exit.
 //!
 //! Platform-free on purpose (serde/serde_json only): the app on every OS and the helper share it.
@@ -98,8 +101,9 @@ pub enum Command {
     Thumbs { scene: Value, out_fps: u32, frames: Vec<u64>, max_width: u32 },
     Export { scene: Value, kind: ExportKind, out_path: String },
     /// Waveform of the audio in `path` ([`peaks`]): written to `cache` as `[min, max]` f32 LE
-    /// pairs, answered with `Event::Peaks`. An existing `cache` of the right size is reused.
-    Peaks { path: String, cache: String },
+    /// pairs, answered with `Event::Peaks` or `Event::PeaksFailed` carrying `id` (out of band,
+    /// see the module doc). An existing `cache` of the right size is reused.
+    Peaks { id: u64, path: String, cache: String },
     Cancel,
     Shutdown,
     /// Debug builds only: panics inside the render thread, to test the crash path.
@@ -118,9 +122,11 @@ pub enum Event {
     /// cannot fill is shortened while exporting).
     ExportProgress { frames: u64, total: u64 },
     ExportDone { path: String },
-    /// `Peaks` done: `blocks` pairs are in the cache file; `duration_ms` is the audio's length
-    /// (one decode answers both — the editor reads a music file's length from here).
-    Peaks { blocks: u32, duration_ms: u64 },
+    /// `Peaks` `id` done: `blocks` pairs are in the cache file; `duration_ms` is the audio's
+    /// length (one decode answers both — the editor reads a music file's length from here).
+    Peaks { id: u64, blocks: u32, duration_ms: u64 },
+    /// `Peaks` `id` could not be computed (no audio, unreadable file, a decoder panic).
+    PeaksFailed { id: u64, msg: String },
     ExportFailed { msg: String, cancelled: bool },
     Fatal { msg: String },
 }
@@ -262,7 +268,7 @@ mod tests {
                 kind: ExportKind::Gif { w: 480, h: 270, fps: 15, loop_forever: false },
                 out_path: "/tmp/c.gif".into(),
             },
-            Command::Peaks { path: "/p/screen.mp4".into(), cache: "/p/peaks-0123.f32".into() },
+            Command::Peaks { id: 4, path: "/p/screen.mp4".into(), cache: "/p/peaks-0123.f32".into() },
             Command::Cancel,
             Command::Shutdown,
         ];
@@ -303,7 +309,8 @@ mod tests {
             Event::Error { msg: "no".into() },
             Event::ExportProgress { frames: 3, total: 90 },
             Event::ExportDone { path: "/x.mp4".into() },
-            Event::Peaks { blocks: 2000, duration_ms: 10_000 },
+            Event::Peaks { id: 4, blocks: 2000, duration_ms: 10_000 },
+            Event::PeaksFailed { id: 5, msg: "no audio".into() },
             Event::ExportFailed { msg: "cancelled".into(), cancelled: true },
             Event::Fatal { msg: "boom".into() },
         ];
@@ -316,8 +323,8 @@ mod tests {
         }
         assert_eq!(serde_json::to_value(Event::Ready).unwrap(), json!({"event": "ready"}));
         assert_eq!(
-            serde_json::to_value(Event::Peaks { blocks: 3, duration_ms: 15 }).unwrap(),
-            json!({"event": "peaks", "blocks": 3, "duration_ms": 15})
+            serde_json::to_value(Event::Peaks { id: 1, blocks: 3, duration_ms: 15 }).unwrap(),
+            json!({"event": "peaks", "id": 1, "blocks": 3, "duration_ms": 15})
         );
     }
 

@@ -19,7 +19,7 @@ use super::assets::AssetRoot;
 use super::editor::{self, EditDoc, EditorView, OutputTarget, TakeMetas};
 use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
-use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
+use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, PEAKS_TIMEOUT};
 use super::click_cues::click_hits_by_source;
 use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
 use std::collections::{HashMap, HashSet};
@@ -576,6 +576,34 @@ struct PeakStore {
     failed: HashSet<String>,
 }
 
+/// How one file's peaks ended.
+enum PeakOutcome {
+    Ready(Peaks),
+    /// The file's fault (no audio, unreadable, decode timed out): not asked for again while
+    /// this version of the file is in the session.
+    Failed(String),
+    /// The helper is gone: not the file's fault; asked for again after the next edit.
+    Gone(String),
+}
+
+impl PeakStore {
+    /// Records `key`'s outcome; `false` = the helper is gone, stop asking for now.
+    fn finish(&mut self, key: &str, outcome: PeakOutcome) -> bool {
+        self.pending.remove(key);
+        match outcome {
+            PeakOutcome::Ready(p) => {
+                self.ready.insert(key.to_string(), Arc::new(p));
+                true
+            }
+            PeakOutcome::Failed(_) => {
+                self.failed.insert(key.to_string());
+                true
+            }
+            PeakOutcome::Gone(_) => false,
+        }
+    }
+}
+
 /// One file whose peaks are wanted: `mic` = a recorder `mic.wav` (read here), else decoded by
 /// the helper.
 #[derive(Debug, Clone, PartialEq)]
@@ -684,10 +712,15 @@ impl Session {
     }
 
     /// The files whose peaks are neither here, nor coming, nor failed — marked as coming.
+    /// Entries for files (or file versions) the session no longer draws are dropped.
     fn take_peak_jobs(&mut self) -> Vec<PeakJob> {
+        let files: Vec<(PathBuf, bool, String)> =
+            self.audio_files().into_iter().filter_map(|(f, mic)| peaks::cache_name_for(&f).map(|k| (f, mic, k))).collect();
+        let wanted: HashSet<&String> = files.iter().map(|(_, _, k)| k).collect();
+        self.peaks.ready.retain(|k, _| wanted.contains(k));
+        self.peaks.failed.retain(|k| wanted.contains(k));
         let mut jobs = Vec::new();
-        for (file, mic) in self.audio_files() {
-            let Some(key) = peaks::cache_name_for(&file) else { continue };
+        for (file, mic, key) in files.iter().cloned() {
             let store = &self.peaks;
             if store.ready.contains_key(&key) || store.pending.contains(&key) || store.failed.contains(&key) {
                 continue;
@@ -1087,61 +1120,100 @@ pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorVi
 /// Computes the peaks the open session still lacks on a background thread, then emits
 /// [`EV_WAVEFORMS`]. `mic.wav` is read here; the other files go to the helper one at a time.
 fn ensure_peaks(app: &AppHandle) {
-    let (id, dir, jobs) = {
-        let mut guard = session();
-        let Some(s) = guard.as_mut() else { return };
-        (s.id, s.dir.clone(), s.take_peak_jobs())
-    };
-    if jobs.is_empty() {
-        return;
+    {
+        let guard = session();
+        if guard.is_none() {
+            return;
+        }
+        // One worker at a time: a running one picks up whatever is new before it stops (the
+        // flag only changes under the session lock, so nothing is missed between the two).
+        if PEAKS_WORKER.swap(true, Ordering::SeqCst) {
+            return;
+        }
     }
-    let keys: Vec<String> = jobs.iter().map(|j| j.key.clone()).collect();
     let app = app.clone();
-    let spawned = std::thread::Builder::new().name("ir-record-peaks".into()).spawn(move || {
-        for job in jobs {
+    let spawned = std::thread::Builder::new().name("ir-record-peaks".into()).spawn(move || peaks_worker(&app));
+    if let Err(e) = spawned {
+        tracing::warn!(target: "record::editor", "peaks thread did not start: {e}");
+        PEAKS_WORKER.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Set while the `ir-record-peaks` worker runs.
+static PEAKS_WORKER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The worker: takes the open session's missing peaks, computes them one file at a time
+/// (`mic.wav` here, the rest on the helper's decode thread — the preview never waits), emits
+/// [`EV_WAVEFORMS`], and repeats until nothing is missing. A gone helper stops it; the next
+/// edit starts it again.
+fn peaks_worker(app: &AppHandle) {
+    loop {
+        let (id, dir, jobs) = {
+            let mut guard = session();
+            let Some(s) = guard.as_mut() else {
+                PEAKS_WORKER.store(false, Ordering::SeqCst);
+                return;
+            };
+            let jobs = s.take_peak_jobs();
+            if jobs.is_empty() {
+                PEAKS_WORKER.store(false, Ordering::SeqCst);
+                return;
+            }
+            (s.id, s.dir.clone(), jobs)
+        };
+        let mut stop = false;
+        let mut jobs = jobs.into_iter();
+        for job in jobs.by_ref() {
             let cache = dir.join(&job.key);
-            let result = if job.mic {
-                peaks::wav_peaks(&job.file, &cache).map_err(|e| e.to_string())
+            let outcome = if job.mic {
+                match peaks::wav_peaks(&job.file, &cache) {
+                    Ok(p) => PeakOutcome::Ready(p),
+                    Err(e) => PeakOutcome::Failed(e.to_string()),
+                }
             } else {
                 match current_client() {
-                    Some(c) => c
-                        .peaks(job.file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned())
-                        .and_then(|(_, duration_ms)| {
-                            let data = peaks::read_cache(&cache).ok_or_else(|| "peaks cache unreadable".to_string())?;
-                            Ok(Peaks { data, duration_ms })
-                        }),
-                    None => Err("no render helper".into()),
+                    Some(c) => match c.peaks(job.file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned(), PEAKS_TIMEOUT) {
+                        Ok((_, duration_ms)) => match peaks::read_cache(&cache) {
+                            Some(data) => PeakOutcome::Ready(Peaks { data, duration_ms }),
+                            None => PeakOutcome::Failed("peaks cache unreadable".into()),
+                        },
+                        Err(PeaksError::Failed(m)) => PeakOutcome::Failed(m),
+                        Err(PeaksError::TimedOut) => PeakOutcome::Failed("decode timed out".into()),
+                        Err(PeaksError::Gone(m)) => PeakOutcome::Gone(m),
+                    },
+                    None => PeakOutcome::Gone("no render helper".into()),
                 }
             };
+            if matches!(outcome, PeakOutcome::Ready(_)) {
+                peaks::remove_older_caches(&dir, &job.key);
+            }
+            if let PeakOutcome::Failed(e) | PeakOutcome::Gone(e) = &outcome {
+                tracing::warn!(target: "record::editor", "no waveform for {}: {e}", job.file.display());
+            }
             let mut guard = session();
-            let Some(s) = guard.as_mut().filter(|s| s.id == id) else { return };
-            s.peaks.pending.remove(&job.key);
-            match result {
-                Ok(p) => {
-                    s.peaks.ready.insert(job.key, Arc::new(p));
-                }
-                Err(e) => {
-                    tracing::warn!(target: "record::editor", "no waveform for {}: {e}", job.file.display());
-                    // A dead helper is not the file's fault: a later edit asks again.
-                    if current_client().is_some_and(|c| !c.is_dead()) || job.mic {
-                        s.peaks.failed.insert(job.key);
-                    }
+            let Some(s) = guard.as_mut().filter(|s| s.id == id) else { break };
+            if !s.peaks.finish(&job.key, outcome) {
+                stop = true;
+                break;
+            }
+        }
+        if stop {
+            let mut guard = session();
+            if let Some(s) = guard.as_mut().filter(|s| s.id == id) {
+                for job in jobs {
+                    s.peaks.pending.remove(&job.key);
                 }
             }
+            PEAKS_WORKER.store(false, Ordering::SeqCst);
+            drop(guard);
+            return;
         }
         let waveforms = {
             let guard = session();
-            let Some(s) = guard.as_ref().filter(|s| s.id == id) else { return };
-            s.waveforms(&super::audio_tracks::track_entries(&s.play))
+            guard.as_ref().filter(|s| s.id == id).map(|s| s.waveforms(&super::audio_tracks::track_entries(&s.play)))
         };
-        let _ = app.emit(EV_WAVEFORMS, serde_json::json!({ "sessionId": id, "waveforms": waveforms }));
-    });
-    if let Err(e) = spawned {
-        tracing::warn!(target: "record::editor", "peaks thread did not start: {e}");
-        if let Some(s) = session().as_mut().filter(|s| s.id == id) {
-            for k in keys {
-                s.peaks.pending.remove(&k);
-            }
+        if let Some(waveforms) = waveforms {
+            let _ = app.emit(EV_WAVEFORMS, serde_json::json!({ "sessionId": id, "waveforms": waveforms }));
         }
     }
 }
@@ -1669,10 +1741,24 @@ mod tests {
         assert_eq!(v.waveforms[0].kind, peaks::WaveKind::Mic);
         assert_eq!((v.waveforms[0].prog_start_ms, v.waveforms[0].prog_end_ms), (0.0, 10_000.0));
         assert!((v.waveforms[0].peaks[1] - 0.5).abs() < 1e-3);
-        // A failed file is not asked for again.
-        s.peaks.pending.remove(&jobs[1].key);
-        s.peaks.failed.insert(jobs[1].key.clone());
-        assert!(s.take_peak_jobs().is_empty());
+        // A failed file is not asked for again (review fix 3: a timeout counts as failed).
+        assert!(s.peaks.finish(&jobs[1].key, PeakOutcome::Failed("decode timed out".into())));
+        // A gone helper is not the file's fault: the worker stops, the file is asked for again.
+        assert!(!s.peaks.finish(&jobs[2].key, PeakOutcome::Gone("helper died".into())));
+        let again = s.take_peak_jobs();
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].key, jobs[2].key);
+        // A file that changes is a new version: the old entry is dropped, the new one asked for.
+        let mic_key = jobs[0].key.clone();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut sink = crate::record::wav::WavSink::create(&dir.join(MIC_FILE), 48_000).unwrap();
+        sink.set_origin(0);
+        sink.push(0, &vec![0.25f32; 24_000]).unwrap();
+        sink.finish().unwrap();
+        let next = s.take_peak_jobs();
+        assert_eq!(next.len(), 1);
+        assert!(next[0].mic && next[0].key != mic_key);
+        assert!(!s.peaks.ready.contains_key(&mic_key), "the stale version is dropped");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -24,13 +24,32 @@ pub const VIEW_BLOCKS_PER_SEC: f64 = 200.0;
 /// them; a long project gets a coarser waveform, never a heavier update).
 pub const MAX_VIEW_BLOCKS: f64 = 40_000.0;
 
-/// Cache file name for `path` as it is now (`audioPeaks.ts` `cacheKey`): a changed or replaced
-/// file gets a new name, so stale peaks are never served.
+/// Cache file name for `path` as it is now (`audioPeaks.ts` `cacheKey`):
+/// `peaks-<source>-<version>.f32`. `source` hashes the path, `version` the path, size and
+/// modification time — a changed or replaced file gets a new name (stale peaks are never
+/// served), and its older caches are found by the shared `source` part.
 pub fn peaks_cache_name(path: &Path, size: u64, mtime_ns: u128) -> String {
-    let mut h = Sha256::new();
-    h.update(format!("v1:{}:{size}:{mtime_ns}", path.to_string_lossy()).as_bytes());
-    let hex: String = h.finalize().iter().take(16).map(|b| format!("{b:02x}")).collect();
-    format!("peaks-{hex}.f32")
+    let p = path.to_string_lossy();
+    format!("peaks-{}-{}.f32", hex16(&format!("src:{p}")), hex16(&format!("v1:{p}:{size}:{mtime_ns}")))
+}
+
+fn hex16(text: &str) -> String {
+    Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Deletes `peaks-<same source>-*.f32` files in `dir` other than `current` (older versions of
+/// the same file). Best effort.
+pub fn remove_older_caches(dir: &Path, current: &str) {
+    let Some(prefix) = current.strip_suffix(".f32").and_then(|n| n.rsplit_once('-')).map(|(src, _)| format!("{src}-")) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name != current && name.starts_with(&prefix) && name.ends_with(".f32") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
 }
 
 /// [`peaks_cache_name`] from the file's metadata; `None` when it does not exist.
@@ -235,12 +254,29 @@ mod tests {
     fn peaks_cache_name_changes_with_mtime() {
         let p = Path::new("/p/screen.mp4");
         let a = peaks_cache_name(p, 100, 1);
-        assert!(a.starts_with("peaks-") && a.ends_with(".f32") && a.len() == "peaks-".len() + 32 + 4, "{a}");
+        assert!(a.starts_with("peaks-") && a.ends_with(".f32") && a.len() == "peaks-".len() + 16 + 1 + 16 + 4, "{a}");
+        // The same file in another version shares the source part.
+        assert_eq!(a[..22], peaks_cache_name(p, 999, 7)[..22]);
         assert_eq!(a, peaks_cache_name(p, 100, 1));
         assert_ne!(a, peaks_cache_name(p, 100, 2));
         assert_ne!(a, peaks_cache_name(p, 101, 1));
         assert_ne!(a, peaks_cache_name(Path::new("/p/mic.wav"), 100, 1));
         assert_eq!(cache_name_for(Path::new("/no/such/file")), None);
+    }
+
+    #[test]
+    fn older_caches_of_the_same_source_are_removed() {
+        let dir = std::env::temp_dir().join(format!("ir-peaks-prune-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Path::new("/p/screen.mp4");
+        let (old, new, other) = (peaks_cache_name(p, 1, 1), peaks_cache_name(p, 2, 2), peaks_cache_name(Path::new("/p/mic.wav"), 1, 1));
+        for n in [&old, &new, &other, &"notes.txt".to_string()] {
+            std::fs::write(dir.join(n), b"x").unwrap();
+        }
+        remove_older_caches(&dir, &new);
+        assert!(!dir.join(&old).exists(), "the older version is gone");
+        assert!(dir.join(&new).exists() && dir.join(&other).exists() && dir.join("notes.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

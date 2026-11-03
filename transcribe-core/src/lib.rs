@@ -3,3 +3,4 @@
 pub use transcribe_protocol as protocol;
 pub mod text;
 pub mod writer;
+pub mod segment;

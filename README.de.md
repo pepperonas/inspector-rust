@@ -127,7 +127,7 @@
   [![Crates](https://img.shields.io/badge/crates-900-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-575-7c3aed?style=flat-square&logo=tauri&logoColor=white)](./core/rust-lib/src/lib.rs)
   [![UI components](https://img.shields.io/badge/UI%20components-121-61DAFB?style=flat-square&logo=react&logoColor=black)](./core/frontend/src/components)
-  [![Test suites](https://img.shields.io/badge/test%20suites-397-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
+  [![Test suites](https://img.shields.io/badge/test%20suites-398-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-47-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
   [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-15-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)

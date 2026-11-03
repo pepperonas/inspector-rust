@@ -172,7 +172,8 @@ export function carryOverEdits(old: RecordTranscript, next: RecordTranscript): R
 }
 
 /** A transcription's result laid into the newest document: a transcript replaces the one of the
- *  same recording, a new recording's is appended; `lang` is remembered for the next run. */
+ *  same recording, a new recording's is appended; `lang` is remembered for the next run. The
+ *  project's first transcript turns the captions on (the user sees the result). */
 export function mergeTranscripts(
   doc: RecordEditDoc,
   next: readonly RecordTranscript[],
@@ -184,7 +185,12 @@ export function mergeTranscripts(
     if (i >= 0) out[i] = t;
     else out.push(t);
   }
-  const captions = lang && doc.captions ? { ...doc.captions, lang } : doc.captions;
+  // The first transcript shows its result: captions come on once, in the same step. After that
+  // the user's switch rules (a later run never turns them back on).
+  const before = (doc.transcripts ?? []).some((t) => t.words.length > 0);
+  const now = out.some((t) => t.words.length > 0);
+  let captions = lang && doc.captions ? { ...doc.captions, lang } : doc.captions;
+  if (captions && !before && now && !captions.enabled) captions = { ...captions, enabled: true };
   return { ...doc, transcripts: out, captions };
 }
 

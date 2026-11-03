@@ -426,15 +426,25 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   );
   const transcription = useTranscription(getSessionId, applyTranscription);
   /** R12: a word's programme time comes from Rust, after the edits still on their way. */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const toProgramme = useCallback(
-    (clip: number, sourceMs: number) =>
-      chain.current
+    (clip: number, sourceMs: number) => {
+      const asked = sessionId.current;
+      return chain.current
         .catch(() => undefined)
         .then(() => editorToProgramme(clip, sourceMs))
+        .then((ms) => (mounted.current && sessionId.current === asked ? ms : null))
         .catch((e) => {
-          report(e);
+          if (mounted.current) report(e);
           return null;
-        }),
+        });
+    },
     [report],
   );
   /** T: the transcript tab. `n` counts requests so the same tab can be asked for again. */

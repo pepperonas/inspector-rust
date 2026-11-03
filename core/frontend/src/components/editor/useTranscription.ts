@@ -56,10 +56,14 @@ export function useTranscription(
   const [download, setDownload] = useState<Transcription["download"]>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const alive = useRef(true);
+  /** A model download was running at the last `meeting-changed` event. */
+  const downloading = useRef(false);
   const runningRef = useRef(false);
   const resultRef = useRef(onResult);
+  const sessionRef = useRef(sessionId);
   useEffect(() => {
     resultRef.current = onResult;
+    sessionRef.current = sessionId;
   });
 
   const refreshModel = useCallback(() => {
@@ -75,21 +79,23 @@ export function useTranscription(
     alive.current = true;
     refreshModel();
     const offProgress = listen<RecordTranscribeProgress>(EV_RECORD_TRANSCRIBE, (e) => {
-      if (e.payload.sessionId !== sessionId() || !runningRef.current) return;
+      if (e.payload.sessionId !== sessionRef.current() || !runningRef.current) return;
       setProgress(e.payload);
     });
     const offMeeting = listen<MeetingState>("meeting-changed", (e) => {
       const d = e.payload.download;
       setDownload(d && !d.error ? { done: d.done, total: d.total } : null);
       if (d?.error) setDownloadError(d.error);
-      if (!d) refreshModel();
+      // Only when a download ends (the status changed); meeting events also come per line.
+      if (!d && downloading.current) refreshModel();
+      downloading.current = !!d;
     });
     return () => {
       alive.current = false;
       void offProgress.then((u) => u());
       void offMeeting.then((u) => u());
     };
-  }, [refreshModel, sessionId]);
+  }, [refreshModel]);
 
   const start = useCallback(
     (lang: TranscribeLang) => {
@@ -99,7 +105,7 @@ export function useTranscription(
       setError(null);
       setLast(null);
       setProgress(null);
-      editorTranscribe(sessionId(), lang)
+      editorTranscribe(sessionRef.current(), lang)
         .then((r) => {
           if (!alive.current) return;
           resultRef.current(r, lang);
@@ -119,7 +125,7 @@ export function useTranscription(
           setProgress(null);
         });
     },
-    [refreshModel, sessionId],
+    [refreshModel],
   );
 
   const cancel = useCallback(() => {

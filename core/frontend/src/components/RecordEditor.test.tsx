@@ -28,6 +28,7 @@ const editorOpen = vi.fn(async (_dir: string, _o?: unknown): Promise<unknown> =>
 const projects = vi.fn(async (): Promise<unknown[]> => []);
 const getRecordShortcuts = vi.fn(async (): Promise<unknown> => ({}));
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
+const editorToProgramme = vi.fn(async (_c: number, s: number): Promise<number> => s);
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
 vi.mock("../lib/ipc", () => ({
@@ -66,7 +67,7 @@ vi.mock("../lib/ipc", () => ({
   EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
   getRecordShortcuts: () => getRecordShortcuts(),
   setRecordShortcuts: (s: unknown) => setRecordShortcuts(s),
-  editorToProgramme: async (_c: number, s: number) => s,
+  editorToProgramme: (c: number, s: number) => editorToProgramme(c, s),
   editorTranscribe: vi.fn(),
   editorTranscribeCancel: vi.fn(),
   EV_RECORD_TRANSCRIBE: "record-editor-transcribe",
@@ -604,6 +605,36 @@ describe("RecordEditor", () => {
     });
     expect(getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("true");
     expect(getByTestId("ed-tr-go")).toBeTruthy();
+  });
+
+  it("a word's programme time that answers after another project opened is dropped", async () => {
+    const withWords: RecordEditDoc = {
+      ...doc0,
+      transcripts: [{ source: null, lang: "en", words: [{ id: "w1", startMs: 1000, endMs: 1400, text: "Hello" }] }],
+    };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf(withWords)));
+    let answer: (ms: number) => void = () => undefined;
+    editorToProgramme.mockImplementationOnce(() => new Promise<number>((r) => (answer = r)));
+    const { getByRole } = await mount();
+    await act(async () => {
+      fireEvent.click(getByRole("tab", { name: "Transcript" }));
+    });
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-word="w1"]') as HTMLElement);
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorToProgramme).toHaveBeenCalledWith(0, 1000);
+    editorCurrent.mockResolvedValue(init(null, 2, "Take B", viewOf(doc0)));
+    await act(async () => {
+      listeners.get("record-editor-opened")?.({ payload: { sessionId: 2 } });
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    editorSeek.mockClear();
+    await act(async () => {
+      answer(7777);
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    expect(editorSeek).not.toHaveBeenCalledWith(7777);
   });
 
   it("the settings column folds away", async () => {

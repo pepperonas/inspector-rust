@@ -9,6 +9,7 @@ import {
   clipWords,
   cutWords,
   gaps,
+  mergeTranscripts,
   setWordText,
 } from "./transcript";
 
@@ -136,5 +137,29 @@ describe("word text", () => {
     // No overlap (n2) or the old correction already used: kept as recognized.
     expect(out.words[1]).toEqual(w("n2", 6000, 6300, "tory"));
     expect(out.words[2]).toEqual(w("n3", 900, 1000, "rost"));
+  });
+});
+
+describe("mergeTranscripts", () => {
+  const fresh: RecordTranscript = { source: null, lang: "en", words: [w("x", 0, 300)] };
+  const take2: RecordTranscript = { source: "take-2", lang: "en", words: [w("y", 0, 300)] };
+
+  it("replaces the same recording's transcript and appends a new one", () => {
+    const out = mergeTranscripts(doc(), [fresh, take2], "en");
+    expect(out.transcripts).toEqual([fresh, take2]);
+    expect(out.captions.lang).toBe("en");
+  });
+
+  it("the first transcript turns the captions on, in the same document", () => {
+    const out = mergeTranscripts(doc({ transcripts: [] }), [fresh]);
+    expect(out.captions.enabled).toBe(true);
+    // Empty transcripts (no words) are no first result.
+    expect(mergeTranscripts(doc({ transcripts: [] }), [{ ...fresh, words: [] }]).captions.enabled).toBe(false);
+  });
+
+  it("never turns them on again once a transcript exists and the user switched them off", () => {
+    const off = doc({ captions: { ...CAPTION_DEFAULTS, enabled: false } });
+    expect(mergeTranscripts(off, [fresh]).captions.enabled).toBe(false);
+    expect(mergeTranscripts(off, [take2]).captions.enabled).toBe(false);
   });
 });

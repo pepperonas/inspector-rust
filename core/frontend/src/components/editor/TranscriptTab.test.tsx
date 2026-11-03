@@ -103,6 +103,52 @@ describe("transcript tab", () => {
     expect(last(p.onCommit)).toEqual(cutWords(d, 0, ["0:w1", "0:w2"]));
   });
 
+  it("a word click focuses the transcript, so ⌫ reaches it from there", async () => {
+    const d = doc();
+    const p = mount(d);
+    await act(async () => {
+      fireEvent.click(word("w3"));
+    });
+    const box = screen.getByTestId("ed-transcript");
+    expect(document.activeElement).toBe(box);
+    const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    act(() => {
+      (document.activeElement as HTMLElement).dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(last(p.onCommit)).toEqual(cutWords(d, 0, ["0:w3"]));
+  });
+
+  it("the word editor saves once: no second save on blur, no save after Esc", () => {
+    const d = doc();
+    const p = mount(d);
+    fireEvent.doubleClick(word("w2"));
+    let input = screen.getByTestId("ed-tr-edit") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "lieber" } });
+    // The blur of the leaving input lands before React re-rendered (same batch).
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(p.onCommit).toHaveBeenCalledTimes(1);
+
+    fireEvent.doubleClick(word("w3"));
+    input = screen.getByTestId("ed-tr-edit") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Erde" } });
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(p.onCommit).toHaveBeenCalledTimes(1);
+
+    // A fresh edit saves again (and a blur alone saves).
+    fireEvent.doubleClick(word("w1"));
+    input = screen.getByTestId("ed-tr-edit") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Hi" } });
+    fireEvent.blur(input);
+    expect(p.onCommit).toHaveBeenCalledTimes(2);
+  });
+
   it("without a selection ⌫ is left to the editor", () => {
     const p = mount(doc());
     const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });

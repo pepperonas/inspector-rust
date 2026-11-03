@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { RotateCcw } from "lucide-react";
 import type { EditorSourcePos, RecordEditDoc } from "../../lib/ipc";
@@ -40,6 +40,13 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
   const blocks = useMemo(() => doc.clips.map((_, i) => clipWords(doc, transcripts, i)), [doc, transcripts]);
   const [sel, setSel] = useState<Sel | null>(null);
   const [editing, setEditing] = useState<{ clip: number; id: string; text: string } | null>(null);
+  /** The open edit already ended (Enter/Esc): a blur from the input leaving must not save again. */
+  const done = useRef(false);
+  const startEdit = (v: { clip: number; id: string; text: string }) => {
+    done.current = false;
+    setEditing(v);
+  };
+  const box = useRef<HTMLDivElement>(null);
   // A selection whose clip changed shape (a cut, an undo) is dropped, never stretched.
   const [seenBlocks, setSeenBlocks] = useState(blocks);
   if (seenBlocks !== blocks) {
@@ -61,6 +68,9 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
     const extend = e.shiftKey;
     setSel((cur) => (extend && cur && cur.clip === clip ? { ...cur, focus: i } : { clip, anchor: i, focus: i }));
     onWordsSelected?.();
+    // The keys (⌫) go to the transcript; WKWebView does not focus a clicked button by itself.
+    box.current?.focus({ preventScroll: true });
+
     void toProgramme(clip, w.startMs).then((ms) => {
       if (ms != null) onSeek(ms);
     });
@@ -80,7 +90,8 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
   };
 
   const save = () => {
-    if (!editing) return;
+    if (!editing || done.current) return;
+    done.current = true;
     const source = doc.clips[editing.clip]?.source ?? null;
     const next = setWordText(doc, source, editing.id, editing.text);
     setEditing(null);
@@ -92,6 +103,7 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
       <TranscribeBox tr={tr} lang={doc.captions?.lang ?? "auto"} compact={has} />
       {has && (
         <div
+          ref={box}
           tabIndex={0}
           onKeyDown={onKeyDown}
           aria-label={t("rec6.tr.title")}
@@ -128,6 +140,7 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
                                   save();
                                 } else if (e.key === "Escape") {
                                   e.preventDefault();
+                                  done.current = true;
                                   setEditing(null);
                                 }
                               }}
@@ -147,7 +160,7 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
                             aria-pressed={selected(ci, i)}
                             title={w.edited ? t("rec6.tr.edited", { original: original(ci, w) }) : undefined}
                             onClick={(e) => click(ci, i, w, e)}
-                            onDoubleClick={() => setEditing({ clip: ci, id: w.wordId, text: w.text })}
+                            onDoubleClick={() => startEdit({ clip: ci, id: w.wordId, text: w.text })}
                             className={
                               "rounded px-0.5 transition-colors duration-(--duration-fast) ease-sharp " +
                               (selected(ci, i)

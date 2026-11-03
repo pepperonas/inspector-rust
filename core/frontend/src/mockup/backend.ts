@@ -630,8 +630,9 @@ let edDoc: EdDoc = {
     },
   ],
   systemGainDb: 0,
+  // Stage 5: the invented take has a camera, picture-in-picture, and one layout change.
   camera: {
-    preset: "no-webcam",
+    preset: "picture-in-picture",
     sizePct: 40,
     mask: "square",
     roundness: null,
@@ -641,7 +642,7 @@ let edDoc: EdDoc = {
     crop: null,
     background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
   },
-  layoutRegions: [],
+  layoutRegions: [{ id: "lay-dual", clip: 1, startMs: 16_000, preset: "dual-frame" }],
 };
 /** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
 const ED_WALL_HUES: [number, number][] = [[220, 280], [200, 160], [20, 340], [40, 10], [180, 230], [260, 300], [100, 150], [0, 30]];
@@ -732,7 +733,20 @@ function edView(doc: EdDoc) {
     { progMs: ms + 90, gain: 0.7, release: true },
   ]);
   const screenRects = doc.clips.map(() => [0.06, 0.06, 0.88, 0.88] as [number, number, number, number]);
-  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  // Layout regions until the clip's next one or its end (mockup only; Rust maps these in the app,
+  // ignoring speed here like the zooms).
+  const regions = (doc.layoutRegions ?? []) as { clip: number; startMs: number }[];
+  const layoutSpans = regions
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => doc.clips[r.clip])
+    .map(({ r, index }) => {
+      const c = doc.clips[r.clip];
+      const next = Math.min(c.endMs, ...regions.filter((o) => o.clip === r.clip && o.startMs > r.startMs).map((o) => o.startMs));
+      const off = clips[r.clip].progStartMs - c.startMs;
+      return { index, progStartMs: r.startMs + off, progEndMs: Math.min(clips[r.clip].progEndMs, next + off) };
+    });
+  const clipCameras = doc.clips.map(() => true);
+  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, layoutSpans, clipCameras, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -1050,10 +1064,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "editor_current": return {
         sessionId: 1,
         project: { dir: "/Users/ana/Movies/Inspector Rust/2026-11-02 Demo", title: "Onboarding walkthrough", createdAt: 0, durationMs: 24_000, status: "ready", failure: null },
-        meta: { source: "display", sourceLabel: "Studio Display", width: 3024, height: 1964, fps: 60, durationMs: 24_000, systemAudio: true, mic: { offsetMs: 0, sampleRate: 48_000 }, cursorMode: "system", pauses: [] },
+        meta: { source: "display", sourceLabel: "Studio Display", width: 3024, height: 1964, fps: 60, durationMs: 24_000, systemAudio: true, mic: { offsetMs: 0, sampleRate: 48_000 }, cursorMode: "system", pauses: [], camera: { width: 1920, height: 1080, fps: 30, offsetMs: 0, deviceName: "FaceTime HD Camera" } },
         view: edView(edDoc),
         helperError: null,
       };
+    case "editor_segmentation_available": return true;
     case "editor_update": edDoc = args.doc as EdDoc; return edView(edDoc);
     case "editor_seek": edPos = Number(args.programmeMs); return { clip: 0, sourceMs: edPos };
     case "editor_play": edPlaying = Boolean(args.playing); return { playing: edPlaying, positionMs: edPos, programmeMs: edView(edDoc).programmeMs, exporting: false, helperError: null, source: { clip: 0, sourceMs: edPos }, speed: 1 };

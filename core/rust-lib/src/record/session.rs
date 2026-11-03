@@ -697,7 +697,7 @@ mod mac {
     use crate::record::mic::start_mic;
     use crate::record::picker_macos::{self, Picked};
     use crate::record::project::{
-        write_atomic, CameraMeta, MicMeta, Project, ProjectStatus, RecordingMeta, SourceKind, CAMERA_FILE,
+        write_atomic, CameraMeta, MicMeta, Project, ProjectStatus, RecordingMeta, RegionRect, SourceKind, CAMERA_FILE,
         CURSOR_FILE, MIC_FILE, PROJECT_FILE, PROJECT_SCHEMA, SCREEN_FILE,
     };
     use crate::record::wav::{WavSink, OUT_RATE};
@@ -719,6 +719,14 @@ mod mac {
     pub const COUNTDOWN_LABEL: &str = "record-countdown";
     pub const BAR_LABEL: &str = "record-bar";
     pub const NOTES_LABEL: &str = "record-notes";
+    /// Full-screen overlay where a free area is dragged.
+    pub const REGION_LABEL: &str = "record-region";
+    /// Click-through dashed frame around the area while it is recorded.
+    pub const REGION_FRAME_LABEL: &str = "record-region-frame";
+    /// The frame sits this many points outside the recorded area.
+    const FRAME_PAD: f64 = 4.0;
+    /// NSWindow level above the menu bar and the Dock (a free area may include them).
+    const REGION_LEVEL: i64 = 1000;
     const FPS: u32 = 60;
     const COUNTDOWN: Duration = Duration::from_secs(3);
     const FIRST_FRAME: Duration = Duration::from_secs(3);
@@ -905,6 +913,7 @@ mod mac {
                 fps: FPS,
                 system_audio: opts.system_audio,
                 cursor_mode: opts.cursor_mode,
+                region: picked.region.map(|(x, y, w, h)| RegionRect { x, y, w, h }),
                 ..Default::default()
             },
             editor: serde_json::json!({}),
@@ -952,6 +961,7 @@ mod mac {
                 system_audio: opts.system_audio,
                 show_system_cursor: opts.cursor_mode == CursorMode::System,
                 fps: FPS,
+                region: picked.region,
             },
             &prep.dir.join(SCREEN_FILE),
             clock.clone(),
@@ -1365,6 +1375,175 @@ mod mac {
         res
     }
 
+    /// Where the region overlay was built (the area is local to this display).
+    #[derive(Clone, Copy)]
+    struct RegionTarget {
+        display_id: u32,
+        /// Display size in points (from CGDisplayBounds).
+        size_pt: (f64, f64),
+    }
+
+    static REGION_TARGET: Mutex<Option<RegionTarget>> = Mutex::new(None);
+
+    /// Free-area source: hide the HUD and cover the display under the cursor with the
+    /// drag overlay. The answer comes back through [`region_chosen`] / [`region_cancelled`].
+    pub fn pick_region(app: &AppHandle) -> Result<(), String> {
+        support_reason().map_err(|_| ERR_UNSUPPORTED.to_string())?;
+        let mon = cursor_monitor(app).ok_or_else(|| ERR_INVALID.to_string())?;
+        let (pos, size, scale) = (mon.position(), mon.size(), mon.scale_factor());
+        let displays = crate::display_rects::point_bounds();
+        let id = crate::record::core::match_display(
+            &displays,
+            (pos.x as f64, pos.y as f64),
+            (size.width as f64, size.height as f64),
+            scale,
+        )
+        .ok_or_else(|| format!("{ERR_START_FAILED}:{}", crate::i18n::t("rec2.capture_no_display")))?;
+        let bounds = displays.iter().find(|(d, _)| *d == id).map(|(_, b)| *b).unwrap_or_default();
+        let st = app.state::<RecordState>();
+        st.transition(Action::Pick)?;
+        *REGION_TARGET.lock() = Some(RegionTarget { display_id: id, size_pt: (bounds.2, bounds.3) });
+        emit_status(app);
+        set_hud_visible(app, false);
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = build_region_overlay(&app2, bounds) {
+                tracing::warn!("record: {e}");
+                *REGION_TARGET.lock() = None;
+                picker_macos::cancel_region_pick(&app2, Some(e));
+            }
+        });
+        Ok(())
+    }
+
+    /// The overlay confirmed an area (window-local = display-local points).
+    pub fn region_chosen(app: &AppHandle, region: (f64, f64, f64, f64)) -> Result<(), String> {
+        let Some(target) = REGION_TARGET.lock().take() else {
+            close_window(app, REGION_LABEL);
+            return Err(ERR_INVALID.into());
+        };
+        close_window(app, REGION_LABEL);
+        let picked = crate::record::core::clamp_region(
+            region,
+            target.size_pt.0,
+            target.size_pt.1,
+            crate::record::core::MIN_REGION_PT,
+        )
+        .ok_or_else(|| ERR_INVALID.to_string())
+        .and_then(|r| Picked::region(target.display_id, r));
+        match picked {
+            Ok(p) => {
+                picker_macos::finish_region_pick(app, p);
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("record: region pick failed: {e}");
+                picker_macos::cancel_region_pick(app, Some(e.clone()));
+                Err(e)
+            }
+        }
+    }
+
+    /// The overlay was dismissed (Esc / close).
+    pub fn region_cancelled(app: &AppHandle) {
+        let had = REGION_TARGET.lock().take().is_some();
+        close_window(app, REGION_LABEL);
+        if had {
+            picker_macos::cancel_region_pick(app, None);
+        }
+    }
+
+    /// Raise a window above the menu bar (main thread).
+    fn raise_above_menu_bar(app: &AppHandle, label: &'static str) {
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let Some(w) = app2.get_webview_window(label) else { return };
+            let Ok(ns) = w.ns_window() else { return };
+            let ns = ns as *mut objc2::runtime::AnyObject;
+            if ns.is_null() {
+                return;
+            }
+            // SAFETY: main thread, `ns` is this window's live NSWindow.
+            unsafe {
+                let _: () = objc2::msg_send![ns, setLevel: REGION_LEVEL as isize];
+            }
+        });
+    }
+
+    /// The drag overlay over a whole display (`bounds` = global top-left points). Worker
+    /// thread only.
+    fn build_region_overlay(app: &AppHandle, bounds: (f64, f64, f64, f64)) -> Result<(), String> {
+        use tauri::{WebviewUrl, WebviewWindowBuilder};
+        if let Some(w) = app.get_webview_window(REGION_LABEL) {
+            // A previous overlay still closing: reuse it at the new place.
+            let _ = w.set_position(tauri::LogicalPosition::new(bounds.0, bounds.1));
+            let _ = w.set_size(tauri::LogicalSize::new(bounds.2, bounds.3));
+            let _ = w.emit("record-region-reset", ());
+            let _ = w.show();
+            let _ = w.set_focus();
+        } else {
+            let w = WebviewWindowBuilder::new(app, REGION_LABEL, WebviewUrl::App("index.html".into()))
+                .title("Area")
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .shadow(false)
+                .accept_first_mouse(true)
+                .focused(true)
+                .visible(false)
+                .position(bounds.0, bounds.1)
+                .inner_size(bounds.2, bounds.3)
+                .build()
+                .map_err(|e| format!("build {REGION_LABEL}: {e}"))?;
+            // Logical = points on macOS; set again after build (the builder may place it
+            // relative to the main screen).
+            let _ = w.set_position(tauri::LogicalPosition::new(bounds.0, bounds.1));
+            let _ = w.set_size(tauri::LogicalSize::new(bounds.2, bounds.3));
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        harden_window(app, REGION_LABEL, false);
+        raise_above_menu_bar(app, REGION_LABEL);
+        Ok(())
+    }
+
+    /// The dashed frame around a recorded area (`area` = global top-left points). Passive:
+    /// never focused, click-through, excluded from the capture like every own window.
+    fn open_region_frame(app: &AppHandle, area: (f64, f64, f64, f64)) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            use tauri::{WebviewUrl, WebviewWindowBuilder};
+            let r = crate::record::core::inflate(area, FRAME_PAD);
+            let w = match app.get_webview_window(REGION_FRAME_LABEL) {
+                Some(w) => w,
+                None => match WebviewWindowBuilder::new(&app, REGION_FRAME_LABEL, WebviewUrl::App("index.html".into()))
+                    .title("Recording area")
+                    .decorations(false)
+                    .transparent(true)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .resizable(false)
+                    .shadow(false)
+                    .focused(false)
+                    .visible(false)
+                    .build()
+                {
+                    Ok(w) => w,
+                    Err(e) => {
+                        tracing::warn!("record: build {REGION_FRAME_LABEL}: {e}");
+                        return;
+                    }
+                },
+            };
+            let _ = w.set_position(tauri::LogicalPosition::new(r.0, r.1));
+            let _ = w.set_size(tauri::LogicalSize::new(r.2, r.3));
+            let _ = w.set_ignore_cursor_events(true);
+            harden_window(&app, REGION_FRAME_LABEL, true);
+        });
+    }
+
     /// Called by the picker observer after a pick or a cancel.
     pub fn pick_finished(app: &AppHandle) {
         if let Some(st) = app.try_state::<RecordState>() {
@@ -1488,6 +1667,11 @@ mod mac {
             return Err(ERR_CANCELLED.into());
         }
         spawn_ticker(app.clone(), ticker_stop, picked.window_id);
+        if picked.kind == SourceKind::Region {
+            if let Some(b) = st.inner.lock().active.as_ref().map(|a| a.capture.content_bounds_pt()) {
+                open_region_frame(app, b);
+            }
+        }
         open_window(app, BAR_LABEL);
         crate::sound::play(crate::sound::Sound::RecordStart);
         emit_status(app);
@@ -1556,6 +1740,7 @@ mod mac {
             g.camera_warning = None;
         }
         close_window(app, BAR_LABEL);
+        close_window(app, REGION_FRAME_LABEL);
         crate::sound::play(crate::sound::Sound::RecordStop);
         emit_status(app);
     }

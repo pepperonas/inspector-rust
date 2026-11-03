@@ -54,6 +54,12 @@ const RecordCountdown = React.lazy(() =>
   import("./components/RecordCountdown").then((m) => ({ default: m.RecordCountdown })),
 );
 const RecordBar = React.lazy(() => import("./components/RecordBar").then((m) => ({ default: m.RecordBar })));
+const RecordRegionPicker = React.lazy(() =>
+  import("./components/RecordRegionPicker").then((m) => ({ default: m.RecordRegionPicker })),
+);
+const RecordRegionFrame = React.lazy(() =>
+  import("./components/RecordRegionPicker").then((m) => ({ default: m.RecordRegionFrame })),
+);
 const RecordNotes = React.lazy(() => import("./components/RecordNotes").then((m) => ({ default: m.RecordNotes })));
 const RecordEditor = React.lazy(() =>
   import("./components/RecordEditor").then((m) => ({ default: m.RecordEditor })),
@@ -94,6 +100,8 @@ function Mount() {
   if (label === "record-countdown") return <RecordCountdown />;
   if (label === "record-bar") return <RecordBar />;
   if (label === "record-notes") return <RecordNotes />;
+  if (label === "record-region") return <RecordRegionPicker />;
+  if (label === "record-region-frame") return <RecordRegionFrame />;
   if (label === "record-editor") return <RecordEditor />;
   if (label === "audio-swap") return <AudioSwapOverlay />;
   if (label === "trim-overlay") return <TrimOverlay />;

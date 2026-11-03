@@ -139,6 +139,9 @@ pub struct CaptureOptions {
     pub system_audio: bool,
     pub show_system_cursor: bool,
     pub fps: u32,
+    /// Record only this rectangle of the filter's display (display-local points,
+    /// top-left origin); `None` = the whole content.
+    pub region: Option<(f64, f64, f64, f64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -684,10 +687,25 @@ impl Capture {
         clock: Arc<PauseShared>,
     ) -> Result<Capture, String> {
         let fps = clamp_fps(opts.fps);
-        let bounds = content_bounds(&filter);
-        let (width, height) = unsafe {
-            let r = filter.contentRect();
-            capture_output_size(r.size.width, r.size.height, filter.pointPixelScale() as f64, MAX_W, MAX_H)
+        let content = content_bounds(&filter);
+        let scale = unsafe { filter.pointPixelScale() as f64 };
+        // A region is display-local; clamped once more (the display may have changed size).
+        let region = match opts.region {
+            Some(r) => Some(
+                super::core::clamp_region(r, content.2, content.3, 2.0)
+                    .ok_or_else(|| crate::i18n::t("rec2.capture_no_display"))?,
+            ),
+            None => None,
+        };
+        let (bounds, (width, height)) = match region {
+            Some(r) => (
+                super::core::region_global((content.0, content.1), r),
+                capture_output_size(r.2, r.3, scale, MAX_W, MAX_H),
+            ),
+            None => (content, unsafe {
+                let r = filter.contentRect();
+                capture_output_size(r.size.width, r.size.height, scale, MAX_W, MAX_H)
+            }),
         };
         let _ = std::fs::remove_file(out);
         if let Some(dir) = out.parent() {
@@ -751,6 +769,12 @@ impl Capture {
             cfg.setWidth(width as usize);
             cfg.setHeight(height as usize);
             cfg.setScalesToFit(true);
+            if let Some((x, y, w, h)) = region {
+                cfg.setSourceRect(CGRect::new(
+                    objc2_core_foundation::CGPoint::new(x, y),
+                    objc2_core_foundation::CGSize::new(w, h),
+                ));
+            }
             cfg.setMinimumFrameInterval(CMTime::new(1, fps as i32));
             cfg.setQueueDepth(6);
             cfg.setShowsCursor(opts.show_system_cursor);
@@ -1006,7 +1030,7 @@ mod live {
         let filter = display_filter(main_display_id()).expect("filter");
         let cap = Capture::start(
             filter,
-            CaptureOptions { system_audio: true, show_system_cursor: true, fps: 60 },
+            CaptureOptions { system_audio: true, show_system_cursor: true, fps: 60, region: None },
             &out,
             clock.clone(),
         )

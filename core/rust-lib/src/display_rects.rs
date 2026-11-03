@@ -34,6 +34,25 @@ extern "C" {
     fn CGDisplayPixelsHigh(display: CGDirectDisplayID) -> usize;
 }
 
+/// Every active display with its id and `CGDisplayBounds` in **points** (global
+/// top-left origin), active-display order. Empty on failure.
+pub fn point_bounds() -> Vec<(u32, (f64, f64, f64, f64))> {
+    let mut ids = [0u32; 16];
+    let mut count = 0u32;
+    // SAFETY: `ids` holds 16 entries, `count` is a valid out-pointer.
+    if unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) } != 0 {
+        return Vec::new();
+    }
+    ids.iter()
+        .take(count as usize)
+        .map(|&id| {
+            // SAFETY: value call for an id CoreGraphics just listed.
+            let b = unsafe { CGDisplayBounds(id) };
+            (id, (b.origin.x, b.origin.y, b.size.width, b.size.height))
+        })
+        .collect()
+}
+
 /// `(x, y, w, h)` per display in **physical pixels**, active-display order.
 /// `CGDisplayBounds` is in points; we scale by each display's pixels/points
 /// ratio. (Assumes a uniform scale factor across displays — the common case;

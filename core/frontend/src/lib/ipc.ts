@@ -5177,6 +5177,17 @@ export function recordOpenHud(): Promise<void> {
 export function recordPickSource(kind: "display" | "window"): Promise<void> {
   return invoke("record_pick_source", { kind });
 }
+/** Free-area source: the drag overlay on the display under the cursor (window `record-region`). */
+export function recordPickRegion(): Promise<void> {
+  return invoke("record_pick_region");
+}
+/** The overlay confirmed an area (window-local points). */
+export function recordRegionChosen(r: { x: number; y: number; w: number; h: number }): Promise<void> {
+  return invoke("record_region_chosen", { x: r.x, y: r.y, w: r.w, h: r.h });
+}
+export function recordRegionCancel(): Promise<void> {
+  return invoke("record_region_cancel");
+}
 export function recordStart(opts: RecordStartOptions): Promise<RecordStatus> {
   return invoke("record_start", { opts });
 }
@@ -5541,7 +5552,7 @@ export interface RecordClickHit {
   release: boolean;
 }
 export interface RecordingMeta {
-  source: "display" | "window";
+  source: "display" | "window" | "region";
   sourceLabel: string;
   width: number;
   height: number;
@@ -5553,6 +5564,8 @@ export interface RecordingMeta {
   pauses: [number, number][];
   /** The webcam file (`camera.mp4`), when one was recorded. */
   camera?: RecordCameraMeta | null;
+  /** Only for `source: "region"`: the recorded rectangle (display-local points). */
+  region?: { x: number; y: number; w: number; h: number };
 }
 export interface RecordCameraMeta {
   width: number;

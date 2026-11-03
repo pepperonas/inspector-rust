@@ -1219,6 +1219,12 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::record_pick_source,
             #[cfg(target_os = "macos")]
+            commands::record_pick_region,
+            #[cfg(target_os = "macos")]
+            commands::record_region_chosen,
+            #[cfg(target_os = "macos")]
+            commands::record_region_cancel,
+            #[cfg(target_os = "macos")]
             commands::record_start,
             #[cfg(target_os = "macos")]
             commands::record_pause,

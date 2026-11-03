@@ -7120,6 +7120,31 @@ pub async fn record_pick_source(app: AppHandle, kind: crate::record::project::So
     crate::record::session::pick_source(&app, kind)
 }
 
+/// Free-area source: shows the drag overlay on the display under the cursor.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_pick_region(app: AppHandle) -> Result<(), String> {
+    crate::record::session::pick_region(&app)
+}
+
+/// The region overlay confirmed an area (window-local points).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_region_chosen(app: AppHandle, x: f64, y: f64, w: f64, h: f64) -> Result<(), String> {
+    // Building the display filter waits on ScreenCaptureKit (up to 5 s).
+    tauri::async_runtime::spawn_blocking(move || crate::record::session::region_chosen(&app, (x, y, w, h)))
+        .await
+        .map_err(|e| format!("record task: {e}"))?
+}
+
+/// The region overlay was dismissed.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_region_cancel(app: AppHandle) -> Result<(), String> {
+    crate::record::session::region_cancelled(&app);
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub async fn record_start(

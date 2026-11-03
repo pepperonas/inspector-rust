@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 const recordStart = vi.fn().mockResolvedValue({});
+const recordPickSource = vi.fn(async (_k: unknown) => undefined);
+const recordPickRegion = vi.fn(async () => undefined);
 const setRecordConfig = vi.fn(async (c: unknown) => c);
 const recordCameraRequest = vi.fn(async () => "authorized");
 const recordOpenCameraSettings = vi.fn(async () => undefined);
@@ -24,7 +26,8 @@ vi.mock("../lib/ipc", () => ({
   }),
   setRecordConfig: (c: unknown) => setRecordConfig(c),
   recordStart: (o: unknown) => recordStart(o),
-  recordPickSource: async () => undefined,
+  recordPickSource: (k: unknown) => recordPickSource(k),
+  recordPickRegion: () => recordPickRegion(),
   recordOpenNotes: async () => undefined,
   recordCameraAuth: () => (authPending ? new Promise(() => undefined) : Promise.resolve(cameraAuth)),
   recordCameraDevices: async () => cameraDevices,
@@ -206,5 +209,16 @@ describe("RecordHud layout", () => {
     await waitFor(() => expect(body.querySelector('[data-testid="rec-camera-denied"]')).toBeTruthy());
     expect(body.querySelectorAll('[role="switch"]').length).toBe(5);
     expect(body.querySelector("input")).toBeTruthy();
+  });
+});
+
+describe("RecordHud sources", () => {
+  it("offers display, window and a free area; the area goes to its own command", async () => {
+    const { findByRole } = render(<RecordHud />);
+    fireEvent.click(await findByRole("button", { name: /Area/ }));
+    expect(recordPickRegion).toHaveBeenCalledTimes(1);
+    expect(recordPickSource).not.toHaveBeenCalled();
+    fireEvent.click(await findByRole("button", { name: /Window/ }));
+    expect(recordPickSource).toHaveBeenLastCalledWith("window");
   });
 });

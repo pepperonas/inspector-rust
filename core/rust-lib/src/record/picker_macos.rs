@@ -42,6 +42,11 @@ struct Sendable<T>(T);
 unsafe impl<T> Send for Sendable<T> {}
 unsafe impl<T> Sync for Sendable<T> {}
 
+/// "Area 1280 × 720" (points).
+pub fn region_label(w: f64, h: f64) -> String {
+    crate::i18n::tf("rec2.source_region", &[("size", &format!("{} × {}", w.round(), h.round()))])
+}
+
 /// What the user picked.
 pub struct Picked {
     pub kind: SourceKind,
@@ -51,6 +56,8 @@ pub struct Picked {
     pub content_w_pt: f64,
     pub content_h_pt: f64,
     pub scale: f64,
+    /// Only for `SourceKind::Region`: the rectangle of the display (display-local points).
+    pub region: Option<(f64, f64, f64, f64)>,
     filter: Sendable<Retained<SCContentFilter>>,
     /// The picker config listed our own bundle id (informational).
     excludes_app: bool,
@@ -66,6 +73,7 @@ impl Clone for Picked {
             content_w_pt: self.content_w_pt,
             content_h_pt: self.content_h_pt,
             scale: self.scale,
+            region: self.region,
             filter: Sendable(self.filter.0.clone()),
             excludes_app: self.excludes_app,
         }
@@ -83,6 +91,7 @@ impl Picked {
             content_w_pt: rect.size.width,
             content_h_pt: rect.size.height,
             scale,
+            region: None,
             filter: Sendable(filter),
             excludes_app,
         };
@@ -135,8 +144,28 @@ impl Picked {
                     &[("size", &format!("{}×{}", rect.size.width.round(), rect.size.height.round()))],
                 ),
                 SourceKind::Window => crate::i18n::t("rec2.source_window"),
+                SourceKind::Region => region_label(rect.size.width, rect.size.height),
             };
         }
+    }
+
+    /// A free area of display `display_id` (display-local points, already clamped), recorded
+    /// through our own display filter (every window of this process excluded).
+    pub(crate) fn region(display_id: u32, region: (f64, f64, f64, f64)) -> Result<Picked, String> {
+        let f = capture_macos::display_filter(display_id)?;
+        let scale = unsafe { f.pointPixelScale() as f64 };
+        Ok(Picked {
+            kind: SourceKind::Region,
+            label: region_label(region.2, region.3),
+            window_id: None,
+            display_id: Some(display_id),
+            content_w_pt: region.2,
+            content_h_pt: region.3,
+            scale,
+            region: Some(region),
+            filter: Sendable(f),
+            excludes_app: true,
+        })
     }
 
     /// For tests: a whole display, our app excluded.
@@ -148,7 +177,7 @@ impl Picked {
         Ok(p)
     }
 
-    /// The filter to record with. A picked display with a KNOWN id is
+    /// The filter to record with (a region already carries our own display filter). A picked display with a KNOWN id is
     /// rebuilt as our own display filter (excludes every window of this
     /// process by PID — popup, toasts, HUD, also later ones) when Screen
     /// Recording is granted; the picker's own filter only if that fails, or
@@ -187,6 +216,22 @@ struct PickedEvent {
 #[derive(Serialize, Clone)]
 struct CancelledEvent {
     error: Option<String>,
+}
+
+/// The region overlay answered with an area: becomes the current pick (replacing a display
+/// or window pick), the HUD hears it like a picker answer.
+pub(crate) fn finish_region_pick(app: &AppHandle, picked: Picked) {
+    AWAITING.store(false, Ordering::SeqCst);
+    let ev = PickedEvent { label: picked.label.clone(), kind: picked.kind };
+    *PICKED.lock() = Some(picked);
+    let _ = app.emit("record-source-picked", ev);
+    super::session::pick_finished(app);
+}
+
+/// The region overlay was dismissed (`error` = it could not be used).
+pub(crate) fn cancel_region_pick(app: &AppHandle, error: Option<String>) {
+    let _ = app.emit("record-pick-cancelled", CancelledEvent { error });
+    super::session::pick_finished(app);
 }
 
 pub struct Ivars {
@@ -271,6 +316,10 @@ pub fn present(app: &AppHandle, kind: SourceKind) -> Result<(), String> {
     if !picker_available() {
         return Err(super::session::ERR_UNSUPPORTED.into());
     }
+    if kind == SourceKind::Region {
+        // A free area comes from our own overlay, never from the system picker.
+        return Err(super::session::ERR_INVALID.into());
+    }
     REQUESTED.store(if kind == SourceKind::Window { 1 } else { 0 }, Ordering::SeqCst);
     let app2 = app.clone();
     app.run_on_main_thread(move || {
@@ -287,7 +336,9 @@ pub fn present(app: &AppHandle, kind: SourceKind) -> Result<(), String> {
             let cfg = SCContentSharingPickerConfiguration::new();
             let (mode, style) = match kind {
                 SourceKind::Window => (SCContentSharingPickerMode::SingleWindow, SCShareableContentStyle::Window),
-                SourceKind::Display => (SCContentSharingPickerMode::SingleDisplay, SCShareableContentStyle::Display),
+                SourceKind::Display | SourceKind::Region => {
+                    (SCContentSharingPickerMode::SingleDisplay, SCShareableContentStyle::Display)
+                }
             };
             cfg.setAllowedPickerModes(mode);
             cfg.setAllowsChangingSelectedContent(false);

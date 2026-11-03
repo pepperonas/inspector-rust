@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { AppWindow, Camera, Mic, Monitor, StickyNote, Volume2, X } from "lucide-react";
+import { AppWindow, Camera, Mic, Monitor, SquareDashed, StickyNote, Volume2, X } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import {
   getRecordConfig,
   recordOpenNotes,
+  recordPickRegion,
   recordPickSource,
   recordStart,
   recordStatus,
@@ -71,9 +72,10 @@ export function RecordHud() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edits]);
 
-  const pick = (kind: "display" | "window") => {
+  const pick = (kind: "display" | "window" | "region") => {
     setError(null);
-    recordPickSource(kind).catch((e) => setError(errorText(t, String(e))));
+    const p = kind === "region" ? recordPickRegion() : recordPickSource(kind);
+    p.catch((e) => setError(errorText(t, String(e))));
   };
 
   const cameraOn = cam.isOn(cfg?.camera);
@@ -173,9 +175,10 @@ export function RecordHud() {
         </div>
       }
     >
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <BigButton icon={<Monitor size={22} />} label={t("rec2.hud.display")} onClick={() => pick("display")} />
         <BigButton icon={<AppWindow size={22} />} label={t("rec2.hud.window")} onClick={() => pick("window")} />
+        <BigButton icon={<SquareDashed size={22} />} label={t("rec2.hud.region")} onClick={() => pick("region")} />
       </div>
       {status?.source && (
         <div className="flex items-center justify-between rounded-lg bg-[var(--color-bg)] px-3 py-1.5 text-[12px]">

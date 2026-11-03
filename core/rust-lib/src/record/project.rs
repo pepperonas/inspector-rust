@@ -43,6 +43,17 @@ pub enum SourceKind {
     #[default]
     Display,
     Window,
+    /// A free rectangle of one display (`RecordingMeta::region`).
+    Region,
+}
+
+/// The recorded rectangle of a `region` take: display-local points, top-left origin.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct RegionRect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -92,6 +103,9 @@ pub struct RecordingMeta {
     pub pauses: Vec<(u64, u64)>,
     /// The webcam file (`camera.mp4`), when one was recorded.
     pub camera: Option<CameraMeta>,
+    /// Only for `source: region`: the recorded rectangle of the display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<RegionRect>,
 }
 
 /// Whether `dir/camera.mp4` is there as a plain file (a symlink or anything else is not).
@@ -666,5 +680,24 @@ mod tests {
         // failure path also cleans up
         assert!(write_atomic(&d.join("nope"), "x.json", &1).is_err());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn region_source_round_trips_and_stays_out_of_other_takes() {
+        assert_eq!(serde_json::to_string(&SourceKind::Region).unwrap(), "\"region\"");
+        let plain = RecordingMeta::default();
+        let v = serde_json::to_value(&plain).unwrap();
+        assert!(v.get("region").is_none(), "a display/window take writes no region key");
+        let m = RecordingMeta {
+            source: SourceKind::Region,
+            region: Some(RegionRect { x: 10.0, y: 20.0, w: 300.0, h: 200.0 }),
+            ..Default::default()
+        };
+        let back: RecordingMeta = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
+        assert_eq!(back, m);
+        // An older project without the key still loads.
+        let old: RecordingMeta = serde_json::from_str(r#"{"source":"window","fps":60}"#).unwrap();
+        assert_eq!(old.region, None);
+        assert_eq!(old.source, SourceKind::Window);
     }
 }

@@ -374,6 +374,71 @@ pub fn disk_space_verdict(free_bytes: u64, est_bytes_per_min: u64) -> DiskVerdic
     }
 }
 
+// ---------- free-area ("region") capture ----------
+
+/// `(x, y, w, h)` in points.
+pub type PtRect = (f64, f64, f64, f64);
+
+/// Smallest area the region picker accepts, in points per side.
+pub const MIN_REGION_PT: f64 = 64.0;
+
+/// A picked area moved and shrunk into a `display_w × display_h` display (display-local
+/// points, top-left origin), edges on whole points. `None` when the input is not a finite
+/// rectangle or the result is smaller than `min` on either side (a stray click).
+pub fn clamp_region(
+    region: (f64, f64, f64, f64),
+    display_w: f64,
+    display_h: f64,
+    min: f64,
+) -> Option<(f64, f64, f64, f64)> {
+    let (x, y, w, h) = region;
+    if ![x, y, w, h, display_w, display_h].iter().all(|v| v.is_finite()) || display_w <= 0.0 || display_h <= 0.0 {
+        return None;
+    }
+    // Edges, not origin + size: a rectangle hanging off the left keeps its right edge.
+    let x0 = x.round().clamp(0.0, display_w.floor());
+    let y0 = y.round().clamp(0.0, display_h.floor());
+    let x1 = (x + w).round().clamp(0.0, display_w.floor());
+    let y1 = (y + h).round().clamp(0.0, display_h.floor());
+    let (w, h) = (x1 - x0, y1 - y0);
+    if w < min || h < min {
+        return None;
+    }
+    Some((x0, y0, w, h))
+}
+
+/// The display a Tauri monitor stands for: `displays` are (CGDirectDisplayID, CGDisplayBounds
+/// in global top-left points); the monitor gives its origin and size in physical pixels plus
+/// its scale (tao derives both from `CGDisplayBounds × scale`). Origin within one point wins;
+/// otherwise the display containing the monitor's centre; otherwise `None` (never guess).
+pub fn match_display(
+    displays: &[(u32, PtRect)],
+    monitor_pos_px: (f64, f64),
+    monitor_size_px: (f64, f64),
+    scale: f64,
+) -> Option<u32> {
+    let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let (ox, oy) = (monitor_pos_px.0 / s, monitor_pos_px.1 / s);
+    if let Some((id, _)) = displays.iter().find(|(_, b)| (b.0 - ox).abs() < 1.0 && (b.1 - oy).abs() < 1.0) {
+        return Some(*id);
+    }
+    let (cx, cy) = (ox + monitor_size_px.0 / s / 2.0, oy + monitor_size_px.1 / s / 2.0);
+    displays
+        .iter()
+        .find(|(_, b)| cx >= b.0 && cx < b.0 + b.2 && cy >= b.1 && cy < b.1 + b.3)
+        .map(|(id, _)| *id)
+}
+
+/// Global top-left bounds of a display-local region on a display at `display_origin`.
+pub fn region_global(display_origin: (f64, f64), region: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+    (display_origin.0 + region.0, display_origin.1 + region.1, region.2, region.3)
+}
+
+/// The recording-frame window around a region: `pad` points bigger on every side.
+pub fn inflate(r: (f64, f64, f64, f64), pad: f64) -> (f64, f64, f64, f64) {
+    (r.0 - pad, r.1 - pad, r.2 + 2.0 * pad, r.3 + 2.0 * pad)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,5 +617,50 @@ mod tests {
         assert_eq!(disk_space_verdict(500 * mib, 1), DiskVerdict::Refuse);
         assert_eq!(disk_space_verdict(3 * GIB, 300 * mib), DiskVerdict::Low { minutes: 10 });
         assert_eq!(disk_space_verdict(50 * GIB, 300 * mib), DiskVerdict::Ok);
+    }
+
+    // ---------- region ----------
+
+    #[test]
+    fn region_is_clamped_into_the_display_on_whole_points() {
+        assert_eq!(clamp_region((10.4, 20.6, 300.0, 200.0), 1512.0, 982.0, 64.0), Some((10.0, 21.0, 300.0, 200.0)));
+        // Hanging off the left/top: the inside part survives, the far edges stay.
+        assert_eq!(clamp_region((-50.0, -10.0, 200.0, 110.0), 1512.0, 982.0, 64.0), Some((0.0, 0.0, 150.0, 100.0)));
+        // Off the right/bottom.
+        assert_eq!(clamp_region((1400.0, 900.0, 300.0, 300.0), 1512.0, 982.0, 64.0), Some((1400.0, 900.0, 112.0, 82.0)));
+        assert_eq!(clamp_region((1460.0, 900.0, 300.0, 300.0), 1512.0, 982.0, 64.0), None, "52 pt left");
+        assert_eq!(clamp_region((1400.0, 880.0, 300.0, 300.0), 1512.0, 982.0, 64.0), Some((1400.0, 880.0, 112.0, 102.0)));
+    }
+
+    #[test]
+    fn region_smaller_than_the_minimum_or_garbage_is_refused() {
+        assert_eq!(clamp_region((0.0, 0.0, 63.0, 500.0), 1000.0, 1000.0, MIN_REGION_PT), None);
+        assert_eq!(clamp_region((0.0, 0.0, 500.0, 63.0), 1000.0, 1000.0, MIN_REGION_PT), None);
+        assert!(clamp_region((0.0, 0.0, 64.0, 64.0), 1000.0, 1000.0, MIN_REGION_PT).is_some());
+        assert_eq!(clamp_region((f64::NAN, 0.0, 100.0, 100.0), 1000.0, 1000.0, 64.0), None);
+        assert_eq!(clamp_region((0.0, 0.0, 100.0, 100.0), 0.0, 1000.0, 64.0), None);
+        // Entirely outside.
+        assert_eq!(clamp_region((2000.0, 0.0, 100.0, 100.0), 1000.0, 1000.0, 64.0), None);
+    }
+
+    #[test]
+    fn display_is_matched_by_origin_then_by_centre() {
+        // Built-in Retina at 0,0 (1512×982 pt, scale 2) + external at 1512,-200 (2560×1440, scale 1).
+        let ds = [(1, (0.0, 0.0, 1512.0, 982.0)), (7, (1512.0, -200.0, 2560.0, 1440.0))];
+        assert_eq!(match_display(&ds, (0.0, 0.0), (3024.0, 1964.0), 2.0), Some(1));
+        assert_eq!(match_display(&ds, (1512.0, -200.0), (2560.0, 1440.0), 1.0), Some(7));
+        // Origin off by a rounding pixel still matches.
+        assert_eq!(match_display(&ds, (1512.4, -199.6), (2560.0, 1440.0), 1.0), Some(7));
+        // Origin unknown to CG (scale mismatch) → the centre decides.
+        assert_eq!(match_display(&ds, (2000.0, -300.0), (2560.0, 1440.0), 1.0), Some(7));
+        // Nowhere → no guess.
+        assert_eq!(match_display(&ds, (9000.0, 9000.0), (100.0, 100.0), 1.0), None);
+        assert_eq!(match_display(&[], (0.0, 0.0), (100.0, 100.0), 1.0), None);
+    }
+
+    #[test]
+    fn region_global_and_frame_inflate() {
+        assert_eq!(region_global((1512.0, -200.0), (10.0, 20.0, 300.0, 200.0)), (1522.0, -180.0, 300.0, 200.0));
+        assert_eq!(inflate((10.0, 20.0, 300.0, 200.0), 4.0), (6.0, 16.0, 308.0, 208.0));
     }
 }

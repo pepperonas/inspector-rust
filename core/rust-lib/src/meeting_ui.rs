@@ -78,11 +78,13 @@ fn set_tray_recording(app: &AppHandle, recording: bool, warning: Option<&str>) {
     });
 }
 
-fn toast(app: &AppHandle, on: bool, title: String, subtitle: String) {
-    crate::status_toast::show_passive(
-        app,
-        crate::status_toast::StatusToast { kind: "transcribe".into(), on, title, subtitle },
-    );
+/// Toasts build an NSWindow, which AppKit allows on the main thread only —
+/// and these come from the helper's reader thread (crash 2026-11-03:
+/// "Must only be used from the main thread").
+pub(crate) fn toast(app: &AppHandle, on: bool, title: String, subtitle: String) {
+    let app2 = app.clone();
+    let t = crate::status_toast::StatusToast { kind: "transcribe".into(), on, title, subtitle };
+    let _ = app.run_on_main_thread(move || crate::status_toast::show_passive(&app2, t));
 }
 
 pub fn on_session_start(app: &AppHandle, _state: &MeetingState) {
@@ -238,5 +240,26 @@ mod tests {
         let img = image::load_from_memory(super::ICON_REC).unwrap().to_rgba8();
         assert_eq!(img.dimensions(), (44, 44));
         assert!(img.pixels().any(|p| p.0[0] > 200 && p.0[1] < 90 && p.0[2] < 90 && p.0[3] == 255), "no red dot");
+    }
+}
+
+#[cfg(test)]
+mod main_thread_tests {
+    /// Every toast of the transcription goes through `toast`, which hops to
+    /// the main thread; a direct `show_passive` from these files is the
+    /// 2026-11-03 crash.
+    #[test]
+    fn toasts_are_only_shown_from_the_main_thread() {
+        for (name, src) in [
+            ("meeting_ui.rs", include_str!("meeting_ui.rs")),
+            ("meeting.rs", include_str!("meeting.rs")),
+            ("live_transcribe.rs", include_str!("live_transcribe.rs")),
+            ("transcribe.rs", include_str!("transcribe.rs")),
+        ] {
+            let code: String = src.split("#[cfg(test)]").next().unwrap().to_string();
+            for line in code.lines().filter(|l| l.contains("show_passive(") || l.contains("status_toast::show(")) {
+                assert!(line.contains("run_on_main_thread"), "{name}: {line}");
+            }
+        }
     }
 }

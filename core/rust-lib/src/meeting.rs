@@ -443,14 +443,11 @@ pub fn recover_at_start(app: &AppHandle, db: &DbHandle) {
         })
         .unwrap_or_default();
     let n = found.len().to_string();
-    crate::status_toast::show_passive(
+    crate::meeting_ui::toast(
         app,
-        crate::status_toast::StatusToast {
-            kind: "transcribe".into(),
-            on: false,
-            title: crate::i18n::tf("meeting.recovered_title", &[("n", &n)]),
-            subtitle: crate::i18n::tf("meeting.recovered_sub", &[("time", &until)]),
-        },
+        false,
+        crate::i18n::tf("meeting.recovered_title", &[("n", &n)]),
+        crate::i18n::tf("meeting.recovered_sub", &[("time", &until)]),
     );
 }
 

@@ -98,10 +98,6 @@ pub fn project_dir_inside_root(root: &Path, dir: &Path) -> Result<PathBuf, &'sta
     Ok(dir)
 }
 
-/// The on-screen notice for a take that went wrong — at start (the HUD is
-/// already closed by then, so there is nowhere else to say it), mid-take
-/// (the capture died and the take was stopped) or at stop (the writer
-/// failed). `None` when the take ended fine: a normal stop says nothing.
 /// The toast after a READY take whose camera left no file without the user having been told
 /// (see [`CameraSlot::finish_with_warning`]). A failed take gets the failure toast instead.
 pub fn camera_toast(failed: bool, warning: Option<&str>) -> Option<crate::status_toast::StatusToast> {
@@ -109,6 +105,10 @@ pub fn camera_toast(failed: bool, warning: Option<&str>) -> Option<crate::status
     Some(crate::status_toast::StatusToast { kind: "record".into(), on: false, title: w.to_string(), subtitle: String::new() })
 }
 
+/// The on-screen notice for a take that went wrong — at start (the HUD is
+/// already closed by then, so there is nowhere else to say it), mid-take
+/// (the capture died and the take was stopped) or at stop (the writer
+/// failed). `None` when the take ended fine: a normal stop says nothing.
 pub fn failure_toast(at_start: bool, failed: bool, reason: Option<&str>) -> Option<crate::status_toast::StatusToast> {
     if !failed {
         return None;

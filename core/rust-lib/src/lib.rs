@@ -1345,6 +1345,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::meeting_model_download,
             commands::meeting_model_cancel,
             commands::meeting_input_devices,
+            commands::meeting_displays,
             commands::transcribe_live_stop,
             commands::transcribe_live_status,
             commands::transcribe_live_cancel,

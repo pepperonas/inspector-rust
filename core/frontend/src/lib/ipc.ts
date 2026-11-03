@@ -5771,3 +5771,111 @@ export function editorRestart(): Promise<EditorPlayback> {
 export function editorClose(): Promise<void> {
   return invoke("editor_close");
 }
+
+// ── meeting: live transcription of microphone + system audio ────────────────
+
+export type MeetingSource = "mic" | "sys";
+export type MeetingSourceStatus = "starting" | "running" | "lost" | "off";
+
+export interface TickerConfig {
+  visible: boolean;
+  position: "top" | "bottom";
+  display: string | null;
+  width_pct: number;
+  font_px: number;
+  opacity: number;
+  speed_px_s: number;
+}
+
+export interface MeetingConfig {
+  mic: boolean;
+  sys: boolean;
+  mic_device: string | null;
+  model: string;
+  lang: "auto" | "de" | "en";
+  root: string | null;
+  keep_audio: boolean;
+  audio_days: number;
+  dedupe: "auto" | "always" | "never";
+  dedupe_threshold: number;
+  ticker: TickerConfig;
+}
+
+export interface MeetingLine {
+  source: MeetingSource;
+  seq: number;
+  start_ms: number;
+  lang: string;
+  text: string;
+}
+
+export interface MeetingState {
+  running: boolean;
+  starting: boolean;
+  dir: string | null;
+  started_ms: number | null;
+  sources: Partial<Record<MeetingSource, { state: MeetingSourceStatus; detail: string | null; level: number }>>;
+  lines: MeetingLine[];
+  hypotheses: Partial<Record<MeetingSource, { stable: string; pending: string }>>;
+  warnings: string[];
+  error: string | null;
+  line_count: number;
+  download: { model: string; done: number; total: number; error: string | null } | null;
+  recovered: string[];
+}
+
+export interface MeetingSession {
+  dir: string;
+  meta: {
+    started_ms: number;
+    ended_ms: number | null;
+    status: "running" | "completed" | "aborted";
+    model: string;
+    sources: MeetingSource[];
+  };
+  lines: number;
+}
+
+export interface MeetingModel {
+  id: string;
+  file: string;
+  bytes: number;
+  installed: boolean;
+}
+
+export function meetingStart(sources?: MeetingSource[]): Promise<MeetingState> {
+  return invoke("meeting_start", { sources: sources ?? null });
+}
+export function meetingStop(): Promise<void> {
+  return invoke("meeting_stop");
+}
+export function meetingStatus(): Promise<MeetingState> {
+  return invoke("meeting_status");
+}
+export function meetingSetSource(source: MeetingSource, on: boolean): Promise<void> {
+  return invoke("meeting_set_source", { source, on });
+}
+export function meetingSessions(): Promise<MeetingSession[]> {
+  return invoke("meeting_sessions");
+}
+export function getMeetingConfig(): Promise<MeetingConfig> {
+  return invoke("get_meeting_config");
+}
+export function setMeetingConfig(config: MeetingConfig): Promise<MeetingConfig> {
+  return invoke("set_meeting_config", { config });
+}
+export function meetingModelStatus(): Promise<MeetingModel[]> {
+  return invoke("meeting_model_status");
+}
+export function meetingModelDownload(model: string): Promise<void> {
+  return invoke("meeting_model_download", { model });
+}
+export function meetingModelCancel(): Promise<void> {
+  return invoke("meeting_model_cancel");
+}
+export function meetingInputDevices(): Promise<string[]> {
+  return invoke("meeting_input_devices");
+}
+export function meetingDisplays(): Promise<string[]> {
+  return invoke("meeting_displays");
+}

@@ -9708,3 +9708,9 @@ pub async fn meeting_model_cancel() -> Result<(), String> {
 pub async fn meeting_input_devices() -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(crate::meeting::input_devices).await.map_err(|e| e.to_string())
 }
+
+/// Connected displays, for the ticker's screen choice.
+#[tauri::command]
+pub fn meeting_displays(app: AppHandle) -> Vec<String> {
+    crate::ticker::display_names(&app)
+}

@@ -21,6 +21,7 @@ const editorVoiceoverStart = vi.fn();
 const editorVoiceoverStop = vi.fn();
 const editorVoiceoverCancel = vi.fn();
 const recordPresetApply = vi.fn();
+const recordPresetSave = vi.fn();
 const openDialog = vi.fn();
 const getRecordShortcuts = vi.fn(async (): Promise<unknown> => ({}));
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
@@ -53,6 +54,7 @@ vi.mock("../lib/ipc", () => ({
   recordListProjects: async () => [],
   recordPresetsList: async () => ({ presets: [{ name: "Dark", file: "Dark.irpreset", ok: true, error: null }], defaultFile: null }),
   recordPresetApply: (id: number, file: string) => recordPresetApply(id, file),
+  recordPresetSave: (id: number, name: string) => recordPresetSave(id, name),
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
   EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
@@ -575,6 +577,66 @@ describe("RecordEditor", () => {
       await vi.advanceTimersByTimeAsync(5);
     });
     expect(lastSent() as RecordEditDoc).toEqual(styled);
+  });
+
+  it("while the presets menu is open, editor keys do nothing; Esc closes it", async () => {
+    const { getByTestId, queryByTestId } = await mount();
+    fireEvent.click(getByTestId("ed-presets-open"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      fireEvent.keyDown(window, { key: " " });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate).not.toHaveBeenCalled();
+    expect(editorPlay).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(queryByTestId("ed-presets")).toBeNull();
+  });
+
+  it("saving a preset waits for a pending edit to reach Rust", async () => {
+    const order: string[] = [];
+    let release: () => void = () => undefined;
+    editorUpdate.mockImplementation(
+      (d: RecordEditDoc) =>
+        new Promise((res) => {
+          release = () => {
+            order.push("update");
+            res(viewOf(d));
+          };
+        }),
+    );
+    recordPresetSave.mockImplementation(async () => {
+      order.push("save");
+      return { name: "Mine", file: "Mine.irpreset", ok: true, error: null };
+    });
+    const { getByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    fireEvent.click(getByTestId("ed-presets-open"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    fireEvent.click(getByTestId("ed-preset-save-open"));
+    fireEvent.change(getByTestId("ed-preset-name"), { target: { value: "Mine" } });
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-preset-save"));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(recordPresetSave).not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(order).toEqual(["update", "save"]);
+    expect(recordPresetSave).toHaveBeenCalledWith(1, "Mine");
   });
 
   it("the audio preview plays the inserted take's files in its clip", async () => {

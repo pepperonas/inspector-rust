@@ -11,7 +11,6 @@ const reveal = vi.fn();
 
 vi.mock("../../lib/ipc", () => ({
   recordPresetsList: () => list(),
-  recordPresetSave: (id: number, name: string) => save(id, name),
   recordPresetRename: (file: string, name: string) => rename(file, name),
   recordPresetDelete: (file: string) => del(file),
   recordPresetSetDefault: (file: string | null) => setDefault(file),
@@ -24,7 +23,7 @@ const dark: RecordPresetEntry = { name: "Dark", file: "Dark.irpreset", ok: true,
 const broken: RecordPresetEntry = { name: "Half", file: "Half.irpreset", ok: false, error: "record.editor.preset_unreadable" };
 
 async function mount(onApply = vi.fn(), onClose = vi.fn()) {
-  const r = render(<PresetsMenu sessionId={7} onApply={onApply} onClose={onClose} />);
+  const r = render(<PresetsMenu onSave={(name) => save(7, name)} onApply={onApply} onClose={onClose} />);
   await act(async () => undefined);
   return { ...r, onApply, onClose };
 }
@@ -91,6 +90,18 @@ describe("PresetsMenu", () => {
     expect(del).toHaveBeenCalledWith("Dark.irpreset");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a broken default can still be cleared with its star", async () => {
+    list.mockResolvedValue({ presets: [dark, broken], defaultFile: "Half.irpreset" });
+    const { getAllByTestId } = await mount();
+    const star = getAllByTestId("ed-preset-default")[1];
+    expect(star.getAttribute("aria-pressed")).toBe("true");
+    expect(star.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(star);
+    });
+    expect(setDefault).toHaveBeenCalledWith(null);
   });
 
   it("the star sets and clears the default for new projects; a broken preset cannot become it", async () => {

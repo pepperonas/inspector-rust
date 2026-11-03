@@ -28,6 +28,7 @@ import {
   editorAssets,
   editorAutoZoom,
   recordPresetApply,
+  recordPresetSave,
   type RecordPresetEntry,
   editorCurrent,
   editorDuplicateClip,
@@ -615,6 +616,12 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
   const [presetsOpen, setPresetsOpen] = useState(false);
   /** A style preset: Rust copies its files and answers with the doc — one undo step. */
+  /** Saving a preset reads Rust's document: queued behind pending edits, like every edit. */
+  const savePreset = useCallback((name: string) => {
+    const next = chain.current.then(() => recordPresetSave(sessionId.current, name));
+    chain.current = next.catch(() => undefined);
+    return next;
+  }, []);
   const applyPreset = useCallback(
     (entry: RecordPresetEntry) => {
       setPresetsOpen(false);
@@ -784,7 +791,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // The timeline took the key (a region's add/delete/copy), or a dialog owns the keys.
-      if (e.defaultPrevented || exportOpen || shortcutsOpen || isTypingTarget(e.target) || !view) return;
+      if (e.defaultPrevented || exportOpen || shortcutsOpen || presetsOpen || isTypingTarget(e.target) || !view) return;
       const action = matchAction(e, bindings);
       // A take runs: Esc (fixed) discards it, the play or voiceover key ends it, nothing else
       // edits meanwhile.
@@ -879,6 +886,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     init,
     exportOpen,
     shortcutsOpen,
+    presetsOpen,
     bindings,
     playing,
     cropMode,
@@ -1016,7 +1024,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             <Palette size={14} /> {t("rec4.preset.button")}
           </button>
           {presetsOpen && (
-            <PresetsMenu sessionId={init.sessionId} onApply={applyPreset} onClose={() => setPresetsOpen(false)} />
+            <PresetsMenu onSave={savePreset} onApply={applyPreset} onClose={() => setPresetsOpen(false)} />
           )}
         </div>
         <button
@@ -1266,7 +1274,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onWidth={setTrackWidth}
           selectedZoom={zoomSel?.id ?? null}
           onSelectZoom={setSelectedZoom}
-          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen}
+          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen && !presetsOpen}
           bindings={bindings}
           onMoveClip={moveClip}
           selectedAnnotation={annSel?.id ?? null}

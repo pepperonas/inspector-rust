@@ -3,7 +3,6 @@ import { Check, FolderOpen, Pencil, Plus, Star, Trash2, X } from "lucide-react";
 import {
   recordPresetDelete,
   recordPresetRename,
-  recordPresetSave,
   recordPresetSetDefault,
   recordPresetsList,
   recordPresetsReveal,
@@ -28,11 +27,12 @@ const rowBtn = rowBtnBase + " text-[var(--color-muted)] hover:text-[var(--color-
  * step); a star marks the one new projects start with. Deleting asks inline first.
  */
 export function PresetsMenu({
-  sessionId,
+  onSave,
   onApply,
   onClose,
 }: {
-  sessionId: number;
+  /** Saves the open document's look (the editor queues it behind pending edits). */
+  onSave: (name: string) => Promise<unknown>;
   onApply: (entry: RecordPresetEntry) => void;
   onClose: () => void;
 }) {
@@ -113,7 +113,7 @@ export function PresetsMenu({
   const save = async () => {
     const name = (saveName ?? "").trim();
     if (!name) return;
-    if (await run(() => recordPresetSave(sessionId, name))) setSaveName(null);
+    if (await run(() => onSave(name))) setSaveName(null);
   };
   const rename = async () => {
     if (!renaming) return;

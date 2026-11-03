@@ -7390,7 +7390,8 @@ pub async fn editor_import_asset(
 
 // ── record (stage 4): style presets ──────────────────────────────────────
 
-/// The presets folder's files and the one new projects start with (if it still exists).
+/// The presets folder's files and the one new projects start with. A default whose file is
+/// gone is cleared here; a broken one is still reported, so the menu can clear it.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -7402,14 +7403,24 @@ pub struct RecordPresetsList {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn record_presets_list(db: State<'_, DbHandle>) -> Result<RecordPresetsList, String> {
-    let root = crate::record::RecordConfig::load(&db).root();
-    let default_file = crate::record::session::load_default_preset(&db);
+    let db = db.inner().clone();
     editor_blocking(move || {
+        let root = crate::record::RecordConfig::load(&db).root();
         let presets = crate::record::presets::list_presets(&root);
-        let default_file = default_file.filter(|f| presets.iter().any(|p| p.ok && &p.file == f));
+        let stored = crate::record::session::load_default_preset(&db);
+        let default_file = stored.as_deref().and_then(|f| crate::record::presets::match_file(&presets, f)).map(|p| p.file.clone());
+        if stored.is_some() && default_file.is_none() {
+            let _ = crate::record::session::save_default_preset(&db, None);
+        }
         Ok(RecordPresetsList { presets, default_file })
     })
     .await
+}
+
+/// Whether the stored default names `file` (without case, as the disk compares names).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn is_default_preset(db: &DbHandle, file: &str) -> bool {
+    crate::record::session::load_default_preset(db).is_some_and(|d| d.to_lowercase() == file.to_lowercase())
 }
 
 /// Saves the open document's look (background, frame, pointer, aspect) as a preset.
@@ -7448,8 +7459,9 @@ pub async fn record_preset_rename(
     let db = db.inner().clone();
     editor_blocking(move || {
         let root = crate::record::RecordConfig::load(&db).root();
+        let was_default = is_default_preset(&db, &file);
         let entry = crate::record::presets::rename_preset(&root, &file, &name)?;
-        if crate::record::session::load_default_preset(&db).as_deref() == Some(file.as_str()) {
+        if was_default {
             crate::record::session::save_default_preset(&db, Some(&entry.file)).map_err(|e| e.to_string())?;
         }
         Ok(entry)
@@ -7465,7 +7477,7 @@ pub async fn record_preset_delete(db: State<'_, DbHandle>, file: String) -> Resu
     editor_blocking(move || {
         let root = crate::record::RecordConfig::load(&db).root();
         crate::record::presets::delete_preset(&root, &file)?;
-        if crate::record::session::load_default_preset(&db).as_deref() == Some(file.as_str()) {
+        if is_default_preset(&db, &file) {
             crate::record::session::save_default_preset(&db, None).map_err(|e| e.to_string())?;
         }
         Ok(())

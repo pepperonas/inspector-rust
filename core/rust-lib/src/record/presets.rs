@@ -84,6 +84,11 @@ fn file_for(name: &str) -> String {
     format!("{name}.{PRESET_EXT}")
 }
 
+/// A regular file and not a symlink (a link in the presets folder could pull in any file).
+fn plain_file(p: &Path) -> bool {
+    std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file())
+}
+
 fn has_preset_ext(file: &str) -> bool {
     Path::new(file).extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(PRESET_EXT))
 }
@@ -95,7 +100,7 @@ pub fn preset_path(root: &Path, file: &str) -> Result<PathBuf, &'static str> {
         return Err(ERR_NOT_FOUND);
     }
     let p = presets_dir(root).join(file);
-    if p.is_file() { Ok(p) } else { Err(ERR_NOT_FOUND) }
+    if plain_file(&p) { Ok(p) } else { Err(ERR_NOT_FOUND) }
 }
 
 fn stem(file: &str) -> String {
@@ -132,7 +137,7 @@ pub fn list_presets(root: &Path) -> Vec<PresetEntry> {
         .flatten()
         .filter_map(|e| {
             let file = e.file_name().to_string_lossy().into_owned();
-            (!file.starts_with('.') && has_preset_ext(&file) && e.path().is_file()).then_some(file)
+            (!file.starts_with('.') && has_preset_ext(&file) && plain_file(&e.path())).then_some(file)
         })
         .map(|file| match read_preset(root, &file) {
             Ok(p) => PresetEntry { name: p.name, file, ok: true, error: None },
@@ -186,6 +191,33 @@ fn write_preset(root: &Path, file: &str, p: &Preset) -> Result<(), String> {
     })
 }
 
+/// Writes a NEW preset file: the content goes to a temporary file that is then hard-linked
+/// to `file`, which fails when the name exists in any spelling the disk treats as the same
+/// (case, Unicode normalisation) or appeared meanwhile (a racing save) — `ERR_NAME_TAKEN`,
+/// never an overwrite.
+pub fn write_new_preset(root: &Path, file: &str, p: &Preset) -> Result<(), String> {
+    use std::io::Write;
+    let dir = presets_dir(root);
+    let fail = |e: std::io::Error| {
+        tracing::warn!(target: "record::presets", "{file}: {e}");
+        ERR_WRITE.to_string()
+    };
+    std::fs::create_dir_all(&dir).map_err(fail)?;
+    let tmp = dir.join(format!(".{file}.{}.new", std::process::id()));
+    let written = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(to_text(p).as_bytes())?;
+        f.sync_all()
+    })();
+    let linked = written.and_then(|_| std::fs::hard_link(&tmp, dir.join(file)));
+    let _ = std::fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(ERR_NAME_TAKEN.into()),
+        Err(e) => Err(fail(e)),
+    }
+}
+
 /// Copies `src` into `dest_assets` as `<sha256 prefix>.<ext>` (kept when the same content is
 /// already there); returns that name.
 fn copy_hashed(src: &Path, dest_assets: &Path) -> std::io::Result<String> {
@@ -208,7 +240,7 @@ fn copy_hashed(src: &Path, dest_assets: &Path) -> std::io::Result<String> {
 fn relocate_files(appearance: &Appearance, cursor: &CursorStyle, from_dir: &Path, to_dir: &Path) -> (Appearance, CursorStyle) {
     let to_assets = to_dir.join(PROJECT_ASSETS_DIR);
     let mv = |file: &str| -> Option<String> {
-        let src = project_asset(from_dir, file)?;
+        let src = project_asset(from_dir, file).filter(|p| plain_file(p))?;
         copy_hashed(&src, &to_assets)
             .map_err(|e| tracing::warn!(target: "record::presets", "{}: {e}", src.display()))
             .ok()
@@ -245,7 +277,7 @@ pub fn save_preset(root: &Path, name: &str, doc: &EditDoc, project_dir: &Path) -
         aspect: doc.output.aspect,
     };
     let file = file_for(&name);
-    write_preset(root, &file, &preset)?;
+    write_new_preset(root, &file, &preset)?;
     Ok(PresetEntry { name, file, ok: true, error: None })
 }
 
@@ -283,10 +315,16 @@ pub fn rename_preset(root: &Path, file: &str, new_name: &str) -> Result<PresetEn
             std::fs::rename(&old_path, presets_dir(root).join(&new_file)).map_err(|_| ERR_WRITE.to_string())?;
         }
     } else {
-        write_preset(root, &new_file, &preset)?;
+        write_new_preset(root, &new_file, &preset)?;
         let _ = std::fs::remove_file(&old_path);
     }
     Ok(PresetEntry { name, file: new_file, ok: true, error: None })
+}
+
+/// The listed file that `stored` (the `record.default_preset` value) names, compared without
+/// case — the disk does not tell them apart either.
+pub fn match_file<'a>(presets: &'a [PresetEntry], stored: &str) -> Option<&'a PresetEntry> {
+    presets.iter().find(|p| p.file.to_lowercase() == stored.to_lowercase())
 }
 
 /// Removes a preset file (its copied assets stay: other presets may share them).
@@ -459,6 +497,53 @@ mod tests {
         let applied = apply_preset(&doc(), &preset, &root, &dest);
         assert_eq!(applied.appearance.background, Appearance::default().background);
         assert!(!dest.join("assets").exists());
+    }
+
+    #[test]
+    fn save_never_overwrites_an_existing_file() {
+        let root = tmp("exclusive");
+        let first = save_preset(&root, "Café", &styled(), &tmp("exclusive-p")).unwrap();
+        let before = std::fs::read(presets_dir(&root).join(&first.file)).unwrap();
+        // A racing save of the same file (past the name check) fails as taken.
+        let mut other = read_preset(&root, &first.file).unwrap();
+        other.appearance.padding = 99.0;
+        assert_eq!(write_new_preset(&root, &first.file, &other), Err(ERR_NAME_TAKEN.into()));
+        // The decomposed spelling: one file on a normalisation-insensitive disk (APFS) → taken;
+        // two files elsewhere. Either way the first preset is untouched.
+        let nfd = "Cafe\u{301}";
+        let _ = save_preset(&root, nfd, &doc(), &tmp("exclusive-q"));
+        assert_eq!(std::fs::read(presets_dir(&root).join(&first.file)).unwrap(), before);
+        assert!(std::fs::read_dir(presets_dir(&root)).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".new")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_in_the_presets_folder_are_not_followed() {
+        let root = tmp("links");
+        let elsewhere = tmp("links-out");
+        let real = save_preset(&root, "Real", &styled(), &tmp("links-p")).unwrap();
+        let outside = elsewhere.join("x.irpreset");
+        std::fs::copy(presets_dir(&root).join(&real.file), &outside).unwrap();
+        std::os::unix::fs::symlink(&outside, presets_dir(&root).join("Link.irpreset")).unwrap();
+        assert_eq!(list_presets(&root).len(), 1, "the link is not listed");
+        assert_eq!(read_preset(&root, "Link.irpreset"), Err(ERR_NOT_FOUND.into()));
+        // A linked asset counts as missing.
+        std::fs::write(elsewhere.join("secret.png"), b"secret").unwrap();
+        std::fs::create_dir_all(presets_dir(&root).join("assets")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join("secret.png"), presets_dir(&root).join("assets/bg.png")).unwrap();
+        let mut p = read_preset(&root, &real.file).unwrap();
+        p.appearance.background = Background::Image { file: "bg.png".into() };
+        let dest = tmp("links-dest");
+        let applied = apply_preset(&doc(), &p, &root, &dest);
+        assert_eq!(applied.appearance.background, Appearance::default().background);
+        assert!(!dest.join("assets").exists());
+    }
+
+    #[test]
+    fn default_matches_without_case() {
+        let list = vec![PresetEntry { name: "Dark".into(), file: "Dark.irpreset".into(), ok: false, error: Some(ERR_VERSION.into()) }];
+        assert_eq!(match_file(&list, "dark.IRPRESET").map(|p| p.file.as_str()), Some("Dark.irpreset"));
+        assert!(match_file(&list, "Light.irpreset").is_none());
     }
 
     fn read_back(root: &Path) -> Preset {

@@ -53,6 +53,20 @@ export function errorText(e: string | null | undefined): string | null {
   return s === key ? e : s;
 }
 
+/** The search line that reopens a running transcription's panel. Pure. */
+export function resumeQuery(kind: "meeting" | "dictation" | "file" | null | undefined): string | null {
+  switch (kind) {
+    case "meeting":
+      return "meeting";
+    case "dictation":
+      return "transcribe --stop";
+    case "file":
+      return "transcribe";
+    default:
+      return null;
+  }
+}
+
 /** Level 0..1 from an RMS value (−60 dBFS … 0 dBFS). */
 export function levelOf(rms: number): number {
   if (!(rms > 0)) return 0;

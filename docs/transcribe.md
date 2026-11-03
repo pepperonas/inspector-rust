@@ -60,6 +60,11 @@ How it works:
   private cache folder that is deleted at the end. (Song modes send a short
   audio fingerprint to Shazam — see below.)
 
+While a dictation runs, the DE / EN / Auto chips in its panel switch the
+language from the next segment on, without stopping. Opening the popup while
+a dictation or a file job runs loads `transcribe --stop` / `transcribe` again,
+so its panel is right there.
+
 A dictation, a song session, a file transcription and a `meeting` cannot run at
 the same time — the second one reports "busy".
 

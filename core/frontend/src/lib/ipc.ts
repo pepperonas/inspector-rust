@@ -339,6 +339,16 @@ export function transcribeLiveStatus(): Promise<LiveJob | null> {
   return invoke("transcribe_live_status");
 }
 /** Throw the dictation away — nothing is copied. */
+/** Change a running dictation's language (`de` / `en` / `auto`). */
+export function transcribeLiveSetLang(language: string): Promise<LiveJob | null> {
+  return invoke("transcribe_live_set_lang", { language });
+}
+
+/** What is transcribing right now, so the popup reopens its panel. */
+export function activeTranscription(): Promise<"meeting" | "dictation" | "file" | null> {
+  return invoke("active_transcription");
+}
+
 export function transcribeLiveCancel(): Promise<boolean> {
   return invoke("transcribe_live_cancel");
 }

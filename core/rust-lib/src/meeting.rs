@@ -509,6 +509,28 @@ pub fn start(db: &DbHandle, sources: Option<Vec<Source>>) -> Result<MeetingState
     Ok(state)
 }
 
+/// Switch the language of a running meeting without stopping it.
+pub fn set_lang(lang: Lang) -> Result<(), String> {
+    if is_running() {
+        crate::transcribe_client::send(&Command::SetLang { lang })?;
+    }
+    Ok(())
+}
+
+/// Which transcription is running right now, for reopening its panel:
+/// `meeting`, `dictation` (also song/room) or `file`. Pure over the flags.
+pub fn active_kind(meeting: bool, dictation: bool, file: bool) -> Option<&'static str> {
+    if meeting {
+        Some("meeting")
+    } else if dictation {
+        Some("dictation")
+    } else if file {
+        Some("file")
+    } else {
+        None
+    }
+}
+
 /// The model is known and downloaded (sentinels `model.unknown` / `model.missing`).
 pub fn model_ready(id: &str) -> Result<(), String> {
     let info = models::find(id).ok_or(models::ERR_UNKNOWN)?;
@@ -602,6 +624,15 @@ pub fn input_devices() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_running_transcription_is_found_meeting_first() {
+        use super::active_kind;
+        assert_eq!(active_kind(false, false, false), None);
+        assert_eq!(active_kind(true, false, false), Some("meeting"));
+        assert_eq!(active_kind(false, true, true), Some("dictation"));
+        assert_eq!(active_kind(false, false, true), Some("file"));
+    }
+
     #[test]
     fn a_repeating_warning_is_announced_once_and_the_list_is_bounded() {
         let mut s = MeetingState::default();

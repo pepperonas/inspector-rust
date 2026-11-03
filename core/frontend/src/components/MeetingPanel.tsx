@@ -20,6 +20,7 @@ import {
   type MeetingState,
 } from "../lib/ipc";
 import { useT } from "../lib/i18n";
+import { LangChips } from "./LangChips";
 import {
   clockTime,
   downloadPercent,
@@ -193,6 +194,23 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
             </button>
           )}
           {state?.download?.error && <p className="mt-2 text-[12px] text-red-500">{errorText(state.download.error)}</p>}
+        </div>
+      )}
+
+      {cfg && (
+        <div className="flex items-center gap-2 text-[12px] text-[var(--color-muted)]">
+          <span>{t("mtg.set.lang")}</span>
+          <LangChips
+            value={cfg.lang}
+            onChange={(lang) => {
+              const next = { ...cfg, lang };
+              setCfg(next);
+              void setMeetingConfig(next)
+                .then(setCfg)
+                .catch((e) => setError(String(e)));
+            }}
+          />
+          {running && <span className="text-[11px]">{t("mtg.lang_live")}</span>}
         </div>
       )}
 

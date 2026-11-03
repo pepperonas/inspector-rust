@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+const setLang = vi.fn(async (_l: string) => null);
+vi.mock("../lib/ipc", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/ipc")>()),
+  transcribeLiveSetLang: (l: string) => setLang(l),
+}));
 import { TranscribeLivePanel } from "./TranscribeLivePanel";
+import { liveLang } from "./LangChips";
 import type { LiveJob } from "../lib/ipc";
 
 function job(over: Partial<LiveJob> = {}): LiveJob {
@@ -110,5 +116,25 @@ describe("TranscribeLivePanel", () => {
   it("shows why a start failed", () => {
     render(<TranscribeLivePanel {...props} job={null} startError="kein Mikrofon" />);
     expect(screen.getByText("kein Mikrofon")).toBeTruthy();
+  });
+});
+
+describe("TranscribeLivePanel language", () => {
+  it("a running dictation can switch its language without stopping", () => {
+    render(<TranscribeLivePanel {...props} job={job({ language: null })} />);
+    expect(screen.getByTestId("lang-de").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByTestId("lang-en"));
+    expect(setLang).toHaveBeenCalledWith("en");
+  });
+
+  it("no language chips once the dictation is over", () => {
+    render(<TranscribeLivePanel {...props} job={job({ state: "done", committed: "x" })} />);
+    expect(screen.queryByTestId("lang-chips")).toBeNull();
+  });
+
+  it("maps the stored language", () => {
+    expect(liveLang(null)).toBe("de");
+    expect(liveLang("english")).toBe("en");
+    expect(liveLang("auto")).toBe("auto");
   });
 });

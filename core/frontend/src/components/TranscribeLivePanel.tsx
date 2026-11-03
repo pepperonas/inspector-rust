@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Loader2, Mic, Music, RotateCcw, Speaker, Square, Trash2 } from "lucide-react";
-import type { LiveJob } from "../lib/ipc";
+import { transcribeLiveSetLang, type LiveJob } from "../lib/ipc";
+import { LangChips, liveLang } from "./LangChips";
 import { formatClock, isLiveRecording, liveResultText, modeOfSource, type StartMode } from "../lib/transcribe";
 import { t, useT } from "../lib/i18n";
 
@@ -55,7 +56,13 @@ export function TranscribeLivePanel({
             · {t(job.source === "system" ? "trx.live.source_system" : "trx.live.source_room")}
           </span>
         )}
-        {job?.language && <span className="normal-case tracking-normal">· {job.language}</span>}
+        {recording && job ? (
+          <span className="ml-auto normal-case tracking-normal">
+            <LangChips value={liveLang(job.language)} onChange={(l) => void transcribeLiveSetLang(l).catch(() => {})} />
+          </span>
+        ) : (
+          job?.language && <span className="normal-case tracking-normal">· {job.language}</span>
+        )}
       </div>
 
       {startError && !recording && (

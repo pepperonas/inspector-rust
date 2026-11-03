@@ -17,6 +17,10 @@ icon shows a red dot and the tray menu says "Stop transcription".
 
 - Switch either source on or off in the panel, the tray or Settings.
 - **Ctrl+Shift+Alt+K** shows or hides the ticker without stopping.
+- **Reopening the popup** while a session runs loads `meeting` again, so the
+  panel with stop, sources and language is right there.
+- **Language while recording:** the DE / EN / Auto chips in the panel change
+  it from the next sentence on, without stopping.
 - **The ticker's own buttons** appear when the pointer is over it (otherwise
   it lets every click through to the app below): a grip to drag it anywhere
   (the place is remembered, per screen as fractions of the free space), −

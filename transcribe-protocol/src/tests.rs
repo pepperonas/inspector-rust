@@ -25,6 +25,7 @@ fn commands() -> Vec<Command> {
         Command::CancelDownload,
         Command::TranscribeFile { path: "/a b.m4a".into(), lang: Lang::De, model: "x".into() },
         Command::CancelFile,
+        Command::SetLang { lang: Lang::En },
         Command::ListDevices,
         Command::Shutdown,
     ]

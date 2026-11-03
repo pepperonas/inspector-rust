@@ -1,4 +1,5 @@
-import { appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { activeTranscription, appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { resumeQuery } from "./lib/meeting";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
 import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg } from "./lib/transcribe";
@@ -3944,6 +3945,15 @@ function App() {
     setActiveTab("history");
     setQuery("");
     setSelected(0);
+    // A meeting, dictation or file transcription still running reopens its
+    // panel, so stopping it or changing its settings is one look away. Only
+    // while the line is still empty — never over what the user started typing.
+    void activeTranscription()
+      .then((kind) => {
+        const q = resumeQuery(kind);
+        if (q) setQuery((cur) => (cur === "" ? q : cur));
+      })
+      .catch(() => undefined);
     // Staggered list entrance (v0.88.0): cascade the visible rows in on each
     // popup OPEN (never per keystroke). The class is removed after the
     // animation so later virtualizer updates render instantly.

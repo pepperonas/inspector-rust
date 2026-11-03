@@ -127,6 +127,8 @@ struct Shared {
     /// A source has an open segment (someone is talking right now).
     speaking: [AtomicBool; 2],
     dir: Mutex<Option<PathBuf>>,
+    /// The session language; can change while it runs (`set_lang`).
+    lang: Mutex<crate::protocol::Lang>,
 }
 
 impl Shared {
@@ -169,6 +171,7 @@ impl Pipeline {
             windows: [Mutex::new(VecDeque::new()), Mutex::new(VecDeque::new())],
             speaking: [AtomicBool::new(false), AtomicBool::new(false)],
             dir: Mutex::new(Some(dir.clone())),
+            lang: Mutex::new(cfg.lang),
         });
         sink(Event::Started { session_dir: dir, sources: cfg.sources.clone() });
 
@@ -208,7 +211,6 @@ impl Pipeline {
             };
         let threshold = cfg.dedupe_threshold.clamp(0.5, 0.95);
         let inf = InferenceCtx {
-            cfg,
             shared: shared.clone(),
             sink,
             transcriber: deps.transcriber,
@@ -233,6 +235,12 @@ impl Pipeline {
 
     pub fn is_running(&self) -> bool {
         !self.shared.stop.load(Ordering::SeqCst)
+    }
+
+    /// Switch the language without stopping: segments decoded from now on
+    /// use it (the open segment included), finals already written keep theirs.
+    pub fn set_lang(&self, lang: crate::protocol::Lang) {
+        *self.shared.lang.lock().unwrap_or_else(|e| e.into_inner()) = lang;
     }
 
     pub fn set_source(&self, source: Source, on: bool) {
@@ -571,7 +579,6 @@ fn flush(c: &SourceCtx, s: &mut Stream) {
 }
 
 struct InferenceCtx {
-    cfg: SessionConfig,
     shared: Arc<Shared>,
     sink: Sink,
     transcriber: Box<dyn Transcriber>,
@@ -680,7 +687,7 @@ fn run_job(c: &mut InferenceCtx, st: &mut [SrcState; 2], audio: &mut HashMap<(So
     }
     let opts = DecodeOpts {
         kind: job.kind,
-        lang: c.cfg.lang,
+        lang: *c.shared.lang.lock().unwrap_or_else(|e| e.into_inner()),
         last_lang: s.last_lang.clone(),
         prompt: if job.kind == JobKind::Final { s.tail.clone() } else { String::new() },
         threads: c.threads,
@@ -937,6 +944,68 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn the_language_can_change_while_the_session_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let seen = Arc::new(Mutex::new(Vec::<Lang>::new()));
+        let s2 = seen.clone();
+        struct Rec(Arc<Mutex<Vec<Lang>>>);
+        impl Transcriber for Rec {
+            fn decode(&mut self, _: Source, _: &[f32], o: &DecodeOpts) -> Result<Decoded, String> {
+                if o.kind == JobKind::Final {
+                    self.0.lock().unwrap().push(o.lang);
+                }
+                Ok(Decoded { text: "Satz".into(), lang: "de".into(), confidence: 0.9, mean_logprob: -0.1, no_speech: 0.0, rejected: vec![] })
+            }
+        }
+        // Two utterances, 2 s apart, delivered by a thread so the switch can
+        // land between them.
+        struct Later(Vec<f32>);
+        impl CaptureFactory for Later {
+            fn start(&self, _: Source, _: Option<&str>, mut chunk: Chunk, _: OnError) -> Result<Box<dyn AudioInput>, String> {
+                let d = self.0.clone();
+                std::thread::spawn(move || {
+                    for (i, c) in d.chunks(1600).enumerate() {
+                        chunk(c);
+                        if i % 10 == 9 {
+                            std::thread::sleep(Duration::from_millis(30));
+                        }
+                    }
+                });
+                Ok(Box::new(FakeInput))
+            }
+        }
+        let mut audio = utterance(1.0);
+        audio.extend(vec![0.0; RATE * 2]);
+        audio.extend(utterance(1.0));
+        let deps = Deps {
+            transcriber: Box::new(Rec(s2)),
+            vad: Arc::new(|| Ok(Box::new(EnergyVad::new(0.01)) as Box<dyn Vad>)),
+            capture: Arc::new(Later(audio)),
+            fallback_root: tmp.path().join("fallback"),
+            threads: 1,
+            headphones: None,
+            timing: Timing { no_data: None, ..Timing::default() },
+        };
+        let mut c = cfg(tmp.path().join("root"));
+        c.sources = vec![Source::Mic];
+        c.lang = Lang::De;
+        let p = Pipeline::start(c, Arc::new(|_| {}), deps).unwrap();
+        let t0 = Instant::now();
+        while seen.lock().unwrap().is_empty() && t0.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        p.set_lang(Lang::En);
+        let t0 = Instant::now();
+        while seen.lock().unwrap().len() < 2 && t0.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = p.stop();
+        let got = seen.lock().unwrap().clone();
+        assert_eq!(got.first(), Some(&Lang::De), "{got:?}");
+        assert_eq!(got.last(), Some(&Lang::En), "the switch applies to the next segment: {got:?}");
     }
 
     #[test]

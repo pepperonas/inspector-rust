@@ -4651,5 +4651,7 @@
   "tick.max": "Maximieren",
   "tick.restore": "Normale Größe",
   "tick.dock": "Zurück an den Bildschirmrand",
-  "tick.off": "Laufband ausschalten (⌃⇧⌥K schaltet es wieder ein)"
+  "tick.off": "Laufband ausschalten (⌃⇧⌥K schaltet es wieder ein)",
+  "mtg.lang_live": "gilt ab dem nächsten Satz",
+  "mtg.lang.auto_short": "Auto"
 }

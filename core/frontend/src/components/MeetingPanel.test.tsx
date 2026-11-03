@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import type { MeetingConfig, MeetingModel, MeetingState } from "../lib/ipc";
 
 const idle: MeetingState = {
@@ -30,7 +30,9 @@ vi.mock("../lib/ipc", async (importOriginal) => ({
   getMeetingConfig: vi.fn(async () => cfg),
   meetingStart: () => meetingStart(),
   meetingStop: () => meetingStop(),
+  setMeetingConfig: (c: MeetingConfig) => setMeetingConfig(c),
 }));
+const setMeetingConfig = vi.fn(async (c: MeetingConfig) => c);
 vi.mock("../hooks/useTauriEvent", () => ({ useTauriEvent: () => undefined }));
 
 import { MeetingPanel } from "./MeetingPanel";
@@ -77,5 +79,15 @@ describe("MeetingPanel layout", () => {
     const box = src.slice(src.lastIndexOf('<div', src.indexOf('data-testid="meeting-lines"')), src.indexOf('data-testid="meeting-lines"'));
     expect(box).toMatch(/overflow-y-auto/);
     expect(box).toMatch(/max-h-/);
+  });
+});
+
+describe("MeetingPanel language", () => {
+  it("switches the language from the panel, also while recording", async () => {
+    render(<MeetingPanel focused={false} runSignal={0} onExit={() => undefined} />);
+    const en = await screen.findByTestId("lang-en");
+    fireEvent.click(en);
+    await waitFor(() => expect(setMeetingConfig).toHaveBeenCalled());
+    expect(setMeetingConfig.mock.calls[setMeetingConfig.mock.calls.length - 1][0].lang).toBe("en");
   });
 });

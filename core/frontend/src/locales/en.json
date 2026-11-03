@@ -4651,5 +4651,7 @@
   "tick.max": "Maximise",
   "tick.restore": "Normal size",
   "tick.dock": "Back to the screen edge",
-  "tick.off": "Turn the ticker off (Ctrl+Shift+Alt+K turns it on again)"
+  "tick.off": "Turn the ticker off (Ctrl+Shift+Alt+K turns it on again)",
+  "mtg.lang_live": "applies from the next sentence",
+  "mtg.lang.auto_short": "Auto"
 }

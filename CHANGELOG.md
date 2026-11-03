@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.234.0] — 2026-11-03
+
+### Added
+- **Reopening the popup while a transcription runs shows it again.** A running `meeting`, dictation (`transcribe --start`, `--song`, `--room`) or file transcription loads its command as soon as the popup opens, so the preview offers stop and its settings right away.
+- **Switch the language while recording.** German, English or automatic can be changed in the `meeting` panel and in a running dictation; it applies from the next sentence, the recording keeps going.
+
 ## [0.233.0] — 2026-11-03
 
 ### Added

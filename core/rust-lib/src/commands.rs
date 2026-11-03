@@ -9694,9 +9694,31 @@ pub fn set_meeting_config(
     config: crate::meeting::MeetingConfig,
 ) -> Result<crate::meeting::MeetingConfig, String> {
     let cfg = config.normalized();
+    let before = crate::meeting::MeetingConfig::load(&db).lang;
     cfg.save(&db)?;
     crate::meeting_ui::apply_config(&app, &cfg);
+    // A running meeting follows a language change at once, no restart.
+    if cfg.lang != before {
+        crate::meeting::set_lang(cfg.lang)?;
+    }
     Ok(cfg)
+}
+
+/// What is transcribing right now (`meeting` / `dictation` / `file`), so the
+/// popup can reopen its panel.
+#[tauri::command]
+pub fn active_transcription() -> Option<&'static str> {
+    crate::meeting::active_kind(
+        crate::meeting::is_running(),
+        crate::live_transcribe::is_active(),
+        crate::transcribe::status().is_some_and(|j| j.is_active()),
+    )
+}
+
+/// Change a running dictation's language (`de` / `en` / `auto`).
+#[tauri::command]
+pub fn transcribe_live_set_lang(language: Option<String>) -> Result<Option<crate::live_transcribe::LiveJob>, String> {
+    crate::live_transcribe::set_lang(language)
 }
 
 /// The ticker's own buttons: mode (`bar`/`mini`/`max`), switch it off,

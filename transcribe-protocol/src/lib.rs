@@ -109,6 +109,8 @@ pub enum Command {
     Start(SessionConfig),
     Stop,
     SetSource { source: Source, on: bool },
+    /// Change the language of a running session from the next segment on.
+    SetLang { lang: Lang },
     /// The last `secs` seconds of a source as 16 kHz i16 (song recognition).
     Window { source: Source, secs: u32 },
     DownloadModel { model: String },

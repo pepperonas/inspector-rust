@@ -418,6 +418,16 @@ pub fn start(app: tauri::AppHandle, language: Option<String>, source: LiveSource
     Ok(job)
 }
 
+/// Change the language of a running dictation from the next segment on.
+pub fn set_lang(language: Option<String>) -> Result<Option<LiveJob>, String> {
+    let lang = crate::transcribe::lang_of(language.as_deref())?;
+    if is_active() {
+        crate::transcribe_client::send(&Command::SetLang { lang })?;
+        update(|j| j.language = language.clone().filter(|l| !l.trim().is_empty()));
+    }
+    Ok(status())
+}
+
 /// End the recording; the session then finalizes and copies the text.
 pub fn stop() -> Option<LiveJob> {
     if is_active() {

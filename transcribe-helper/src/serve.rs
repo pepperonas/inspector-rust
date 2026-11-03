@@ -254,6 +254,12 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                 stop_session(&mut session);
                 true
             }
+            Command::SetLang { lang } => {
+                if let Some(s) = &session {
+                    s.pipeline.set_lang(lang);
+                }
+                true
+            }
             Command::SetSource { source, on } => {
                 if let Some(s) = &session {
                     s.pipeline.set_source(source, on);

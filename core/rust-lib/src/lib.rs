@@ -1341,6 +1341,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_meeting_config,
             commands::set_meeting_config,
             commands::ticker_update,
+            commands::active_transcription,
+            commands::transcribe_live_set_lang,
             commands::meeting_model_status,
             commands::meeting_model_download,
             commands::meeting_model_cancel,

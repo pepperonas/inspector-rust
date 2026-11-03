@@ -60,6 +60,7 @@ const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ d
 const SpotifyPanel = lazy(() => import("./components/SpotifyPanel").then((m) => ({ default: m.SpotifyPanel })));
 const GithubPanel = lazy(() => import("./components/GithubPanel").then((m) => ({ default: m.GithubPanel })));
 const TranscribePanel = lazy(() => import("./components/TranscribePanel").then((m) => ({ default: m.TranscribePanel })));
+const MeetingPanel = lazy(() => import("./components/MeetingPanel").then((m) => ({ default: m.MeetingPanel })));
 const TranscribeLivePanel = lazy(() => import("./components/TranscribeLivePanel").then((m) => ({ default: m.TranscribeLivePanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
 const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
@@ -533,6 +534,9 @@ function App() {
   // needs focus for autocomplete).
   const [clockMode, setClockMode] = useState(false);
   const [clockFocus, setClockFocus] = useState(false);
+  const [meetingMode, setMeetingMode] = useState(false);
+  const [meetingFocus, setMeetingFocus] = useState(false);
+  const [meetingRun, setMeetingRun] = useState(0);
   // rickroll mode (v0.122.0) — plays the video in the preview.
   const [rickMode, setRickMode] = useState(false);
   const [rickFocus, setRickFocus] = useState(false);
@@ -1582,6 +1586,16 @@ function App() {
       setClockFocus(false);
     }
   }, [isClockCmd, clockMode]);
+  const isMeetingCmd = parsedCommand?.spec.kind === "meeting";
+  useEffect(() => {
+    // Show-while-typed: the panel only reads status; Enter starts or stops.
+    if (isMeetingCmd && !meetingMode) {
+      setMeetingMode(true);
+    } else if (!isMeetingCmd && meetingMode) {
+      setMeetingMode(false);
+      setMeetingFocus(false);
+    }
+  }, [isMeetingCmd, meetingMode]);
   const isSpeedtestCmd = parsedCommand?.spec.kind === "speedtest";
   useEffect(() => {
     if (!isSpeedtestCmd && speedtestMode) {
@@ -2374,6 +2388,10 @@ function App() {
       case "clock":
         label = t("cmd.clock.label");
         hint = t("cmd.clock.hint");
+        break;
+      case "meeting":
+        label = t("cmd.meeting.label");
+        hint = t("cmd.meeting.hint");
         break;
       case "speedtest":
         label = t("cmd.speedtest.label");
@@ -3989,6 +4007,13 @@ function App() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The meeting hotkey hit something only the app can resolve (model not
+  // downloaded, no microphone access): show the meeting panel.
+  useTauriEvent("open-meeting", () => {
+    setActiveTab("history");
+    setQuery("meeting");
+  });
+
   // Handle tray "Manage Snippets": switch to snippets tab.
   useTauriEvent(
     "open-snippets-tab",
@@ -4466,7 +4491,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github", "record",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github", "record", "meeting",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -5104,6 +5129,11 @@ function App() {
         setClockMode(true);
         setClockFocus(true);
         return true;
+      } else if (commandKind === "meeting") {
+        setMeetingMode(true);
+        setMeetingFocus(true);
+        setMeetingRun((n) => n + 1);
+        return true;
       } else if (commandKind === "disk") {
         setDiskMode(true);
         setDiskFocus(true);
@@ -5633,6 +5663,7 @@ function App() {
       !btsniffFocus &&
       !mailcheckFocus &&
       !clockFocus &&
+      !meetingFocus &&
       !rickFocus &&
       !repoFocus &&
       !nosleepFocus &&
@@ -6175,6 +6206,18 @@ function App() {
                       onExit={() => {
                         setRickMode(false);
                         setRickFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : meetingMode ? (
+                  <div className="md3-pop-in h-full">
+                    <MeetingPanel
+                      focused={meetingFocus}
+                      runSignal={meetingRun}
+                      onExit={() => {
+                        setMeetingMode(false);
+                        setMeetingFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

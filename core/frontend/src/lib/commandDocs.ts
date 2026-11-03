@@ -1640,6 +1640,36 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["calendar", "weather"],
   },
   {
+    command: "meeting",
+    aliases: ["mitschrift"],
+    category: CAT_AV,
+    version_added: "0.232.0",
+    tagline: "Live transcription of microphone and system audio, with a ticker and crash-safe transcripts.",
+    tagline_de: "Live-Transkription von Mikrofon und Systemton, mit Laufband und absturzsicheren Transkripten.",
+    synopsis: "meeting   ·   mitschrift",
+    description:
+      "Transcribes **you** (microphone, `MIC`) and **the other side** (everything this Mac plays, `SYS`) at the same time, locally with Whisper large-v3-turbo on the GPU — nothing leaves the Mac. Every line is labelled with its source and written at once to `~/Documents/Transkripte/<date_time>/`: `transkript.txt` (`[19:45:12] MIC: …`), `transkript.jsonl` (times, source, language, confidence) and `session.json`; each line is synced to disk, so a crash or `kill -9` loses at most the sentence being spoken, and the next start reports the session as interrupted. A thin ticker at the top or bottom of the screen shows the text as it is spoken (grey while unsure, white once final) on every Space and over full-screen apps, and never takes a click. The language is detected per sentence, German or English. With speakers instead of headphones the microphone hears the other side too; those echo lines are dropped. Runs in the background: the popup can close, the tray icon turns red while recording.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "meeting", result: "Status, sources and past sessions; Enter starts." },
+      { input: "meeting → Enter (running)", result: "Stops; the transcript folder stays." },
+      { input: "⌃⇧⌥L", result: "Start or stop from anywhere, a toast confirms it." },
+      { input: "⌃⇧⌥K", result: "Show or hide the ticker without stopping." },
+    ],
+    tips: [
+      "The first start downloads the speech model once (574 MB); it is checked against its SHA-256.",
+      "Switch either source off in the panel or the tray — e.g. only the system audio of a video.",
+      "Raw audio of each sentence is kept (Settings, default 7 days) so it can be transcribed again.",
+    ],
+    caveats: [
+      "Apple Silicon Macs only (Whisper runs on the GPU).",
+      "macOS asks once for microphone and \u201csystem audio recording\u201d access.",
+      "Speech detection, not speaker recognition: several people on one source share its label.",
+    ],
+    related: ["transcribe", "record"],
+  },
+  {
     command: "convert",
     aliases: ["cv"],
     category: CAT_PROD,

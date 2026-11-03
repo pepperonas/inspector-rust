@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.233.0] — 2026-11-03
+
+### Added
+- **Live transcription — `meeting` (alias `mitschrift`, Ctrl+Shift+Alt+L).** Transcribes the microphone (`MIC`, you) and the system audio (`SYS`, the other side) at the same time and separately, locally with Whisper large-v3-turbo on the GPU; German and English are detected per sentence. Every line is written and synced at once to `~/Documents/Transkripte/<date_time>/` (`transkript.txt`, `transkript.jsonl`, `session.json`, optionally the raw audio of each sentence), so a crash or a forced quit loses at most the sentence being spoken; the next start reports an interrupted session. A thin ticker at the top or bottom of a screen (Ctrl+Shift+Alt+K) shows the text as it is spoken, over full-screen apps and on every Space, and lets clicks through. Lines the microphone picks up from the speakers are dropped. While recording the menu-bar icon shows a red dot. The speech model is downloaded once and checked against its checksum. Apple Silicon only; system audio comes from a Core Audio process tap (ScreenCaptureKit as fallback).
+
 ## [0.232.0] — 2026-11-03
 
 ### Added

@@ -15,7 +15,10 @@ pub const LABEL_PREFIX: &str = "transcribe-ticker-";
 /// Gap between the bar and the screen edge (logical px).
 pub const MARGIN: f64 = 8.0;
 
-static CURRENT: Mutex<Option<(String, (i32, i32, u32, u32))>> = Mutex::new(None);
+/// Physical `(x, y, width, height)`.
+type Rect = (i32, i32, u32, u32);
+
+static CURRENT: Mutex<Option<(String, Rect)>> = Mutex::new(None);
 static SEQ: AtomicU64 = AtomicU64::new(1);
 
 /// Bar height for a font size (logical px).
@@ -24,7 +27,7 @@ pub fn bar_height(font_px: u8) -> f64 {
 }
 
 /// The bar inside a work area, all in physical px. Pure.
-pub fn ticker_rect(work: (i32, i32, u32, u32), scale: f64, cfg: &TickerConfig) -> (i32, i32, u32, u32) {
+pub fn ticker_rect(work: Rect, scale: f64, cfg: &TickerConfig) -> Rect {
     let (wx, wy, ww, wh) = work;
     let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let w = (f64::from(ww) * f64::from(cfg.width_pct.clamp(30, 100)) / 100.0).round() as u32;

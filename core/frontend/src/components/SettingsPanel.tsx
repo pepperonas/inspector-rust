@@ -55,6 +55,7 @@ import { InlineMd } from "./InlineMd";
 import { locale, useT, tn, tSplit, type MessageKey } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
 import { RecordSettingsSection } from "./RecordSettingsSection";
+import { MeetingSettingsSection } from "./MeetingSettingsSection";
 import { crtOffMs } from "../lib/md3-motion";
 import { IS_LINUX, IS_MAC } from "../lib/platform";
 import { LinuxShortcutsSettings } from "./LinuxShortcutsSettings";
@@ -3080,6 +3081,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <RecordSettingsSection />
         </div>
     ) : null,
+        /* Live transcription (meeting) — Apple Silicon */
+    "meeting": IS_MAC ? (
+        <div className="mb-6">
+          <MeetingSettingsSection />
+        </div>
+    ) : null,
     "github": (
         <div className="mb-6">
           <GithubSettingsSection />
@@ -3254,6 +3261,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           );
         })}
       </div>
+      <footer className="mt-2 pb-2 text-center text-[11px] text-[var(--color-muted)]" data-testid="settings-footer">
+        © {new Date().getFullYear()} Martin Pfeffer | celox.io
+      </footer>
     </div>
   );
 }

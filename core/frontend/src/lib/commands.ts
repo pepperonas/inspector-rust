@@ -54,6 +54,7 @@ export type CommandKind =
   | "adb"
   | "disk"
   | "clock"
+  | "meeting"
   | "rickroll"
   | "repo"
   | "repo-export"
@@ -446,6 +447,25 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "World clock — live times of major cities, extendable via autocomplete",
     description_de: "Weltzeituhr — Live-Zeiten wichtiger Städte, per Autocomplete erweiterbar",
     requiresArg: false,
+  },
+  // ── meeting — live transcription of microphone + system audio ─────
+  {
+    kind: "meeting",
+    keyword: "meeting",
+    syntax: "meeting",
+    description: "Live transcription of microphone and system audio, with a ticker and crash-safe transcripts",
+    description_de: "Live-Transkription von Mikrofon und Systemton, mit Laufband und absturzsicheren Transkripten",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
+    kind: "meeting",
+    keyword: "mitschrift",
+    syntax: "mitschrift",
+    description: "Live transcription — alias of meeting.",
+    description_de: "Live-Transkription — Alias von meeting.",
+    requiresArg: false,
+    platform: ["mac"],
   },
   // ── convert / cv — units + currencies, live preview ───────────────
   {

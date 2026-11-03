@@ -130,7 +130,7 @@
   [![Test suites](https://img.shields.io/badge/test%20suites-382-2ea043?style=flat-square&logo=vitest&logoColor=white)](#testing)
   [![Settings sections](https://img.shields.io/badge/settings%20sections-46-6366F1?style=flat-square)](./core/frontend/src/lib/settings-sections.ts)
   [![Tab completion](https://img.shields.io/badge/Tab%20completion-24%20commands-e11d48?style=flat-square)](./core/frontend/src/lib/arg-complete.ts)
-  [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-13-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
+  [![Rebindable hotkeys](https://img.shields.io/badge/rebindable%20hotkeys-15-0ea5e9?style=flat-square)](./core/rust-lib/src/hotkey.rs)
   [![Hidden triggers](https://img.shields.io/badge/hidden%20triggers-11-ff69b4?style=flat-square)](./core/frontend/src/lib/feature-extras.ts)
   [![Frontend modules](https://img.shields.io/badge/frontend%20modules-131-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src/lib)
   [![Releases](https://img.shields.io/badge/releases-600-8957e5?style=flat-square)](./CHANGELOG.md)
@@ -248,7 +248,7 @@
   [![Motion](.github/badges/motion-material-3-expressive-blueviolet-8a8ecfba.svg)](#)
   [![Tabs](.github/badges/popup-tabs-6-blueviolet-15b9fb59.svg)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-29-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
-  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-15-blueviolet?style=flat-square)](#)
+  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-17-blueviolet?style=flat-square)](#)
   [![Snippet expansion modes](.github/badges/expansion-modes-4-blueviolet-8a752ab1.svg)](./docs/text-expander.md)
   [![Image formats](.github/badges/image-formats-5-blueviolet-73e0101a.svg)](#)
   [![Time tracking](.github/badges/timesheet-event-based-encrypted-ce422b-9f407ee0.svg)](./docs/timesheet.md)
@@ -689,6 +689,7 @@ Englisch.)
 | `spotify` | v0.206.0 | Spotify: läuft gerade, lokaler Verlauf, Export, Steuerung. |
 | `github` | v0.209.0 | GitHub-Statistik: Kontoalter, Follower, Sterne und Forks seit Erstellung, Repository-Insights. |
 | `record` | v0.228.0 | Bildschirm oder Fenster als nachbearbeitbares Projekt aufnehmen. |
+| `meeting` <sub>(alias: `mitschrift`)</sub> | v0.232.0 | Live-Transkription von Mikrofon und Systemton, mit Laufband und absturzsicheren Transkripten. |
 
 <!-- COMMANDS:END -->
 
@@ -1108,6 +1109,7 @@ Entwurfsentscheidungen, Fehlerbilder und die Fallen, die es gekostet hat.
 | [reports.md](./docs/reports.md) | **Exported reports** — the one design system behind every HTML/PDF/PNG export, and the print traps |
 | [inline-help.md](./docs/inline-help.md) | The `?` help system and the CommandDoc registry that feeds three surfaces |
 | [transcribe.md](./docs/transcribe.md) | Local audio/video transcription with Whisper: setup, language and TXT output |
+| [meeting.md](./docs/meeting.md) | Live transcription of microphone and system audio: ticker, transcript files, recovery, echo filter |
 | [spec.md](./docs/spec.md) | The original product spec |
 | [encryption.md](./docs/encryption.md) | At-rest encryption: what is encrypted, what deliberately is not |
 | [backup.md](./docs/backup.md) | Full-app backup, encrypted backups, restore semantics |

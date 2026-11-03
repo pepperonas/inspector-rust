@@ -22,6 +22,8 @@ type Listener = Arc<dyn Fn(&Event) + Send + Sync>;
 struct Running {
     child: Child,
     stdin: ChildStdin,
+    /// Which helper this is: a reader thread only ever cleans up its own.
+    gen: u64,
 }
 
 static HELPER_PROC: Mutex<Option<Running>> = Mutex::new(None);
@@ -31,6 +33,9 @@ static NEXT: AtomicU64 = AtomicU64::new(1);
 static BUSY: AtomicBool = AtomicBool::new(false);
 /// A file job was sent and has not answered yet.
 static FILE_BUSY: AtomicBool = AtomicBool::new(false);
+/// A `Start` was sent and neither `Started` nor a refusal came back yet.
+static STARTING: AtomicBool = AtomicBool::new(false);
+static GEN: AtomicU64 = AtomicU64::new(1);
 
 /// Transcription runs on Apple Silicon Macs only (whisper.cpp on Metal).
 pub fn supported() -> bool {
@@ -50,8 +55,15 @@ pub fn helper_path() -> Option<PathBuf> {
 
 fn dispatch(ev: &Event) {
     match ev {
-        Event::Started { .. } => BUSY.store(true, Ordering::SeqCst),
-        Event::Stopped { .. } => BUSY.store(false, Ordering::SeqCst),
+        Event::Started { .. } => {
+            STARTING.store(false, Ordering::SeqCst);
+            BUSY.store(true, Ordering::SeqCst)
+        }
+        Event::Stopped { .. } => {
+            STARTING.store(false, Ordering::SeqCst);
+            BUSY.store(false, Ordering::SeqCst)
+        }
+        Event::Error { .. } => STARTING.store(false, Ordering::SeqCst),
         Event::FileDone { .. } | Event::FileError { .. } => FILE_BUSY.store(false, Ordering::SeqCst),
         _ => {}
     }
@@ -74,6 +86,7 @@ fn spawn() -> Result<Running, String> {
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let stdin = child.stdin.take().ok_or("no stdin")?;
     let stdout = child.stdout.take().ok_or("no stdout")?;
+    let gen = GEN.fetch_add(1, Ordering::SeqCst);
     std::thread::Builder::new()
         .name("ir-transcribe-client".into())
         .spawn(move || {
@@ -86,10 +99,14 @@ fn spawn() -> Result<Running, String> {
             }
             // The helper is gone. A session that was running ends with an error.
             tracing::warn!("transcribe: helper exited");
-            if let Some(mut r) = HELPER_PROC.lock().take() {
-                let _ = r.child.wait();
+            let (dead, ours) = take_if_current(&mut HELPER_PROC.lock(), gen);
+            if let Some(mut r) = dead {
+                let _ = r.child.wait(); // outside the lock
             }
-            if BUSY.swap(false, Ordering::SeqCst) {
+            if !ours {
+                return; // a newer helper already runs; its state is not ours
+            }
+            if BUSY.swap(false, Ordering::SeqCst) || STARTING.load(Ordering::SeqCst) {
                 dispatch(&Event::Stopped { session_dir: None, error: Some(ERR_HELPER_DIED.into()) });
             }
             if FILE_BUSY.load(Ordering::SeqCst) {
@@ -97,7 +114,18 @@ fn spawn() -> Result<Running, String> {
             }
         })
         .map_err(|e| e.to_string())?;
-    Ok(Running { child, stdin })
+    Ok(Running { child, stdin, gen })
+}
+
+/// The exiting reader of helper `gen` takes the process out only if it is
+/// still the current one. Returns it and whether the exit concerns the current
+/// helper (or none is running any more). Pure over the slot.
+fn take_if_current(slot: &mut Option<Running>, gen: u64) -> (Option<Running>, bool) {
+    match slot.as_ref().map(|r| r.gen) {
+        Some(g) if g == gen => (slot.take(), true),
+        Some(_) => (None, false),
+        None => (None, true),
+    }
 }
 
 /// Send one command, starting the helper if needed.
@@ -113,10 +141,14 @@ pub fn send(cmd: &Command) -> Result<(), String> {
     if file {
         FILE_BUSY.store(true, Ordering::SeqCst);
     }
+    if matches!(cmd, Command::Start(_)) {
+        STARTING.store(true, Ordering::SeqCst);
+    }
     if let Err(e) = r.stdin.write_all(line.as_bytes()).and_then(|_| r.stdin.flush()) {
         if file {
             FILE_BUSY.store(false, Ordering::SeqCst);
         }
+        STARTING.store(false, Ordering::SeqCst);
         // A dead pipe: drop it; the next call starts a fresh helper.
         if let Some(mut dead) = guard.take() {
             let _ = dead.child.kill();
@@ -158,8 +190,17 @@ pub fn is_busy() -> bool {
     BUSY.load(Ordering::SeqCst) || FILE_BUSY.load(Ordering::SeqCst)
 }
 
+/// Kill a helper that did not exit within the grace time on app exit? Not
+/// while it finishes a session: it decodes the queued segments, writes them
+/// and marks the session completed on its own (the same path as an app
+/// `kill -9`). Pure.
+pub fn kill_on_exit(session_or_file_busy: bool) -> bool {
+    !session_or_file_busy
+}
+
 /// App exit: end the helper (it closes a running session cleanly on EOF).
 pub fn shutdown() {
+    let busy = is_busy();
     if let Some(mut r) = HELPER_PROC.lock().take() {
         let _ = r.stdin.write_all(encode(&Command::Shutdown).as_bytes());
         drop(r.stdin);
@@ -169,7 +210,11 @@ pub fn shutdown() {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        let _ = r.child.kill();
+        if kill_on_exit(busy) {
+            let _ = r.child.kill();
+        } else {
+            tracing::info!("transcribe: helper still finishing the session — left to end on its own");
+        }
     }
 }
 
@@ -183,6 +228,34 @@ mod tests {
         assert!(is_busy());
         dispatch(&Event::Stopped { session_dir: None, error: None });
         assert!(!is_busy());
+    }
+
+    fn running(gen: u64) -> Running {
+        let mut child = Proc::new("/bin/cat").stdin(Stdio::piped()).spawn().unwrap();
+        let stdin = child.stdin.take().unwrap();
+        Running { child, stdin, gen }
+    }
+
+    #[test]
+    fn an_old_reader_never_takes_the_new_helper() {
+        let mut slot = Some(running(7));
+        let (taken, ours) = take_if_current(&mut slot, 6);
+        assert!(taken.is_none() && !ours, "the reader of helper 6 leaves helper 7 alone");
+        assert!(slot.is_some());
+        let (taken, ours) = take_if_current(&mut slot, 7);
+        assert!(ours);
+        let mut r = taken.unwrap();
+        assert!(slot.is_none());
+        let _ = r.child.kill();
+        let _ = r.child.wait();
+        // A helper that send() already dropped: its reader still reports.
+        assert!(take_if_current(&mut None, 3).1);
+    }
+
+    #[test]
+    fn a_helper_finishing_a_session_is_not_killed_on_exit() {
+        assert!(!kill_on_exit(true));
+        assert!(kill_on_exit(false));
     }
 
     #[test]

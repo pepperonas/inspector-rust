@@ -22,6 +22,8 @@ pub const EVENT_TICKER_CONFIG: &str = "meeting-ticker-config";
 pub const ERR_BUSY: &str = "transcribe.busy";
 pub const ERR_MIC_DENIED: &str = "transcribe.mic_denied";
 pub const MAX_LINES: usize = 200;
+/// Different warnings shown per session; more are only counted in the log.
+pub const MAX_WARNINGS: usize = 8;
 
 const KEY_CONFIG: &str = "meeting.config";
 
@@ -218,6 +220,13 @@ pub struct MeetingState {
     pub line_count: u64,
     pub download: Option<DownloadView>,
     pub recovered: Vec<PathBuf>,
+    /// Warning codes already announced this session (one toast per kind).
+    #[serde(skip)]
+    pub warned: std::collections::BTreeSet<String>,
+    /// Something to tell the user right now (a new kind of warning, a lost
+    /// source); taken by the event handler.
+    #[serde(skip)]
+    pub alert: Option<String>,
 }
 
 impl MeetingState {
@@ -232,6 +241,8 @@ impl MeetingState {
                 self.lines.clear();
                 self.hypotheses.clear();
                 self.warnings.clear();
+                self.warned.clear();
+                self.alert = None;
                 self.error = None;
                 self.line_count = 0;
                 self.sources.clear();
@@ -241,6 +252,10 @@ impl MeetingState {
             }
             Event::SourceState { source, state, detail } => {
                 let v = self.sources.entry(*source).or_insert(SourceView { state: *state, detail: None, level: 0.0 });
+                if *state == SourceStatus::Lost && v.state != SourceStatus::Lost && self.running {
+                    let label = if *source == Source::Mic { "MIC" } else { "SYS" };
+                    self.alert = Some(format!("{label}: {}", detail.clone().unwrap_or_default()).trim_end_matches(": ").to_string());
+                }
                 v.state = *state;
                 v.detail = detail.clone();
                 if *state != SourceStatus::Running {
@@ -266,9 +281,14 @@ impl MeetingState {
             Event::Dropped { source, .. } => {
                 self.hypotheses.remove(source);
             }
-            Event::Warning { detail, .. } => {
-                if !self.warnings.contains(detail) {
-                    self.warnings.push(detail.clone());
+            Event::Warning { code, detail } => {
+                // A VAD or decode error repeats per chunk/segment: one entry
+                // and one toast per kind, a bounded list.
+                if self.warned.insert(code.clone()) {
+                    self.alert = Some(detail.clone());
+                    if self.warnings.len() < MAX_WARNINGS {
+                        self.warnings.push(detail.clone());
+                    }
                 }
             }
             Event::Stopped { session_dir, error } => {
@@ -364,8 +384,11 @@ fn on_event(ev: &Event) {
     if matches!(ev, Event::Started { .. }) {
         crate::meeting_ui::on_session_start(app, &state);
     }
-    if matches!(ev, Event::Warning { .. }) {
-        crate::meeting_ui::on_warning(app, &state);
+    let alert = STATE.lock().as_mut().and_then(|s| s.alert.take());
+    if let Some(a) = alert {
+        crate::meeting_ui::on_warning(app, &state, &a);
+    } else if matches!(ev, Event::SourceState { .. }) && state.running {
+        crate::meeting_ui::on_sources(app, &state);
     }
 }
 
@@ -567,6 +590,35 @@ pub fn input_devices() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_repeating_warning_is_announced_once_and_the_list_is_bounded() {
+        let mut s = MeetingState::default();
+        s.apply(&Event::Started { session_dir: "/x".into(), sources: vec![Source::Mic, Source::Sys] }, 0);
+        for i in 0..50 {
+            s.apply(&Event::Warning { code: "mic.vad".into(), detail: format!("vad error {i}") }, 0);
+        }
+        assert_eq!(s.warnings, vec!["vad error 0".to_string()]);
+        assert_eq!(s.alert.take().as_deref(), Some("vad error 0"));
+        for i in 0..20 {
+            s.apply(&Event::Warning { code: format!("code{i}"), detail: format!("w{i}") }, 0);
+        }
+        assert_eq!(s.warnings.len(), MAX_WARNINGS);
+    }
+
+    #[test]
+    fn a_lost_source_is_announced_on_the_edge_only() {
+        let mut s = MeetingState::default();
+        s.apply(&Event::Started { session_dir: "/x".into(), sources: vec![Source::Mic, Source::Sys] }, 0);
+        let lost = Event::SourceState { source: Source::Mic, state: SourceStatus::Lost, detail: Some("unplugged".into()) };
+        s.apply(&lost, 0);
+        assert_eq!(s.alert.take().as_deref(), Some("MIC: unplugged"));
+        s.apply(&lost, 0);
+        assert_eq!(s.alert, None, "still lost: no second toast");
+        s.apply(&Event::SourceState { source: Source::Mic, state: SourceStatus::Running, detail: None }, 0);
+        s.apply(&lost, 0);
+        assert!(s.alert.is_some(), "lost again after coming back");
+    }
+
     use super::*;
 
     fn final_ev(source: Source, seq: u64, text: &str) -> Event {

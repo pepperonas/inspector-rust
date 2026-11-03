@@ -39,6 +39,30 @@ pub struct Deps {
     pub threads: usize,
     /// Headphones on the output (no echo possible) — only read for `DedupeMode::Auto`.
     pub headphones: Option<bool>,
+    pub timing: Timing,
+}
+
+/// How a lost source is brought back.
+#[derive(Debug, Clone, Copy)]
+pub struct Timing {
+    /// Pause between quick restart attempts.
+    pub retry_every: Duration,
+    /// Quick attempts in a row before slowing down.
+    pub max_retries: u32,
+    /// Pause between attempts once the quick ones are used up — a source is
+    /// never given up for the rest of the session (a USB mic plugged back in
+    /// an hour later still comes back).
+    pub slow_retry: Duration,
+    /// A running capture that delivers nothing this long is restarted
+    /// (coreaudiod restart, wake from sleep, a dead aggregate device). `None`
+    /// for captures that only deliver while something plays.
+    pub no_data: Option<Duration>,
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        Timing { retry_every: RETRY_EVERY, max_retries: MAX_RETRIES, slow_retry: SLOW_RETRY, no_data: Some(NO_DATA) }
+    }
 }
 
 /// Hypotheses for the open segment, at most this often.
@@ -50,6 +74,10 @@ pub const HYPOTHESIS_MIN: usize = RATE / 2;
 pub const LEVEL_EVERY: Duration = Duration::from_millis(100);
 pub const RETRY_EVERY: Duration = Duration::from_secs(2);
 pub const MAX_RETRIES: u32 = 30;
+pub const SLOW_RETRY: Duration = Duration::from_secs(30);
+pub const NO_DATA: Duration = Duration::from_secs(5);
+/// Attempts to create the VAD before a source is reported lost.
+pub const VAD_TRIES: u32 = 5;
 /// Audio kept per source for song recognition (`Command::Window`).
 pub const WINDOW_KEEP: usize = RATE * 30;
 pub const PROMPT_CHARS: usize = 200;
@@ -160,6 +188,7 @@ impl Pipeline {
                 vad: deps.vad.clone(),
                 sink: sink.clone(),
                 max_seg,
+                timing: deps.timing,
             };
             senders.push(tx);
             sources.push(
@@ -258,6 +287,7 @@ struct SourceCtx {
     vad: VadFactory,
     sink: Sink,
     max_seg: usize,
+    timing: Timing,
 }
 
 struct Stream {
@@ -272,8 +302,19 @@ struct Stream {
 
 fn source_loop(c: SourceCtx) {
     let src = c.source;
+    let t = c.timing;
     let state = |s: SourceStatus, d: Option<String>| (c.sink)(Event::SourceState { source: src, state: s, detail: d });
-    let mut stream = match (c.vad)() {
+    // Two sources create their VAD at the same moment; a transient failure
+    // (e.g. the model file being written on first use) is tried again.
+    let mut vad = Err(String::new());
+    for i in 0..VAD_TRIES {
+        vad = (c.vad)();
+        if vad.is_ok() || c.shared.stop.load(Ordering::SeqCst) {
+            break;
+        }
+        std::thread::sleep(t.retry_every * (i + 1));
+    }
+    let mut stream = match vad {
         Ok(vad) => Stream {
             seg: Segmenter::new(c.max_seg),
             vad,
@@ -294,6 +335,8 @@ fn source_loop(c: SourceCtx) {
     let mut input: Option<Box<dyn AudioInput>> = None;
     let mut retry_at: Option<Instant> = None;
     let mut retries = 0u32;
+    let mut last_data = Instant::now();
+    let mut slowed = false;
 
     let start = |input: &mut Option<Box<dyn AudioInput>>| -> Result<(), String> {
         let tx1 = c.tx.clone();
@@ -318,10 +361,13 @@ fn source_loop(c: SourceCtx) {
     if on {
         state(SourceStatus::Starting, None);
         match start(&mut input) {
-            Ok(()) => state(SourceStatus::Running, None),
+            Ok(()) => {
+                last_data = Instant::now();
+                state(SourceStatus::Running, None)
+            }
             Err(e) => {
                 state(SourceStatus::Lost, Some(e));
-                retry_at = Some(Instant::now() + RETRY_EVERY);
+                retry_at = Some(Instant::now() + t.retry_every);
             }
         }
     } else {
@@ -332,8 +378,14 @@ fn source_loop(c: SourceCtx) {
         if c.shared.stop.load(Ordering::SeqCst) {
             break;
         }
-        match c.rx.recv_timeout(Duration::from_millis(200)) {
+        // Wake for the next restart attempt, not only every 200 ms.
+        let wait = retry_at
+            .map(|at| at.saturating_duration_since(Instant::now()))
+            .unwrap_or(Duration::from_millis(200))
+            .clamp(Duration::from_millis(1), Duration::from_millis(200));
+        match c.rx.recv_timeout(wait) {
             Ok(SourceMsg::Chunk(chunk)) => {
+                last_data = Instant::now();
                 if on {
                     process_chunk(&c, &mut stream, &chunk);
                 }
@@ -344,7 +396,7 @@ fn source_loop(c: SourceCtx) {
                 }
                 flush(&c, &mut stream);
                 state(SourceStatus::Lost, Some(e));
-                retry_at = Some(Instant::now() + RETRY_EVERY);
+                retry_at = Some(Instant::now() + t.retry_every);
             }
             Ok(SourceMsg::On) if !on => {
                 on = true;
@@ -352,10 +404,13 @@ fn source_loop(c: SourceCtx) {
                 state(SourceStatus::Starting, None);
                 reset(&mut stream, c.max_seg);
                 match start(&mut input) {
-                    Ok(()) => state(SourceStatus::Running, None),
+                    Ok(()) => {
+                        last_data = Instant::now();
+                        state(SourceStatus::Running, None)
+                    }
                     Err(e) => {
                         state(SourceStatus::Lost, Some(e));
-                        retry_at = Some(Instant::now() + RETRY_EVERY);
+                        retry_at = Some(Instant::now() + t.retry_every);
                     }
                 }
             }
@@ -372,19 +427,37 @@ fn source_loop(c: SourceCtx) {
             Ok(SourceMsg::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
-        if on && input.is_none() && retry_at.is_some_and(|t| Instant::now() >= t) {
+        // A capture that is "running" but delivers nothing is as good as lost.
+        if on
+            && input.as_ref().is_some_and(|h| h.continuous())
+            && t.no_data.is_some_and(|d| last_data.elapsed() >= d)
+        {
+            if let Some(h) = input.take() {
+                h.stop();
+            }
+            flush(&c, &mut stream);
+            state(SourceStatus::Lost, Some("no audio — restarting".into()));
+            retry_at = Some(Instant::now() + t.retry_every);
+        }
+        if on && input.is_none() && retry_at.is_some_and(|at| Instant::now() >= at) {
             retries += 1;
             reset(&mut stream, c.max_seg);
             match start(&mut input) {
                 Ok(()) => {
                     retry_at = None;
+                    retries = 0;
+                    slowed = false;
+                    last_data = Instant::now();
                     state(SourceStatus::Running, None);
                 }
-                Err(e) if retries >= MAX_RETRIES => {
-                    retry_at = None;
-                    state(SourceStatus::Lost, Some(format!("gave up: {e}")));
+                Err(e) if retries >= t.max_retries => {
+                    retry_at = Some(Instant::now() + t.slow_retry);
+                    if !slowed {
+                        slowed = true;
+                        state(SourceStatus::Lost, Some(format!("gave up quick retries, trying every {:?}: {e}", t.slow_retry)));
+                    }
                 }
-                Err(_) => retry_at = Some(Instant::now() + RETRY_EVERY),
+                Err(_) => retry_at = Some(Instant::now() + t.retry_every),
             }
         }
         if on {
@@ -780,6 +853,133 @@ mod tests {
         }
     }
 
+    /// A capture that answers each start from a script: `Err`, `Ok` that
+    /// reports a failure right away, `Ok` that stays silent, or `Ok` with audio.
+    #[derive(Clone, Copy, Debug)]
+    enum Act {
+        Fail,
+        Drop,
+        Silent,
+        Speak,
+    }
+
+    struct Scripted {
+        acts: Vec<Act>,
+        calls: Arc<AtomicUsize>,
+        audio: Vec<f32>,
+    }
+
+    impl CaptureFactory for Scripted {
+        fn start(&self, source: Source, _: Option<&str>, mut chunk: Chunk, mut err: OnError) -> Result<Box<dyn AudioInput>, String> {
+            assert_eq!(source, Source::Mic);
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            match self.acts.get(n).copied().unwrap_or(Act::Speak) {
+                Act::Fail => Err(format!("start {n} failed")),
+                Act::Drop => {
+                    err(format!("dropped {n}"));
+                    Ok(Box::new(FakeInput))
+                }
+                Act::Silent => Ok(Box::new(FakeInput)),
+                Act::Speak => {
+                    for c in self.audio.chunks(1600) {
+                        chunk(c);
+                    }
+                    Ok(Box::new(FakeInput))
+                }
+            }
+        }
+    }
+
+    fn fast() -> Timing {
+        Timing {
+            retry_every: Duration::from_millis(10),
+            max_retries: 2,
+            slow_retry: Duration::from_millis(40),
+            no_data: Some(Duration::from_millis(150)),
+        }
+    }
+
+    fn run_scripted(acts: Vec<Act>, timing: Timing, vad_fails: usize, wait: Duration) -> (Vec<Event>, usize) {
+        let tmp = tempfile::tempdir().unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let vad_calls = Arc::new(AtomicUsize::new(0));
+        let deps = Deps {
+            transcriber: Box::new(FakeTranscriber { text: Arc::new(|_, _| "Hallo.".into()), delay: Duration::ZERO }),
+            vad: Arc::new(move || {
+                if vad_calls.fetch_add(1, Ordering::SeqCst) < vad_fails {
+                    Err("vad busy".into())
+                } else {
+                    Ok(Box::new(EnergyVad::new(0.01)) as Box<dyn Vad>)
+                }
+            }),
+            capture: Arc::new(Scripted { acts, calls: calls.clone(), audio: utterance(1.0) }),
+            fallback_root: tmp.path().join("fallback"),
+            threads: 1,
+            headphones: None,
+            timing,
+        };
+        let mut c = cfg(tmp.path().join("root"));
+        c.sources = vec![Source::Mic];
+        let p = Pipeline::start(c, Arc::new(move |e| ev.lock().unwrap().push(e)), deps).unwrap();
+        std::thread::sleep(wait);
+        p.stop();
+        let out = events.lock().unwrap().clone();
+        (out, calls.load(Ordering::SeqCst))
+    }
+
+    fn mic_states(ev: &[Event]) -> Vec<(SourceStatus, Option<String>)> {
+        ev.iter()
+            .filter_map(|e| match e {
+                Event::SourceState { source: Source::Mic, state, detail } => Some((*state, detail.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn retries_start_over_after_every_successful_restart() {
+        use Act::*;
+        // Three short outages, one failed attempt each: three in total, over a
+        // budget of two — fine only if a successful restart resets the count.
+        let acts = vec![Drop, Fail, Drop, Fail, Drop, Fail, Speak];
+        let (ev, calls) = run_scripted(acts, Timing { slow_retry: Duration::from_secs(60), no_data: None, ..fast() }, 0, Duration::from_millis(600));
+        let st = mic_states(&ev);
+        assert!(st.iter().all(|(_, d)| !d.as_deref().unwrap_or("").contains("gave up")), "{st:?}");
+        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+        assert_eq!(calls, 7);
+    }
+
+    #[test]
+    fn a_source_that_gave_up_still_comes_back() {
+        use Act::*;
+        // The mic is unplugged for a long time, then plugged in again.
+        let acts = vec![Fail, Fail, Fail, Fail, Fail, Speak];
+        let (ev, _) = run_scripted(acts, fast(), 0, Duration::from_millis(600));
+        let st = mic_states(&ev);
+        assert!(st.iter().any(|(_, d)| d.as_deref().unwrap_or("").contains("gave up")), "{st:?}");
+        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+    }
+
+    #[test]
+    fn a_capture_that_goes_silent_is_restarted() {
+        use Act::*;
+        let (ev, calls) = run_scripted(vec![Silent, Speak], fast(), 0, Duration::from_millis(600));
+        let st = mic_states(&ev);
+        assert!(st.iter().any(|(s, d)| *s == SourceStatus::Lost && d.as_deref().unwrap_or("").contains("no audio")), "{st:?}");
+        assert!(calls >= 2);
+        assert!(ev.iter().any(|e| matches!(e, Event::Final { .. })), "the restarted capture is transcribed");
+    }
+
+    #[test]
+    fn a_vad_that_fails_at_first_is_tried_again() {
+        let (ev, _) = run_scripted(vec![Act::Speak], fast(), 2, Duration::from_millis(600));
+        let st = mic_states(&ev);
+        assert_eq!(st.last().unwrap().0, SourceStatus::Running, "{st:?}");
+        assert!(ev.iter().any(|e| matches!(e, Event::Final { .. })));
+    }
+
     fn start(
         data: HashMap<Source, Vec<f32>>,
         fail: Option<Source>,
@@ -797,6 +997,7 @@ mod tests {
             fallback_root: tmp.path().join("fallback"),
             threads: 1,
             headphones: None,
+            timing: Timing::default(),
         };
         let p = Pipeline::start(cfg(root.clone()), Arc::new(move |e| ev.lock().unwrap().push(e)), deps).unwrap();
         (p, Run { events, _tmp: tmp, root })

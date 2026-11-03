@@ -91,6 +91,10 @@ pub fn vad_model_path() -> Result<PathBuf, String> {
 }
 
 pub fn vad_model_path_in(dir: &Path) -> Result<PathBuf, String> {
+    // Both sources of a session ask at the same moment; one writes, the other
+    // waits and then finds the finished file.
+    static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = WRITE.lock().unwrap_or_else(|e| e.into_inner());
     let p = dir.join(VAD_FILE);
     if fs::metadata(&p).is_ok_and(|md| md.len() == VAD_BYTES) {
         return Ok(p);
@@ -99,7 +103,8 @@ pub fn vad_model_path_in(dir: &Path) -> Result<PathBuf, String> {
         return Err(ERR_SHA.to_string());
     }
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let tmp = dir.join(format!("{VAD_FILE}.tmp"));
+    // A unique name: another process (a second helper) can't collide either.
+    let tmp = dir.join(format!("{VAD_FILE}.{}.tmp", std::process::id()));
     fs::write(&tmp, VAD_MODEL).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
     Ok(p)
@@ -184,5 +189,25 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = vad_model_path_in(dir.path()).unwrap();
         assert_eq!(fs::read(p).unwrap(), VAD_MODEL);
+    }
+
+    #[test]
+    fn two_sources_asking_at_once_both_get_the_model() {
+        for _ in 0..20 {
+            let dir = tempfile::tempdir().unwrap();
+            let d = dir.path().to_path_buf();
+            let hs: Vec<_> = (0..4)
+                .map(|_| {
+                    let d = d.clone();
+                    std::thread::spawn(move || vad_model_path_in(&d))
+                })
+                .collect();
+            for h in hs {
+                let p = h.join().unwrap().expect("every caller gets the path");
+                assert_eq!(fs::metadata(&p).unwrap().len(), VAD_BYTES);
+            }
+            let left: Vec<_> = fs::read_dir(&d).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
+            assert_eq!(left.len(), 1, "no temp files left: {left:?}");
+        }
     }
 }

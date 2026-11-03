@@ -163,6 +163,9 @@ impl SckInput {
 }
 
 impl AudioInput for SckInput {
+    fn continuous(&self) -> bool {
+        false
+    }
     fn stop(self: Box<Self>) {
         let (tx, rx) = mpsc::channel::<()>();
         let done = RcBlock::new(move |_err: *mut NSError| {

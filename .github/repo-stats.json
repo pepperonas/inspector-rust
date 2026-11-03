@@ -1,9 +1,9 @@
 {
-  "loc": 285124,
-  "loc_rust": 149859,
+  "loc": 285269,
+  "loc_rust": 150004,
   "loc_ts": 135265,
-  "tests": 6703,
-  "tests_rust": 2659,
+  "tests": 6712,
+  "tests_rust": 2668,
   "tests_frontend": 4044,
   "commands": 79,
   "features": 231,

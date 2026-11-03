@@ -14,6 +14,12 @@ pub trait AudioInput {
     fn warning(&self) -> Option<String> {
         None
     }
+    /// Delivers audio all the time (silence included). A capture that only
+    /// sends while something plays returns false and is never restarted for
+    /// being quiet.
+    fn continuous(&self) -> bool {
+        true
+    }
 }
 
 pub trait CaptureFactory: Send + Sync {

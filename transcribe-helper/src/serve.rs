@@ -95,6 +95,7 @@ mod engine_side {
             fallback_root: fallback_root(),
             threads: 4,
             headphones: transcribe_core::capture::tap_macos::headphones_hint(),
+            timing: transcribe_core::pipeline::Timing::default(),
         };
         let pipeline = Pipeline::start(cfg, emit, deps)?;
         Ok(Session { pipeline, _activity: transcribe_core::activity_macos::Activity::begin("Transkription läuft") })

@@ -100,12 +100,32 @@ pub fn on_session_end(app: &AppHandle, state: &MeetingState) {
     }
 }
 
-pub fn on_warning(app: &AppHandle, state: &MeetingState) {
-    let w = state.warnings.last().cloned();
-    set_tray_recording(app, state.running, w.as_deref());
-    if let Some(w) = w {
-        toast(app, true, t("meeting.warning"), w);
-    }
+/// The tooltip line for sources that are lost right now, if any. Pure.
+pub fn lost_sources(state: &MeetingState) -> Option<String> {
+    let lost: Vec<String> = state
+        .sources
+        .iter()
+        .filter(|(_, v)| v.state == transcribe_protocol::SourceStatus::Lost)
+        .map(|(s, v)| {
+            let label = if *s == transcribe_protocol::Source::Mic { "MIC" } else { "SYS" };
+            match &v.detail {
+                Some(d) => format!("{label} {} ({d})", t("mtg.lost")),
+                None => format!("{label} {}", t("mtg.lost")),
+            }
+        })
+        .collect();
+    (!lost.is_empty()).then(|| lost.join(", "))
+}
+
+/// A new kind of warning or a source just lost: toast once, tray tooltip.
+pub fn on_warning(app: &AppHandle, state: &MeetingState, alert: &str) {
+    set_tray_recording(app, state.running, lost_sources(state).as_deref().or(Some(alert)));
+    toast(app, true, t("meeting.warning"), alert.to_string());
+}
+
+/// A source came back (or changed state): the tooltip follows.
+pub fn on_sources(app: &AppHandle, state: &MeetingState) {
+    set_tray_recording(app, state.running, lost_sources(state).as_deref());
 }
 
 /// Settings changed: tray checks and the ticker follow.

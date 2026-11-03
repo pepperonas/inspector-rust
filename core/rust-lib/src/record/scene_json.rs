@@ -1567,9 +1567,12 @@ mod tests {
         d2.clips[1].source = Some("plain".into());
         d2.crop[1] = None;
         d2.layout_regions.push(editor::LayoutRegion { id: "c".into(), clip: 1, start_ms: 8_000, preset: editor::LayoutPreset::DualFrame });
+        d2.layout_regions.push(editor::LayoutRegion { id: "d".into(), clip: 1, start_ms: 9_000, preset: editor::LayoutPreset::PictureInPicture });
         let v = scene_json_with(Path::new(DIR), &cam_project(), &d2, (1920, 1080), 30, &assets(), None, &cam_takes());
-        let last: Vec<_> = v["layoutRegions"].as_array().unwrap().iter().filter(|r| r["clipIndex"] == 1).map(|r| r["preset"].clone()).collect();
-        assert_eq!(last, vec![json!("no-webcam"), json!("no-webcam")]);
+        let last: Vec<_> = v["layoutRegions"].as_array().unwrap().iter().filter(|r| r["clipIndex"] == 1).cloned().collect();
+        assert_eq!(last.iter().map(|r| r["preset"].clone()).collect::<Vec<_>>(), vec![json!("no-webcam"); 3]);
+        // No camera, no block: a "dual-frame" part before it keeps no zoom viewport.
+        assert!(last.iter().all(|r| r.get("keepScreenClipFromSec").is_none()), "{last:?}");
     }
 
     #[test]

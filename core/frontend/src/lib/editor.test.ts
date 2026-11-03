@@ -73,6 +73,9 @@ import {
   setTrim,
   trimSourceAt,
   splitAt,
+  cutSourceRange,
+  canRestoreGap,
+  restoreGap,
 } from "./editor";
 
 const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
@@ -341,13 +344,17 @@ describe("zoom regions", () => {
     expect(removeZoom(out, out.zooms[0].id).zooms).toEqual([]);
   });
 
-  it("splitAt gives a zoom to the half holding its start and cuts it; deleteClip re-indexes", () => {
+  it("splitAt puts a spanning zoom into both halves; deleteClip re-indexes", () => {
     let doc = addZoom(base(), 0, 1000); // 1000–3000
     doc = addZoom(doc, 0, 6000); // 6000–8000
     const out = splitAt(doc, 0, 2000);
-    expect(out.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([[0, 1000, 2000], [1, 6000, 8000]]);
+    expect(out.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([
+      [0, 1000, 2000],
+      [1, 2000, 3000],
+      [1, 6000, 8000],
+    ]);
     const del = deleteClip(out, 0);
-    expect(del.zooms.map((z) => [z.clip, z.startMs])).toEqual([[0, 6000]]);
+    expect(del.zooms.map((z) => [z.clip, z.startMs])).toEqual([[0, 2000], [0, 6000]]);
   });
 
   it("setAppearance / setCursorStyle merge a patch", () => {
@@ -441,10 +448,14 @@ describe("annotations + audio tracks (v3)", () => {
     doc = addTrack(doc, "music", "b.mp3", 9_000, 0, 5_000);
     const split = splitAt(doc, 0, 2_000);
     expect(split.clips.map((c) => c.source)).toEqual(["take-2", "take-2"]);
-    expect(split.annotations.map((a) => [a.clip, a.startMs, a.endMs])).toEqual([[0, 1_000, 2_000], [1, 6_000, 8_000]]);
+    expect(split.annotations.map((a) => [a.clip, a.startMs, a.endMs])).toEqual([
+      [0, 1_000, 2_000],
+      [1, 2_000, 3_000],
+      [1, 6_000, 8_000],
+    ]);
     expect(split.audioTracks.map((t) => t.clip)).toEqual([0, 1]);
     const del = deleteClip(split, 0);
-    expect(del.annotations.map((a) => a.clip)).toEqual([0]);
+    expect(del.annotations.map((a) => a.clip)).toEqual([0, 0]);
     expect(del.audioTracks.map((t) => [t.clip, t.file])).toEqual([[0, "b.mp3"]]);
     expect(setTrim(split, 1, 2_500, 9_000).clips[1].source).toBe("take-2");
   });
@@ -745,3 +756,86 @@ describe("captions (stage 6)", () => {
   });
 });
 
+
+describe("transcript cut (stage 6)", () => {
+  it("split_puts_a_spanning_zoom_into_both_halves", () => {
+    const doc = addZoom(base(), 0, 1000); // 1000–3000
+    const out = splitAt(doc, 0, 2000);
+    expect(out.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([[0, 1000, 2000], [1, 2000, 3000]]);
+    expect(out.zooms[0].id).toBe(doc.zooms[0].id);
+    expect(out.zooms[1].id).not.toBe(doc.zooms[0].id);
+    const { id: _a, clip: _b, startMs: _c, endMs: _d, ...rest0 } = out.zooms[0];
+    const { id: _e, clip: _f, startMs: _g, endMs: _h, ...rest1 } = out.zooms[1];
+    expect(rest1).toEqual(rest0);
+  });
+
+  it("split_puts_a_spanning_annotation_into_both_halves", () => {
+    const doc = addAnnotation(base(), "text", 0, 1000); // 1000–3000
+    const out = splitAt(doc, 0, 2500);
+    expect(out.annotations.map((a) => [a.clip, a.startMs, a.endMs])).toEqual([[0, 1000, 2500], [1, 2500, 3000]]);
+    expect(new Set(out.annotations.map((a) => a.id)).size).toBe(2);
+    expect(out.annotations[1].body).toEqual(out.annotations[0].body);
+  });
+
+  it("cut_source_range_removes_the_middle", () => {
+    const doc = base({ speed: [{ clip: 0, startMs: 1000, endMs: 9000, speed: 2 }] });
+    const out = cutSourceRange(doc, 0, 4000, 6000);
+    expect(out.clips).toEqual([
+      { startMs: 0, endMs: 4000 },
+      { startMs: 6000, endMs: 10_000 },
+    ]);
+    expect(out.crop).toEqual([null, null]);
+    expect(out.speed).toEqual([
+      { clip: 0, startMs: 1000, endMs: 4000, speed: 2 },
+      { clip: 1, startMs: 6000, endMs: 9000, speed: 2 },
+    ]);
+  });
+
+  it("cut_near_an_edge_moves_the_edge", () => {
+    expect(cutSourceRange(base(), 0, 50, 3000).clips).toEqual([{ startMs: 3000, endMs: 10_000 }]);
+    expect(cutSourceRange(base(), 0, 7000, 9_950).clips).toEqual([{ startMs: 0, endMs: 7000 }]);
+    // Exactly MIN_CLIP_MS away is still a real split.
+    expect(cutSourceRange(base(), 0, 100, 3000).clips.length).toBe(2);
+  });
+
+  it("cut_of_the_whole_clip_deletes_it_but_never_the_last", () => {
+    const one = base();
+    expect(cutSourceRange(one, 0, 20, 9_990)).toBe(one);
+    const two = base({ clips: [{ startMs: 0, endMs: 4000 }, { startMs: 5000, endMs: 9000 }], crop: [null, null] });
+    expect(cutSourceRange(two, 1, 5000, 9000).clips).toEqual([{ startMs: 0, endMs: 4000 }]);
+  });
+
+  it("restore_gap_merges_neighbours_and_rejoins_split_regions", () => {
+    let doc = addZoom(base(), 0, 3000); // 3000–5000
+    doc = addAnnotation(doc, "arrow", 0, 3500); // 3500–5500
+    doc = { ...doc, speed: [{ clip: 0, startMs: 2000, endMs: 8000, speed: 2 }] };
+    const cut = cutSourceRange(doc, 0, 4000, 4500);
+    expect(cut.clips.length).toBe(2);
+    expect(cut.zooms.length).toBe(2);
+    expect(canRestoreGap(cut, 0)).toBe(true);
+    const back = restoreGap(cut, 0);
+    expect(back.clips).toEqual([{ startMs: 0, endMs: 10_000 }]);
+    expect(back.crop).toEqual([null]);
+    expect(back.zooms.map((z) => [z.id, z.clip, z.startMs, z.endMs])).toEqual([[doc.zooms[0].id, 0, 3000, 5000]]);
+    expect(back.annotations.map((a) => [a.id, a.clip, a.startMs, a.endMs])).toEqual([
+      [doc.annotations[0].id, 0, 3500, 5500],
+    ]);
+    expect(back.speed).toEqual([{ clip: 0, startMs: 2000, endMs: 8000, speed: 2 }]);
+    // A changed half is not rejoined (it is no longer the same region).
+    const edited = { ...cut, zooms: cut.zooms.map((z, i) => (i === 1 ? { ...z, depth: 6 } : z)) };
+    expect(restoreGap(edited, 0).zooms.length).toBe(2);
+  });
+
+  it("restore_gap_refuses_different_takes_or_reordered_clips", () => {
+    const takes = base({
+      clips: [{ startMs: 0, endMs: 4000 }, { startMs: 5000, endMs: 9000, source: "take-2" }],
+      crop: [null, null],
+    });
+    expect(canRestoreGap(takes, 0)).toBe(false);
+    expect(restoreGap(takes, 0)).toBe(takes);
+    const reordered = base({ clips: [{ startMs: 5000, endMs: 9000 }, { startMs: 0, endMs: 4000 }], crop: [null, null] });
+    expect(canRestoreGap(reordered, 0)).toBe(false);
+    expect(restoreGap(reordered, 0)).toBe(reordered);
+    expect(canRestoreGap(reordered, 1)).toBe(false);
+  });
+});

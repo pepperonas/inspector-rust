@@ -79,18 +79,11 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
       { ...r, clip: clip + 1, startMs: at },
     ];
   });
-  // A zoom belongs to the half holding its start and is cut at the edge (Rust re-clamps).
-  const zooms = doc.zooms.map((z) => {
-    if (z.clip < clip) return z;
-    if (z.clip > clip) return { ...z, clip: z.clip + 1 };
-    return z.startMs >= at ? { ...z, clip: clip + 1 } : { ...z, endMs: Math.min(z.endMs, at) };
-  });
-  // Annotations like zooms; a track's anchor follows the half holding its start.
-  const annotations = doc.annotations.map((a) => {
-    if (a.clip < clip) return a;
-    if (a.clip > clip) return { ...a, clip: a.clip + 1 };
-    return a.startMs >= at ? { ...a, clip: clip + 1 } : { ...a, endMs: Math.min(a.endMs, at) };
-  });
+  // Regions survive cuts (upstream invariant): a zoom or annotation spanning the cut goes into
+  // BOTH halves, the second under a fresh id; `restoreGap` joins them again.
+  const zooms = splitRegions(doc.zooms, clip, at);
+  const annotations = splitRegions(doc.annotations, clip, at);
+  // A track's anchor follows the half holding its start.
   const audioTracks = doc.audioTracks.map((t) =>
     t.clip > clip || (t.clip === clip && t.startMs >= at) ? { ...t, clip: t.clip + 1 } : t,
   );
@@ -99,6 +92,24 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
   while (crop.length < doc.clips.length) crop.push(null);
   crop.splice(clip + 1, 0, crop[clip] ?? null);
   return { ...doc, clips, speed, crop, zooms, annotations, audioTracks, layoutRegions };
+}
+
+/** Zoom/annotation regions after splitting clip `clip` at source `at`. */
+function splitRegions<T extends { id: string; clip: number; startMs: number; endMs: number }>(
+  regions: readonly T[],
+  clip: number,
+  at: number,
+): T[] {
+  return regions.flatMap((r) => {
+    if (r.clip < clip) return [r];
+    if (r.clip > clip) return [{ ...r, clip: r.clip + 1 }];
+    if (r.startMs >= at) return [{ ...r, clip: clip + 1 }];
+    if (r.endMs <= at) return [r];
+    return [
+      { ...r, endMs: at },
+      { ...r, id: crypto.randomUUID(), clip: clip + 1, startMs: at },
+    ];
+  });
 }
 
 /** Layout regions after splitting clip `clip` at source `at`: those from `at` on go to the new
@@ -145,6 +156,108 @@ export function setTrim(doc: RecordEditDoc, clip: number, startMs: number, endMs
   const a = Math.max(0, Math.round(Math.min(startMs, endMs)));
   const b = Math.max(0, Math.round(Math.max(startMs, endMs)));
   return { ...doc, clips: doc.clips.map((c, i) => (i === clip ? { ...c, startMs: a, endMs: b } : c)) };
+}
+
+/** Removes source `[startMs, endMs)` from clip `clip` (the transcript cut): splits twice and
+ *  deletes the middle. An edge closer than `MIN_CLIP_MS` to the clip's edge moves that edge
+ *  instead; the whole clip is deleted — unless it is the last one, then nothing changes. */
+export function cutSourceRange(doc: RecordEditDoc, clip: number, startMs: number, endMs: number): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c) return doc;
+  const s = Math.max(c.startMs, Math.round(Math.min(startMs, endMs)));
+  const e = Math.min(c.endMs, Math.round(Math.max(startMs, endMs)));
+  if (e <= s) return doc;
+  const headNear = s - c.startMs < MIN_CLIP_MS;
+  const tailNear = c.endMs - e < MIN_CLIP_MS;
+  if (headNear && tailNear) return deleteClip(doc, clip);
+  if (headNear) return setTrim(doc, clip, e, c.endMs);
+  if (tailNear) return setTrim(doc, clip, c.startMs, s);
+  const once = splitAt(doc, clip, s);
+  const twice = splitAt(once, clip + 1, e);
+  return deleteClip(twice, clip + 1);
+}
+
+/** Whether clip `clip` and the next one can be joined back into one: same recording, in
+ *  order (`a.endMs <= b.startMs`). */
+export function canRestoreGap(doc: RecordEditDoc, clip: number): boolean {
+  const a = doc.clips[clip];
+  const b = doc.clips[clip + 1];
+  return !!a && !!b && (a.source ?? null) === (b.source ?? null) && a.endMs <= b.startMs;
+}
+
+/** Stable JSON of a region without the fields a split changes. */
+function regionKey(r: object): string {
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip);
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      return Object.fromEntries(Object.keys(o).sort().map((k) => [k, strip(o[k])]));
+    }
+    return v;
+  };
+  const { id: _id, clip: _clip, startMs: _s, endMs: _e, ...rest } = r as Record<string, unknown>;
+  return JSON.stringify(strip(rest));
+}
+
+/** Regions of clips `clip` and `clip+1` after joining them: everything of `clip+1` moves to
+ *  `clip`, later clips shift down, and a pair that touches the gap on both sides with the same
+ *  content (the two halves a split made) becomes one again. */
+function joinRegions<T extends { clip: number; startMs: number; endMs: number }>(
+  regions: readonly T[],
+  clip: number,
+  aEnd: number,
+  bStart: number,
+): T[] {
+  const used = new Set<number>();
+  const out: T[] = [];
+  regions.forEach((r, i) => {
+    if (used.has(i)) return;
+    if (r.clip === clip && r.endMs === aEnd) {
+      const key = regionKey(r);
+      const j = regions.findIndex(
+        (o, k) => !used.has(k) && k !== i && o.clip === clip + 1 && o.startMs === bStart && regionKey(o) === key,
+      );
+      if (j >= 0) {
+        used.add(j);
+        out.push({ ...r, endMs: regions[j].endMs });
+        return;
+      }
+    }
+    out.push(r.clip > clip ? { ...r, clip: r.clip - 1 } : r);
+  });
+  return out;
+}
+
+/** Joins clip `clip` and `clip+1` (undoes a cut between them): the merged clip spans both
+ *  and the gap, split regions become one again. Refused (doc unchanged) unless
+ *  `canRestoreGap`. */
+export function restoreGap(doc: RecordEditDoc, clip: number): RecordEditDoc {
+  if (!canRestoreGap(doc, clip)) return doc;
+  const a = doc.clips[clip];
+  const b = doc.clips[clip + 1];
+  const clips = [...doc.clips.slice(0, clip), { ...a, endMs: b.endMs }, ...doc.clips.slice(clip + 2)];
+  const crop = [...doc.crop];
+  while (crop.length < doc.clips.length) crop.push(null);
+  crop.splice(clip + 1, 1);
+  const shift = <T extends { clip: number }>(r: T): T => (r.clip > clip ? { ...r, clip: r.clip - 1 } : r);
+  // The layout region `splitAt` added at the cut only repeated the layout in force there.
+  const layouts = doc.layoutRegions ?? [];
+  const inForce = layouts
+    .filter((r) => r.clip === clip && r.startMs < a.endMs)
+    .reduce<RecordLayoutRegion | null>((best, r) => (!best || r.startMs >= best.startMs ? r : best), null);
+  const layoutRegions = layouts
+    .filter((r) => !(inForce && r.clip === clip + 1 && r.startMs === b.startMs && r.preset === inForce.preset))
+    .map(shift);
+  return {
+    ...doc,
+    clips,
+    crop,
+    speed: joinRegions(doc.speed, clip, a.endMs, b.startMs),
+    zooms: joinRegions(doc.zooms, clip, a.endMs, b.startMs),
+    annotations: joinRegions(doc.annotations, clip, a.endMs, b.startMs),
+    audioTracks: doc.audioTracks.map(shift),
+    layoutRegions,
+  };
 }
 
 /** Appends a speed region in source time; a later region wins an overlap (Rust resolves). */

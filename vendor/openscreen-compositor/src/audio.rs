@@ -416,10 +416,18 @@ const LOUDNESS_MAX_WINDOWS: usize = 24 * 60;
 /// Integrated loudness of every audio track in `path`, mixed exactly as the export mixes
 /// them (`decode_clip_audio`), over the whole file. `Ok(None)`: no audio, or only silence.
 pub fn measure_file_loudness(path: &str) -> Result<Option<f64>> {
+    measure_file_loudness_with(path, false)
+}
+
+/// Inspector Rust: `measure_file_loudness`, a mono file measured as it is played when it is
+/// upmixed at unity (patch 9) — so the gain lands the played voice on the target, not 3 dB
+/// above it.
+fn measure_file_loudness_with(path: &str, mono_at_unity: bool) -> Result<Option<f64>> {
     let mut meter = LoudnessMeter::new();
     for window in 0..LOUDNESS_MAX_WINDOWS {
         let start = window as f64 * LOUDNESS_WINDOW_SEC;
-        let Some((pcm, more)) = decode_audio_window(path, start, start + LOUDNESS_WINDOW_SEC)?
+        let Some((pcm, more)) =
+            (unsafe { decode_clip_audio_inner(path, start, start + LOUDNESS_WINDOW_SEC, mono_at_unity) })?
         else {
             return Ok(None);
         };
@@ -453,12 +461,22 @@ fn loudness_gain_for(loudness: Option<f64>) -> f32 {
 /// every export job of every clip cut from the same file share one measurement. A file that
 /// cannot be read measures as 0 dB, the same degradation a clip without audio gets.
 pub fn loudness_gain_db(path: &str) -> f32 {
-    type Key = (String, u64, Option<SystemTime>);
+    loudness_gain_db_with(path, false)
+}
+
+/// Inspector Rust (patch 14): the loudness gain of a voice that plays through the unity path
+/// (the mic, a voiceover track): measured as it is played (see `measure_file_loudness_with`).
+pub fn voice_loudness_gain_db(path: &str) -> f32 {
+    loudness_gain_db_with(path, true)
+}
+
+fn loudness_gain_db_with(path: &str, mono_at_unity: bool) -> f32 {
+    type Key = (String, u64, Option<SystemTime>, bool);
     static CACHE: OnceLock<Mutex<HashMap<Key, Arc<OnceLock<f32>>>>> = OnceLock::new();
     let Ok(metadata) = std::fs::metadata(path) else {
         return 0.0;
     };
-    let key = (path.to_owned(), metadata.len(), metadata.modified().ok());
+    let key = (path.to_owned(), metadata.len(), metadata.modified().ok(), mono_at_unity);
     let cell = CACHE
         .get_or_init(Default::default)
         .lock()
@@ -468,7 +486,7 @@ pub fn loudness_gain_db(path: &str) -> f32 {
         .clone();
     // Measured outside the map's lock: another file never waits on this one, and a second
     // request for the same file waits for the first measurement instead of repeating it.
-    *cell.get_or_init(|| match measure_file_loudness(path) {
+    *cell.get_or_init(|| match measure_file_loudness_with(path, mono_at_unity) {
         Ok(loudness) => loudness_gain_for(loudness),
         Err(error) => {
             eprintln!("[audio] loudness of {path} not measured ({error:#}); left as recorded");
@@ -759,6 +777,32 @@ fn decode_extra_clip_audio(
 ) -> Result<Option<PlanarPcm>> {
     Ok(unsafe { decode_clip_audio_inner(path, source_start_sec, source_end_sec, true) }?
         .map(|(pcm, _)| pcm))
+}
+
+/// Inspector Rust (patch 14): `decode_clip_audio` with a mono source upmixed at unity — the
+/// path the mic, the music and voiceover tracks and the waveform peaks share.
+pub fn decode_clip_audio_unity(
+    path: &str,
+    source_start_sec: f64,
+    source_end_sec: f64,
+) -> Result<Option<PlanarPcm>> {
+    decode_extra_clip_audio(path, source_start_sec, source_end_sec)
+}
+
+/// Inspector Rust (patch 14): the container's duration in seconds; `None` when the file does
+/// not open or does not know it.
+pub fn audio_file_duration_sec(path: &str) -> Option<f64> {
+    let cpath = CString::new(path).ok()?;
+    unsafe {
+        let mut fmt: *mut AVFormatContext = ptr::null_mut();
+        if avformat_open_input(&mut fmt, cpath.as_ptr(), ptr::null_mut(), ptr::null_mut()) < 0 {
+            return None;
+        }
+        let found = avformat_find_stream_info(fmt, ptr::null_mut()) >= 0;
+        let duration = sn_fmt_duration(fmt);
+        avformat_close_input(&mut fmt);
+        (found && duration > 0).then(|| duration as f64 / 1_000_000.0)
+    }
 }
 
 /// `decode_clip_audio`, plus whether the file still has audio past `source_end_sec`: what a
@@ -1983,7 +2027,8 @@ fn overlay_external_track(programme: &mut PlanarPcm, track: &SceneAudioTrack, du
     if trim_end <= trim_start {
         return;
     }
-    let decoded = match decode_clip_audio(&track.path, trim_start, trim_end) {
+    // Inspector Rust (patch 14): a mono file goes to L and R at unity (patch 9), not −3 dB.
+    let decoded = match decode_extra_clip_audio(&track.path, trim_start, trim_end) {
         Ok(Some(pcm)) => pcm,
         _ => return,
     };
@@ -1992,7 +2037,7 @@ fn overlay_external_track(programme: &mut PlanarPcm, track: &SceneAudioTrack, du
     // A voiceover is voice, levelled like the recording (see `loudness_gain_db`); its
     // own gain then trims from there, exactly as the preview applies it.
     let normalisation = match track.kind {
-        SceneAudioTrackKind::Voiceover => loudness_gain_db(&track.path),
+        SceneAudioTrackKind::Voiceover => voice_loudness_gain_db(&track.path),
         SceneAudioTrackKind::Music => 0.0,
     };
     let gain = 10.0f32.powf((track.gain_db.clamp(-60.0, 12.0) + normalisation) / 20.0);

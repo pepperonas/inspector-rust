@@ -38,6 +38,8 @@ pub const THUMBS_TIMEOUT_BASE: Duration = Duration::from_secs(15);
 pub const THUMBS_TIMEOUT_PER_FRAME: Duration = Duration::from_secs(2);
 /// `Shutdown` may hang on the preview thread; after this the helper is killed.
 pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+/// A waveform decode of an hour of audio takes seconds; a minute means a wedged decoder.
+pub const PEAKS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Notices the client pushes on its own (from the reader thread).
 #[derive(Debug, Clone, PartialEq)]
@@ -433,6 +435,24 @@ impl RenderClient {
         }
     }
 
+    /// The waveform of `path` written to `cache` (`Command::Peaks`): `(blocks, duration_ms)`.
+    /// Holds the request slot while the helper decodes (the preview answers `Busy` meanwhile).
+    pub fn peaks(&self, path: String, cache: String) -> Result<(u32, u64), String> {
+        if self.exporting() {
+            return Err("record.editor.busy".into());
+        }
+        let rx = self.replies.lock().unwrap_or_else(|p| p.into_inner());
+        let rx = self.begin(rx, &Command::Peaks { path, cache })?;
+        let deadline = Instant::now() + PEAKS_TIMEOUT;
+        loop {
+            match self.next(&rx, deadline, "Peaks")? {
+                Reply::Event(Event::Peaks { blocks, duration_ms }) => return Ok((blocks, duration_ms)),
+                Reply::Event(Event::Error { msg }) => return Err(msg),
+                other => tracing::debug!(target: "record::render", "ignoring {other:?} while computing peaks"),
+            }
+        }
+    }
+
     /// Starts an export; progress and the outcome arrive as [`Notice`]s. One at a time.
     pub fn export(&self, scene: Value, kind: ExportKind, out_path: String) -> Result<(), String> {
         if self.shared.exporting.swap(true, Ordering::SeqCst) {
@@ -607,6 +627,32 @@ mod tests {
             assert!(Instant::now() < deadline, "condition not reached in time");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// `Peaks` waits for the helper's answer (sent only after the command arrived) and hands
+    /// back the block count and the duration; an `Error` reply is the error.
+    #[test]
+    fn peaks_returns_blocks_and_duration() {
+        let ok = script(
+            "peaks",
+            r#"head -c 5 >/dev/null
+printf '\002\055\000\000\000{"event":"peaks","blocks":3,"duration_ms":15}'
+sleep 2"#,
+        );
+        let (sink, _) = collecting();
+        let client = RenderClient::spawn_with(ok, Vec::new(), sink).unwrap();
+        assert_eq!(client.peaks("/a.mp4".into(), "/p/peaks-x.f32".into()), Ok((3, 15)));
+        client.shutdown();
+        let err = script(
+            "peaks-err",
+            r#"head -c 5 >/dev/null
+printf '\002\042\000\000\000{"event":"error","msg":"no audio"}'
+sleep 2"#,
+        );
+        let (sink, _) = collecting();
+        let client = RenderClient::spawn_with(err, Vec::new(), sink).unwrap();
+        assert_eq!(client.peaks("/a.mp4".into(), "/p/peaks-x.f32".into()), Err("no audio".into()));
+        client.shutdown();
     }
 
     #[test]

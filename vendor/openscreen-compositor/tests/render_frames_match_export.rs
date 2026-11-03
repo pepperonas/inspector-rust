@@ -79,6 +79,7 @@ fn a_frame_rendered_alone_is_the_frame_of_the_full_walk() {
             has_audio: false,
             extra_audio: None,
             cursor_path: None,
+            audio_levels: Default::default(),
         })
         .collect();
     // La config de l'export (`export_cfg_and_scene` dans l'addon).

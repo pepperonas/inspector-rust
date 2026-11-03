@@ -50,6 +50,7 @@ fn render_frame_10(source: &str) -> RenderedFrame {
         has_audio: false,
         extra_audio: None,
         cursor_path: None,
+        audio_levels: Default::default(),
     }];
     let mut cfg = config::all().pop().expect("C8");
     cfg.zoom = false;

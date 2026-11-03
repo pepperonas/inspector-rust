@@ -5364,6 +5364,41 @@ export interface RecordEditorView {
   outputSize: [number, number];
   /** Inserted takes by id (what a clip's `source` names), for the audio preview. */
   takes?: Record<string, RecordTakeMeta>;
+  /** Every music/voiceover entry on the programme clock (Rust's projection, muted included). */
+  tracks?: RecordTrackSpan[];
+  /** Waveforms on the programme clock, filled as peaks arrive (`record-editor-waveforms`). */
+  waveforms?: RecordWaveSpan[];
+}
+/** One entry of a music/voiceover track on the programme clock (`index` into `doc.audioTracks`). */
+export interface RecordTrackSpan {
+  index: number;
+  /** Which repeat of a looping track. */
+  repeat: number;
+  progStartMs: number;
+  progEndMs: number;
+  /** The window of the file this entry plays (file ms). */
+  fileStartMs: number;
+  fileEndMs: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+  gainDb: number;
+  kind: "music" | "voiceover";
+  muted: boolean;
+}
+/** A waveform on the programme clock: `[min, max]` pairs spread over `progStartMs..progEndMs`. */
+export interface RecordWaveSpan {
+  kind: "mic" | "system" | "track";
+  clip: number | null;
+  track: number | null;
+  repeat: number;
+  progStartMs: number;
+  progEndMs: number;
+  peaks: number[];
+}
+/** Payload of `record-editor-waveforms`: the session's waveforms once peaks have arrived. */
+export interface RecordWaveformsEvent {
+  sessionId: number;
+  waveforms: RecordWaveSpan[];
 }
 /** An inserted take (`<project>/takes/<id>/`). */
 export interface RecordTakeMeta {

@@ -54,9 +54,11 @@
         "path": "<PROJECT>/mic.wav"
       },
       "hasAudio": true,
+      "normalise": "voice",
       "screenPath": "<PROJECT>/screen.mp4",
       "sourceEndSec": 4.0,
       "sourceStartSec": 0.0,
+      "systemGainDb": 0.0,
       "webcamOffsetSec": 0.0,
       "webcamPath": ""
     },
@@ -68,9 +70,11 @@
         "path": "<PROJECT>/mic.wav"
       },
       "hasAudio": true,
+      "normalise": "voice",
       "screenPath": "<PROJECT>/screen.mp4",
       "sourceEndSec": 10.0,
       "sourceStartSec": 6.5,
+      "systemGainDb": 0.0,
       "webcamOffsetSec": 0.0,
       "webcamPath": ""
     }

@@ -17,10 +17,12 @@
 
 use super::assets::AssetRoot;
 use super::editor::{self, EditDoc, EditorView, OutputTarget, TakeMetas};
-use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, PROJECT_FILE, SCREEN_FILE};
+use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
+use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, RenderClient, Sink};
 use super::click_cues::click_hits_by_source;
-use super::scene_json::{has_cursor_data, load_takes, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
+use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
+use std::collections::{HashMap, HashSet};
 use super::zoom_plan::plan_auto_zooms;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
@@ -52,6 +54,8 @@ pub const EV_FATAL: &str = "record-editor-fatal";
 /// `{ sessionId }` after `open_editor` replaced the session: an editor window that already
 /// shows another project reloads (it must never send that project's doc to the new one).
 pub const EV_OPENED: &str = "record-editor-opened";
+/// `{ sessionId, waveforms }`: peaks arrived; the waveforms for the document as it is now.
+pub const EV_WAVEFORMS: &str = "record-editor-waveforms";
 pub const EV_EXPORT_PROGRESS: &str = "record-export-progress";
 pub const EV_EXPORT_DONE: &str = "record-export-done";
 pub const EV_EXPORT_FAILED: &str = "record-export-failed";
@@ -560,6 +564,25 @@ struct Session {
     last_frame_ms: u64,
     dirty: bool,
     save_pending: bool,
+    peaks: PeakStore,
+}
+
+/// The session's waveform peaks, keyed by cache name (`peaks::cache_name_for`: path, size,
+/// mtime — a changed file is a new key). A file that failed is not asked for again.
+#[derive(Default)]
+struct PeakStore {
+    ready: HashMap<String, Arc<Peaks>>,
+    pending: HashSet<String>,
+    failed: HashSet<String>,
+}
+
+/// One file whose peaks are wanted: `mic` = a recorder `mic.wav` (read here), else decoded by
+/// the helper.
+#[derive(Debug, Clone, PartialEq)]
+struct PeakJob {
+    file: PathBuf,
+    key: String,
+    mic: bool,
 }
 
 impl Session {
@@ -603,7 +626,76 @@ impl Session {
         // Geometry of the playing document, the stored one as `doc` (a missing take's clip is
         // a zero-width span the UI marks; its bounds must come back unchanged on the next edit).
         let v = session_view(&self.project.recording, &self.play, self.cursor.as_ref(), &self.takes, self.output(OutputTarget::P1080));
-        EditorView { doc: self.doc.clone(), ..v }
+        let waveforms = self.waveforms(&v.tracks);
+        EditorView { doc: self.doc.clone(), waveforms, ..v }
+    }
+
+    /// A recording's folder and metadata (`None` = the project's own take).
+    fn recording(&self, source: Option<&str>) -> Option<(PathBuf, &RecordingMeta)> {
+        match source {
+            None => Some((self.dir.clone(), &self.project.recording)),
+            Some(id) => self.takes.get(id).map(|t| (editor::take_dir(&self.dir, Some(id)), &t.meta)),
+        }
+    }
+
+    fn ready_peaks(&self, file: &Path) -> Option<Arc<Peaks>> {
+        self.peaks.ready.get(&peaks::cache_name_for(file)?).cloned()
+    }
+
+    fn waveforms(&self, tracks: &[super::audio_tracks::TrackSpan]) -> Vec<WaveSpan> {
+        peaks::project_waveforms(
+            &self.play,
+            tracks,
+            |source| {
+                let Some((dir, meta)) = self.recording(source) else { return SourcePeaks::default() };
+                SourcePeaks {
+                    mic: meta.mic.as_ref().and_then(|m| Some((self.ready_peaks(&dir.join(MIC_FILE))?, m.offset_ms))),
+                    system: meta.system_audio.then(|| self.ready_peaks(&dir.join(SCREEN_FILE))).flatten(),
+                }
+            },
+            |i| self.ready_peaks(&project_asset(&self.dir, &self.doc.audio_tracks.get(i)?.file)?),
+        )
+    }
+
+    /// Every audio file the timeline draws a waveform of: each playing recording's mic and
+    /// system sound, every track file.
+    fn audio_files(&self) -> Vec<(PathBuf, bool)> {
+        let mut out = Vec::new();
+        let sources = self.play.clips.iter().filter(|c| c.end_ms > c.start_ms).map(|c| c.source.as_deref());
+        let mut seen = HashSet::new();
+        for source in sources {
+            if !seen.insert(source) {
+                continue;
+            }
+            let Some((dir, meta)) = self.recording(source) else { continue };
+            if meta.mic.is_some() {
+                out.push((dir.join(MIC_FILE), true));
+            }
+            if meta.system_audio {
+                out.push((dir.join(SCREEN_FILE), false));
+            }
+        }
+        for t in &self.doc.audio_tracks {
+            if let Some(p) = project_asset(&self.dir, &t.file) {
+                out.push((p, false));
+            }
+        }
+        out
+    }
+
+    /// The files whose peaks are neither here, nor coming, nor failed — marked as coming.
+    fn take_peak_jobs(&mut self) -> Vec<PeakJob> {
+        let mut jobs = Vec::new();
+        for (file, mic) in self.audio_files() {
+            let Some(key) = peaks::cache_name_for(&file) else { continue };
+            let store = &self.peaks;
+            if store.ready.contains_key(&key) || store.pending.contains(&key) || store.failed.contains(&key) {
+                continue;
+            }
+            self.peaks.pending.insert(key.clone());
+            jobs.push(PeakJob { file, key, mic });
+        }
+        jobs
     }
 
     fn init(&self, helper_error: Option<String>) -> EditorInit {
@@ -886,6 +978,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
             // The first open's planning (or its "done" mark) is written right away.
             dirty: planned,
             save_pending: false,
+            peaks: PeakStore::default(),
         };
         new.sync_play();
         let preview = preview_size(new.output(OutputTarget::P1080));
@@ -910,6 +1003,7 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
     }
     // A window that already existed still shows the previous project: it reloads on this.
     let _ = app.emit(EV_OPENED, serde_json::json!({ "sessionId": init.session_id }));
+    ensure_peaks(app);
     Ok(EditorInit { helper_error, ..init })
 }
 
@@ -985,7 +1079,71 @@ pub fn update(app: &AppHandle, session_id: u64, doc: EditDoc) -> Result<EditorVi
     // scene, so no frame shows the new scene on the old canvas size.
     send_all(&client, &cmds)?;
     client.send(&Command::SetScene { scene })?;
+    // A new track file (or an inserted take) gets its waveform.
+    ensure_peaks(app);
     Ok(view)
+}
+
+/// Computes the peaks the open session still lacks on a background thread, then emits
+/// [`EV_WAVEFORMS`]. `mic.wav` is read here; the other files go to the helper one at a time.
+fn ensure_peaks(app: &AppHandle) {
+    let (id, dir, jobs) = {
+        let mut guard = session();
+        let Some(s) = guard.as_mut() else { return };
+        (s.id, s.dir.clone(), s.take_peak_jobs())
+    };
+    if jobs.is_empty() {
+        return;
+    }
+    let keys: Vec<String> = jobs.iter().map(|j| j.key.clone()).collect();
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("ir-record-peaks".into()).spawn(move || {
+        for job in jobs {
+            let cache = dir.join(&job.key);
+            let result = if job.mic {
+                peaks::wav_peaks(&job.file, &cache).map_err(|e| e.to_string())
+            } else {
+                match current_client() {
+                    Some(c) => c
+                        .peaks(job.file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned())
+                        .and_then(|(_, duration_ms)| {
+                            let data = peaks::read_cache(&cache).ok_or_else(|| "peaks cache unreadable".to_string())?;
+                            Ok(Peaks { data, duration_ms })
+                        }),
+                    None => Err("no render helper".into()),
+                }
+            };
+            let mut guard = session();
+            let Some(s) = guard.as_mut().filter(|s| s.id == id) else { return };
+            s.peaks.pending.remove(&job.key);
+            match result {
+                Ok(p) => {
+                    s.peaks.ready.insert(job.key, Arc::new(p));
+                }
+                Err(e) => {
+                    tracing::warn!(target: "record::editor", "no waveform for {}: {e}", job.file.display());
+                    // A dead helper is not the file's fault: a later edit asks again.
+                    if current_client().is_some_and(|c| !c.is_dead()) || job.mic {
+                        s.peaks.failed.insert(job.key);
+                    }
+                }
+            }
+        }
+        let waveforms = {
+            let guard = session();
+            let Some(s) = guard.as_ref().filter(|s| s.id == id) else { return };
+            s.waveforms(&super::audio_tracks::track_entries(&s.play))
+        };
+        let _ = app.emit(EV_WAVEFORMS, serde_json::json!({ "sessionId": id, "waveforms": waveforms }));
+    });
+    if let Err(e) = spawned {
+        tracing::warn!(target: "record::editor", "peaks thread did not start: {e}");
+        if let Some(s) = session().as_mut().filter(|s| s.id == id) {
+            for k in keys {
+                s.peaks.pending.remove(&k);
+            }
+        }
+    }
 }
 
 /// `editor_auto_zoom`: appends the planner's zooms to the open document (one undo step in the
@@ -1451,9 +1609,71 @@ mod tests {
             last_frame_ms: 0,
             dirty: false,
             save_pending: false,
+            peaks: PeakStore::default(),
         };
         s.sync_play();
         s
+    }
+
+    /// The session asks for each audio file's peaks once (mic read here, the rest from the
+    /// helper), and the view's waveforms follow the peaks it has.
+    #[test]
+    fn session_asks_for_peaks_once_and_draws_what_it_has() {
+        let dir = tmp_project("peaks", "take");
+        let mut p = project::read_project(&dir).unwrap();
+        p.recording.system_audio = true;
+        p.recording.mic = Some(crate::record::project::MicMeta { offset_ms: 0, sample_rate: 48_000 });
+        project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
+        std::fs::write(dir.join(SCREEN_FILE), b"mp4").unwrap();
+        let mut sink = crate::record::wav::WavSink::create(&dir.join(MIC_FILE), 48_000).unwrap();
+        sink.set_origin(0);
+        sink.push(0, &vec![0.5f32; 48_000]).unwrap();
+        sink.finish().unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/song.m4a"), b"m4a").unwrap();
+        let mut s = session_for(&dir, 1);
+        let mut d = s.doc.clone();
+        d.audio_tracks = vec![crate::record::editor::AudioTrack {
+            id: "m".into(),
+            kind: crate::record::editor::TrackKind::Music,
+            file: "song.m4a".into(),
+            clip: 0,
+            start_ms: 0,
+            duration_ms: 4_000,
+            offset_ms: 0,
+            span_ms: None,
+            gain_db: -18.0,
+            looped: false,
+            fade_in_ms: 0,
+            fade_out_ms: 0,
+            muted: false,
+            label: String::new(),
+        }];
+        s.doc = d;
+        s.sync_play();
+        let jobs = s.take_peak_jobs();
+        let names: Vec<_> = jobs.iter().map(|j| (j.file.file_name().unwrap().to_string_lossy().into_owned(), j.mic)).collect();
+        assert_eq!(names, [("mic.wav".to_string(), true), ("screen.mp4".to_string(), false), ("song.m4a".to_string(), false)]);
+        assert!(s.take_peak_jobs().is_empty(), "pending files are not asked for twice");
+        // Nothing ready yet: no waveforms, but the tracks are there.
+        let v = s.view();
+        assert!(v.waveforms.is_empty());
+        assert_eq!(v.tracks.len(), 1);
+        // The mic arrives (read here): its waveform covers the clip.
+        let mic = &jobs[0];
+        let peaks = peaks::wav_peaks(&mic.file, &dir.join(&mic.key)).unwrap();
+        s.peaks.pending.remove(&mic.key);
+        s.peaks.ready.insert(mic.key.clone(), Arc::new(peaks));
+        let v = s.view();
+        assert_eq!(v.waveforms.len(), 1);
+        assert_eq!(v.waveforms[0].kind, peaks::WaveKind::Mic);
+        assert_eq!((v.waveforms[0].prog_start_ms, v.waveforms[0].prog_end_ms), (0.0, 10_000.0));
+        assert!((v.waveforms[0].peaks[1] - 0.5).abs() < 1e-3);
+        // A failed file is not asked for again.
+        s.peaks.pending.remove(&jobs[1].key);
+        s.peaks.failed.insert(jobs[1].key.clone());
+        assert!(s.take_peak_jobs().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn sample(t: u64, cx: f64, cy: f64, kind: Option<crate::record::project::Interaction>) -> crate::record::project::CursorSample {

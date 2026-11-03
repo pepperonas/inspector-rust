@@ -8,7 +8,7 @@
 //! is simply appended -- samples are never dropped and the file never rewinds.
 
 use std::fs::File;
-use std::io::{self, BufWriter, Seek, SeekFrom, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 pub const OUT_RATE: u32 = 48_000;
@@ -188,9 +188,110 @@ impl WavSink {
     }
 }
 
+/// What [`read_mono`] found in a WAV: its rate and length in frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WavInfo {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub frames: u64,
+}
+
+/// Streams a 16-bit PCM WAV as mono samples (channels averaged, −1..1) into `f`. The `data`
+/// chunk's size is trusted only up to the file's end — a mic file whose header was never
+/// patched (a recording that did not finish) still reads to its last whole frame.
+pub fn read_mono(path: &Path, mut f: impl FnMut(f32)) -> io::Result<WavInfo> {
+    read_wav(path, Some(&mut f))
+}
+
+/// The WAV's [`WavInfo`] without reading its samples.
+pub fn wav_info(path: &Path) -> io::Result<WavInfo> {
+    read_wav(path, None)
+}
+
+fn read_wav(path: &Path, f: Option<&mut dyn FnMut(f32)>) -> io::Result<WavInfo> {
+    let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    let file = File::open(path)?;
+    let file_len = file.metadata()?.len();
+    let mut r = BufReader::new(file);
+    let mut head = [0u8; 12];
+    r.read_exact(&mut head)?;
+    if &head[0..4] != b"RIFF" || &head[8..12] != b"WAVE" {
+        return Err(bad("not a RIFF/WAVE file"));
+    }
+    let mut fmt: Option<(u16, u16, u32, u16)> = None;
+    let mut pos = 12u64;
+    loop {
+        let mut ch = [0u8; 8];
+        r.read_exact(&mut ch)?;
+        pos += 8;
+        let len = u32::from_le_bytes([ch[4], ch[5], ch[6], ch[7]]) as u64;
+        if &ch[0..4] == b"fmt " {
+            let mut b = vec![0u8; len as usize];
+            r.read_exact(&mut b)?;
+            if b.len() < 16 {
+                return Err(bad("short fmt chunk"));
+            }
+            let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+            fmt = Some((u16_at(0), u16_at(2), u32::from_le_bytes([b[4], b[5], b[6], b[7]]), u16_at(14)));
+            pos += len;
+        } else if &ch[0..4] == b"data" {
+            let (format, channels, rate, bits) = fmt.ok_or_else(|| bad("data before fmt"))?;
+            if format != 1 || bits != 16 || channels == 0 {
+                return Err(bad("only 16-bit PCM is read"));
+            }
+            let avail = file_len.saturating_sub(pos);
+            let len = if len == 0 || len > avail { avail } else { len };
+            let frame = channels as u64 * 2;
+            let frames = len / frame;
+            let Some(f) = f else {
+                return Ok(WavInfo { sample_rate: rate, channels, frames });
+            };
+            let mut buf = vec![0u8; frame as usize * 4096];
+            let mut left = frames;
+            while left > 0 {
+                let n = left.min(4096);
+                let bytes = &mut buf[..(n * frame) as usize];
+                r.read_exact(bytes)?;
+                for fr in bytes.chunks_exact(frame as usize) {
+                    let sum: f32 = fr.as_chunks::<2>().0.iter().map(|s| i16::from_le_bytes(*s) as f32 / 32768.0).sum();
+                    f(sum / channels as f32);
+                }
+                left -= n;
+            }
+            return Ok(WavInfo { sample_rate: rate, channels, frames });
+        } else {
+            // Chunks are padded to an even length.
+            let skip = len + (len & 1);
+            r.seek(SeekFrom::Current(skip as i64))?;
+            pos += skip;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_mono_reads_what_the_sink_wrote() {
+        let p = tmp("read");
+        let mut s = WavSink::create(&p, 48_000).unwrap();
+        s.set_origin(0);
+        s.push(0, &[0.5, -0.25, 0.0, 1.0]).unwrap();
+        s.finish().unwrap();
+        let mut got = Vec::new();
+        let info = read_mono(&p, |v| got.push(v)).unwrap();
+        assert_eq!(info, WavInfo { sample_rate: 48_000, channels: 1, frames: 4 });
+        assert!((got[0] - 0.5).abs() < 1e-3 && (got[1] + 0.25).abs() < 1e-3 && (got[3] - 1.0).abs() < 1e-3, "{got:?}");
+        // An unpatched header (size 0) still reads to the end; garbage is an error.
+        let mut raw = std::fs::read(&p).unwrap();
+        raw[40..44].copy_from_slice(&0u32.to_le_bytes());
+        std::fs::write(&p, &raw).unwrap();
+        assert_eq!(read_mono(&p, |_| {}).unwrap().frames, 4);
+        assert_eq!(wav_info(&p).unwrap().frames, 4);
+        std::fs::write(&p, b"not a wav file at all").unwrap();
+        assert!(read_mono(&p, |_| {}).is_err());
+    }
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("ir-wav-{}-{}", name, std::process::id()));

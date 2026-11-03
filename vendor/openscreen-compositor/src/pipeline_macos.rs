@@ -34,7 +34,7 @@ use crate::audio::{
     mix_external_tracks,
     AacEncoder, PlanarPcm,
 };
-use crate::audio_jobs::{decode_and_stretch_clip_audio_with_extra, ClipAudioJobs};
+use crate::audio_jobs::{decode_and_stretch_clip_audio_levelled, ClipAudioJobs};
 use crate::compositor::Compositor;
 use crate::d3d::Gpu;
 use crate::export_control::{with_validated_mp4_output, ExportControl};
@@ -754,7 +754,9 @@ pub struct ClipSource {
     /// Inspector Rust: extra audio (mic) mixed before the speed stretch; see `SceneClip`.
     pub extra_audio: Option<crate::scene::ExtraAudio>,
     /// Inspector Rust: explicit cursor telemetry path; `None` = `{screen}.cursor.json`.
-    pub cursor_path: Option<String>
+    pub cursor_path: Option<String>,
+    /// Inspector Rust (patch 14): which part is the voice, and the system sound's level.
+    pub audio_levels: crate::audio_jobs::ClipAudioLevels,
 }
 
 /// Codec cible pour l'export. Identique à `pipeline_windows::ExportCodec`.
@@ -1399,14 +1401,16 @@ fn run_multi_inner(
                     let path = clip.screen.clone();
                     let has_audio = clip.has_audio;
                     let extra = clip.extra_audio.clone();
+                    let levels = clip.audio_levels;
                     let source_start_sec = clip.source_start_sec;
                     let segments = speed_segments.to_vec();
                     audio_jobs.spawn(clip_index, move || {
-                        decode_and_stretch_clip_audio_with_extra(
+                        decode_and_stretch_clip_audio_levelled(
                             clip_index,
                             &path,
                             has_audio,
                             extra.as_ref(),
+                            levels,
                             source_start_sec,
                             source_end_sec,
                             &segments,

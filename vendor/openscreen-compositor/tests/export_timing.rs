@@ -171,6 +171,7 @@ fn whole_clip(dir: &PathBuf) -> ClipSource {
         has_audio: false,
         extra_audio: None,
         cursor_path: None,
+        audio_levels: Default::default(),
     }
 }
 
@@ -768,6 +769,7 @@ fn mp4_export_rejects_an_undecodable_single_tail_frame_without_publishing() {
                 has_audio: false,
                 extra_audio: None,
                 cursor_path: None,
+                audio_levels: Default::default(),
             }],
             &out.to_string_lossy(),
             &gpu,

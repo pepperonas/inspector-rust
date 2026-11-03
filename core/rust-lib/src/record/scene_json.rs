@@ -261,6 +261,10 @@ pub fn scene_json_with(
                 "webcamOffsetSec": 0.0,
                 "hasAudio": m.system_audio,
                 "cursorPath": path_str(&dir.join(CURSOR_FILE)),
+                // Patch 14: the mic is the voice (loudness-normalised); the system sound keeps
+                // its recorded level, moved by the document's system level.
+                "normalise": "voice",
+                "systemGainDb": doc.system_gain_db,
             });
             if let Some(mic) = &m.mic {
                 clip["extraAudio"] = json!({
@@ -372,6 +376,11 @@ pub fn scene_json_with(
     // Only when there are any: a document without annotations keeps its scene byte for byte.
     if !annotations.is_empty() {
         scene["annotations"] = Value::Array(annotations);
+    }
+    // On the programme as it plays: a track anchored to a missing take's clip is left out.
+    let tracks = super::audio_tracks::project_tracks(&editor::playable(doc, &metas), project_dir);
+    if !tracks.is_empty() {
+        scene["audioTracks"] = serde_json::to_value(tracks).unwrap_or_else(|_| json!([]));
     }
 
     if show && c.click_sound {
@@ -1090,5 +1099,59 @@ mod tests {
     fn no_annotations_no_key() {
         let v = scene_json_with(Path::new(DIR), &project(), &doc(), (1920, 1080), 30, &assets(), None, &TakeSources::new());
         assert!(v.get("annotations").is_none());
+    }
+
+    #[test]
+    fn system_gain_in_scene() {
+        let mut d = doc();
+        d.system_gain_db = -6.5;
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        for c in v["clips"].as_array().unwrap() {
+            assert_eq!(c["systemGainDb"], -6.5);
+            assert_eq!(c["normalise"], "voice");
+        }
+        // The master level stays at 0: the system level is the screen audio's alone.
+        assert!(v.get("audio").is_none());
+    }
+
+    #[test]
+    fn audio_tracks_emitted_in_scene() {
+        let dir = tmp_project("tracks");
+        std::fs::write(dir.join(PROJECT_ASSETS_DIR).join("song.m4a"), b"m4a").unwrap();
+        let mut d = doc();
+        let mut t = editor::AudioTrack {
+            id: "m".into(),
+            kind: editor::TrackKind::Music,
+            file: "song.m4a".into(),
+            clip: 0,
+            start_ms: d.clips[0].start_ms,
+            duration_ms: 1_000,
+            offset_ms: 0,
+            span_ms: None,
+            gain_db: -18.0,
+            looped: true,
+            fade_in_ms: 200,
+            fade_out_ms: 300,
+            muted: false,
+            label: String::new(),
+        };
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert!(v.get("audioTracks").is_none(), "no tracks, no key");
+        d.audio_tracks = vec![t.clone()];
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let a = v["audioTracks"].as_array().unwrap();
+        assert!(a.len() > 1, "the loop fills the programme");
+        assert_eq!(a[0]["path"], path_str(&dir.join("assets/song.m4a")));
+        assert_eq!(a[0]["startSec"], 0.0);
+        assert_eq!(a[0]["gainDb"], -18.0);
+        assert_eq!(a[0]["fadeInSec"], 0.2);
+        assert_eq!(a[0]["kind"], "music");
+        assert_eq!(a.last().unwrap()["fadeOutSec"], 0.3);
+        // A muted track is left out.
+        t.muted = true;
+        d.audio_tracks = vec![t];
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert!(v.get("audioTracks").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

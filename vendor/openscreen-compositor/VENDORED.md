@@ -203,6 +203,36 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      fonts; the two font tests (`only_the_font_files_of_the_directory_are_registered`,
      `every_shipped_family_draws_from_its_own_files`) run again.
 
+14. **The voice is normalised, not the system sound (stage 4, Task 4).** Upstream assumes the
+   screen file IS the voice: its audio is loudness-normalised (−16 LUFS, ≤ +12 dB) and an
+   extra track is not. For Inspector Rust the voice is the mic (`extraAudio`) and the screen
+   audio is the recorded system sound — the export did the opposite of what a demo needs.
+   - `src/scene.rs`: `SceneClip.normalise: AudioNormalise` (`screen` | `voice`, serde default
+     `screen` = upstream) and `SceneClip.system_gain_db` (JSON `systemGainDb`, default 0). +
+     parse assertions in `clip_extra_audio_parses_camel_case_and_defaults_to_none`.
+   - `src/audio_jobs.rs`: `ClipAudioLevels { normalise, system_gain_db }` and
+     `decode_and_stretch_clip_audio_levelled`. Under `voice` the screen audio gets no loudness
+     gain and the extra track gets `voice_loudness_gain_db` on top of its own gain; under
+     `screen` it is upstream's behaviour. `system_gain_db` (clamped ±12) applies to the screen
+     audio under both. `decode_and_stretch_clip_audio_with_extra` delegates with the defaults.
+   - `src/audio.rs`: `voice_loudness_gain_db` — the loudness measured on the unity-upmixed decode
+     (patch 9), i.e. as the mono voice is played (otherwise it lands 3 dB above the target); the
+     cache key carries the flag. Music and voiceover tracks (`overlay_external_track`) decode
+     through the unity path too (a mono file was −3 dB per side), and a voiceover track is
+     levelled with `voice_loudness_gain_db`. Two public helpers for the waveform peaks of the
+     `ir-record-render` helper: `decode_clip_audio_unity` and `audio_file_duration_sec`
+     (container duration through `sn_fmt_duration`).
+   - `src/pipeline_macos.rs`: `ClipSource.audio_levels`, passed to the clip audio job.
+   - `tests/{export_timing,hevc10_decode,render_frames_match_export}.rs`: `audio_levels:
+     Default::default()` in the `ClipSource` literals.
+   - Tests (`audio_jobs.rs`): `voice_normalised_screen_untouched` (a −34 dBFS mic is lifted by
+     the +12 dB cap and a −6 dBFS system sound kept under `voice`; the reverse under `screen`;
+     the system level −6 dB and its −12 dB clamp), `voice_loudness_measures_mono_as_played`
+     (3.01 dB apart), `mono_music_track_mixes_at_unity`,
+     `audio_file_duration_is_read_from_the_container`.
+   - The master `SceneAudio.gainDb` stays 0: Inspector Rust's "system sound level" is the screen
+     audio's alone, not the whole mix's.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -216,6 +246,7 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-01 after patch 9: 493 passed, 0 failed, 3 ignored
 # 2026-11-02 after patch 12: 494 passed, 0 failed, 3 ignored
 # 2026-11-03 after patch 13: 501 passed, 0 failed, 1 ignored
+# 2026-11-03 after patch 14: 505 passed, 0 failed, 1 ignored
 ```
 
 ## Updating from upstream

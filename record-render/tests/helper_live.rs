@@ -799,3 +799,148 @@ fn annotations_preview_matches_still() {
     assert!(worst < 20.0, "a part of the preview differs from the still: worst block {worst:.2}");
     assert!(h.shutdown().success());
 }
+
+/// A mono 16-bit 48 kHz WAV: `f(t)` per sample.
+fn write_wav(path: &Path, secs: f64, f: impl Fn(f64) -> f64) {
+    let rate = 48_000u32;
+    let n = (secs * rate as f64).round() as u32;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + n * 2).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    for v in [16u32.to_le_bytes(), [1, 0, 1, 0], rate.to_le_bytes(), (rate * 2).to_le_bytes(), [2, 0, 16, 0]] {
+        b.extend_from_slice(&v);
+    }
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&(n * 2).to_le_bytes());
+    for i in 0..n {
+        let v = f(i as f64 / rate as f64).clamp(-1.0, 1.0);
+        b.extend_from_slice(&((v * 32767.0).round() as i16).to_le_bytes());
+    }
+    std::fs::write(path, b).unwrap();
+}
+
+/// `mean_volume` (dB) of `[from, to]` s of the file's audio after `filter`.
+fn mean_volume(path: &Path, from: f64, to: f64, filter: &str) -> f64 {
+    let out = Proc::new("ffmpeg")
+        .args(["-v", "info", "-nostats", "-i"])
+        .arg(path)
+        .args(["-af", &format!("atrim={from}:{to},{filter},volumedetect"), "-f", "null", "-"])
+        .output()
+        .expect("ffmpeg (dev tool) on PATH");
+    let log = String::from_utf8_lossy(&out.stderr);
+    let line = log.lines().find(|l| l.contains("mean_volume:")).expect("volumedetect output");
+    line.split("mean_volume:").nth(1).unwrap().trim().trim_end_matches(" dB").trim().parse().unwrap()
+}
+
+/// Integrated loudness (LUFS) and true peak (dBTP) of the whole file (`ebur128`).
+fn ebur128(path: &Path) -> (f64, f64) {
+    let out = Proc::new("ffmpeg")
+        .args(["-v", "info", "-nostats", "-i"])
+        .arg(path)
+        .args(["-af", "ebur128=peak=true", "-f", "null", "-"])
+        .output()
+        .unwrap();
+    let log = String::from_utf8_lossy(&out.stderr);
+    let summary = &log[log.rfind("Summary:").expect("ebur128 summary")..];
+    let after = |key: &str| -> f64 {
+        let rest = &summary[summary.find(key).unwrap() + key.len()..];
+        rest.split_whitespace().find_map(|w| w.parse().ok()).unwrap()
+    };
+    (after("I:"), after("Peak:"))
+}
+
+/// Stage 4: music (loop, −18 dB, 1 s fades) and a voiceover under a programme without other
+/// audio. Measures the export: music audible, lower under the voice (ducking), the voice
+/// lifted by its loudness normalisation, true peak ≤ −2 dBTP. Builds a synthetic video when
+/// `IR_RECORD_PROJECT` is not set (only the audio is measured).
+#[test]
+#[ignore]
+fn audio_tracks_export_levels() {
+    let work = out_dir("audio-tracks");
+    let dir = match std::env::var_os("IR_RECORD_PROJECT") {
+        Some(p) => PathBuf::from(p),
+        None => {
+            let d = work.join("project");
+            std::fs::create_dir_all(&d).unwrap();
+            let ok = Proc::new("ffmpeg")
+                .args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=12", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+                .arg(d.join("screen.mp4"))
+                .status()
+                .unwrap();
+            assert!(ok.success(), "synthetic video");
+            std::fs::write(d.join("project.json"), r#"{"recording":{"durationMs":12000}}"#).unwrap();
+            d
+        }
+    };
+    let (dur_ms, _) = recording(&dir);
+    let dur = (dur_ms as f64 / 1000.0).min(12.0);
+    // Music: 4 s of 220 Hz at −6 dBFS, looped. Voice: quiet 1 kHz (−26 dBFS), on 2 s, off 2 s.
+    let music = work.join("music.wav");
+    write_wav(&music, 4.0, |t| 0.5 * (2.0 * std::f64::consts::PI * 220.0 * t).sin());
+    let voice = work.join("voice.wav");
+    write_wav(&voice, 8.0, |t| if (t as u64) % 4 < 2 { 0.05 * (2.0 * std::f64::consts::PI * 1000.0 * t).sin() } else { 0.0 });
+    let mut s = scene(&dir, &[], (1280, 720));
+    s["clips"][0]["sourceEndSec"] = json!(dur);
+    s["clips"][0]["hasAudio"] = json!(false);
+    s["clips"][0].as_object_mut().unwrap().remove("extraAudio");
+    // What `audio_tracks::project_tracks` sends for these two tracks (anchored at 0 s and 2 s).
+    let mut tracks = Vec::new();
+    let mut at = 0.0;
+    while at < dur {
+        let this = (dur - at).min(4.0);
+        tracks.push(json!({"path": music.display().to_string(), "startSec": at, "gainDb": -18.0,
+            "trimStartSec": 0.0, "trimEndSec": this,
+            "fadeInSec": if at == 0.0 { 1.0 } else { 0.0 }, "fadeOutSec": if at + this >= dur { 1.0 } else { 0.0 },
+            "kind": "music"}));
+        at += 4.0;
+    }
+    tracks.push(json!({"path": voice.display().to_string(), "startSec": 2.0, "gainDb": 0.0,
+        "trimStartSec": 0.0, "trimEndSec": 8.0, "fadeInSec": 0.0, "fadeOutSec": 0.0, "kind": "voiceover"}));
+    s["audioTracks"] = json!(tracks);
+    // The same, the music pushed to +12 dB: the limiter must hold the ceiling.
+    let mut hot = s.clone();
+    for t in hot["audioTracks"].as_array_mut().unwrap() {
+        if t["kind"] == "music" {
+            t["gainDb"] = json!(12.0);
+        }
+    }
+
+    let mut h = Helper::start();
+    let mp4 = work.join("audio.mp4");
+    let hot_mp4 = work.join("audio-hot.mp4");
+    for (scene, out) in [(s, &mp4), (hot, &hot_mp4)] {
+        h.send(&Command::Export {
+            scene,
+            kind: ExportKind::Mp4 { w: 1280, h: 720, fps: 30, codec: Codec::H264 },
+            out_path: out.display().to_string(),
+        });
+        let (done, _, _) = h.export_result(Duration::from_secs(300));
+        assert_eq!(done, Event::ExportDone { path: out.display().to_string() });
+    }
+    assert!(h.shutdown().success());
+    let (hot_lufs, hot_tp) = ebur128(&hot_mp4);
+    println!("hot export (music +12 dB): integrated {hot_lufs:.1} LUFS, true peak {hot_tp:.2} dBTP");
+    assert!(hot_tp <= -2.0 + 0.3, "true peak {hot_tp} dBTP over the −2 dBTP ceiling");
+
+    let (lufs, tp) = ebur128(&mp4);
+    // Voice 2–4 s and 6–8 s; music alone 4.0–6.0 (minus hold + release) and 10.0–11.0.
+    let music_under_voice = mean_volume(&mp4, 2.8, 3.8, "lowpass=f=400,lowpass=f=400");
+    let music_alone = mean_volume(&mp4, 5.3, 5.9, "lowpass=f=400,lowpass=f=400");
+    let music_after = mean_volume(&mp4, 10.4, 10.9, "lowpass=f=400,lowpass=f=400");
+    let voice_level = mean_volume(&mp4, 2.8, 3.8, "highpass=f=600,highpass=f=600");
+    println!(
+        "audio export: integrated {lufs:.1} LUFS, true peak {tp:.2} dBTP; music alone {music_alone:.1} / {music_after:.1} dB, \
+         under the voice {music_under_voice:.1} dB (ducked {:.1} dB); voice {voice_level:.1} dB (file −29 dB mean)",
+        music_alone - music_under_voice
+    );
+    assert!(tp <= -2.0 + 0.3, "true peak {tp} dBTP over the −2 dBTP ceiling");
+    assert!(music_alone > -45.0 && music_after > -45.0, "music audible: {music_alone} / {music_after}");
+    assert!(music_under_voice < music_alone - 6.0, "music ducked under the voice: {music_under_voice} vs {music_alone}");
+    assert!(voice_level > -29.0 + 6.0, "the quiet voice is lifted: {voice_level}");
+    if std::env::var_os("IR_RECORD_KEEP_EXPORTS").is_some() {
+        println!("export kept in {}", work.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&work);
+    }
+}

@@ -701,6 +701,12 @@ pub struct EditorView {
     /// The inserted takes the clips may name (`source`), for the UI's audio preview. Filled by
     /// the editor session (empty from [`view`]).
     pub takes: TakeMetas,
+    /// Every music/voiceover entry on the programme clock (`audio_tracks::track_entries`): what
+    /// the export mixes and what the timeline and the preview play, muted ones included.
+    pub tracks: Vec<super::audio_tracks::TrackSpan>,
+    /// The waveforms on the programme clock (mic, system sound, tracks). Filled by the editor
+    /// session as peaks arrive (empty from [`view`]).
+    pub waveforms: Vec<super::peaks::WaveSpan>,
 }
 
 /// One clip spanning the whole recording, speed 1, no crop.
@@ -1401,6 +1407,21 @@ pub fn source_to_programme(doc: &EditDoc, clip: usize, source_ms: u64) -> u64 {
     round_ms(acc)
 }
 
+/// Source ms of programme time `prog_ms` within `clip` (clamped to the clip's window) — the
+/// inverse of [`source_to_programme`] for one clip, unrounded (waveforms sample it per block).
+pub fn clip_source_at(doc: &EditDoc, clip: usize, prog_ms: f64) -> f64 {
+    let Some(c) = doc.clips.get(clip) else { return 0.0 };
+    let mut acc: f64 = (0..clip).map(|i| clip_programme_ms(doc, i)).sum();
+    for (s, e, v) in segments(doc, clip) {
+        let len = (e - s) / v;
+        if prog_ms < acc + len {
+            return s + (prog_ms - acc).max(0.0) * v;
+        }
+        acc += len;
+    }
+    c.end_ms.max(c.start_ms) as f64
+}
+
 /// Playback speed at `source_ms` in `clip` (the segment holding it; its end belongs to the
 /// segment before). Outside the clip: 1.
 pub fn speed_at(doc: &EditDoc, clip: usize, source_ms: u64) -> f64 {
@@ -1458,6 +1479,8 @@ pub fn view(doc: &EditDoc) -> EditorView {
         screen_rects: Vec::new(),
         output_size: [0, 0],
         takes: TakeMetas::new(),
+        tracks: super::audio_tracks::track_entries(doc),
+        waveforms: Vec::new(),
     }
 }
 
@@ -1544,7 +1567,7 @@ pub fn aspect_output_size(meta: &RecordingMeta, aspect: Aspect, target: OutputTa
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     static NO_TAKES: TakeMetas = TakeMetas::new();
 
     use super::*;

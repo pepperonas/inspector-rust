@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 
 pub mod assets;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+pub mod audio_tracks;
 pub mod click_cues;
 pub mod core;
 #[cfg(target_os = "macos")]
@@ -13,6 +15,8 @@ pub mod cursor_macos;
 pub mod editor;
 pub mod layout;
 pub mod mic;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+pub mod peaks;
 #[cfg(target_os = "macos")]
 pub mod picker_macos;
 pub mod session;

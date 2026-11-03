@@ -23,9 +23,9 @@
 
 use crate::audio::{
     apply_gain_db, decode_clip_audio, decode_extra_audio_window, loudness_gain_db,
-    stretch_clip_pcm_by_speed, PlanarPcm,
+    stretch_clip_pcm_by_speed, voice_loudness_gain_db, PlanarPcm,
 };
-use crate::scene::ExtraAudio;
+use crate::scene::{AudioNormalise, ExtraAudio};
 use crate::regions::SpeedSegment;
 use std::collections::VecDeque;
 use std::thread::JoinHandle;
@@ -93,10 +93,63 @@ pub fn decode_and_stretch_clip_audio_with_extra(
     speed_segments: &[SpeedSegment],
     out_fps: f64,
 ) -> Option<PlanarPcm> {
+    decode_and_stretch_clip_audio_levelled(
+        clip_index,
+        screen_path,
+        has_audio,
+        extra,
+        ClipAudioLevels::default(),
+        source_start_sec,
+        source_end_sec,
+        speed_segments,
+        out_fps,
+    )
+}
+
+/// Inspector Rust (patch 14): how a clip's two audio parts are levelled.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ClipAudioLevels {
+    /// Which part is the voice and gets loudness-normalised (−16 LUFS, at most +12 dB).
+    pub normalise: AudioNormalise,
+    /// Level of the screen file's audio (the system sound), dB, clamped to ±12.
+    pub system_gain_db: f64,
+}
+
+/// The system level as a gain in dB (±12; non-finite = 0).
+fn system_gain(levels: ClipAudioLevels) -> f32 {
+    if levels.system_gain_db.is_finite() {
+        levels.system_gain_db.clamp(-12.0, 12.0) as f32
+    } else {
+        0.0
+    }
+}
+
+/// Inspector Rust (patch 14): `decode_and_stretch_clip_audio_with_extra` with a choice of
+/// which part is the voice. Under `Screen` (upstream) the screen audio is normalised and the
+/// mic is not. Under `Voice` it is the other way round: the mic (`extra`) is brought to the
+/// loudness target — measured as it plays, unity mono — on top of its own gain, and the
+/// screen audio (the system sound) keeps its recorded level. `system_gain_db` applies to the
+/// screen audio under both.
+#[allow(clippy::too_many_arguments)]
+pub fn decode_and_stretch_clip_audio_levelled(
+    clip_index: usize,
+    screen_path: &str,
+    has_audio: bool,
+    extra: Option<&ExtraAudio>,
+    levels: ClipAudioLevels,
+    source_start_sec: f64,
+    source_end_sec: f64,
+    speed_segments: &[SpeedSegment],
+    out_fps: f64,
+) -> Option<PlanarPcm> {
     let clip = if has_audio {
         match decode_clip_audio(screen_path, source_start_sec, source_end_sec) {
             Ok(Some(mut pcm)) => {
-                apply_gain_db(&mut pcm, loudness_gain_db(screen_path));
+                let normalisation = match levels.normalise {
+                    AudioNormalise::Screen => loudness_gain_db(screen_path),
+                    AudioNormalise::Voice => 0.0,
+                };
+                apply_gain_db(&mut pcm, normalisation + system_gain(levels));
                 Some(pcm)
             }
             Ok(None) => {
@@ -115,7 +168,13 @@ pub fn decode_and_stretch_clip_audio_with_extra(
     } else {
         None
     };
-    let extra = extra.and_then(|extra| decode_extra_audio_window(extra, source_start_sec, source_end_sec));
+    let extra = extra.and_then(|extra| {
+        let mut pcm = decode_extra_audio_window(extra, source_start_sec, source_end_sec)?;
+        if levels.normalise == AudioNormalise::Voice {
+            apply_gain_db(&mut pcm, voice_loudness_gain_db(&extra.path));
+        }
+        Some(pcm)
+    });
     let mixed = match (clip, extra) {
         (None, None) => return None,
         (Some(pcm), None) | (None, Some(pcm)) => pcm,
@@ -552,6 +611,91 @@ mod tests {
             let tail = plane[(2.05 * RATE) as usize..].iter().fold(0.0f32, |m, v| m.max(v.abs()));
             assert_eq!(tail, 0.0, "tail after the mic's end must be silent");
         }
+    }
+
+    /// Patch 14. A quiet mic (−34 dBFS sine) and a loud system sound (−6 dBFS sine), each
+    /// alone: under `Voice` the mic is lifted to the loudness target (here the +12 dB cap) and
+    /// the system sound keeps its level; under `Screen` (upstream) it is the other way round.
+    #[test]
+    fn voice_normalised_screen_untouched() {
+        let dir = temp_dir("voice-norm");
+        let mic = dir.join("mic.wav");
+        write_wav_at(&mic, 48_000, &[sine_plane(4.0, 48_000.0, 0.02)]);
+        let screen = dir.join("screen.wav");
+        let loud = sine_plane(4.0, 48_000.0, 0.5);
+        write_wav_at(&screen, 48_000, &[loud.clone(), loud]);
+        let segments = speed_segments_for_window(&[], 0.0, 4.0, 0.0, FPS);
+        let extra = ExtraAudio { path: mic.to_string_lossy().into_owned(), offset_sec: 0.0, gain_db: 0.0 };
+        let screen = screen.to_string_lossy().into_owned();
+        let voice = ClipAudioLevels { normalise: AudioNormalise::Voice, system_gain_db: 0.0 };
+        let upstream = ClipAudioLevels::default();
+        let run = |has_audio: bool, extra: Option<&ExtraAudio>, levels: ClipAudioLevels| {
+            peak(&decode_and_stretch_clip_audio_levelled(0, &screen, has_audio, extra, levels, 0.0, 4.0, &segments, FPS).unwrap())
+        };
+        // Mic alone.
+        let lifted = run(false, Some(&extra), voice);
+        assert!((lifted - 0.02 * 10f32.powf(12.0 / 20.0)).abs() < 0.004, "voice mic peak {lifted}, expected +12 dB");
+        let plain = run(false, Some(&extra), upstream);
+        assert!((plain - 0.02).abs() < 0.001, "upstream leaves the mic as recorded: {plain}");
+        // System sound alone.
+        let kept = run(true, None, voice);
+        assert!((kept - 0.5).abs() < 0.005, "voice mode keeps the system sound: {kept}");
+        let levelled = run(true, None, upstream);
+        assert!(levelled < 0.4, "upstream normalises the screen audio down: {levelled}");
+        // The system level is applied under both.
+        let quieter = run(true, None, ClipAudioLevels { system_gain_db: -6.0, ..voice });
+        assert!((quieter - 0.5 * 10f32.powf(-6.0 / 20.0)).abs() < 0.005, "−6 dB system level: {quieter}");
+        let clamped = run(true, None, ClipAudioLevels { system_gain_db: -40.0, ..voice });
+        assert!((clamped - 0.5 * 10f32.powf(-12.0 / 20.0)).abs() < 0.005, "clamped to −12 dB: {clamped}");
+    }
+
+    /// Patch 14: a mono voice is measured as it is played (unity on both sides), 3 dB louder
+    /// than upstream's −3 dB-per-side measurement, so its gain is 3 dB smaller.
+    #[test]
+    fn voice_loudness_measures_mono_as_played() {
+        use crate::audio::{loudness_gain_db, voice_loudness_gain_db};
+        let dir = temp_dir("voice-measure");
+        let mic = dir.join("mic.wav");
+        write_wav_at(&mic, 48_000, &[sine_plane(4.0, 48_000.0, 0.1)]);
+        let path = mic.to_string_lossy();
+        let diff = loudness_gain_db(&path) - voice_loudness_gain_db(&path);
+        assert!((diff - 3.01).abs() < 0.05, "difference {diff} dB");
+    }
+
+    /// Patch 14: a mono music or voiceover file goes to both sides at unity.
+    #[test]
+    fn mono_music_track_mixes_at_unity() {
+        use crate::audio::mix_external_tracks;
+        use crate::scene::{SceneAudioTrack, SceneAudioTrackKind};
+        let dir = temp_dir("music-mono");
+        let music = dir.join("music.wav");
+        write_wav_at(&music, 48_000, &[sine_plane(2.0, 48_000.0, 0.25)]);
+        let programme = vec![vec![0.0f32; (2.0 * RATE) as usize]; 2];
+        let track = SceneAudioTrack {
+            path: music.to_string_lossy().into_owned(),
+            start_sec: 0.0,
+            gain_db: 0.0,
+            trim_start_sec: 0.0,
+            trim_end_sec: Some(2.0),
+            fade_in_sec: 0.0,
+            fade_out_sec: 0.0,
+            kind: SceneAudioTrackKind::Music,
+        };
+        let out = mix_external_tracks(programme, &[track]);
+        for plane in &out {
+            let p = plane.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            assert!((p - 0.25).abs() < 0.0025, "peak {p}, expected 0.25 at unity");
+        }
+    }
+
+    #[test]
+    fn audio_file_duration_is_read_from_the_container() {
+        let dir = temp_dir("duration");
+        let wav = dir.join("a.wav");
+        write_wav_at(&wav, 48_000, &[sine_plane(2.5, 48_000.0, 0.1)]);
+        let d = crate::audio::audio_file_duration_sec(&wav.to_string_lossy()).unwrap();
+        assert!((d - 2.5).abs() < 0.01, "{d}");
+        assert_eq!(crate::audio::audio_file_duration_sec("/no/such/file.wav"), None);
     }
 
     #[test]

@@ -11,6 +11,8 @@
 //! session is not the moment to wait on it.
 
 use anyhow::{anyhow, bail, Context, Result};
+use openscreen_compositor::audio::{audio_file_duration_sec, decode_clip_audio_unity, AUDIO_OUTPUT_SAMPLE_RATE};
+use openscreen_compositor::audio_jobs::ClipAudioLevels;
 use openscreen_compositor::compositor::Compositor;
 use openscreen_compositor::config::{self, Cfg};
 use openscreen_compositor::d3d::Gpu;
@@ -22,6 +24,7 @@ use openscreen_compositor::pipeline::{self, ClipSource, ExportCodec, ExportParam
 use openscreen_compositor::regions::speed_segments_for_window;
 use openscreen_compositor::scene::{Scene, SceneBackground, SceneSpeedRegion};
 use openscreen_compositor::timeline_walk;
+use record_render_protocol::peaks::{encode_peaks, peak_block_count, PeakBuilder};
 use record_render_protocol::{
     decode_command, encode_preview, encode_thumb, read_frame, write_event, write_frame, Codec,
     Command, Event, ExportKind, TAG_COMMAND, TAG_PREVIEW, TAG_THUMB,
@@ -336,6 +339,10 @@ impl State {
                     }
                 }
             }
+            Command::Peaks { path, cache } => match peaks_into_cache(&path, Path::new(&cache)) {
+                Ok((blocks, duration_ms)) => self.event(Event::Peaks { blocks, duration_ms }),
+                Err(e) => self.error(format!("{e:#}")),
+            },
             // Handled by the reader thread; never queued.
             Command::Cancel => Ok(()),
             Command::Shutdown => {
@@ -666,8 +673,47 @@ fn clip_sources(scene: &Scene) -> Vec<ClipSource> {
             has_audio: c.has_audio,
             extra_audio: c.extra_audio.clone(),
             cursor_path: c.cursor_path.clone(),
+            audio_levels: ClipAudioLevels { normalise: c.normalise, system_gain_db: c.system_gain_db },
         })
         .collect()
+}
+
+/// One decode window of [`peaks_of`]: a minute of PCM at a time, whatever the file's length.
+const PEAKS_WINDOW_SEC: f64 = 60.0;
+
+/// The waveform of `path` (`record_render_protocol::peaks`): the unity decode (a mono file
+/// keeps its level, stereo is averaged) through `PeakBuilder` (16 kHz, `[min, max]` blocks).
+/// Returns the peaks and the audio's length in ms (from the container).
+fn peaks_of(path: &str) -> Result<(Vec<f32>, u64)> {
+    let duration = audio_file_duration_sec(path).ok_or_else(|| anyhow!("{path}: no readable duration"))?;
+    let mut builder = PeakBuilder::new(duration, AUDIO_OUTPUT_SAMPLE_RATE as u32);
+    let mut start = 0.0;
+    while start < duration {
+        let end = (start + PEAKS_WINDOW_SEC).min(duration);
+        let pcm = decode_clip_audio_unity(path, start, end)?.ok_or_else(|| anyhow!("{path}: no audio stream"))?;
+        let len = pcm.first().map_or(0, Vec::len);
+        for i in 0..len {
+            builder.push(pcm.iter().map(|p| p.get(i).copied().unwrap_or(0.0)).sum::<f32>() / pcm.len() as f32);
+        }
+        start = end;
+    }
+    Ok((builder.finish(), (duration * 1000.0).round() as u64))
+}
+
+/// [`peaks_of`] through the cache file: one of the right size is reused, otherwise the peaks
+/// are written next to it and renamed into place (a half-written cache is never read).
+fn peaks_into_cache(path: &str, cache: &Path) -> Result<(u32, u64)> {
+    if let Some(duration) = audio_file_duration_sec(path) {
+        let blocks = peak_block_count(duration);
+        if std::fs::metadata(cache).is_ok_and(|m| m.len() == blocks as u64 * 8) {
+            return Ok((blocks, (duration * 1000.0).round() as u64));
+        }
+    }
+    let (peaks, duration_ms) = peaks_of(path)?;
+    let tmp = cache.with_extension(format!("tmp-{}", std::process::id()));
+    std::fs::write(&tmp, encode_peaks(&peaks)).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, cache).with_context(|| format!("renaming into {}", cache.display()))?;
+    Ok(((peaks.len() / 2) as u32, duration_ms))
 }
 
 /// Upstream's export config (napi `export_cfg_and_scene`): C8 with a static layout, plus what
@@ -747,6 +793,9 @@ mod tests {
         assert_eq!(mic.path, "<PROJECT>/mic.wav");
         assert!((mic.offset_sec - 0.12).abs() < 1e-9 && (mic.gain_db + 6.0).abs() < 1e-9);
         assert_eq!(clips[1].source_start_sec, 6.5);
+        // Patch 14: the app marks the mic as the voice; the system level travels with it.
+        assert_eq!(clips[1].audio_levels.normalise, openscreen_compositor::scene::AudioNormalise::Voice);
+        assert_eq!(clips[1].audio_levels.system_gain_db, 0.0);
         assert!(clips.iter().all(|c| c.has_audio));
     }
 
@@ -1135,5 +1184,52 @@ mod tests {
         assert_eq!(preview_scene(&v, (4000, 3000))["annotations"][0]["blur"]["intensity"], 12.0);
         let plain = styled();
         assert_eq!(preview_scene(&plain, (960, 540)), plain);
+    }
+
+    /// A mono 16-bit WAV of `secs` with a 440 Hz sine of `amp`, at 48 kHz.
+    fn write_sine_wav(path: &Path, secs: f64, amp: f32) {
+        let rate = 48_000u32;
+        let n = (secs * rate as f64).round() as u32;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + n * 2).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        for v in [16u32.to_le_bytes(), [1, 0, 1, 0], rate.to_le_bytes(), (rate * 2).to_le_bytes(), [2, 0, 16, 0]] {
+            b.extend_from_slice(&v);
+        }
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&(n * 2).to_le_bytes());
+        for i in 0..n {
+            let v = amp * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / rate as f32).sin();
+            b.extend_from_slice(&((v * 32767.0).round() as i16).to_le_bytes());
+        }
+        std::fs::write(path, b).unwrap();
+    }
+
+    /// `Peaks`: 200 blocks per second, the mono file's level kept, the cache reused.
+    #[test]
+    fn peaks_are_folded_cached_and_reused() {
+        let dir = std::env::temp_dir().join(format!("ir-peaks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("a.wav");
+        write_sine_wav(&wav, 2.5, 0.5);
+        let cache = dir.join("peaks-a.f32");
+        let _ = std::fs::remove_file(&cache);
+        let (blocks, ms) = peaks_into_cache(wav.to_str().unwrap(), &cache).unwrap();
+        assert_eq!(blocks, 500);
+        assert!(ms.abs_diff(2500) <= 5, "{ms}");
+        let peaks = record_render_protocol::peaks::decode_peaks(&std::fs::read(&cache).unwrap()).unwrap();
+        assert_eq!(peaks.len(), 1000);
+        let max = peaks.iter().fold(0.0f32, |m, v| m.max(*v));
+        let min = peaks.iter().fold(0.0f32, |m, v| m.min(*v));
+        // Averaging three 48 kHz samples of a 440 Hz sine loses well under 1 %.
+        assert!((max - 0.5).abs() < 0.01 && (min + 0.5).abs() < 0.01, "{min}..{max}");
+        // A cache of the right size is answered without decoding again.
+        std::fs::write(&cache, vec![0u8; 8 * 500]).unwrap();
+        assert_eq!(peaks_into_cache(wav.to_str().unwrap(), &cache).unwrap(), (500, ms));
+        assert_eq!(std::fs::read(&cache).unwrap(), vec![0u8; 8 * 500]);
+        // A file without audio is an error, not an empty waveform.
+        assert!(peaks_into_cache("/no/such.wav", &dir.join("x.f32")).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

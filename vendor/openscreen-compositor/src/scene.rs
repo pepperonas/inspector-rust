@@ -37,6 +37,24 @@ pub struct SceneClip {
     /// telemetry elsewhere (e.g. a re-timed copy) names it here.
     #[serde(default)]
     pub cursor_path: Option<String>,
+    /// Inspector Rust: which of the clip's audio is the voice and gets loudness-normalised.
+    /// `Screen` (default) = upstream: the screen file's audio. `Voice` = the `extra_audio`
+    /// (the mic) instead; the screen audio then keeps its recorded level.
+    #[serde(default)]
+    pub normalise: AudioNormalise,
+    /// Inspector Rust: level of the screen file's audio (the recorded system sound), dB,
+    /// clamped to ±12. 0 = as recorded (or as normalised, under `Screen`).
+    #[serde(default)]
+    pub system_gain_db: f64,
+}
+
+/// Inspector Rust: see [`SceneClip::normalise`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioNormalise {
+    #[default]
+    Screen,
+    Voice,
 }
 
 /// Inspector Rust: an extra audio file for one clip. Its time runs alongside the clip's
@@ -1130,6 +1148,16 @@ mod tests {
         )
         .unwrap();
         assert!(plain.extra_audio.is_none());
+        // Patch 14: the voice choice and the system level default to upstream behaviour.
+        assert_eq!(plain.normalise, AudioNormalise::Screen);
+        assert_eq!(plain.system_gain_db, 0.0);
+        let voice: SceneClip = serde_json::from_str(
+            r#"{"screenPath":"s.mp4","webcamPath":"","sourceStartSec":0,"sourceEndSec":4,"webcamOffsetSec":0,
+                "normalise":"voice","systemGainDb":-6}"#,
+        )
+        .unwrap();
+        assert_eq!(voice.normalise, AudioNormalise::Voice);
+        assert_eq!(voice.system_gain_db, -6.0);
     }
 
     #[test]

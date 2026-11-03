@@ -2,6 +2,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from "react";
 import { editorToSource, type RecordAudioTrack, type RecordEditDoc, type RecordEditorView, type RecordWaveSpan } from "../../lib/ipc";
 import { updateTrack } from "../../lib/editor";
 import { useT } from "../../lib/i18n";
+import { snapGuide, snapShift, type Snapping } from "../../lib/timeline-snap";
 
 /** Shortest track a drag leaves, programme ms. */
 export const MIN_TRACK_MS = 100;
@@ -56,20 +57,30 @@ export function dragTrackBar(
   mode: TrackDragMode,
   deltaMs: number,
   programmeMs: number,
+  snapping?: Snapping,
 ): TrackDragResult {
   const len = bar.progEndMs - bar.progStartMs;
+  const at = (d: number): TrackDragResult => {
+    if (mode === "move") {
+      const hi = Math.max(0, track.looped ? programmeMs - MIN_TRACK_MS : programmeMs - len);
+      const start = Math.round(Math.min(hi, Math.max(0, bar.progStartMs + d)));
+      return { progStartMs: start, progEndMs: Math.min(track.looped ? programmeMs : Infinity, start + len) };
+    }
+    if (mode === "start") {
+      const start = Math.round(Math.min(bar.progEndMs - MIN_TRACK_MS, Math.max(0, bar.progStartMs + d)));
+      return { progStartMs: start, progEndMs: bar.progEndMs };
+    }
+    const end = Math.round(Math.min(programmeMs, Math.max(bar.progStartMs + MIN_TRACK_MS, bar.progEndMs + d)));
+    return { progStartMs: bar.progStartMs, progEndMs: end };
+  };
   const d = Number.isFinite(deltaMs) ? deltaMs : 0;
-  if (mode === "move") {
-    const hi = Math.max(0, track.looped ? programmeMs - MIN_TRACK_MS : programmeMs - len);
-    const start = Math.round(Math.min(hi, Math.max(0, bar.progStartMs + d)));
-    return { progStartMs: start, progEndMs: Math.min(track.looped ? programmeMs : Infinity, start + len) };
-  }
-  if (mode === "start") {
-    const start = Math.round(Math.min(bar.progEndMs - MIN_TRACK_MS, Math.max(0, bar.progStartMs + d)));
-    return { progStartMs: start, progEndMs: bar.progEndMs };
-  }
-  const end = Math.round(Math.min(programmeMs, Math.max(bar.progStartMs + MIN_TRACK_MS, bar.progEndMs + d)));
-  return { progStartMs: bar.progStartMs, progEndMs: end };
+  const raw = at(d);
+  if (!snapping) return raw;
+  // A looping bar's end is the programme end Rust refills to: only its start snaps.
+  const edges =
+    mode === "start" ? [raw.progStartMs] : mode === "end" ? [raw.progEndMs] : track.looped ? [raw.progStartMs] : [raw.progStartMs, raw.progEndMs];
+  const { shiftMs } = snapShift(edges, snapping.targets, snapping.pxPerMs);
+  return shiftMs ? at(d + shiftMs) : raw;
 }
 
 /** Resolves an edge drag in Rust: the track's new anchor and file window (`null`: nothing to do). */
@@ -153,6 +164,8 @@ export function AudioLane({
   selected,
   onSelect,
   resolveEdge,
+  snapping,
+  onGuide,
 }: {
   view: RecordEditorView;
   /** px per programme ms. */
@@ -164,6 +177,10 @@ export function AudioLane({
   onSelect: (id: string | null) => void;
   /** Rust's resolution of an edge drag (R12). Without it the edges are not offered. */
   resolveEdge?: ResolveTrackEdge;
+  /** Snap targets and scale: a dragged edge snaps within 8 px. */
+  snapping?: Snapping;
+  /** The target a drag sits on (`null`: none) — the timeline draws its guide line. */
+  onGuide?: (ms: number | null) => void;
 }) {
   const t = useT();
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -185,11 +202,21 @@ export function AudioLane({
     setDrag({ index: b.index, id: tr.id, mode, x0: e.clientX, dx: 0 });
   };
 
+  /** Where a drag sits on a snap target (only the edges it moves; `null` while still a click). */
+  const guideOf = (d: Drag): number | null => {
+    const bar = bars.find((b) => b.index === d.index);
+    const tr = doc.audioTracks[d.index];
+    if (!snapping || !bar || !tr || scale <= 0 || Math.abs(d.dx) < CLICK_SLOP_PX) return null;
+    const r = dragTrackBar(bar, tr, d.mode, d.dx / scale, total, snapping);
+    const edges = d.mode === "start" ? [r.progStartMs] : d.mode === "end" ? [r.progEndMs] : tr.looped ? [r.progStartMs] : [r.progStartMs, r.progEndMs];
+    return snapGuide(edges, snapping.targets);
+  };
+
   const finish = async (d: Drag) => {
     const bar = bars.find((b) => b.index === d.index);
     const tr = getDoc().audioTracks.find((x) => x.id === d.id);
     if (!bar || !tr || scale <= 0) return;
-    const r = dragTrackBar(bar, tr, d.mode, d.dx / scale, total);
+    const r = dragTrackBar(bar, tr, d.mode, d.dx / scale, total, snapping);
     if (d.mode === "move") {
       if (r.progStartMs === bar.progStartMs) return;
       // R12: Rust maps the programme start to the anchor (clip + source ms).
@@ -209,20 +236,29 @@ export function AudioLane({
       className="relative mt-1"
       style={{ height: LANE_ROW_PX * bars.length }}
       data-testid="ed-audio-lane"
-      onPointerMove={(e) => drag && setDrag({ ...drag, dx: e.clientX - drag.x0 })}
+      onPointerMove={(e) => {
+        if (!drag) return;
+        const next = { ...drag, dx: e.clientX - drag.x0 };
+        setDrag(next);
+        onGuide?.(guideOf(next));
+      }}
       onPointerUp={() => {
         const d = drag;
         setDrag(null);
+        onGuide?.(null);
         if (d && Math.abs(d.dx) >= CLICK_SLOP_PX) void finish(d).catch(onError);
       }}
-      onPointerCancel={() => setDrag(null)}
+      onPointerCancel={() => {
+        setDrag(null);
+        onGuide?.(null);
+      }}
     >
       {bars.map((b, row) => {
         const tr = doc.audioTracks[b.index];
         if (!tr) return null;
         const sel = selected === tr.id;
         const d = drag?.index === b.index ? drag : null;
-        const shown = d && scale > 0 ? dragTrackBar(b, tr, d.mode, d.dx / scale, total) : b;
+        const shown = d && scale > 0 ? dragTrackBar(b, tr, d.mode, d.dx / scale, total, snapping) : b;
         const start = shown.progStartMs;
         const end = shown.progEndMs;
         const waves = (view.waveforms ?? []).filter((w) => w.kind === "track" && w.track === b.index);

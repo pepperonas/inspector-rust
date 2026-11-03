@@ -1,3 +1,4 @@
+import type { Selection } from "../lib/clipboard-regions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -166,7 +167,6 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const [saving, setSaving] = useState(false);
   const [cropMode, setCropMode] = useState(false);
   const [cropSourceMs, setCropSourceMs] = useState(0);
-  const [selected, setSelected] = useState<number | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [trackWidth, setTrackWidth] = useState(0);
@@ -191,31 +191,29 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [],
   );
   const [inspectorOpen, setInspectorOpen] = useState(readInspectorOpen);
-  const [selectedZoom, setSelectedZoomRaw] = useState<string | null>(null);
-  const [selectedAnnotation, setSelectedAnnotationRaw] = useState<string | null>(null);
-  const [selectedTrack, setSelectedTrackRaw] = useState<string | null>(null);
-  // One region is selected at a time: Delete and the inspector act on exactly one.
-  const setSelectedZoom = useCallback((id: string | null) => {
-    setSelectedZoomRaw(id);
-    if (id) {
-      setSelectedAnnotationRaw(null);
-      setSelectedTrackRaw(null);
-    }
-  }, []);
-  const setSelectedAnnotation = useCallback((id: string | null) => {
-    setSelectedAnnotationRaw(id);
-    if (id) {
-      setSelectedZoomRaw(null);
-      setSelectedTrackRaw(null);
-    }
-  }, []);
-  const setSelectedTrack = useCallback((id: string | null) => {
-    setSelectedTrackRaw(id);
-    if (id) {
-      setSelectedZoomRaw(null);
-      setSelectedAnnotationRaw(null);
-    }
-  }, []);
+  // One object is selected at a time (a clip, zoom, annotation or track): Delete, copy and
+  // the inspector act on exactly one. Clearing one kind leaves another kind's selection alone.
+  const [selection, setSelection] = useState<Selection>(null);
+  const selected = selection?.kind === "clip" ? selection.index : null;
+  const selectedZoom = selection?.kind === "zoom" ? selection.id : null;
+  const selectedAnnotation = selection?.kind === "annotation" ? selection.id : null;
+  const selectedTrack = selection?.kind === "track" ? selection.id : null;
+  const setSelected = useCallback(
+    (index: number | null) => setSelection((cur) => (index != null ? { kind: "clip", index } : cur?.kind === "clip" ? null : cur)),
+    [],
+  );
+  const setSelectedZoom = useCallback(
+    (id: string | null) => setSelection((cur) => (id ? { kind: "zoom", id } : cur?.kind === "zoom" ? null : cur)),
+    [],
+  );
+  const setSelectedAnnotation = useCallback(
+    (id: string | null) => setSelection((cur) => (id ? { kind: "annotation", id } : cur?.kind === "annotation" ? null : cur)),
+    [],
+  );
+  const setSelectedTrack = useCallback(
+    (id: string | null) => setSelection((cur) => (id ? { kind: "track", id } : cur?.kind === "track" ? null : cur)),
+    [],
+  );
   /** A running voiceover take (state for the UI, ref for event handlers). */
   const [voiceover, setVoiceoverState] = useState<VoiceoverView | null>(null);
   const voRef = useRef<VoiceoverView | null>(null);
@@ -497,7 +495,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       setSelected(null);
       commit(next);
     }
-  }, [commit, clipFor]);
+  }, [commit, clipFor, setSelected]);
 
   const addSpeedHere = useCallback(async () => {
     const at = await sourceHere();
@@ -584,13 +582,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
   const moveClip = useCallback(
     (from: number, to: number) => rustEdit(() => editorMoveClip(sessionId.current, from, to), () => setSelected(to)),
-    [rustEdit],
+    [rustEdit, setSelected],
   );
 
   const duplicateClip = useCallback(() => {
     const index = clipFor(posRef.current);
     rustEdit(() => editorDuplicateClip(sessionId.current, index), () => setSelected(index + 1));
-  }, [rustEdit, clipFor]);
+  }, [rustEdit, clipFor, setSelected]);
 
   const [takePicker, setTakePicker] = useState(false);
   const importTake = useCallback(
@@ -601,7 +599,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         (v) => setSelected(v.doc.clips.length - 1),
       );
     },
-    [rustEdit],
+    [rustEdit, setSelected],
   );
 
   /** A music file is being imported (copied and decoded for its length). */

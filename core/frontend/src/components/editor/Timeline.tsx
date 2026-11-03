@@ -27,6 +27,8 @@ import {
   zoomSourceAt,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
+import { copyRegions, cutRegions, pasteRegions, selectionAfterPaste, type ClipboardRegions, type Selection } from "../../lib/clipboard-regions";
+import { snapGuide, snapTargets, type Snapping } from "../../lib/timeline-snap";
 import { AudioLane, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
@@ -146,10 +148,24 @@ export function Timeline({
   const [width, setWidth] = useState(0);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [menu, setMenu] = useState<number | null>(null);
+  /** The snap target an audio-lane drag sits on (its own drag state lives in the lane). */
+  const [laneGuide, setLaneGuide] = useState<number | null>(null);
+  /** Copied regions (this editor session only: their files belong to this project). */
+  const clipboard = useRef<ClipboardRegions | null>(null);
   const total = Math.max(1, view.programmeMs);
   const rows = laneRows(view.annotationSpans ?? []);
   const scale = width / total;
   const doc = view.doc;
+  const snapping: Snapping = { targets: snapTargets(view), pxPerMs: scale };
+  const selection: Selection = selectedZoom
+    ? { kind: "zoom", id: selectedZoom }
+    : selectedAnnotation
+      ? { kind: "annotation", id: selectedAnnotation }
+      : selectedTrack
+        ? { kind: "track", id: selectedTrack }
+        : selectedClip != null
+          ? { kind: "clip", index: selectedClip }
+          : null;
 
   useEffect(() => {
     const el = track.current;
@@ -165,17 +181,63 @@ export function Timeline({
 
   // Latest values for the window key handler (registered once per enable flip).
   const annotationSpans = view.annotationSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack });
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError };
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
     // Registered before the editor's own handler (a child's effect runs first): a key this
     // track uses is `preventDefault`ed and the editor leaves it alone.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
+    const select = (s: Selection) => {
       const cur = live.current;
+      if (s?.kind === "zoom") cur.onSelectZoom(s.id);
+      else if (s?.kind === "annotation") cur.onSelectAnnotation(s.id);
+      else if (s?.kind === "track") cur.onSelectTrack(s.id);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.repeat || isTypingTarget(e.target)) return;
+      const cur = live.current;
+      // ⌘C / ⌘X / ⌘V copy, cut and paste the selected region (Task 9 moves these into the
+      // configurable map). Text selected on the page keeps the system's copy.
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        const k = e.key.toLowerCase();
+        if ((k === "c" || k === "x") && !window.getSelection()?.toString()) {
+          const doc = cur.getDoc();
+          if (k === "c") {
+            const data = copyRegions(doc, cur.selection);
+            if (!data) return;
+            e.preventDefault();
+            clipboard.current = data;
+            return;
+          }
+          const cut = cutRegions(doc, cur.selection);
+          if (!cut) return;
+          e.preventDefault();
+          clipboard.current = cut.data;
+          // Copy + delete is one document: one undo step.
+          cur.onChange(cut.doc);
+          cur.onSelectZoom(null);
+          cur.onSelectAnnotation(null);
+          cur.onSelectTrack(null);
+        } else if (k === "v" && clipboard.current) {
+          e.preventDefault();
+          const data = clipboard.current;
+          // R12: Rust names the playhead's clip and source position; the paste clamps into it.
+          void editorToSource(cur.positionMs)
+            .then((at) => {
+              if (!at) return;
+              const doc = cur.getDoc();
+              const next = pasteRegions(doc, at.clip, at.sourceMs, data);
+              if (next === doc) return;
+              cur.onChange(next);
+              select(selectionAfterPaste(data, next));
+            })
+            .catch(cur.onError);
+        }
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Tab") {
         // Tab between buttons and sliders keeps moving the focus; elsewhere it walks the
         // annotations by programme start (Rust's spans).
@@ -271,8 +333,18 @@ export function Timeline({
   /** The block a zoom drag shows right now (programme ms). */
   const zoomPreview = (d: Extract<Drag, { kind: "zoom" }>) => {
     const delta = scale > 0 ? d.dx / scale : 0;
-    return d.mode === "move" ? moveZoomProg(d.span, d.clipSpan, delta) : trimZoomProg(d.span, d.clipSpan, d.mode, delta);
+    return d.mode === "move"
+      ? moveZoomProg(d.span, d.clipSpan, delta, snapping)
+      : trimZoomProg(d.span, d.clipSpan, d.mode, delta, snapping);
   };
+  /** The target a zoom/annotation drag sits on: only the edges it moves, only once it is a drag. */
+  const zoomGuide = (d: Extract<Drag, { kind: "zoom" }>) => {
+    if (Math.abs(d.dx) < CLICK_SLOP_PX || scale <= 0) return null;
+    const g = zoomPreview(d);
+    const edges = d.mode === "move" ? [g.progStartMs, g.progEndMs] : [d.mode === "start" ? g.progStartMs : g.progEndMs];
+    return snapGuide(edges, snapping.targets);
+  };
+  const guide = drag?.kind === "zoom" ? zoomGuide(drag) : laneGuide;
 
   /** Commits a zoom or annotation drag: programme edges → source through Rust, inside its clip. */
   const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {
@@ -675,7 +747,19 @@ export function Timeline({
           selected={selectedTrack}
           onSelect={onSelectTrack}
           resolveEdge={resolveTrackEdge}
+          snapping={snapping}
+          onGuide={setLaneGuide}
         />
+
+        {/* Snap guide: while a drag sits on a target */}
+        {guide != null && (
+          <div
+            aria-hidden
+            data-testid="ed-snap-guide"
+            className="pointer-events-none absolute -bottom-1 -top-1 z-20 w-px bg-[var(--color-accent)]"
+            style={{ left: guide * scale }}
+          />
+        )}
 
         {/* Playhead */}
         <div

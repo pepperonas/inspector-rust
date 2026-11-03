@@ -7,6 +7,7 @@
  * the edits below work in SOURCE time; `clipAt` only reads the clip spans Rust returned, and
  * the audio preview cues from the source position Rust reports with the playhead.
  */
+import { snapShift, type Snapping } from "./timeline-snap";
 import type {
   RecordAnnotation,
   RecordAnnotationBody,
@@ -533,22 +534,37 @@ type ProgSpan = { progStartMs: number; progEndMs: number };
 
 /**
  * A zoom block dragged by `deltaMs` of programme time: the block keeps its length and stays
- * inside its clip's programme span (a drag past the clip edge clamps there).
+ * inside its clip's programme span (a drag past the clip edge clamps there). With `snapping`
+ * the start or end — whichever is nearer — snaps onto a target first (programme ms only; the
+ * caller maps the result to source through Rust).
  */
-export function moveZoomProg(span: ProgSpan, clip: ProgSpan, deltaMs: number): ProgSpan {
-  const len = Math.min(span.progEndMs - span.progStartMs, clip.progEndMs - clip.progStartMs);
-  const start = Math.min(clip.progEndMs - len, Math.max(clip.progStartMs, span.progStartMs + deltaMs));
-  return { progStartMs: start, progEndMs: start + len };
+export function moveZoomProg(span: ProgSpan, clip: ProgSpan, deltaMs: number, snapping?: Snapping): ProgSpan {
+  const at = (d: number) => {
+    const len = Math.min(span.progEndMs - span.progStartMs, clip.progEndMs - clip.progStartMs);
+    const start = Math.min(clip.progEndMs - len, Math.max(clip.progStartMs, span.progStartMs + d));
+    return { progStartMs: start, progEndMs: start + len };
+  };
+  const raw = at(deltaMs);
+  if (!snapping) return raw;
+  const { shiftMs } = snapShift([raw.progStartMs, raw.progEndMs], snapping.targets, snapping.pxPerMs);
+  return shiftMs ? at(deltaMs + shiftMs) : raw;
 }
 
-/** A zoom edge dragged by `deltaMs`: inside the clip, never shorter than `MIN_ZOOM_MS`. */
-export function trimZoomProg(span: ProgSpan, clip: ProgSpan, edge: "start" | "end", deltaMs: number): ProgSpan {
-  if (edge === "start") {
-    const start = Math.min(span.progEndMs - MIN_ZOOM_MS, Math.max(clip.progStartMs, span.progStartMs + deltaMs));
-    return { progStartMs: start, progEndMs: span.progEndMs };
-  }
-  const end = Math.max(span.progStartMs + MIN_ZOOM_MS, Math.min(clip.progEndMs, span.progEndMs + deltaMs));
-  return { progStartMs: span.progStartMs, progEndMs: end };
+/** A zoom edge dragged by `deltaMs`: inside the clip, never shorter than `MIN_ZOOM_MS`; snaps like `moveZoomProg`. */
+export function trimZoomProg(span: ProgSpan, clip: ProgSpan, edge: "start" | "end", deltaMs: number, snapping?: Snapping): ProgSpan {
+  const at = (d: number): ProgSpan => {
+    if (edge === "start") {
+      const start = Math.min(span.progEndMs - MIN_ZOOM_MS, Math.max(clip.progStartMs, span.progStartMs + d));
+      return { progStartMs: start, progEndMs: span.progEndMs };
+    }
+    const end = Math.max(span.progStartMs + MIN_ZOOM_MS, Math.min(clip.progEndMs, span.progEndMs + d));
+    return { progStartMs: span.progStartMs, progEndMs: end };
+  };
+  const raw = at(deltaMs);
+  if (!snapping) return raw;
+  const moved = edge === "start" ? raw.progStartMs : raw.progEndMs;
+  const { shiftMs } = snapShift([moved], snapping.targets, snapping.pxPerMs);
+  return shiftMs ? at(deltaMs + shiftMs) : raw;
 }
 
 /**

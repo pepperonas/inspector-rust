@@ -34,6 +34,17 @@ describe("zoom track geometry", () => {
     expect(trimZoomProg(span, clip, "end", -99_000)).toEqual({ progStartMs: 2_000, progEndMs: 2_000 + MIN_ZOOM_MS });
   });
 
+  it("snaps a moved block's nearer edge, and a trimmed edge, within 8 px (1 px = 10 ms)", () => {
+    const snapping = { targets: [0, 1_000, 6_000], pxPerMs: 0.1 };
+    // start 1_070 is 7 px from the clip start: snaps there, length kept.
+    expect(moveZoomProg(span, clip, -930, snapping)).toEqual({ progStartMs: 1_000, progEndMs: 3_000 });
+    // 9 px away: stays where the pointer put it.
+    expect(moveZoomProg(span, clip, -910, snapping)).toEqual({ progStartMs: 1_090, progEndMs: 3_090 });
+    expect(trimZoomProg(span, clip, "end", 1_930, snapping)).toEqual({ progStartMs: 2_000, progEndMs: 6_000 });
+    expect(trimZoomProg(span, clip, "start", -950, snapping)).toEqual({ progStartMs: 1_000, progEndMs: 4_000 });
+    expect(trimZoomProg(span, clip, "start", -900, snapping)).toEqual({ progStartMs: 1_100, progEndMs: 4_000 });
+  });
+
   it("maps programme to source through Rust, the clip edges by the clip itself", async () => {
     const calls: number[] = [];
     const toSource = async (p: number) => {

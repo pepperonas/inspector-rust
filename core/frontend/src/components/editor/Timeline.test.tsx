@@ -200,6 +200,39 @@ describe("Timeline zoom track", () => {
     }
   });
 
+  it("a drag within 8 px of a clip edge snaps onto it and shows the guide; 9 px does not", async () => {
+    // Zoom 1–2 s in clip 0 (ends at 5 s). Drag the block so its end lands at 4.93 s (7 px off).
+    const { onChange } = setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]));
+    const block = screen.getByTestId("ed-zoom");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 443, pointerId: 1 });
+    const guide = screen.getByTestId("ed-snap-guide");
+    expect(guide.style.left).toBe("500px");
+    fireEvent.pointerUp(block, { clientX: 443, pointerId: 1 });
+    await flush();
+    expect(screen.queryByTestId("ed-snap-guide")).toBeNull();
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).zooms[0]).toMatchObject({ startMs: 4_000, endMs: 5_000 });
+
+    cleanup();
+    const second = setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]));
+    const b2 = screen.getByTestId("ed-zoom");
+    fireEvent.pointerDown(b2, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(b2, { clientX: 441, pointerId: 1 });
+    expect(screen.queryByTestId("ed-snap-guide")).toBeNull();
+    fireEvent.pointerUp(b2, { clientX: 441, pointerId: 1 });
+    await flush();
+    expect((second.onChange.mock.calls[0][0] as RecordEditDoc).zooms[0]).toMatchObject({ startMs: 3_910, endMs: 4_910 });
+  });
+
+  it("the playhead is not a snap target", () => {
+    setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]), { positionMs: 3_000 });
+    const block = screen.getByTestId("ed-zoom");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    // Start lands at 2.97 s: 3 px from the playhead, nowhere near a clip edge.
+    fireEvent.pointerMove(block, { clientX: 347, pointerId: 1 });
+    expect(screen.queryByTestId("ed-snap-guide")).toBeNull();
+  });
+
   it("a click without movement only selects", async () => {
     const { onChange, onSelectZoom } = setup(doc0([zoom("a", 0, 1_000, 2_000, "manual")]));
     const block = screen.getByTestId("ed-zoom");
@@ -413,6 +446,49 @@ describe("Timeline annotation lane", () => {
     expect(ev.defaultPrevented).toBe(true);
     expect((onChange.mock.calls[0][0] as RecordEditDoc).annotations.map((a) => a.id)).toEqual(["b"]);
     expect(onSelectAnnotation).toHaveBeenCalledWith(null);
+  });
+
+  const key = (k: string, target: EventTarget = window) => {
+    const ev = new KeyboardEvent("keydown", { key: k, metaKey: true, bubbles: true, cancelable: true });
+    target.dispatchEvent(ev);
+    return ev;
+  };
+
+  it("⌘C then ⌘V pastes a copy with a new id at the playhead and selects it", async () => {
+    const { onChange, onSelectAnnotation } = setupAnn([text("a", 0, 1_000, 2_000, "Hi")], [], { selectedAnnotation: "a", positionMs: 7_000 });
+    expect(key("c").defaultPrevented).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(key("v").defaultPrevented).toBe(true);
+    await flush();
+    expect(toSource).toHaveBeenCalledWith(7_000);
+    const next = onChange.mock.calls[0][0] as RecordEditDoc;
+    expect(next.annotations).toHaveLength(2);
+    const made = next.annotations[1];
+    expect(made.id).not.toBe("a");
+    expect(made).toMatchObject({ clip: 1, startMs: 8_000, endMs: 9_000 });
+    expect(onSelectAnnotation).toHaveBeenLastCalledWith(made.id);
+  });
+
+  it("⌘X is copy + delete in one undo step; the paste is cut at the clip end", async () => {
+    const { onChange } = setupAnn([text("a", 0, 1_000, 3_000), text("b", 0, 0, 1_000)], [], { selectedAnnotation: "a", positionMs: 9_500 });
+    expect(key("x").defaultPrevented).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).annotations.map((a) => a.id)).toEqual(["b"]);
+    key("v");
+    await flush();
+    // Playhead 9.5 s = source 10.5 s in clip 1 (ends at 11 s): 2 s long is cut to 0.5 s.
+    expect((onChange.mock.calls[1][0] as RecordEditDoc).annotations[2]).toMatchObject({ clip: 1, startMs: 10_500, endMs: 11_000 });
+  });
+
+  it("⌘C/⌘V in a text field stay the system's; ⌘V with nothing copied is left alone", () => {
+    const { onChange } = setupAnn([text("a", 0, 1_000, 2_000)], [], { selectedAnnotation: "a" });
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    expect(key("c", input).defaultPrevented).toBe(false);
+    expect(key("v").defaultPrevented).toBe(false);
+    expect(key("v", input).defaultPrevented).toBe(false);
+    input.remove();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("dragging a block moves the annotation in its clip (no origin field)", async () => {

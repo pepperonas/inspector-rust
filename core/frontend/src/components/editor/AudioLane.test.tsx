@@ -153,6 +153,21 @@ describe("dragTrackBar", () => {
   });
 });
 
+describe("dragTrackBar snapping (1 px = 10 ms, targets 0 / 5 s / 10 s)", () => {
+  const bar = { progStartMs: 2_000, progEndMs: 5_000 };
+  const snapping = { targets: [0, 5_000, 10_000], pxPerMs: 0.1 };
+  it("a moved bar snaps with its nearer edge; an edge snaps alone", () => {
+    expect(dragTrackBar(bar, track(), "move", 4_930, 10_000, snapping)).toEqual({ progStartMs: 7_000, progEndMs: 10_000 });
+    expect(dragTrackBar(bar, track(), "move", 4_910, 10_000, snapping)).toEqual({ progStartMs: 6_910, progEndMs: 9_910 });
+    expect(dragTrackBar(bar, track(), "end", 4_940, 10_000, snapping)).toEqual({ progStartMs: 2_000, progEndMs: 10_000 });
+    expect(dragTrackBar(bar, track(), "start", 2_950, 10_000, snapping)).toEqual({ progStartMs: 5_000 - MIN_TRACK_MS, progEndMs: 5_000 });
+  });
+  it("a looping bar snaps only its start (its end is Rust's refill)", () => {
+    const loop = { progStartMs: 2_000, progEndMs: 10_000 };
+    expect(dragTrackBar(loop, track({ looped: true }), "move", 2_950, 10_000, snapping)).toEqual({ progStartMs: 5_000, progEndMs: 10_000 });
+  });
+});
+
 describe("AudioLane", () => {
   it("draws its bars from Rust's spans, not the document's anchors", () => {
     // The anchor says 1 s; Rust's entry (e.g. after a speed region) says 2 s.

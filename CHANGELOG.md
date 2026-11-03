@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.236.0] — 2026-11-03
+
+### Added
+- **Record a free area of the screen.** The `record` window has a third source, Area: drag a rectangle on the screen under the pointer, adjust it with eight handles or move it, confirm with Enter or Use area. Exactly that rectangle is recorded, pointer data included; a thin red frame shows the recorded area during the take and never appears in the video.
+- **Move and resize the webcam in the editor.** In picture-in-picture, drag the camera in the preview to place it anywhere and drag a corner to resize it (15–60 %). Picking a corner anchor in the Camera tab snaps it back. Style presets don't carry the free position.
+
+### Fixed
+- **The recording window no longer covers the picker's Share window button.** It hides while the system's window picker is open and comes back afterwards.
+
 ## [0.235.0] — 2026-11-03
 
 ### Added

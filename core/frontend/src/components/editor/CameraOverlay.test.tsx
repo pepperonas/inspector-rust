@@ -37,7 +37,7 @@ describe("camera overlay", () => {
     const box = screen.getByTestId("ed-camera-box");
     fireEvent.pointerDown(box, { clientX: 960, clientY: 540, pointerId: 1 });
     fireEvent.pointerMove(box, { clientX: 1152, clientY: 486, pointerId: 1 });
-    const p = onLive.mock.calls.at(-1)![0];
+    const p = onLive.mock.calls[onLive.mock.calls.length - 1][0];
     expect(p.position.x).toBeCloseTo(0.6, 6);
     expect(p.position.y).toBeCloseTo(0.45, 6);
     expect(p.sizePct).toBeUndefined();
@@ -62,7 +62,7 @@ describe("camera overlay", () => {
     const se = screen.getByTestId("ed-camera-handle-se");
     fireEvent.pointerDown(se, { clientX: 1176, clientY: 661.5, pointerId: 1 });
     fireEvent.pointerMove(se, { clientX: 1392, clientY: 700, pointerId: 1 });
-    const p = onLive.mock.calls.at(-1)![0];
+    const p = onLive.mock.calls[onLive.mock.calls.length - 1][0];
     expect(p.sizePct).toBe(60);
     // Top-left fixed at (744, 418.5): centre = top-left + half of 648 × 364.5.
     expect(p.position.x).toBeCloseTo((744 + 324) / 1920, 6);

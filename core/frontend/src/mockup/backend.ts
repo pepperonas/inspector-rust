@@ -586,7 +586,7 @@ let edVoiceover: { programmeMs: number; file: string } | null = null;
 /** Inserted takes of the mockup project (filled by `editor_import_take`). */
 const edTakes: Record<string, unknown> = {};
 let edDoc: EdDoc = {
-  version: 3,
+  version: 5,
   clips: [{ startMs: 0, endMs: 9_000 }, { startMs: 11_000, endMs: 24_000 }],
   speed: [{ clip: 1, startMs: 14_000, endMs: 20_000, speed: 3 }],
   crop: [null, null],
@@ -643,7 +643,29 @@ let edDoc: EdDoc = {
     background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
   },
   layoutRegions: [{ id: "lay-dual", clip: 1, startMs: 16_000, preset: "dual-frame" }],
+  // Stage 6: an invented transcript (the words between 9 s and 11 s were cut) and captions on.
+  transcripts: [{ source: null, lang: "en", words: edWords() }],
+  captions: {
+    enabled: true, fontSize: 48, fontFamily: "Inter", bold: true, color: "#ffffff", plate: true, plateColor: "#000000",
+    plateOpacity: 0.55, anchorV: "bottom", anchorH: "center", insetY: null, insetX: null, minWords: 2, maxWords: 7, lang: "en",
+  },
 };
+/** Invented narration for the mockup take, timed word by word. */
+function edWords() {
+  const text =
+    "Welcome to Northwind. In the next minute we set up a new workspace, invite the team and share the first board. " +
+    "Um, skip this. " +
+    "Open settings, choose members, and paste the addresses of your colleagues. That is all it takes.";
+  let t = 400;
+  return text.split(" ").map((w, i) => {
+    if (w === "Um,") t = 9_100;
+    if (w === "Open") t = 11_300;
+    const len = 180 + (w.length * 35);
+    const word = { id: `w${i + 1}`, startMs: t, endMs: t + len, text: w };
+    t += len + (w.endsWith(".") || w.endsWith(",") ? 260 : 60);
+    return word;
+  });
+}
 /** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
 const ED_WALL_HUES: [number, number][] = [[220, 280], [200, 160], [20, 340], [40, 10], [180, 230], [260, 300], [100, 150], [0, 30]];
 const edSvg = (svg: string) => `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -1223,6 +1245,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       ];
     case "record_rename_project": return String(args.title).trim();
     case "record_open_dialog": return null;
+    case "get_meeting_config": return { mic: true, sys: true, mic_device: null, model: "large-v3-turbo-q5", lang: "auto", root: null, keep_audio: false, audio_days: 7, dedupe: "auto", dedupe_threshold: 0.8, ticker: {} };
+    case "meeting_model_status": return [{ id: "large-v3-turbo-q5", file: "ggml-large-v3-turbo-q5_0.bin", bytes: 574_041_195, installed: true }];
+    case "editor_transcribe": return { transcripts: [{ source: null, lang: String(args.lang ?? "en"), words: edWords() }], skipped: [], error: null, cancelled: false };
+    case "editor_transcribe_cancel": return true;
     case "editor_import_asset":
       return args.kind === "audio"
         ? { file: "5b2d7e90-1c3a-4f6b-8d42-a9e0c7f31b65.mp3", durationMs: 42_000 }

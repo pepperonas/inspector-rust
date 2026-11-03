@@ -37,8 +37,18 @@ describe("editor shortcuts", () => {
       openProject: { key: "o", ctrl: true },
       showShortcuts: { key: "?" },
       layoutHere: { key: "l" },
+      transcript: { key: "t" },
     });
-    expect(ACTIONS).toHaveLength(15);
+    expect(ACTIONS).toHaveLength(16);
+  });
+
+  it("T opens the transcript and collides with no other default, but not while typing", () => {
+    expect(matchAction(key("t"), DEFAULT_BINDINGS)).toBe("transcript");
+    expect(findConflict(DEFAULT_BINDINGS, "transcript", { key: "t" })).toBeNull();
+    const input = document.createElement("input");
+    const typed = new KeyboardEvent("keydown", { key: "t" });
+    Object.defineProperty(typed, "target", { value: input });
+    expect(matchAction(typed, DEFAULT_BINDINGS)).toBeNull();
   });
 
   it("L changes the layout here and collides with no other default (nor a fixed key)", () => {

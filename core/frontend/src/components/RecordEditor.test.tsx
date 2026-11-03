@@ -66,6 +66,14 @@ vi.mock("../lib/ipc", () => ({
   EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
   getRecordShortcuts: () => getRecordShortcuts(),
   setRecordShortcuts: (s: unknown) => setRecordShortcuts(s),
+  editorToProgramme: async (_c: number, s: number) => s,
+  editorTranscribe: vi.fn(),
+  editorTranscribeCancel: vi.fn(),
+  EV_RECORD_TRANSCRIBE: "record-editor-transcribe",
+  getMeetingConfig: async () => ({ model: "m" }),
+  meetingModelStatus: async () => [{ id: "m", file: "m.bin", bytes: 1, installed: true }],
+  meetingModelDownload: vi.fn(),
+  meetingModelCancel: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
@@ -576,6 +584,26 @@ describe("RecordEditor", () => {
     });
     expect(editorImportAsset).toHaveBeenCalledWith(1, "/Users/x/Pictures/beach.png", "image");
     expect((lastSent() as RecordEditDoc).appearance.background).toEqual({ kind: "image", file: "img.png" });
+  });
+
+  it("T opens the transcript tab, but not while typing in a field", async () => {
+    const { getByRole, getByTestId } = await mount();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "t" });
+    });
+    expect(getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("false");
+    input.remove();
+    // Folded away: T brings the column back on the transcript.
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-inspector-toggle"));
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "t" });
+    });
+    expect(getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("true");
+    expect(getByTestId("ed-tr-go")).toBeTruthy();
   });
 
   it("the settings column folds away", async () => {

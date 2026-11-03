@@ -24,7 +24,8 @@ export type ActionId =
   | "paste"
   | "openProject"
   | "showShortcuts"
-  | "layoutHere";
+  | "layoutHere"
+  | "transcript";
 
 /** Every action's key; `null` = not assigned (it lost its key to another action). */
 export type Bindings = Record<ActionId, Binding | null>;
@@ -46,6 +47,7 @@ export const ACTIONS: readonly ActionId[] = [
   "openProject",
   "showShortcuts",
   "layoutHere",
+  "transcript",
 ];
 
 export const DEFAULT_BINDINGS: Record<ActionId, Binding> = {
@@ -64,6 +66,7 @@ export const DEFAULT_BINDINGS: Record<ActionId, Binding> = {
   openProject: { key: "o", ctrl: true },
   showShortcuts: { key: "?" },
   layoutHere: { key: "l" },
+  transcript: { key: "t" },
 };
 
 export const ACTION_LABEL: Record<ActionId, MessageKey> = {
@@ -82,6 +85,7 @@ export const ACTION_LABEL: Record<ActionId, MessageKey> = {
   openProject: "rec4.keys.openProject",
   showShortcuts: "rec4.keys.showShortcuts",
   layoutHere: "rec5.keys.layoutHere",
+  transcript: "rec6.keys.transcript",
 };
 
 /** The keys that are not rebindable, for the dialog's list. */

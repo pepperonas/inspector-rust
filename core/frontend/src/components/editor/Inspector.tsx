@@ -2,6 +2,7 @@ import { useState } from "react";
 import type {
   EditorAssets,
   RecordAnnotationKind,
+  EditorSourcePos,
   RecordAspect,
   RecordBackground,
   RecordEditDoc,
@@ -28,6 +29,9 @@ import { BackgroundPicker, Chip, Chips, Group, Slider, Swatch, Toggle, chipClass
 import { AnnotationTab } from "./AnnotationTab";
 import { AudioTab, VoiceoverPanel, type VoiceoverView } from "./AudioTab";
 import { CameraTab } from "./CameraTab";
+import { CaptionsTab } from "./CaptionsTab";
+import { TranscriptTab } from "./TranscriptTab";
+import type { Transcription } from "./useTranscription";
 import { useT, type MessageKey } from "../../lib/i18n";
 
 export interface InspectorProps {
@@ -85,9 +89,23 @@ export interface InspectorProps {
   onAddLayoutRegion?: (preset: RecordLayoutPreset) => void;
   /** The layout region (`id`) selected on the timeline; brings up the camera tab. */
   selectedLayout?: string | null;
+  /** The editor's transcription run (captions and transcript tabs). */
+  transcription?: Transcription;
+  /** Output width / height (caption insets depend on it). */
+  outputAspect?: number;
+  /** The playhead's clip and source position (Rust), for the word being spoken. */
+  cue?: EditorSourcePos | null;
+  /** Source → programme ms (Rust `editor_to_programme`). */
+  toProgramme?: (clip: number, sourceMs: number) => Promise<number | null>;
+  onSeek?: (programmeMs: number) => void;
+  /** Words were selected in the transcript (other selections let go). */
+  onWordsSelected?: () => void;
+  /** A key asked for a tab (`n` counts the requests, so the same tab can be asked twice). */
+  requestTab?: { tab: InspectorTab; n: number } | null;
 }
 
-type Tab = "background" | "frame" | "cursor" | "camera" | "zoom" | "annotation" | "audio";
+export type InspectorTab = "background" | "frame" | "cursor" | "camera" | "zoom" | "annotation" | "audio" | "captions" | "transcript";
+type Tab = InspectorTab;
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
   { id: "frame", label: "rec3.insp.tab_frame" },
@@ -96,6 +114,8 @@ const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "zoom", label: "rec3.zoom.tab" },
   { id: "annotation", label: "rec4.ann.tab" },
   { id: "audio", label: "rec4.audio.tab" },
+  { id: "captions", label: "rec6.cap.tab" },
+  { id: "transcript", label: "rec6.tr.tab" },
 ];
 const MOTIONS: { id: RecordWallpaperMotion; label: MessageKey }[] = [
   { id: "none", label: "rec3.insp.motion_none" },
@@ -145,6 +165,13 @@ export function Inspector(props: InspectorProps) {
             ? "camera"
             : "background",
   );
+  const requestTab = props.requestTab ?? null;
+  // A request present at mount is honoured too: T may be what opened the column.
+  const [seenRequest, setSeenRequest] = useState(0);
+  if (requestTab && requestTab.n !== seenRequest) {
+    setSeenRequest(requestTab.n);
+    setTab(requestTab.tab);
+  }
   const [seenLayout, setSeenLayout] = useState(selectedLayout);
   if (selectedLayout !== seenLayout) {
     setSeenLayout(selectedLayout);
@@ -248,6 +275,27 @@ export function Inspector(props: InspectorProps) {
             musicBusy={props.musicBusy}
             onVoiceover={props.onVoiceover ?? (() => undefined)}
             getDoc={props.getDoc}
+          />
+        )}
+        {tab === "captions" && props.transcription && (
+          <CaptionsTab
+            doc={props.doc}
+            aspect={props.outputAspect ?? 16 / 9}
+            tr={props.transcription}
+            onCommit={props.onCommit}
+            onLive={props.onLive}
+            onLiveEnd={props.onLiveEnd}
+          />
+        )}
+        {tab === "transcript" && props.transcription && (
+          <TranscriptTab
+            doc={props.doc}
+            cue={props.cue ?? null}
+            tr={props.transcription}
+            onCommit={props.onCommit}
+            toProgramme={props.toProgramme ?? (async () => null)}
+            onSeek={props.onSeek ?? (() => undefined)}
+            onWordsSelected={props.onWordsSelected}
           />
         )}
       </div>

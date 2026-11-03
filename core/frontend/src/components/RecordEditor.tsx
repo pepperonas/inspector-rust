@@ -43,6 +43,8 @@ import {
   editorSeek,
   editorThumbs,
   editorToSource,
+  editorToProgramme,
+  type RecordTranscribeResult,
   editorSegmentationAvailable,
   editorUpdate,
   editorVoiceoverCancel,
@@ -106,7 +108,9 @@ import { TakePicker } from "./editor/TakePicker";
 import { ProjectDialog } from "./editor/ProjectDialog";
 import { PresetsMenu } from "./editor/PresetsMenu";
 import { AudioPreview } from "./editor/AudioPreview";
-import { Inspector } from "./editor/Inspector";
+import { Inspector, type InspectorTab } from "./editor/Inspector";
+import { useTranscription, type TranscribeLang } from "./editor/useTranscription";
+import { mergeTranscripts } from "../lib/transcript";
 import { hasAnyCamera, presetAt } from "../lib/camera-layout";
 import { CameraOverlay, type CameraPatch } from "./editor/CameraOverlay";
 import { FocusOverlay } from "./editor/FocusOverlay";
@@ -409,6 +413,33 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
   const commit = useCallback((doc: RecordEditDoc) => void send(doc, true), [send]);
 
+  /** Transcription (captions + transcript tabs): the result is merged into the NEWEST document
+   *  (pending edits included) and becomes one undo step. */
+  const getSessionId = useCallback(() => sessionId.current, []);
+  const applyTranscription = useCallback(
+    (r: RecordTranscribeResult, lang: TranscribeLang) => {
+      const h = history.current;
+      if (!h || r.transcripts.length === 0) return;
+      void send(mergeTranscripts(h.present, r.transcripts, lang), true);
+    },
+    [send],
+  );
+  const transcription = useTranscription(getSessionId, applyTranscription);
+  /** R12: a word's programme time comes from Rust, after the edits still on their way. */
+  const toProgramme = useCallback(
+    (clip: number, sourceMs: number) =>
+      chain.current
+        .catch(() => undefined)
+        .then(() => editorToProgramme(clip, sourceMs))
+        .catch((e) => {
+          report(e);
+          return null;
+        }),
+    [report],
+  );
+  /** T: the transcript tab. `n` counts requests so the same tab can be asked for again. */
+  const [tabRequest, setTabRequest] = useState<{ tab: InspectorTab; n: number } | null>(null);
+
   useEffect(() => {
     sendRef.current = send;
   }, [send]);
@@ -454,7 +485,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       return next;
     });
   }, []);
-  const toggleInspector = useCallback(() => setInspector((o) => !o), [setInspector]);
+  const toggleInspector = useCallback(() => {
+    setTabRequest(null);
+    setInspector((o) => !o);
+  }, [setInspector]);
   /** "Change layout here" made a region: its settings (the camera tab) come up. */
   const layoutAdded = useCallback(() => setInspector(() => true), [setInspector]);
 
@@ -951,6 +985,12 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           e.preventDefault();
           void startVoiceover();
           return;
+        case "transcript":
+          if (cropMode) return;
+          e.preventDefault();
+          setInspector(() => true);
+          setTabRequest((r) => ({ tab: "transcript", n: (r?.n ?? 0) + 1 }));
+          return;
         case "showShortcuts":
           e.preventDefault();
           if (playing) togglePlay();
@@ -986,6 +1026,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     startVoiceover,
     finishVoiceover,
     cancelVoiceover,
+    setInspector,
   ]);
 
   // The preview plays the music/voiceover files from Rust's programme entries.
@@ -1286,6 +1327,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             cameraSrc={cameraSrc}
             onAddLayoutRegion={(preset) => void addLayoutHere(preset)}
             selectedLayout={selectedLayout}
+            transcription={transcription}
+            outputAspect={ratio}
+            cue={cue.source}
+            toProgramme={toProgramme}
+            onSeek={seek}
+            onWordsSelected={() => setSelection(null)}
+            requestTab={tabRequest}
           />
         )}
       </aside>

@@ -170,3 +170,25 @@ export function carryOverEdits(old: RecordTranscript, next: RecordTranscript): R
   });
   return { ...next, words };
 }
+
+/** A transcription's result laid into the newest document: a transcript replaces the one of the
+ *  same recording, a new recording's is appended; `lang` is remembered for the next run. */
+export function mergeTranscripts(
+  doc: RecordEditDoc,
+  next: readonly RecordTranscript[],
+  lang?: RecordEditDoc["captions"]["lang"],
+): RecordEditDoc {
+  const out = [...(doc.transcripts ?? [])];
+  for (const t of next) {
+    const i = out.findIndex((o) => (o.source ?? null) === (t.source ?? null));
+    if (i >= 0) out[i] = t;
+    else out.push(t);
+  }
+  const captions = lang && doc.captions ? { ...doc.captions, lang } : doc.captions;
+  return { ...doc, transcripts: out, captions };
+}
+
+/** The word under `sourceMs` (half-open `[start, end)`), or `null` in a pause. */
+export function wordAt<T extends { startMs: number; endMs: number }>(words: readonly T[], sourceMs: number): T | null {
+  return words.find((w) => w.startMs <= sourceMs && sourceMs < w.endMs) ?? null;
+}

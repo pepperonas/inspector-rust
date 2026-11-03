@@ -14,6 +14,8 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 flate2 = "1"
 hound = "3.5"
+rubato = "0.16"
+base64 = { workspace = true }
 sha2 = { workspace = true }
 dirs = { workspace = true }
 ureq = { workspace = true, features = ["tls"] }

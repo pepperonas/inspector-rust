@@ -1,0 +1,916 @@
+//! The live pipeline: per source capture → VAD → segmenter; one inference
+//! thread (finals before previews) → LocalAgreement / echo gate → writer.
+//!
+//! Threads: one per source (owns its capture handle — cpal streams are not
+//! `Send`), one for inference, one for the writer. A lost source restarts
+//! every 2 s without touching the other; a fatal write error stops the
+//! session with an error instead of recording into nothing.
+
+use crate::capture::{AudioInput, CaptureFactory};
+use crate::decode::{DecodeOpts, Decoded};
+use crate::dedupe::{EchoGate, FinalSeg, Release};
+use crate::protocol::session::{Line, SessionMeta, SessionStatus, META_VERSION};
+use crate::protocol::{DedupeMode, Event, Mode, SessionConfig, Source, SourceStatus};
+use crate::queue::{Job, JobKind, JobQueue};
+use crate::segment::{Segmenter, MAX_SEG, RATE, VAD_FRAME};
+use crate::text::Agreement;
+use crate::vad::Vad;
+use crate::writer::{spawn_writer, Writer, WriterMsg, WriterReport};
+use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant, SystemTime};
+
+pub trait Transcriber: Send {
+    fn decode(&mut self, source: Source, samples: &[f32], opts: &DecodeOpts) -> Result<Decoded, String>;
+}
+
+pub type Sink = Arc<dyn Fn(Event) + Send + Sync>;
+pub type VadFactory = Arc<dyn Fn() -> Result<Box<dyn Vad>, String> + Send + Sync>;
+
+pub struct Deps {
+    pub transcriber: Box<dyn Transcriber>,
+    pub vad: VadFactory,
+    pub capture: Arc<dyn CaptureFactory>,
+    pub fallback_root: PathBuf,
+    pub threads: usize,
+    /// Headphones on the output (no echo possible) — only read for `DedupeMode::Auto`.
+    pub headphones: Option<bool>,
+}
+
+/// Hypotheses for the open segment, at most this often.
+pub const HYPOTHESIS_EVERY: Duration = Duration::from_secs(1);
+/// … over at most its last seconds.
+pub const HYPOTHESIS_WINDOW: usize = RATE * 10;
+/// … and only once it holds this much.
+pub const HYPOTHESIS_MIN: usize = RATE / 2;
+pub const LEVEL_EVERY: Duration = Duration::from_millis(100);
+pub const RETRY_EVERY: Duration = Duration::from_secs(2);
+pub const MAX_RETRIES: u32 = 30;
+/// Audio kept per source for song recognition (`Command::Window`).
+pub const WINDOW_KEEP: usize = RATE * 30;
+pub const PROMPT_CHARS: usize = 200;
+
+pub fn max_seg_for(mode: Mode) -> usize {
+    match mode {
+        Mode::Room | Mode::Song => RATE * 20,
+        _ => MAX_SEG,
+    }
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn rms(s: &[f32]) -> f32 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    (s.iter().map(|x| x * x).sum::<f32>() / s.len() as f32).sqrt()
+}
+
+fn idx(s: Source) -> usize {
+    match s {
+        Source::Mic => 0,
+        Source::Sys => 1,
+    }
+}
+
+enum SourceMsg {
+    Chunk(Vec<f32>),
+    Error(String),
+    On,
+    Off,
+    Stop,
+}
+
+struct Shared {
+    queue: Mutex<JobQueue>,
+    cv: Condvar,
+    stop: AtomicBool,
+    sources_alive: AtomicUsize,
+    windows: [Mutex<VecDeque<f32>>; 2],
+    /// A source has an open segment (someone is talking right now).
+    speaking: [AtomicBool; 2],
+    dir: Mutex<Option<PathBuf>>,
+}
+
+impl Shared {
+    fn push(&self, job: Job) {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).push(job);
+        self.cv.notify_one();
+    }
+}
+
+pub struct Pipeline {
+    shared: Arc<Shared>,
+    senders: [mpsc::Sender<SourceMsg>; 2],
+    sources: Vec<JoinHandle<()>>,
+    inference: Option<JoinHandle<()>>,
+}
+
+impl Pipeline {
+    pub fn start(cfg: SessionConfig, sink: Sink, deps: Deps) -> Result<Pipeline, String> {
+        let meta = SessionMeta {
+            version: META_VERSION,
+            started_ms: now_ms(),
+            ended_ms: None,
+            status: SessionStatus::Running,
+            model: cfg.model.clone(),
+            lang: cfg.lang,
+            sources: cfg.sources.clone(),
+            mode: cfg.mode,
+            fallback_from: None,
+            note: None,
+        };
+        let writer = Writer::open(&cfg.root, &deps.fallback_root, meta, cfg.keep_audio).map_err(|e| e.to_string())?;
+        let dir = writer.dir().to_path_buf();
+        let (wtx, wrx, whandle) = spawn_writer(writer);
+
+        let shared = Arc::new(Shared {
+            queue: Mutex::new(JobQueue::new()),
+            cv: Condvar::new(),
+            stop: AtomicBool::new(false),
+            sources_alive: AtomicUsize::new(2),
+            windows: [Mutex::new(VecDeque::new()), Mutex::new(VecDeque::new())],
+            speaking: [AtomicBool::new(false), AtomicBool::new(false)],
+            dir: Mutex::new(Some(dir.clone())),
+        });
+        sink(Event::Started { session_dir: dir, sources: cfg.sources.clone() });
+
+        let max_seg = max_seg_for(cfg.mode);
+        let mut senders = Vec::new();
+        let mut sources = Vec::new();
+        for src in [Source::Mic, Source::Sys] {
+            let (tx, rx) = mpsc::channel();
+            let ctx = SourceCtx {
+                source: src,
+                on: cfg.sources.contains(&src),
+                device: if src == Source::Mic { cfg.mic_device.clone() } else { None },
+                rx,
+                tx: tx.clone(),
+                shared: shared.clone(),
+                capture: deps.capture.clone(),
+                vad: deps.vad.clone(),
+                sink: sink.clone(),
+                max_seg,
+            };
+            senders.push(tx);
+            sources.push(
+                std::thread::Builder::new()
+                    .name(format!("ir-transcribe-{}", src.slug()))
+                    .spawn(move || source_loop(ctx))
+                    .map_err(|e| e.to_string())?,
+            );
+        }
+
+        let both = cfg.sources.contains(&Source::Mic) && cfg.sources.contains(&Source::Sys);
+        let gate_on = both
+            && match cfg.dedupe {
+                DedupeMode::Always => true,
+                DedupeMode::Never => false,
+                DedupeMode::Auto => !deps.headphones.unwrap_or(false),
+            };
+        let threshold = cfg.dedupe_threshold.clamp(0.5, 0.95);
+        let inf = InferenceCtx {
+            cfg,
+            shared: shared.clone(),
+            sink,
+            transcriber: deps.transcriber,
+            threads: deps.threads,
+            gate: EchoGate::new(threshold, gate_on),
+            wtx,
+            wrx,
+            whandle: Some(whandle),
+        };
+        let inference = std::thread::Builder::new()
+            .name("ir-transcribe-infer".into())
+            .spawn(move || inference_loop(inf))
+            .map_err(|e| e.to_string())?;
+
+        let senders: [mpsc::Sender<SourceMsg>; 2] = [senders.remove(0), senders.remove(0)];
+        Ok(Pipeline { shared, senders, sources, inference: Some(inference) })
+    }
+
+    pub fn dir(&self) -> Option<PathBuf> {
+        self.shared.dir.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn is_running(&self) -> bool {
+        !self.shared.stop.load(Ordering::SeqCst)
+    }
+
+    pub fn set_source(&self, source: Source, on: bool) {
+        let _ = self.senders[idx(source)].send(if on { SourceMsg::On } else { SourceMsg::Off });
+    }
+
+    /// The last `secs` seconds of a source as 16 kHz i16.
+    pub fn window(&self, source: Source, secs: u32) -> Vec<i16> {
+        let w = self.shared.windows[idx(source)].lock().unwrap_or_else(|e| e.into_inner());
+        let n = (secs as usize * RATE).min(w.len());
+        w.iter().skip(w.len() - n).map(|s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).collect()
+    }
+
+    /// Stop capturing, transcribe what is left, close the session. Returns
+    /// its folder.
+    pub fn stop(mut self) -> Option<PathBuf> {
+        for s in &self.senders {
+            let _ = s.send(SourceMsg::Stop);
+        }
+        for h in self.sources.drain(..) {
+            let _ = h.join();
+        }
+        self.shared.stop.store(true, Ordering::SeqCst);
+        self.shared.cv.notify_all();
+        if let Some(h) = self.inference.take() {
+            let _ = h.join();
+        }
+        self.dir()
+    }
+}
+
+impl Drop for Pipeline {
+    fn drop(&mut self) {
+        if self.inference.is_some() {
+            for s in &self.senders {
+                let _ = s.send(SourceMsg::Stop);
+            }
+            self.shared.stop.store(true, Ordering::SeqCst);
+            self.shared.cv.notify_all();
+        }
+    }
+}
+
+struct SourceCtx {
+    source: Source,
+    on: bool,
+    device: Option<String>,
+    rx: mpsc::Receiver<SourceMsg>,
+    tx: mpsc::Sender<SourceMsg>,
+    shared: Arc<Shared>,
+    capture: Arc<dyn CaptureFactory>,
+    vad: VadFactory,
+    sink: Sink,
+    max_seg: usize,
+}
+
+struct Stream {
+    seg: Segmenter,
+    vad: Box<dyn Vad>,
+    pending: Vec<f32>,
+    origin_ms: Option<u64>,
+    seq: u64,
+    last_hyp: Instant,
+    last_level: Instant,
+}
+
+fn source_loop(c: SourceCtx) {
+    let src = c.source;
+    let state = |s: SourceStatus, d: Option<String>| (c.sink)(Event::SourceState { source: src, state: s, detail: d });
+    let mut stream = match (c.vad)() {
+        Ok(vad) => Stream {
+            seg: Segmenter::new(c.max_seg),
+            vad,
+            pending: Vec::new(),
+            origin_ms: None,
+            seq: 0,
+            last_hyp: Instant::now(),
+            last_level: Instant::now(),
+        },
+        Err(e) => {
+            state(SourceStatus::Lost, Some(e));
+            c.shared.sources_alive.fetch_sub(1, Ordering::SeqCst);
+            c.shared.cv.notify_all();
+            return;
+        }
+    };
+    let mut on = c.on;
+    let mut input: Option<Box<dyn AudioInput>> = None;
+    let mut retry_at: Option<Instant> = None;
+    let mut retries = 0u32;
+
+    let start = |input: &mut Option<Box<dyn AudioInput>>| -> Result<(), String> {
+        let tx1 = c.tx.clone();
+        let tx2 = c.tx.clone();
+        let h = c.capture.start(
+            src,
+            c.device.as_deref(),
+            Box::new(move |s: &[f32]| {
+                let _ = tx1.send(SourceMsg::Chunk(s.to_vec()));
+            }),
+            Box::new(move |e| {
+                let _ = tx2.send(SourceMsg::Error(e));
+            }),
+        )?;
+        if let Some(w) = h.warning() {
+            (c.sink)(Event::Warning { code: format!("{}.capture", src.slug()), detail: w });
+        }
+        *input = Some(h);
+        Ok(())
+    };
+
+    if on {
+        state(SourceStatus::Starting, None);
+        match start(&mut input) {
+            Ok(()) => state(SourceStatus::Running, None),
+            Err(e) => {
+                state(SourceStatus::Lost, Some(e));
+                retry_at = Some(Instant::now() + RETRY_EVERY);
+            }
+        }
+    } else {
+        state(SourceStatus::Off, None);
+    }
+
+    loop {
+        if c.shared.stop.load(Ordering::SeqCst) {
+            break;
+        }
+        match c.rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(SourceMsg::Chunk(chunk)) => {
+                if on {
+                    process_chunk(&c, &mut stream, &chunk);
+                }
+            }
+            Ok(SourceMsg::Error(e)) => {
+                if let Some(h) = input.take() {
+                    h.stop();
+                }
+                flush(&c, &mut stream);
+                state(SourceStatus::Lost, Some(e));
+                retry_at = Some(Instant::now() + RETRY_EVERY);
+            }
+            Ok(SourceMsg::On) if !on => {
+                on = true;
+                retries = 0;
+                state(SourceStatus::Starting, None);
+                reset(&mut stream, c.max_seg);
+                match start(&mut input) {
+                    Ok(()) => state(SourceStatus::Running, None),
+                    Err(e) => {
+                        state(SourceStatus::Lost, Some(e));
+                        retry_at = Some(Instant::now() + RETRY_EVERY);
+                    }
+                }
+            }
+            Ok(SourceMsg::Off) if on => {
+                on = false;
+                retry_at = None;
+                if let Some(h) = input.take() {
+                    h.stop();
+                }
+                flush(&c, &mut stream);
+                state(SourceStatus::Off, None);
+            }
+            Ok(SourceMsg::On) | Ok(SourceMsg::Off) => {}
+            Ok(SourceMsg::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if on && input.is_none() && retry_at.is_some_and(|t| Instant::now() >= t) {
+            retries += 1;
+            reset(&mut stream, c.max_seg);
+            match start(&mut input) {
+                Ok(()) => {
+                    retry_at = None;
+                    state(SourceStatus::Running, None);
+                }
+                Err(e) if retries >= MAX_RETRIES => {
+                    retry_at = None;
+                    state(SourceStatus::Lost, Some(format!("gave up: {e}")));
+                }
+                Err(_) => retry_at = Some(Instant::now() + RETRY_EVERY),
+            }
+        }
+        if on {
+            maybe_hypothesis(&c, &mut stream);
+        }
+    }
+    if let Some(h) = input.take() {
+        h.stop();
+    }
+    // Messages still queued (chunks that arrived before the stop) count.
+    while let Ok(SourceMsg::Chunk(chunk)) = c.rx.try_recv() {
+        if on {
+            process_chunk(&c, &mut stream, &chunk);
+        }
+    }
+    flush(&c, &mut stream);
+    c.shared.sources_alive.fetch_sub(1, Ordering::SeqCst);
+    c.shared.cv.notify_all();
+}
+
+fn reset(s: &mut Stream, max_seg: usize) {
+    s.seg = Segmenter::new(max_seg);
+    s.pending.clear();
+    s.origin_ms = None;
+}
+
+fn to_ms(origin: u64, sample: u64) -> u64 {
+    origin + sample * 1000 / RATE as u64
+}
+
+fn process_chunk(c: &SourceCtx, s: &mut Stream, chunk: &[f32]) {
+    if s.origin_ms.is_none() {
+        s.origin_ms = Some(now_ms().saturating_sub(chunk.len() as u64 * 1000 / RATE as u64));
+    }
+    {
+        let mut w = c.shared.windows[idx(c.source)].lock().unwrap_or_else(|e| e.into_inner());
+        w.extend(chunk.iter().copied());
+        while w.len() > WINDOW_KEEP {
+            w.pop_front();
+        }
+    }
+    if s.last_level.elapsed() >= LEVEL_EVERY {
+        s.last_level = Instant::now();
+        (c.sink)(Event::Level { source: c.source, rms: rms(chunk) });
+    }
+    s.pending.extend_from_slice(chunk);
+    let n = s.pending.len() / VAD_FRAME * VAD_FRAME;
+    if n == 0 {
+        return;
+    }
+    let frames: Vec<f32> = s.pending.drain(..n).collect();
+    let probs = match s.vad.probs(&frames) {
+        Ok(p) => p,
+        Err(e) => {
+            (c.sink)(Event::Warning { code: format!("{}.vad", c.source.slug()), detail: e });
+            vec![0.0; n / VAD_FRAME]
+        }
+    };
+    let origin = s.origin_ms.unwrap_or(0);
+    for (seg, samples) in s.seg.push(&frames, &probs) {
+        s.seq += 1;
+        c.shared.push(Job {
+            kind: JobKind::Final,
+            source: c.source,
+            seq: s.seq,
+            start_ms: to_ms(origin, seg.start),
+            samples: Arc::new(samples),
+            prompt: String::new(),
+            lang: None,
+        });
+        s.last_hyp = Instant::now();
+    }
+    c.shared.speaking[idx(c.source)].store(s.seg.open().is_some(), Ordering::SeqCst);
+}
+
+fn maybe_hypothesis(c: &SourceCtx, s: &mut Stream) {
+    if s.last_hyp.elapsed() < HYPOTHESIS_EVERY {
+        return;
+    }
+    let Some((open, samples)) = s.seg.open() else { return };
+    if samples.len() < HYPOTHESIS_MIN {
+        return;
+    }
+    s.last_hyp = Instant::now();
+    let from = samples.len().saturating_sub(HYPOTHESIS_WINDOW);
+    c.shared.push(Job {
+        kind: JobKind::Hypothesis,
+        source: c.source,
+        seq: s.seq + 1,
+        start_ms: to_ms(s.origin_ms.unwrap_or(0), open.start + from as u64),
+        samples: Arc::new(samples[from..].to_vec()),
+        prompt: String::new(),
+        lang: None,
+    });
+}
+
+fn flush(c: &SourceCtx, s: &mut Stream) {
+    c.shared.speaking[idx(c.source)].store(false, Ordering::SeqCst);
+    if let Some((seg, samples)) = s.seg.flush() {
+        s.seq += 1;
+        c.shared.push(Job {
+            kind: JobKind::Final,
+            source: c.source,
+            seq: s.seq,
+            start_ms: to_ms(s.origin_ms.unwrap_or(0), seg.start),
+            samples: Arc::new(samples),
+            prompt: String::new(),
+            lang: None,
+        });
+    }
+}
+
+struct InferenceCtx {
+    cfg: SessionConfig,
+    shared: Arc<Shared>,
+    sink: Sink,
+    transcriber: Box<dyn Transcriber>,
+    threads: usize,
+    gate: EchoGate,
+    wtx: mpsc::Sender<WriterMsg>,
+    wrx: mpsc::Receiver<WriterReport>,
+    whandle: Option<JoinHandle<()>>,
+}
+
+#[derive(Default)]
+struct SrcState {
+    agreement: Agreement,
+    last_lang: Option<String>,
+    tail: String,
+    last_final: u64,
+}
+
+fn tail_of(s: &str, n: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    chars[chars.len().saturating_sub(n)..].iter().collect()
+}
+
+fn inference_loop(mut c: InferenceCtx) {
+    let mut st: [SrcState; 2] = Default::default();
+    let mut audio: HashMap<(Source, u64), Arc<Vec<f32>>> = HashMap::new();
+    let mut fatal: Option<String> = None;
+
+    loop {
+        let job = {
+            let mut q = c.shared.queue.lock().unwrap_or_else(|e| e.into_inner());
+            if q.is_empty() {
+                let done = c.shared.stop.load(Ordering::SeqCst)
+                    && c.shared.sources_alive.load(Ordering::SeqCst) == 0;
+                if done {
+                    break;
+                }
+                q = c.shared.cv.wait_timeout(q, Duration::from_millis(250)).map(|r| r.0).unwrap_or_else(|e| e.into_inner().0);
+            }
+            q.pop()
+        };
+        if let Some(job) = job {
+            run_job(&mut c, &mut st, &mut audio, job);
+        }
+        let mut rel = c.gate.tick(now_ms());
+        // Nobody is talking on SYS and none of its finals wait: a held MIC
+        // line cannot be an echo of anything still to come — release it now
+        // instead of after the full hold time.
+        let sys_idle = !c.shared.speaking[idx(Source::Sys)].load(Ordering::SeqCst)
+            && !c.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).has_final(Source::Sys);
+        if sys_idle {
+            rel.extend(c.gate.drain());
+        }
+        release(&mut c, &mut st, &mut audio, rel);
+        if let Some(e) = drain_reports(&c) {
+            fatal = Some(e);
+            c.shared.stop.store(true, Ordering::SeqCst);
+            break;
+        }
+    }
+    if fatal.is_none() {
+        let rel = c.gate.drain();
+        release(&mut c, &mut st, &mut audio, rel);
+        let _ = c.wtx.send(WriterMsg::Finish(SessionStatus::Completed));
+    }
+    drop(c.wtx);
+    let mut dir = None;
+    for r in c.wrx.iter() {
+        match r {
+            WriterReport::Finished(d) => dir = Some(d),
+            WriterReport::Fatal(e) => fatal = fatal.or(Some(e)),
+            WriterReport::Warning(w) => (c.sink)(Event::Warning { code: "writer.fallback".into(), detail: w }),
+            WriterReport::Written => {}
+        }
+    }
+    if let Some(h) = c.whandle.take() {
+        let _ = h.join();
+    }
+    if let Some(d) = &dir {
+        *c.shared.dir.lock().unwrap_or_else(|e| e.into_inner()) = Some(d.clone());
+    }
+    (c.sink)(Event::Stopped { session_dir: dir, error: fatal });
+}
+
+fn drain_reports(c: &InferenceCtx) -> Option<String> {
+    while let Ok(r) = c.wrx.try_recv() {
+        match r {
+            WriterReport::Warning(w) => {
+                if let Some(d) = w.rsplit("continuing in ").next() {
+                    *c.shared.dir.lock().unwrap_or_else(|e| e.into_inner()) = Some(PathBuf::from(d));
+                }
+                (c.sink)(Event::Warning { code: "writer.fallback".into(), detail: w });
+            }
+            WriterReport::Fatal(e) => return Some(e),
+            WriterReport::Written | WriterReport::Finished(_) => {}
+        }
+    }
+    None
+}
+
+fn run_job(c: &mut InferenceCtx, st: &mut [SrcState; 2], audio: &mut HashMap<(Source, u64), Arc<Vec<f32>>>, job: Job) {
+    let s = &mut st[idx(job.source)];
+    if job.kind == JobKind::Hypothesis && job.seq <= s.last_final {
+        return;
+    }
+    let opts = DecodeOpts {
+        kind: job.kind,
+        lang: c.cfg.lang,
+        last_lang: s.last_lang.clone(),
+        prompt: if job.kind == JobKind::Final { s.tail.clone() } else { String::new() },
+        threads: c.threads,
+    };
+    let decoded = match c.transcriber.decode(job.source, &job.samples, &opts) {
+        Ok(d) => d,
+        Err(e) => {
+            (c.sink)(Event::Warning { code: "decode".into(), detail: e });
+            if job.kind == JobKind::Final {
+                s.last_final = s.last_final.max(job.seq);
+                s.agreement.reset();
+                (c.sink)(Event::Dropped { source: job.source, seq: job.seq, reason: "decode_error".into() });
+            }
+            return;
+        }
+    };
+    match job.kind {
+        JobKind::Hypothesis => {
+            if decoded.text.is_empty() {
+                return;
+            }
+            let (stable, pending) = s.agreement.update(&decoded.text);
+            (c.sink)(Event::Hypothesis { source: job.source, seq: job.seq, stable, pending });
+        }
+        JobKind::Final => {
+            s.last_final = s.last_final.max(job.seq);
+            s.agreement.reset();
+            if decoded.text.is_empty() {
+                let reason = if decoded.rejected.is_empty() { "empty".to_string() } else { decoded.rejected.join(",") };
+                (c.sink)(Event::Dropped { source: job.source, seq: job.seq, reason });
+                return;
+            }
+            s.last_lang = Some(decoded.lang.clone());
+            s.tail = tail_of(&format!("{} {}", s.tail, decoded.text), PROMPT_CHARS);
+            let end_ms = job.start_ms + job.samples.len() as u64 * 1000 / RATE as u64;
+            let seg = FinalSeg {
+                source: job.source,
+                seq: job.seq,
+                start_ms: job.start_ms,
+                end_ms,
+                text: decoded.text,
+                lang: decoded.lang,
+                confidence: decoded.confidence,
+            };
+            audio.insert((job.source, job.seq), job.samples.clone());
+            let rel = c.gate.offer(seg, now_ms());
+            release(c, st, audio, rel);
+        }
+    }
+}
+
+fn release(c: &mut InferenceCtx, _st: &mut [SrcState; 2], audio: &mut HashMap<(Source, u64), Arc<Vec<f32>>>, rel: Vec<Release>) {
+    for r in rel {
+        match r {
+            Release::Keep(f) => {
+                let samples = audio.remove(&(f.source, f.seq));
+                let line = Line {
+                    start_ms: f.start_ms,
+                    end_ms: f.end_ms,
+                    source: f.source,
+                    lang: f.lang.clone(),
+                    confidence: f.confidence,
+                    text: f.text.clone(),
+                };
+                let _ = c.wtx.send(WriterMsg::Line(line, samples.map(|a| a.to_vec())));
+                (c.sink)(Event::Final {
+                    source: f.source,
+                    seq: f.seq,
+                    start_ms: f.start_ms,
+                    end_ms: f.end_ms,
+                    lang: f.lang,
+                    text: f.text,
+                    confidence: f.confidence,
+                });
+            }
+            Release::Drop(f, reason) => {
+                audio.remove(&(f.source, f.seq));
+                (c.sink)(Event::Dropped { source: f.source, seq: f.seq, reason });
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capture::{Chunk, OnError};
+    use crate::protocol::session::read_lines;
+    use crate::protocol::Lang;
+    use crate::vad::EnergyVad;
+
+    /// Speech for `secs`, then 1.5 s of silence (closes the segment).
+    fn utterance(secs: f32) -> Vec<f32> {
+        let mut v: Vec<f32> = (0..(secs * RATE as f32) as usize).map(|i| (i as f32 * 0.05).sin() * 0.3).collect();
+        v.extend(vec![0.0; RATE * 3 / 2]);
+        v
+    }
+
+    struct FakeInput;
+    impl AudioInput for FakeInput {
+        fn stop(self: Box<Self>) {}
+    }
+
+    struct FakeCapture {
+        data: HashMap<Source, Vec<f32>>,
+        fail: Option<Source>,
+    }
+
+    impl CaptureFactory for FakeCapture {
+        fn start(&self, source: Source, _: Option<&str>, mut chunk: Chunk, mut err: OnError) -> Result<Box<dyn AudioInput>, String> {
+            if let Some(d) = self.data.get(&source) {
+                for c in d.chunks(1600) {
+                    chunk(c);
+                }
+            }
+            if self.fail == Some(source) {
+                err("unplugged".into());
+            }
+            Ok(Box::new(FakeInput))
+        }
+    }
+
+    struct FakeTranscriber {
+        text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync>,
+        delay: Duration,
+    }
+
+    impl Transcriber for FakeTranscriber {
+        fn decode(&mut self, source: Source, _: &[f32], opts: &DecodeOpts) -> Result<Decoded, String> {
+            std::thread::sleep(self.delay);
+            Ok(Decoded {
+                text: (self.text)(source, opts.kind),
+                lang: "de".into(),
+                confidence: 0.9,
+                mean_logprob: -0.1,
+                no_speech: 0.0,
+                rejected: vec![],
+            })
+        }
+    }
+
+    struct Run {
+        events: Arc<Mutex<Vec<Event>>>,
+        _tmp: tempfile::TempDir,
+        root: PathBuf,
+    }
+
+    fn cfg(root: PathBuf) -> SessionConfig {
+        SessionConfig {
+            sources: vec![Source::Mic, Source::Sys],
+            mic_device: None,
+            model: "fake".into(),
+            lang: Lang::Auto,
+            root,
+            keep_audio: false,
+            dedupe: DedupeMode::Auto,
+            dedupe_threshold: 0.75,
+            mode: Mode::Meeting,
+        }
+    }
+
+    fn start(
+        data: HashMap<Source, Vec<f32>>,
+        fail: Option<Source>,
+        text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync>,
+        delay: Duration,
+    ) -> (Pipeline, Run) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("root");
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let deps = Deps {
+            transcriber: Box::new(FakeTranscriber { text, delay }),
+            vad: Arc::new(|| Ok(Box::new(EnergyVad::new(0.01)) as Box<dyn Vad>)),
+            capture: Arc::new(FakeCapture { data, fail }),
+            fallback_root: tmp.path().join("fallback"),
+            threads: 1,
+            headphones: None,
+        };
+        let p = Pipeline::start(cfg(root.clone()), Arc::new(move |e| ev.lock().unwrap().push(e)), deps).unwrap();
+        (p, Run { events, _tmp: tmp, root })
+    }
+
+    fn finals(r: &Run) -> Vec<(Source, String)> {
+        r.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| match e {
+                Event::Final { source, text, .. } => Some((*source, text.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn wait_for(r: &Run, f: impl Fn(&[Event]) -> bool) {
+        for _ in 0..100 {
+            if f(&r.events.lock().unwrap()) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    }
+
+    #[test]
+    fn two_sources_are_labelled_separately() {
+        let data = HashMap::from([(Source::Mic, utterance(1.0)), (Source::Sys, utterance(1.0))]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|s, _| match s {
+            Source::Mic => "Ich habe eine Frage".into(),
+            Source::Sys => "Bitte sehr, fragen Sie".into(),
+        });
+        let (p, r) = start(data, None, text, Duration::ZERO);
+        wait_for(&r, |e| e.iter().filter(|e| matches!(e, Event::Final { .. })).count() >= 1);
+        let dir = p.stop().unwrap();
+        let mut f = finals(&r);
+        f.sort_by_key(|x| x.0);
+        assert_eq!(f, vec![(Source::Mic, "Ich habe eine Frage".into()), (Source::Sys, "Bitte sehr, fragen Sie".into())]);
+        let lines = read_lines(&dir);
+        assert_eq!(lines.len(), 2);
+        assert!(dir.starts_with(&r.root));
+        assert_eq!(crate::protocol::session::read_meta(&dir).unwrap().status, SessionStatus::Completed);
+    }
+
+    #[test]
+    fn echo_is_not_written_twice() {
+        let data = HashMap::from([(Source::Mic, utterance(1.0)), (Source::Sys, utterance(1.0))]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> =
+            Arc::new(|_, _| "Wir treffen uns um drei".into());
+        let (p, r) = start(data, None, text, Duration::ZERO);
+        let dir = p.stop().unwrap();
+        assert_eq!(finals(&r), vec![(Source::Sys, "Wir treffen uns um drei".into())]);
+        assert_eq!(read_lines(&dir).len(), 1);
+        assert!(r.events.lock().unwrap().iter().any(|e| matches!(e, Event::Dropped { source: Source::Mic, .. })));
+    }
+
+    #[test]
+    fn hypotheses_never_reach_the_file() {
+        // A long utterance yields previews while it is open.
+        let mut long = utterance(3.0);
+        long.truncate(RATE * 3);
+        let data = HashMap::from([(Source::Mic, long)]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, k| match k {
+            JobKind::Hypothesis => "vorläufig".into(),
+            JobKind::Final => "endgültig".into(),
+        });
+        let (p, r) = start(data, None, text, Duration::ZERO);
+        wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Hypothesis { .. })));
+        let dir = p.stop().unwrap();
+        assert!(r.events.lock().unwrap().iter().any(|e| matches!(e, Event::Hypothesis { .. })));
+        let lines = read_lines(&dir);
+        assert_eq!(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), vec!["endgültig"]);
+    }
+
+    #[test]
+    fn lost_source_does_not_stop_the_other() {
+        let data = HashMap::from([(Source::Sys, utterance(1.0))]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "System spricht".into());
+        let (p, r) = start(data, Some(Source::Mic), text, Duration::ZERO);
+        wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Final { .. })));
+        p.stop();
+        let ev = r.events.lock().unwrap();
+        assert!(ev.iter().any(|e| matches!(e, Event::SourceState { source: Source::Mic, state: SourceStatus::Lost, .. })));
+        drop(ev);
+        assert_eq!(finals(&r), vec![(Source::Sys, "System spricht".into())]);
+    }
+
+    #[test]
+    fn stop_flushes_open_segment_and_completes_session() {
+        let mut open = utterance(2.0);
+        open.truncate(RATE * 2); // no closing silence
+        let data = HashMap::from([(Source::Mic, open)]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "letzter Satz".into());
+        let (p, r) = start(data, None, text, Duration::ZERO);
+        std::thread::sleep(Duration::from_millis(100));
+        let dir = p.stop().unwrap();
+        assert_eq!(finals(&r), vec![(Source::Mic, "letzter Satz".into())]);
+        assert!(matches!(r.events.lock().unwrap().last(), Some(Event::Stopped { error: None, .. })));
+        assert_eq!(crate::protocol::session::read_meta(&dir).unwrap().status, SessionStatus::Completed);
+    }
+
+    #[test]
+    fn mic_line_is_not_delayed_while_sys_is_silent() {
+        let data = HashMap::from([(Source::Mic, utterance(1.0))]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "Nur ich".into());
+        let (p, r) = start(data, None, text, Duration::ZERO);
+        let t = Instant::now();
+        wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Final { .. })));
+        assert!(t.elapsed() < Duration::from_millis(1500), "{:?}", t.elapsed());
+        assert_eq!(finals(&r), vec![(Source::Mic, "Nur ich".into())]);
+        p.stop();
+    }
+
+    #[test]
+    fn fatal_writer_error_stops_the_session() {
+        let data = HashMap::from([(Source::Mic, utterance(1.0))]);
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "Satz".into());
+        let (p, r) = start(data, None, text, Duration::from_millis(300));
+        // Break both the session folder and the fallback root.
+        std::fs::remove_dir_all(p.dir().unwrap()).unwrap();
+        std::fs::write(r._tmp.path().join("fallback"), b"not a folder").unwrap();
+        wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Stopped { .. })));
+        assert!(!p.is_running());
+        p.stop();
+        let ev = r.events.lock().unwrap();
+        assert!(ev.iter().any(|e| matches!(e, Event::Stopped { error: Some(_), .. })), "{ev:?}");
+    }
+}

@@ -9,6 +9,10 @@ pub mod queue;
 pub mod model;
 pub mod lang;
 pub mod vad;
+pub mod decode;
+pub mod resample;
+pub mod capture;
+pub mod pipeline;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod engine;
 

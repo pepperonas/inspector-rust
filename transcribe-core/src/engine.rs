@@ -2,33 +2,11 @@
 //! per source stream.
 
 use crate::lang::{accept, mean_logprob, pick_de_en, resolve_lang};
-use crate::protocol::Lang;
+use crate::decode::{DecodeOpts, Decoded};
 use crate::queue::JobKind;
 use crate::text::drop_loops;
 use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
-
-#[derive(Debug, Clone)]
-pub struct DecodeOpts {
-    pub kind: JobKind,
-    pub lang: Lang,
-    /// Language of the source's last final, used for hypotheses in auto mode.
-    pub last_lang: Option<String>,
-    pub prompt: String,
-    pub threads: usize,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Decoded {
-    pub text: String,
-    pub lang: String,
-    /// `exp(mean_logprob)` of the kept segments, 0..1.
-    pub confidence: f32,
-    pub mean_logprob: f32,
-    pub no_speech: f32,
-    /// Why segments were left out (diagnostics).
-    pub rejected: Vec<&'static str>,
-}
 
 pub struct Engine {
     ctx: WhisperContext,
@@ -176,6 +154,7 @@ impl Stream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::Lang;
     use crate::test_support::fixture;
     use std::path::PathBuf;
 

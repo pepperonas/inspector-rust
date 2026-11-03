@@ -67,6 +67,11 @@ impl JobQueue {
         Some(job)
     }
 
+    /// Is a final of `source` still waiting?
+    pub fn has_final(&self, source: Source) -> bool {
+        self.finals.iter().any(|f| f.source == source)
+    }
+
     pub fn len(&self) -> usize {
         self.finals.len() + self.hypotheses.len()
     }

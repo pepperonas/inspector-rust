@@ -162,5 +162,5 @@ naming, Core Audio reading the fixture) and, with the model installed,
 --ignored --nocapture` (WAV and an `afconvert`-made M4A end to end).
 
 The Python worker (`openai-whisper`, `scripts/setup-transcribe.py`) used until
-0.231 is gone; its virtual environment under
+0.232 is gone; its virtual environment under
 `~/Library/Application Support/InspectorRust/transcribe/venv` can be deleted.

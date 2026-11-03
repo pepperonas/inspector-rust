@@ -1643,7 +1643,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     command: "meeting",
     aliases: ["mitschrift"],
     category: CAT_AV,
-    version_added: "0.232.0",
+    version_added: "0.233.0",
     tagline: "Live transcription of microphone and system audio, with a ticker and crash-safe transcripts.",
     tagline_de: "Live-Transkription von Mikrofon und Systemton, mit Laufband und absturzsicheren Transkripten.",
     synopsis: "meeting   ·   mitschrift",

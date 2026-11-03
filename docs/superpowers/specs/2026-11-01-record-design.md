@@ -118,11 +118,14 @@ Gedächtnis). Kurzfassung dessen, was rein muss:
   Wörter je Zeile); Bearbeiten.
 
 **Export**
-- MP4 (H.264/HEVC/VP9; 720p/1080p/Quelle; 24/30/60 fps), GIF (eigener
-  Encoder, 15–30 fps, Größen, Loop), True-Peak-Limiter −1,5 dBFS.
+- MP4 (H.264/HEVC; 720p/1080p/Quelle; 24/30/60 fps), GIF (eigener
+  Encoder, 15–30 fps, Größen, Loop), True-Peak-Limiter −2 dBTP.
+  *(Korrigiert in Etappe 4, v0.231.0: VP9 entfällt — Upstream hat den Encoder
+  entfernt; die Limiter-Decke ist −2 dBTP, wie der Compositor sie setzt
+  (`audio.rs`), nicht −1,5.)*
 
 **Weiteres**
-- Stil-Presets (`*.openscreenpreset`-Äquivalent), zuletzt geöffnete Projekte,
+- Stil-Presets (`*.irpreset`, Etappe 4), zuletzt geöffnete Projekte,
   Projektordner.
 - **MCP-Server** (Projekte auflisten, Dokument-Werkzeuge, Medien, Transkription,
   Aufnahme) + **CLI** (`record`, `export`, Projektbefehle).

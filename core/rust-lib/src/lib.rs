@@ -1224,6 +1224,10 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::record_delete_project,
             #[cfg(target_os = "macos")]
+            commands::record_rename_project,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::record_open_dialog,
+            #[cfg(target_os = "macos")]
             commands::get_record_config,
             #[cfg(target_os = "macos")]
             commands::set_record_config,

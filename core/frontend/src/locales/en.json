@@ -4144,7 +4144,7 @@
   "rec2.panel.delete": "Delete",
   "rec2.panel.delete_q": "Delete the project?",
   "rec2.panel.delete_yes": "Yes, delete",
-  "rec2.panel.keys": "↓ select · ⏎ open in the editor · ⌘⏎ show in Finder · ⌫ delete (2× = confirm) · Esc back",
+  "rec2.panel.keys": "↓ select · ⏎ open in the editor · F2 rename · ⌘⏎ show in Finder · ⌫ delete (2× = confirm) · Esc back · text after record searches",
   "record.editor.window_title": "Recording editor",
   "record.editor.no_session": "No recording is open in the editor.",
   "record.editor.unreadable": "The project could not be read.",
@@ -4482,5 +4482,18 @@
   "rec3.insp.theme.pop-coral": "Pop Coral",
   "rec3.insp.theme.pixel-candy": "Pixel Candy",
   "rec3.insp.theme.star-sprout": "Star Sprout",
-  "rec3.insp.theme.glass-lens": "Glass Lens"
+  "rec3.insp.theme.glass-lens": "Glass Lens",
+  "record.editor.not_project": "This folder is not a recording project (it has no project.json).",
+  "rec4.projects.title": "Open project",
+  "rec4.projects.open": "Open project…",
+  "rec4.projects.open_hint": "Open any project folder — also one outside the recordings folder",
+  "rec4.projects.open_title": "Choose a recording project folder",
+  "rec4.projects.rename": "Rename",
+  "rec4.projects.search": "Search by name or date",
+  "rec4.projects.no_match": "No project matches “{query}”.",
+  "rec4.projects.current": "open now",
+  "rec4.projects.created": "Created {date}",
+  "rec4.projects.title_empty": "The name must not be empty.",
+  "rec4.projects.title_too_long": "The name is too long (200 characters at most).",
+  "rec4.projects.title_invalid": "The name must not contain line breaks or control characters."
 }

@@ -10,6 +10,17 @@ pub const PROJECT_FILE: &str = "project.json";
 pub const CURSOR_FILE: &str = "cursor.json";
 pub const SCREEN_FILE: &str = "screen.mp4";
 pub const MIC_FILE: &str = "mic.wav";
+/// Small preview picture of a project, written by the editor from its filmstrip render
+/// (`editor_ipc::thumbs`). The project list shows it; without it a placeholder.
+pub const THUMB_FILE: &str = "thumb.jpg";
+/// A thumbnail larger than this is not a filmstrip frame (they are ~5 KB) — not inlined.
+pub const MAX_THUMB_BYTES: u64 = 256 * 1024;
+/// Longest project title a rename accepts (characters).
+pub const MAX_TITLE_CHARS: usize = 200;
+/// Rename refusals (catalogue keys).
+pub const ERR_TITLE_EMPTY: &str = "record.title_empty";
+pub const ERR_TITLE_TOO_LONG: &str = "record.title_too_long";
+pub const ERR_TITLE_INVALID: &str = "record.title_invalid";
 pub const PROJECT_SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,9 +191,61 @@ pub struct ProjectSummary {
     pub dir: PathBuf,
     pub title: String,
     pub created_at: i64,
+    /// Last edit (editor save, end of the take); falls back to `created_at` when unset.
+    pub updated_at: i64,
     pub duration_ms: u64,
     pub status: ProjectStatus,
     pub failure: Option<String>,
+    /// `data:image/jpeg;base64,…` of the project's [`THUMB_FILE`], when the editor rendered one.
+    pub thumb: Option<String>,
+}
+
+impl ProjectSummary {
+    /// The time the list sorts by: the last edit, else the creation.
+    pub fn last_change(&self) -> i64 {
+        if self.updated_at > 0 { self.updated_at } else { self.created_at }
+    }
+}
+
+/// The project's thumbnail as a data URI (none when missing, empty or implausibly big).
+pub fn thumb_data_uri(dir: &Path) -> Option<String> {
+    use base64::Engine as _;
+    let path = dir.join(THUMB_FILE);
+    let meta = std::fs::symlink_metadata(&path).ok()?;
+    if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_THUMB_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    // JPEG SOI marker: anything else is not ours.
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return None;
+    }
+    Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
+/// A user-typed title: trimmed, 1..=200 characters, no control characters.
+pub fn clean_title(title: &str) -> Result<String, &'static str> {
+    let t = title.trim();
+    if t.is_empty() {
+        return Err(ERR_TITLE_EMPTY);
+    }
+    if t.chars().count() > MAX_TITLE_CHARS {
+        return Err(ERR_TITLE_TOO_LONG);
+    }
+    if t.chars().any(char::is_control) {
+        return Err(ERR_TITLE_INVALID);
+    }
+    Ok(t.to_string())
+}
+
+/// Renames a project: only `title` in its `project.json` changes — the folder, the
+/// recording, the editor document and both timestamps stay as they are.
+pub fn rename_project(dir: &Path, title: &str) -> Result<Project, String> {
+    let title = clean_title(title).map_err(str::to_string)?;
+    let mut p = read_project(dir)?;
+    p.title = title;
+    write_atomic(dir, PROJECT_FILE, &p).map_err(|e| format!("cannot write project.json: {e}"))?;
+    Ok(p)
 }
 
 /// A folder is a project exactly when it holds a `project.json` — even an
@@ -192,7 +255,8 @@ pub fn is_project_dir(dir: &Path) -> bool {
     dir.join(PROJECT_FILE).is_file()
 }
 
-/// List all projects below `root`, newest first. Broken projects appear as
+/// List all projects below `root`, most recently edited first (`updated_at`, falling back
+/// to `created_at`). Every project is listed — the panel scrolls. Broken projects appear as
 /// `Failed`; folders without a `project.json` are not listed at all.
 pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
     let Ok(rd) = std::fs::read_dir(root) else { return Vec::new() };
@@ -210,6 +274,12 @@ pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
+        let modified_fallback = std::fs::metadata(dir.join(PROJECT_FILE))
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
         out.push(match read_project(&dir) {
             Ok(p) => {
                 let (status, failure) = match p.status {
@@ -223,9 +293,11 @@ pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
                     s => (s, p.failure.clone()),
                 };
                 ProjectSummary {
+                    thumb: thumb_data_uri(&dir),
                     dir,
                     title: p.title,
                     created_at: p.created_at,
+                    updated_at: p.updated_at,
                     duration_ms: p.recording.duration_ms,
                     status,
                     failure,
@@ -235,13 +307,15 @@ pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
                 dir,
                 title: name,
                 created_at: created_fallback,
+                updated_at: modified_fallback,
                 duration_ms: 0,
+                thumb: None,
                 status: ProjectStatus::Failed,
                 failure: Some(reason),
             },
         });
     }
-    out.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| a.dir.cmp(&b.dir)));
+    out.sort_by(|a, b| b.last_change().cmp(&a.last_change()).then_with(|| a.dir.cmp(&b.dir)));
     out
 }
 
@@ -344,6 +418,77 @@ mod tests {
         let titles: Vec<_> = list_projects(&root).into_iter().map(|s| s.title).collect();
         assert_eq!(titles, ["new", "mid", "old"]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn list_sorted_by_updated_at() {
+        let root = tmp("updated");
+        // (name, created, updated): an old project edited yesterday beats a newer one.
+        for (n, c, u) in [("made-old-edited-now", 10, 500), ("made-new", 300, 300), ("never-saved", 200, 0)] {
+            let p = root.join(n);
+            std::fs::create_dir_all(&p).unwrap();
+            let mut pr = project(n, ProjectStatus::Failed, c);
+            pr.updated_at = u;
+            write_atomic(&p, PROJECT_FILE, &pr).unwrap();
+        }
+        let list = list_projects(&root);
+        let titles: Vec<_> = list.iter().map(|s| s.title.as_str()).collect();
+        // updated 0 falls back to created (200), so it sorts between 300 and nothing older.
+        assert_eq!(titles, ["made-old-edited-now", "made-new", "never-saved"]);
+        assert_eq!(list[0].updated_at, 500);
+        assert_eq!(list[2].last_change(), 200);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn list_has_no_row_cap() {
+        let root = tmp("many");
+        for i in 0..27 {
+            let p = root.join(format!("p{i:02}"));
+            std::fs::create_dir_all(&p).unwrap();
+            write_atomic(&p, PROJECT_FILE, &project(&format!("p{i}"), ProjectStatus::Failed, i)).unwrap();
+        }
+        assert_eq!(list_projects(&root).len(), 27);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn rename_changes_title_only() {
+        let d = tmp("rename");
+        let mut before = project("id-1", ProjectStatus::Ready, 100);
+        before.updated_at = 250;
+        before.recording.duration_ms = 4321;
+        before.editor = serde_json::json!({"version": 3, "clips": [1, 2]});
+        write_atomic(&d, PROJECT_FILE, &before).unwrap();
+        let after = rename_project(&d, "  Neuer Name — Ü  ").unwrap();
+        assert_eq!(after.title, "Neuer Name — Ü");
+        let on_disk = read_project(&d).unwrap();
+        assert_eq!(on_disk, Project { title: "Neuer Name — Ü".into(), ..before.clone() });
+        // The folder keeps its name; nothing else appears in it.
+        let names: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, [PROJECT_FILE]);
+        // Refusals leave the file alone.
+        assert_eq!(rename_project(&d, "   ").unwrap_err(), ERR_TITLE_EMPTY);
+        assert_eq!(rename_project(&d, &"x".repeat(201)).unwrap_err(), ERR_TITLE_TOO_LONG);
+        assert_eq!(rename_project(&d, "a\nb").unwrap_err(), ERR_TITLE_INVALID);
+        assert!(rename_project(&d, &"ä".repeat(200)).is_ok(), "the limit counts characters, not bytes");
+        assert!(rename_project(&d.join("missing"), "x").is_err());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn thumb_is_inlined_only_when_it_is_a_small_jpeg() {
+        let d = tmp("thumb");
+        assert_eq!(thumb_data_uri(&d), None, "missing → placeholder");
+        std::fs::write(d.join(THUMB_FILE), [0xFF, 0xD8, 0xFF, 0xE0, 1, 2]).unwrap();
+        assert!(thumb_data_uri(&d).unwrap().starts_with("data:image/jpeg;base64,/9j/"));
+        std::fs::write(d.join(THUMB_FILE), b"<svg/>").unwrap();
+        assert_eq!(thumb_data_uri(&d), None, "not a JPEG");
+        let mut big = vec![0xFF, 0xD8, 0xFF];
+        big.resize(MAX_THUMB_BYTES as usize + 1, 0);
+        std::fs::write(d.join(THUMB_FILE), big).unwrap();
+        assert_eq!(thumb_data_uri(&d), None, "too big");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

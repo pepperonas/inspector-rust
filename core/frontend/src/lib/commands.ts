@@ -1105,11 +1105,11 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "record",
     keyword: "record",
-    syntax: "record",
+    syntax: "record [search]",
     description:
-      "Record the screen or a window (system audio, microphone, pointer data) into an editable project — Enter opens the recording HUD",
+      "Record the screen or a window (system audio, microphone, pointer data) into an editable project — Enter opens the recording HUD; text after it searches your projects",
     description_de:
-      "Bildschirm oder Fenster aufnehmen (Systemton, Mikro, Zeigerdaten) als nachbearbeitbares Projekt — Enter öffnet das Aufnahme-HUD",
+      "Bildschirm oder Fenster aufnehmen (Systemton, Mikro, Zeigerdaten) als nachbearbeitbares Projekt — Enter öffnet das Aufnahme-HUD; Text dahinter durchsucht deine Projekte",
     requiresArg: false,
     platform: ["mac"],
   },

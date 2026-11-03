@@ -7178,6 +7178,50 @@ pub async fn record_delete_project(app: AppHandle, dir: String) -> Result<(), St
     .map_err(|e| format!("record task: {e}"))?
 }
 
+/// Renames a project (title only); returns the stored title.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_rename_project(app: AppHandle, dir: String, title: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::record::session::rename_project(&app, std::path::Path::new(&dir), &title)
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))?
+}
+
+/// "Open project…": a native folder picker starting in the recordings folder. Any folder may
+/// be picked (a project moved elsewhere); it must hold a `project.json`. Returns the
+/// canonical folder, or null when the picker was cancelled.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn record_open_dialog(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    ui: State<'_, UiState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let root = crate::record::RecordConfig::load(&db).root();
+    // The picker takes focus: the popup must not hide under it (it would unmount the panel).
+    ui.suppress_hide.store(true, Ordering::Relaxed);
+    let picked = {
+        let app = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut b = app.dialog().file().set_title(crate::i18n::t("rec4.projects.open_title"));
+            if root.is_dir() {
+                b = b.set_directory(&root);
+            }
+            b.blocking_pick_folder()
+        })
+        .await
+    };
+    ui.suppress_hide.store(false, Ordering::Relaxed);
+    let Some(picked) = picked.map_err(|e| format!("record task: {e}"))? else { return Ok(None) };
+    let path = picked.into_path().map_err(|_| crate::record::editor_ipc::ERR_NOT_PROJECT.to_string())?;
+    crate::record::editor_ipc::open_target(&path)
+        .map(|p| Some(p.to_string_lossy().into_owned()))
+        .map_err(str::to_string)
+}
+
 // ── record (stage 2): editor + render helper ────────────────────────────────
 // All async: everything here may wait on the helper (or build a window on the main
 // thread), so the blocking part always runs in `spawn_blocking`.
@@ -7190,16 +7234,24 @@ async fn editor_blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String
 /// Open a project in the editor window (window + render helper + preview).
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
-pub async fn editor_open(app: AppHandle, dir: String) -> Result<crate::record::editor_ipc::EditorInit, String> {
+pub async fn editor_open(
+    app: AppHandle,
+    dir: String,
+    from_editor: Option<bool>,
+) -> Result<crate::record::editor_ipc::EditorInit, String> {
     editor_blocking(move || {
         // A running export would be killed by the open: refuse before the popup closes, so
-        // the record panel can show why.
+        // the record panel can show why. A folder that is no project is refused here too.
         crate::record::editor_ipc::open_allowed()?;
+        crate::record::editor_ipc::open_target(std::path::Path::new(&dir)).map_err(str::to_string)?;
         // Opened from the `record` panel: close the popup FIRST and let its `app.hide()`
         // (which deactivates the app) settle, so the editor's `set_focus` comes after it and
         // keeps focus. The window itself survives the hide either way (`setCanHide: NO`).
-        crate::hotkey::hide_popup(&app);
-        std::thread::sleep(std::time::Duration::from_millis(120));
+        // From the editor's own project list (⌘O) there is no popup to close.
+        if from_editor != Some(true) {
+            crate::hotkey::hide_popup(&app);
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        }
         crate::record::editor_ipc::open_editor(&app, std::path::PathBuf::from(dir))
     })
     .await

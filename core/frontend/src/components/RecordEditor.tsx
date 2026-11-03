@@ -8,6 +8,7 @@ import {
   Crop,
   Download,
   FilePlus2,
+  FolderOpen,
   Gauge,
   Keyboard,
   Palette,
@@ -32,6 +33,7 @@ import {
   type RecordPresetEntry,
   editorCurrent,
   editorDuplicateClip,
+  editorOpen,
   editorImportAsset,
   editorImportTake,
   editorMoveClip,
@@ -96,6 +98,7 @@ import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { BindingsContext, useKeyTitle } from "./editor/bindings-context";
 import { matchAction } from "../lib/editor-shortcuts";
 import { TakePicker } from "./editor/TakePicker";
+import { ProjectDialog } from "./editor/ProjectDialog";
 import { PresetsMenu } from "./editor/PresetsMenu";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
@@ -614,6 +617,22 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [rustEdit, setSelected],
   );
 
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  /**
+   * ⌘O → another project. Edits still on their way to Rust land first (the chain); Rust then
+   * saves this project before it opens the next (`open_editor` → `flush_save`), and the
+   * `record-editor-opened` event remounts the editor on the new session.
+   */
+  const switchProject = useCallback(
+    (projectDir: string) => {
+      setProjectsOpen(false);
+      void chain.current
+        .then(() => editorOpen(projectDir, { fromEditor: true }))
+        .catch(report);
+    },
+    [report],
+  );
+
   const [presetsOpen, setPresetsOpen] = useState(false);
   /** A style preset: Rust copies its files and answers with the doc — one undo step. */
   /** Saving a preset reads Rust's document: queued behind pending edits, like every edit. */
@@ -791,7 +810,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // The timeline took the key (a region's add/delete/copy), or a dialog owns the keys.
-      if (e.defaultPrevented || exportOpen || shortcutsOpen || presetsOpen || isTypingTarget(e.target) || !view) return;
+      if (e.defaultPrevented || exportOpen || shortcutsOpen || presetsOpen || projectsOpen || isTypingTarget(e.target) || !view) return;
       const action = matchAction(e, bindings);
       // A take runs: Esc (fixed) discards it, the play or voiceover key ends it, nothing else
       // edits meanwhile.
@@ -873,7 +892,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           setShortcutsOpen(true);
           return;
         case "openProject":
-          // No project picker in the editor yet (Task 11): the key is reserved, nothing happens.
+          e.preventDefault();
+          if (cropMode) setCropMode(false);
+          if (playing) togglePlay();
+          setProjectsOpen(true);
           return;
         default:
           return;
@@ -887,6 +909,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     exportOpen,
     shortcutsOpen,
     presetsOpen,
+    projectsOpen,
     bindings,
     playing,
     cropMode,
@@ -1012,6 +1035,19 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </span>
         )}
         <div className="flex-1" />
+        <button
+          className={iconBtn}
+          onClick={() => {
+            if (playing) togglePlay();
+            setProjectsOpen(true);
+          }}
+          disabled={!!voiceover}
+          title={keyTitle(t("rec4.projects.title"), bindings.openProject)}
+          aria-label={t("rec4.projects.title")}
+          data-testid="ed-projects-open"
+        >
+          <FolderOpen size={14} />
+        </button>
         <div className="relative">
           <button
             className={iconBtn + (presetsOpen ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")}
@@ -1065,7 +1101,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          voiceover ? null : annSel && !cropMode && !fatal && !shortcutsOpen ? (
+          voiceover ? null : annSel && !cropMode && !fatal && !shortcutsOpen && !projectsOpen ? (
             <AnnotationOverlay
               annotation={annSel}
               screenRect={view.screenRects?.[annSel.clip] ?? null}
@@ -1274,7 +1310,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onWidth={setTrackWidth}
           selectedZoom={zoomSel?.id ?? null}
           onSelectZoom={setSelectedZoom}
-          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen && !presetsOpen}
+          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen && !presetsOpen && !projectsOpen}
           bindings={bindings}
           onMoveClip={moveClip}
           selectedAnnotation={annSel?.id ?? null}
@@ -1309,6 +1345,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       />
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
       {shortcutsOpen && <ShortcutsDialog bindings={bindings} onSave={saveBindings} onClose={() => setShortcutsOpen(false)} />}
+      {projectsOpen && (
+        <ProjectDialog currentDir={dir} onOpen={switchProject} onClose={() => setProjectsOpen(false)} onError={report} />
+      )}
     </div>
     </BindingsContext.Provider>
   );

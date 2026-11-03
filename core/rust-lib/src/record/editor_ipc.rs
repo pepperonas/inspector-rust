@@ -71,6 +71,8 @@ pub const ERR_NO_DOWNLOADS: &str = "record.editor.no_downloads";
 pub const ERR_OPEN_EXPORTING: &str = "record.editor.open_exporting";
 /// Deleting the project that is open in the editor.
 pub const ERR_DELETE_OPEN: &str = "record.editor.delete_open";
+/// "Open project…" picked a folder that holds no `project.json` (or does not exist).
+pub const ERR_NOT_PROJECT: &str = "record.editor.not_project";
 
 /// An imported background image is not a PNG or JPEG.
 pub const ERR_IMPORT_TYPE: &str = "record.editor.import_type";
@@ -763,9 +765,12 @@ impl Session {
             dir: self.dir.clone(),
             title: self.project.title.clone(),
             created_at: self.project.created_at,
+            updated_at: self.project.updated_at,
             duration_ms: self.project.recording.duration_ms,
             status: self.project.status,
             failure: self.project.failure.clone(),
+            // The editor shows the live picture, not the list's thumbnail.
+            thumb: None,
         }
     }
 
@@ -1129,6 +1134,7 @@ fn show_window(app: &AppHandle) {
 /// `editor_open` IPC and by the recording session after a take (Task 7).
 pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> {
     open_allowed()?;
+    let dir = open_target(&dir).map_err(str::to_string)?;
     let project = project::read_project(&dir).map_err(|e| {
         tracing::warn!(target: "record::editor", "{}: {e}", dir.display());
         ERR_UNREADABLE.to_string()
@@ -1249,6 +1255,49 @@ pub fn open_refusal(exporting: bool) -> Result<(), String> {
 /// [`open_refusal`] for the live helper — checked before anything (popup, session) changes.
 pub fn open_allowed() -> Result<(), String> {
     open_refusal(current_client().is_some_and(|c| c.exporting()))
+}
+
+/// The folder `editor_open` may open: an existing directory that holds a `project.json`,
+/// inside the recordings folder or anywhere else ("Open project…", a moved project). The path
+/// comes back canonical, so the session never holds `..` or a symlink.
+pub fn open_target(dir: &Path) -> Result<PathBuf, &'static str> {
+    let dir = std::fs::canonicalize(dir).map_err(|_| ERR_NOT_PROJECT)?;
+    if !dir.is_dir() || !project::is_project_dir(&dir) {
+        return Err(ERR_NOT_PROJECT);
+    }
+    Ok(dir)
+}
+
+/// A rename of the project open in the editor. The session's copy takes the new title and
+/// is written right away UNDER the session lock: a save racing a separate read-modify-write
+/// could otherwise put an older editor document back. `s.project` is exactly what was last
+/// saved (the doc only reaches it on save), so this changes the title and nothing else.
+/// `None` when that project is not open (the caller renames the file itself).
+pub fn retitle_open(dir: &Path, title: &str) -> Option<Result<String, String>> {
+    let mut guard = session();
+    let s = guard.as_mut()?;
+    if std::fs::canonicalize(&s.dir).ok() != std::fs::canonicalize(dir).ok() {
+        return None;
+    }
+    s.project.title = title.to_string();
+    Some(
+        project::write_atomic(&s.dir, PROJECT_FILE, &s.project)
+            .map(|_| s.project.title.clone())
+            .map_err(|e| format!("cannot write project.json: {e}")),
+    )
+}
+
+/// Writes the first filmstrip frame as the project's thumbnail (atomic; best effort).
+fn store_thumb(dir: &Path, jpeg: &[u8]) {
+    if jpeg.is_empty() || jpeg.len() as u64 > project::MAX_THUMB_BYTES {
+        return;
+    }
+    let tmp = dir.join(format!(".{}.tmp", project::THUMB_FILE));
+    let res = std::fs::write(&tmp, jpeg).and_then(|_| std::fs::rename(&tmp, dir.join(project::THUMB_FILE)));
+    if let Err(e) = res {
+        let _ = std::fs::remove_file(&tmp);
+        tracing::debug!(target: "record::editor", "thumbnail not written: {e}");
+    }
 }
 
 /// The project dir open in the editor, if any.
@@ -1607,12 +1656,12 @@ pub fn resize(app: &AppHandle, w: u32, h: u32) -> Result<(), String> {
 }
 
 pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
-    let (scene, frames) = {
+    let (scene, frames, dir) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
         let out = s.output(OutputTarget::P720);
         let frames = thumb_frames(editor::programme_duration_ms(&s.play), count, THUMB_FPS);
-        (s.scene(out, THUMB_FPS), frames)
+        (s.scene(out, THUMB_FPS), frames, s.dir.clone())
     };
     let client = ensure_client(app, true)?;
     let rendered = client.thumbs(scene, THUMB_FPS, frames.clone(), THUMB_WIDTH);
@@ -1629,6 +1678,10 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         let _ = send_all(&client, &cmds);
     }
     let rendered = rendered?;
+    // The project list's picture: the filmstrip's first frame, no extra render.
+    if let Some((_, jpeg)) = frames.first().and_then(|f| rendered.iter().find(|(i, _)| i == f)) {
+        store_thumb(&dir, jpeg);
+    }
     let b64 = base64::engine::general_purpose::STANDARD;
     Ok(frames
         .iter()
@@ -2599,6 +2652,64 @@ mod tests {
         let _ = std::fs::remove_dir_all(&b);
     }
 
+    fn open_tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ir-editor-open-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn open_outside_root_requires_project_dir() {
+        // A project somewhere else entirely (moved to an external disk, a colleague's copy).
+        let elsewhere = open_tmp("outside").join("Mein Projekt");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join(PROJECT_FILE), "{}").unwrap();
+        let got = open_target(&elsewhere).unwrap();
+        assert_eq!(got, std::fs::canonicalize(&elsewhere).unwrap(), "canonical path");
+        // `..` and a symlink resolve to the same folder.
+        let dotted = elsewhere.join("..").join("Mein Projekt");
+        assert_eq!(open_target(&dotted).unwrap(), got);
+        let link = elsewhere.parent().unwrap().join("link");
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        assert_eq!(open_target(&link).unwrap(), got);
+        // The guard runs first in open_editor, before anything reads the folder.
+        let src = include_str!("editor_ipc.rs");
+        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        let guard = open.find("open_target(&dir)").expect("open_editor validates the folder");
+        assert!(guard < open.find("read_project").unwrap());
+        let _ = std::fs::remove_dir_all(elsewhere.parent().unwrap());
+    }
+
+    #[test]
+    fn open_rejects_plain_folder() {
+        let d = open_tmp("plain");
+        assert_eq!(open_target(&d), Err(ERR_NOT_PROJECT), "no project.json");
+        std::fs::write(d.join("screen.mp4"), b"x").unwrap();
+        assert_eq!(open_target(&d), Err(ERR_NOT_PROJECT), "a video alone is not a project");
+        assert_eq!(open_target(&d.join("missing")), Err(ERR_NOT_PROJECT));
+        std::fs::write(d.join("file.txt"), b"x").unwrap();
+        assert_eq!(open_target(&d.join("file.txt")), Err(ERR_NOT_PROJECT), "a file is not a folder");
+        // project.json as a FOLDER does not count either.
+        std::fs::create_dir_all(d.join("sub").join(PROJECT_FILE)).unwrap();
+        assert_eq!(open_target(&d.join("sub")), Err(ERR_NOT_PROJECT));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn thumbnail_is_the_first_filmstrip_frame() {
+        let src = include_str!("editor_ipc.rs");
+        let body = src.split("pub fn thumbs(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        assert!(body.contains("frames.first()") && body.contains("store_thumb(&dir"), "the list reuses the filmstrip render");
+        let d = open_tmp("thumb");
+        store_thumb(&d, &[0xFF, 0xD8, 0xFF, 7]);
+        assert_eq!(std::fs::read(d.join(project::THUMB_FILE)).unwrap(), [0xFF, 0xD8, 0xFF, 7]);
+        assert!(project::thumb_data_uri(&d).is_some());
+        let names: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, [project::THUMB_FILE], "no tmp file left");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn opening_is_refused_while_an_export_runs() {
         assert_eq!(open_refusal(true), Err(ERR_OPEN_EXPORTING.to_string()));
@@ -2848,6 +2959,155 @@ mod tests {
         client.shutdown();
         eprintln!("shutdown in {:?}", started.elapsed());
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    /// Stage-4 end-to-end through Rust (no UI, no keystrokes): a COPY of a real project gets
+    /// a Caveat text with `pop`, an arrow, a free-form mosaic, looped music and a generated
+    /// voiceover, a style preset is saved and applied, the document runs through `normalize`
+    /// and `scene_json_with` exactly as the editor sends it, and the helper exports an MP4.
+    /// Everything it makes lives in a temp folder and is deleted at the end (set
+    /// `IR_STAGE4_KEEP=<dir>` to copy the MP4 + a still there first).
+    /// `MAC_FFMPEG_DIR=… cargo build -p record-render`, then
+    /// `IR_EDITOR_PROJECT=<project> cargo test -p inspector-rust-core --lib stage4_e2e_live -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn stage4_e2e_live() {
+        use std::process::Command as Proc;
+        let src = PathBuf::from(std::env::var("IR_EDITOR_PROJECT").expect("IR_EDITOR_PROJECT"));
+        let work = std::env::temp_dir().join(format!("ir-stage4-e2e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&work);
+        let dir = work.join("project");
+        let root = work.join("root");
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        for f in [PROJECT_FILE, SCREEN_FILE, MIC_FILE, project::CURSOR_FILE] {
+            if src.join(f).is_file() {
+                std::fs::copy(src.join(f), dir.join(f)).unwrap();
+            }
+        }
+        // 48 kHz mono 16-bit WAVs: music 220 Hz at −6 dBFS (2 s, looped), a "voice" of 1 kHz
+        // bursts at −26 dBFS (0.5 s on, 0.5 s off) for 3 s.
+        let wav = |path: &Path, secs: f64, f: &dyn Fn(f64) -> f64| {
+            let rate = 48_000u32;
+            let n = (secs * rate as f64) as u32;
+            let mut b = Vec::new();
+            b.extend_from_slice(b"RIFF");
+            b.extend_from_slice(&(36 + n * 2).to_le_bytes());
+            b.extend_from_slice(b"WAVEfmt ");
+            for v in [16u32.to_le_bytes(), [1, 0, 1, 0], rate.to_le_bytes(), (rate * 2).to_le_bytes(), [2, 0, 16, 0]] {
+                b.extend_from_slice(&v);
+            }
+            b.extend_from_slice(b"data");
+            b.extend_from_slice(&(n * 2).to_le_bytes());
+            for i in 0..n {
+                let v = f(i as f64 / rate as f64).clamp(-1.0, 1.0);
+                b.extend_from_slice(&((v * 32767.0) as i16).to_le_bytes());
+            }
+            std::fs::write(path, b).unwrap();
+        };
+        let tau = std::f64::consts::TAU;
+        wav(&dir.join("assets/music.wav"), 2.0, &|t| 0.5 * (tau * 220.0 * t).sin());
+        wav(&dir.join("assets/voiceover-e2e.wav"), 3.0, &|t| if ((t * 2.0) as u64).is_multiple_of(2) { 0.05 * (tau * 1000.0 * t).sin() } else { 0.0 });
+
+        let project = project::read_project(&dir).unwrap();
+        let dur = project.recording.duration_ms;
+        let takes = TakeMetas::new();
+        // The preset: a gradient look saved from one doc, applied to the working doc.
+        let mut styled = editor::load(&project, &takes);
+        styled.appearance.background = editor::Background::Gradient { angle_deg: 135.0, stops: vec!["#1e3a8a".into(), "#f472b6".into()] };
+        styled.appearance.padding = 12.0;
+        styled.appearance.radius_px = 18.0;
+        styled.appearance.shadow = 0.6;
+        let entry = super::super::presets::save_preset(&root, "E2E look", &styled, &dir).unwrap();
+        let preset = super::super::presets::read_preset(&root, &entry.file).unwrap();
+        let mut v = serde_json::to_value(super::super::presets::apply_preset(&editor::load(&project, &takes), &preset, &root, &dir)).unwrap();
+        let end = dur.min(5_000);
+        v["annotations"] = serde_json::json!([
+            {"id": "t", "clip": 0, "startMs": 200, "endMs": end, "x": 10, "y": 8, "w": 50, "h": 16, "zIndex": 1,
+             "body": {"kind": "text", "content": "Hallo Caveat", "color": "#ffffff", "background": "rgba(0, 0, 0, 0.7)",
+                      "fontSize": 64, "fontFamily": "Caveat", "bold": true, "italic": false, "underline": false,
+                      "align": "center", "animation": "pop"}},
+            {"id": "a", "clip": 0, "startMs": 0, "endMs": end, "x": 62, "y": 10, "w": 20, "h": 20, "zIndex": 2,
+             "body": {"kind": "arrow", "direction": "down-left", "color": "#34B27B", "strokeWidth": 6}},
+            {"id": "b", "clip": 0, "startMs": 0, "endMs": end, "x": 55, "y": 55, "w": 30, "h": 30, "zIndex": 3,
+             "body": {"kind": "blur", "style": "mosaic", "shape": "freehand", "color": "white", "intensity": 12, "blockSize": 16,
+                      "points": [[50, 0], [100, 40], [80, 100], [20, 100], [0, 40]]}}
+        ]);
+        v["audioTracks"] = serde_json::json!([
+            {"id": "m", "kind": "music", "file": "music.wav", "clip": 0, "startMs": 0, "durationMs": 2000, "gainDb": -18.0,
+             "looped": true, "fadeInMs": 1000, "fadeOutMs": 1000, "label": "music"},
+            {"id": "v", "kind": "voiceover", "file": "voiceover-e2e.wav", "clip": 0, "startMs": 1500, "durationMs": 3000,
+             "spanMs": 3000, "gainDb": 0.0, "label": "voice"}
+        ]);
+        let doc = editor::normalize(serde_json::from_value(v).unwrap(), dur, &takes);
+        assert_eq!(doc.annotations.len(), 3, "all three annotations survive normalize");
+        assert_eq!(doc.audio_tracks.len(), 2);
+        assert!(matches!(doc.appearance.background, editor::Background::Gradient { .. }), "the preset was applied");
+        let play = editor::playable(&doc, &takes);
+        let out = (1280, 720);
+        let assets = AssetRoot::dev();
+        let cursor = read_cursor(&dir);
+        let scene = scene_json_with(&dir, &project, &play, out, 30, &assets, cursor.as_ref(), &TakeSources::new());
+        let entries = scene["audioTracks"].as_array().map_or(0, |a| a.len());
+        eprintln!("scene: {} annotations, {entries} audio track entries, programme {} ms", scene["annotations"].as_array().map_or(0, |a| a.len()), editor::programme_duration_ms(&play));
+        assert_eq!(scene["annotations"].as_array().unwrap().len(), 3);
+
+        let done = Arc::new(Mutex::new(None::<Result<String, String>>));
+        let d2 = done.clone();
+        let client = RenderClient::spawn(
+            Arc::new(move |n| match n {
+                Notice::ExportDone { path } => *d2.lock().unwrap() = Some(Ok(path)),
+                Notice::ExportFailed { reason, .. } => *d2.lock().unwrap() = Some(Err(reason)),
+                _ => {}
+            }),
+            &assets.fonts_dir(),
+        )
+        .unwrap();
+        let mp4 = work.join("stage4.mp4");
+        let started = Instant::now();
+        client.export(scene, ExportKind::Mp4 { w: out.0, h: out.1, fps: 30, codec: Codec::H264 }, mp4.display().to_string()).unwrap();
+        while done.lock().unwrap().is_none() && started.elapsed() < Duration::from_secs(300) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let result = done.lock().unwrap().clone().expect("export finished");
+        client.shutdown();
+        assert_eq!(result, Ok(mp4.display().to_string()));
+        eprintln!("export: {:?}, {} bytes", started.elapsed(), std::fs::metadata(&mp4).unwrap().len());
+
+        let ff = |args: &[&str]| -> String {
+            let o = Proc::new("ffmpeg").args(["-v", "info", "-nostats", "-i"]).arg(&mp4).args(args).output().expect("ffmpeg on PATH");
+            String::from_utf8_lossy(&o.stderr).into_owned()
+        };
+        let still = work.join("still-2.5s.png");
+        let _ = Proc::new("ffmpeg").args(["-v", "error", "-y", "-ss", "2.5", "-i"]).arg(&mp4).args(["-frames:v", "1"]).arg(&still).status();
+        assert!(still.is_file(), "a still was extracted");
+        // Level per 0.5 s window (RMS dBFS), the integrated loudness and the true peak.
+        let mut curve = Vec::new();
+        let mut t = 0.0;
+        while t + 0.5 <= end as f64 / 1000.0 + 0.01 {
+            let log = ff(&["-af", &format!("atrim={t}:{},volumedetect", t + 0.5), "-f", "null", "-"]);
+            let mean = log.split("mean_volume:").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|x| x.parse::<f64>().ok());
+            curve.push((t, mean));
+            t += 0.5;
+        }
+        eprintln!("level curve (window start s → mean dBFS): {curve:?}");
+        let log = ff(&["-af", "ebur128=peak=true", "-f", "null", "-"]);
+        let summary = &log[log.rfind("Summary:").expect("ebur128 summary")..];
+        let after = |key: &str| -> f64 {
+            let rest = &summary[summary.find(key).unwrap() + key.len()..];
+            rest.split_whitespace().find_map(|w| w.parse().ok()).unwrap()
+        };
+        let (lufs, tp) = (after("I:"), after("Peak:"));
+        eprintln!("integrated {lufs:.1} LUFS, true peak {tp:.2} dBTP");
+        assert!(tp <= -2.0 + 0.3, "true peak {tp} over the −2 dBTP ceiling");
+        assert!(curve.iter().all(|(_, m)| m.is_some_and(|m| m > -60.0)), "audible throughout (music loops)");
+        if let Some(keep) = std::env::var_os("IR_STAGE4_KEEP") {
+            let keep = PathBuf::from(keep);
+            std::fs::create_dir_all(&keep).unwrap();
+            std::fs::copy(&mp4, keep.join("stage4.mp4")).unwrap();
+            std::fs::copy(&still, keep.join("still-2.5s.png")).unwrap();
+        }
+        std::fs::remove_dir_all(&work).unwrap();
     }
 
     /// A take follows one run of the transport: pause, seek and the programme's end end it

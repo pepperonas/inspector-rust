@@ -1167,9 +1167,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "record_presets_reveal": return null;
     case "record_list_projects":
       return [
-        { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false },
-        { dir: "/Users/ana/Movies/Inspector Rust/2026-09-28 Release notes", title: "Release notes", createdAt: Date.parse("2026-09-28T15:40:00Z"), durationMs: 41_500, status: "ready", failure: null, active: false },
+        { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), updatedAt: Date.parse("2026-10-04T11:30:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false, thumb: null },
+        { dir: "/Users/ana/Movies/Inspector Rust/2026-09-28 Release notes", title: "Release notes", createdAt: Date.parse("2026-09-28T15:40:00Z"), updatedAt: Date.parse("2026-09-28T16:02:00Z"), durationMs: 41_500, status: "ready", failure: null, active: false, thumb: null },
       ];
+    case "record_rename_project": return String(args.title).trim();
+    case "record_open_dialog": return null;
     case "editor_import_asset":
       return args.kind === "audio"
         ? { file: "5b2d7e90-1c3a-4f6b-8d42-a9e0c7f31b65.mp3", durationMs: 42_000 }

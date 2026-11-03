@@ -1416,6 +1416,31 @@ mod mac {
         Ok(())
     }
 
+    /// Renames a project of the recordings folder: only the title in its `project.json`
+    /// changes (the folder keeps its name, so links and the Finder stay valid). The project
+    /// being recorded is refused; the one open in the editor takes the title as well.
+    pub fn rename_project(app: &AppHandle, dir: &Path, title: &str) -> Result<String, String> {
+        let st = app.state::<RecordState>();
+        let root = app
+            .try_state::<crate::db::DbHandle>()
+            .map(|db| RecordConfig::load(&db).root())
+            .unwrap_or_else(|| resolve_root(""));
+        let dir = project_dir_inside_root(&root, dir).map_err(str::to_string)?;
+        if let Some(active) = st.active_dir() {
+            if std::fs::canonicalize(active).ok().as_deref() == Some(dir.as_path()) {
+                return Err(ERR_BUSY.into());
+            }
+        }
+        let title = crate::record::project::clean_title(title).map_err(str::to_string)?;
+        // Open in the editor: the session writes it (its next save would otherwise put the
+        // old title back, and a separate read-modify-write could race a save).
+        #[cfg(target_arch = "aarch64")]
+        if let Some(done) = crate::record::editor_ipc::retitle_open(&dir, &title) {
+            return done;
+        }
+        crate::record::project::rename_project(&dir, &title).map(|p| p.title)
+    }
+
     // ---------- headless entry (live test) ----------
 
     /// Record `filter` for `secs`, pausing once in the middle. No windows,

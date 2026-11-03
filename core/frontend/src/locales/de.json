@@ -4144,7 +4144,7 @@
   "rec2.panel.delete": "Löschen",
   "rec2.panel.delete_q": "Projekt löschen?",
   "rec2.panel.delete_yes": "Ja, löschen",
-  "rec2.panel.keys": "↓ wählen · ⏎ im Editor öffnen · ⌘⏎ im Finder zeigen · ⌫ löschen (2× = bestätigen) · Esc zurück",
+  "rec2.panel.keys": "↓ wählen · ⏎ im Editor öffnen · F2 umbenennen · ⌘⏎ im Finder zeigen · ⌫ löschen (2× = bestätigen) · Esc zurück · Text hinter record sucht",
   "record.editor.window_title": "Aufnahme-Editor",
   "record.editor.no_session": "Im Editor ist keine Aufnahme geöffnet.",
   "record.editor.unreadable": "Das Projekt konnte nicht gelesen werden.",
@@ -4482,5 +4482,18 @@
   "rec3.insp.theme.pop-coral": "Pop Coral",
   "rec3.insp.theme.pixel-candy": "Pixel Candy",
   "rec3.insp.theme.star-sprout": "Star Sprout",
-  "rec3.insp.theme.glass-lens": "Glass Lens"
+  "rec3.insp.theme.glass-lens": "Glass Lens",
+  "record.editor.not_project": "Dieser Ordner ist kein Aufnahmeprojekt (es fehlt die project.json).",
+  "rec4.projects.title": "Projekt öffnen",
+  "rec4.projects.open": "Projekt öffnen…",
+  "rec4.projects.open_hint": "Einen beliebigen Projektordner öffnen — auch außerhalb des Aufnahmeordners",
+  "rec4.projects.open_title": "Aufnahmeprojekt-Ordner wählen",
+  "rec4.projects.rename": "Umbenennen",
+  "rec4.projects.search": "Nach Name oder Datum suchen",
+  "rec4.projects.no_match": "Kein Projekt passt zu „{query}“.",
+  "rec4.projects.current": "gerade offen",
+  "rec4.projects.created": "Erstellt {date}",
+  "rec4.projects.title_empty": "Der Name darf nicht leer sein.",
+  "rec4.projects.title_too_long": "Der Name ist zu lang (höchstens 200 Zeichen).",
+  "rec4.projects.title_invalid": "Der Name darf keine Zeilenumbrüche oder Steuerzeichen enthalten."
 }

@@ -263,6 +263,6 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 
 ## Updating from upstream
 
-Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–13 (`grep -rn
+Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–15 (`grep -rn
 '\.\./\.\./\.\./\|\.\./\.\./public' src` finds 5/6) and diff `build.rs`/`Cargo.toml` by hand.
 Re-check `scripts/fetch-ffmpeg-macos.mjs` upstream for a new ffmpeg pin and hash.

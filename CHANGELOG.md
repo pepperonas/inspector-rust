@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.231.0] — 2026-11-03
+
+### Added
+- **`record` editor — annotations.** An annotation lane above the zoom track and an Annotation tab: text (bundled fonts Inter, Lora, Oswald, Caveat and IBM Plex Mono; size 8–200, colour, background plate, bold, italic, underline, alignment, and the animations fade, rise, pop, slide-left, typewriter and pulse), images (PNG/JPEG copied into the project), arrows (eight directions, colour, line width) and blur (blur or mosaic; rectangle, oval or a free shape whose outline is masked exactly). Each annotation has a frame with eight handles in the preview; **A** adds a text at the playhead, **Tab** walks the annotations, **Delete** removes the selected one.
+- **`record` editor — music and voiceover.** An audio lane under the clips with waveforms for the microphone, the system audio and every track. Add music (**M**; MP3, M4A, AAC, WAV or FLAC up to 200 MB; −18 dB with 1 s fades by default; a loop fills the programme) or record a voiceover from the playhead (**V**; native microphone, it follows the preview and stops at the programme end; the preview turns the other audio down while you record). Each track has its own level (−60 to +12 dB), fades (up to 5 s), loop, mute and name; the system audio has its own level (±12 dB). The preview plays the levels, fades and loops the export uses.
+- **`record` editor — clip operations.** Drag clips to reorder them, duplicate a clip with everything on it (**⌘D**), and insert another finished recording as a clip (it is copied into the project, so a moved project stays complete). Regions snap to the timeline start and end and to every clip edge, with a guide line. **⌘C**, **⌘X** and **⌘V** copy, cut and paste zooms, annotations and tracks at the playhead.
+- **`record` editor — configurable shortcuts.** Every editor action can be given another key (press **?**, or Settings → Recording). A key that belongs to another action can be swapped; undo/redo, the arrow keys, Tab and Esc stay fixed. Empty lanes name the key that fills them.
+- **`record` editor — style presets.** Save the current background, pointer style and output shape as a preset file (in the recordings folder under `Presets/`, shareable), apply it as one undo step, rename or delete it, and mark one as the style for new projects.
+- **`record` — reopening projects.** The `record` panel lists every project (it scrolls), most recently edited first, with a thumbnail from the editor's filmstrip. Text after `record` searches names and dates, **F2** renames a project in place (Enter saves, Esc cancels; the folder keeps its name), and Open project... opens any project folder, also one outside the recordings folder (a folder without a `project.json` is refused). In the editor, **⌘O** shows the same list and switches after saving.
+
+### Changed
+- **Export loudness follows the voice.** The export now levels the voice (microphone and voiceover) to −16 LUFS and leaves the system audio at its recorded level, adjusted only by the new system audio level. Recordings without a microphone are levelled as before. The limiter ceiling is −2 dBTP.
+
 ## [0.230.0] — 2026-11-02
 
 ### Added

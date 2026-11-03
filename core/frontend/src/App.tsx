@@ -4491,12 +4491,15 @@ function App() {
           commandKind === "transcribe" ||
           commandKind === "spotify" ||
           commandKind === "github" ||
+          commandKind === "record" ||
           commandKind === "gestures";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (commandKind === "record") {
         setRecordMode(true);
-        setRecordOpenSignal((n) => n + 1);
+        // `record <search>` + Enter selects among the matches; bare `record` opens the HUD.
+        if (arg.trim()) setRecordFocus(true);
+        else setRecordOpenSignal((n) => n + 1);
         return true;
       }
       if (commandKind === "bluetooth") {
@@ -6353,6 +6356,7 @@ function App() {
                   <div className="md3-pop-in h-full">
                     <RecordPanel
                       focused={recordFocus}
+                      query={isRecordCmd ? (parsedCommand?.arg ?? "") : ""}
                       openSignal={recordOpenSignal}
                       onRequestFocus={() => setRecordFocus(true)}
                       onExit={() => {

@@ -12,6 +12,8 @@ const m = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
   open: vi.fn(async (): Promise<void> => {}),
   edit: vi.fn(async (_dir: string): Promise<unknown> => ({})),
+  rename: vi.fn(async (_dir: string, title: string): Promise<string> => title.trim()),
+  pick: vi.fn(async (): Promise<string | null> => null),
 }));
 vi.mock("../lib/ipc", () => ({
   recordStatus: async () => m.status,
@@ -21,12 +23,14 @@ vi.mock("../lib/ipc", () => ({
   recordOpenHud: m.open,
   recordStop: async () => "",
   editorOpen: m.edit,
+  recordRenameProject: m.rename,
+  recordOpenDialog: m.pick,
 }));
 import { RecordPanel } from "./RecordPanel";
 
-async function mount(focused = true, openSignal = 0) {
+async function mount(focused = true, openSignal = 0, query = "") {
   const r = render(
-    <RecordPanel focused={focused} openSignal={openSignal} onRequestFocus={() => {}} onExit={() => {}} />,
+    <RecordPanel focused={focused} query={query} openSignal={openSignal} onRequestFocus={() => {}} onExit={() => {}} />,
   );
   await act(async () => {});
   return r;
@@ -133,16 +137,110 @@ describe("RecordPanel", () => {
     expect(m.del).toHaveBeenCalledWith("/p/a");
   });
 
-  it("selection never leaves the rendered rows", async () => {
+  it("lists every project, not just 20 — the list scrolls and the selection follows", async () => {
     m.items = Array.from({ length: 25 }, (_, i) => item({ dir: `/p/${i}`, title: `T${i}` }));
-    await mount();
-    for (let i = 0; i < 30; i++) {
-      await act(async () => { fireEvent.keyDown(window, { key: "ArrowDown" }); });
+    const scrolled: string[] = [];
+    const orig = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () {
+      scrolled.push(this.textContent ?? "");
+    };
+    try {
+      await mount();
+      expect(screen.getAllByTestId("record-row")).toHaveLength(25);
+      expect(screen.getByText("T24")).toBeTruthy();
+      for (let i = 0; i < 30; i++) {
+        await act(async () => { fireEvent.keyDown(window, { key: "ArrowDown" }); });
+      }
+      expect(scrolled[scrolled.length - 1]).toContain("T24");
+      await act(async () => { fireEvent.keyDown(window, { key: "Backspace" }); });
+      await act(async () => { fireEvent.keyDown(window, { key: "Backspace" }); });
+      expect(m.del).toHaveBeenCalledWith("/p/24");
+    } finally {
+      HTMLElement.prototype.scrollIntoView = orig;
     }
-    expect(screen.queryByText("T20")).toBeNull();
-    await act(async () => { fireEvent.keyDown(window, { key: "Backspace" }); });
-    await act(async () => { fireEvent.keyDown(window, { key: "Backspace" }); });
-    expect(m.del).toHaveBeenCalledWith("/p/19");
+  });
+
+  it("the search filters by name (accent- and case-insensitive) and by date", async () => {
+    m.items = [
+      item({ dir: "/p/a", title: "Überblick Q3", createdAt: Date.parse("2026-03-14T10:00:00") }),
+      item({ dir: "/p/b", title: "Demo", createdAt: Date.parse("2026-05-02T10:00:00") }),
+    ];
+    const r = await mount(true, 0, "uberblick");
+    expect(screen.getAllByTestId("record-row")).toHaveLength(1);
+    expect(screen.getByText("Überblick Q3")).toBeTruthy();
+    r.unmount();
+    await mount(true, 0, "2026-05-02");
+    expect(screen.getAllByTestId("record-row")).toHaveLength(1);
+    expect(screen.getByText("Demo")).toBeTruthy();
+    // Enter acts on the filtered row.
+    await act(async () => { fireEvent.keyDown(window, { key: "Enter" }); });
+    expect(m.edit).toHaveBeenCalledWith("/p/b");
+  });
+
+  it("a search without a match says so", async () => {
+    m.items = [item({ title: "Demo" })];
+    await mount(false, 0, "zzz");
+    expect(screen.getByText("No project matches “zzz”.")).toBeTruthy();
+    expect(screen.queryByTestId("record-row")).toBeNull();
+  });
+
+  it("rename: F2 opens the field, Enter saves the title, Esc cancels", async () => {
+    m.items = [item({ dir: "/p/a", title: "Demo" })];
+    m.rename.mockClear();
+    await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "F2" }); });
+    const field = screen.getByLabelText("Rename") as HTMLInputElement;
+    expect(field.value).toBe("Demo");
+    // Keys typed into the field never reach the list (Backspace would arm a delete).
+    m.del.mockClear();
+    await act(async () => { fireEvent.keyDown(field, { key: "Backspace" }); });
+    await act(async () => { fireEvent.keyDown(field, { key: "Backspace" }); });
+    expect(m.del).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.change(field, { target: { value: "Neu" } }); });
+    await act(async () => { fireEvent.keyDown(field, { key: "Enter" }); });
+    expect(m.rename).toHaveBeenCalledWith("/p/a", "Neu");
+    expect(m.edit, "Enter in the field does not open the editor").not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Rename")).toBeNull();
+    // Esc leaves without saving.
+    await act(async () => { fireEvent.click(screen.getByText("Rename")); });
+    const again = screen.getByLabelText("Rename");
+    await act(async () => { fireEvent.change(again, { target: { value: "Weg" } }); });
+    await act(async () => { fireEvent.keyDown(again, { key: "Escape" }); });
+    expect(m.rename).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Rename")).toBeNull();
+  });
+
+  it("a refused rename keeps the field and says why", async () => {
+    m.items = [item({ dir: "/p/a", title: "Demo" })];
+    m.rename.mockImplementationOnce(async () => { throw "record.title_empty"; });
+    await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "F2" }); });
+    const field = screen.getByLabelText("Rename");
+    await act(async () => { fireEvent.change(field, { target: { value: "  " } }); });
+    await act(async () => { fireEvent.keyDown(field, { key: "Enter" }); });
+    expect(screen.getByText("The name must not be empty.")).toBeTruthy();
+    expect(screen.getByLabelText("Rename")).toBeTruthy();
+  });
+
+  it("shows the thumbnail, else a placeholder", async () => {
+    m.items = [item({ dir: "/p/a", thumb: "data:image/jpeg;base64,/9j/AA" }), item({ dir: "/p/b", thumb: null })];
+    await mount();
+    expect((screen.getByTestId("project-thumb") as HTMLImageElement).src).toContain("data:image/jpeg");
+    expect(screen.getAllByTestId("project-thumb-empty")).toHaveLength(1);
+  });
+
+  it("Open project… opens the picked folder in the editor; a cancelled picker does nothing", async () => {
+    m.items = [];
+    m.pick.mockResolvedValueOnce(null);
+    await mount(false);
+    await act(async () => { fireEvent.click(screen.getByText("Open project…")); });
+    expect(m.edit).not.toHaveBeenCalled();
+    m.pick.mockResolvedValueOnce("/elsewhere/Projekt");
+    await act(async () => { fireEvent.click(screen.getByText("Open project…")); });
+    expect(m.edit).toHaveBeenCalledWith("/elsewhere/Projekt");
+    m.pick.mockImplementationOnce(async () => { throw "record.editor.not_project"; });
+    await act(async () => { fireEvent.click(screen.getByText("Open project…")); });
+    expect(screen.getByText("This folder is not a recording project (it has no project.json).")).toBeTruthy();
   });
 
   it("a record dispatch while a take runs explains it in the panel", async () => {

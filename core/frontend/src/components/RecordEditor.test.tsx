@@ -23,6 +23,8 @@ const editorVoiceoverCancel = vi.fn();
 const recordPresetApply = vi.fn();
 const recordPresetSave = vi.fn();
 const openDialog = vi.fn();
+const editorOpen = vi.fn(async (_dir: string, _o?: unknown): Promise<unknown> => ({}));
+const projects = vi.fn(async (): Promise<unknown[]> => []);
 const getRecordShortcuts = vi.fn(async (): Promise<unknown> => ({}));
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
@@ -51,7 +53,9 @@ vi.mock("../lib/ipc", () => ({
   editorTrackEdge: async () => null,
   EV_VOICEOVER_LEVEL: "record-voiceover-level",
   EV_VOICEOVER_FINISHED: "record-voiceover-finished",
-  recordListProjects: async () => [],
+  recordListProjects: () => projects(),
+  recordOpenDialog: async () => null,
+  editorOpen: (d: string, o?: unknown) => editorOpen(d, o),
   recordPresetsList: async () => ({ presets: [{ name: "Dark", file: "Dark.irpreset", ok: true, error: null }], defaultFile: null }),
   recordPresetApply: (id: number, file: string) => recordPresetApply(id, file),
   recordPresetSave: (id: number, name: string) => recordPresetSave(id, name),
@@ -918,6 +922,86 @@ describe("RecordEditor", () => {
       });
       expect(queryAllByTestId("ed-wave")).toHaveLength(1);
     });
+  });
+});
+
+describe("RecordEditor project switch (⌘O)", () => {
+  const item = (dir: string, title: string, updatedAt: number) => ({
+    dir, title, createdAt: 1, updatedAt, durationMs: 5000, status: "ready", failure: null, active: false, thumb: null,
+  });
+
+  it("⌘O lists the projects; picking one waits for pending edits, then opens it from the editor", async () => {
+    projects.mockResolvedValue([item("/m/take", "Take", 30), item("/m/other", "Other one", 20), item("/m/third", "Third", 10)]);
+    let release: () => void = () => {};
+    editorUpdate.mockImplementationOnce((d: RecordEditDoc) => new Promise((res) => (release = () => res(viewOf(d)))));
+    const { getByTestId, getByText, queryByTestId } = await mount();
+    // An edit is still on its way to Rust.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(getByTestId("ed-projects")).toBeTruthy();
+    expect(getByTestId("ed-projects").textContent).toContain("open now");
+    // While the dialog is open, editor keys do nothing (typing goes to its search field).
+    const splits = editorUpdate.mock.calls.length;
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate.mock.calls.length).toBe(splits);
+    await act(async () => {
+      fireEvent.click(getByText("Other one"));
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(queryByTestId("ed-projects")).toBeNull();
+    expect(editorOpen, "not before the pending edit landed").not.toHaveBeenCalled();
+    await act(async () => {
+      release();
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorOpen).toHaveBeenCalledWith("/m/other", { fromEditor: true });
+  });
+
+  it("the dialog searches and opens with the keys; Esc closes it; the open project is not reopened", async () => {
+    projects.mockResolvedValue([item("/m/take", "Take", 30), item("/m/b", "Überblick", 20), item("/m/c", "Demo", 10)]);
+    const { getByTestId, getByLabelText, queryByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.change(getByLabelText("Search by name or date"), { target: { value: "uber" } });
+    });
+    expect(getByTestId("ed-projects").textContent).toContain("Überblick");
+    expect(getByTestId("ed-projects").textContent).not.toContain("Demo");
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Enter" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorOpen).toHaveBeenCalledWith("/m/b", { fromEditor: true });
+    editorOpen.mockClear();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Enter" }); // the open project (first, most recent)
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorOpen).not.toHaveBeenCalled();
+    expect(queryByTestId("ed-projects")).toBeNull();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "o", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(queryByTestId("ed-projects")).toBeNull();
   });
 });
 

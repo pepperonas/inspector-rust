@@ -5167,14 +5167,27 @@ export interface RecordProjectItem {
   dir: string;
   title: string;
   createdAt: number;
+  /** Last edit (editor save / end of take); 0 when unknown — the list then uses `createdAt`. */
+  updatedAt?: number;
   durationMs: number;
   status: RecordProjectStatus;
   failure: string | null;
   /** The take running right now (its files are not final yet). */
   active: boolean;
+  /** `data:image/jpeg;base64,…` from the editor's filmstrip; null → placeholder. */
+  thumb?: string | null;
 }
+/** All projects, most recently edited first (no row cap). */
 export function recordListProjects(): Promise<RecordProjectItem[]> {
   return invoke("record_list_projects");
+}
+/** Renames a project (its title only); resolves with the stored title. */
+export function recordRenameProject(dir: string, title: string): Promise<string> {
+  return invoke("record_rename_project", { dir, title });
+}
+/** "Open project…": native folder picker; the validated folder, or null when cancelled. */
+export function recordOpenDialog(): Promise<string | null> {
+  return invoke("record_open_dialog");
 }
 export function recordRevealProject(dir: string): Promise<void> {
   return invoke("record_reveal_project", { dir });
@@ -5480,8 +5493,9 @@ export function decodeEditorFrame(buf: ArrayBuffer): EditorFrame | null {
   if (width === 0 || height === 0 || buf.byteLength !== 16 + width * height * 4) return null;
   return { gen, width, height, rgba: new Uint8ClampedArray(buf, 16) };
 }
-export function editorOpen(dir: string): Promise<EditorInit> {
-  return invoke("editor_open", { dir });
+/** Opens `dir` in the editor. `fromEditor`: switching inside the editor (⌘O) — no popup to close. */
+export function editorOpen(dir: string, opts?: { fromEditor?: boolean }): Promise<EditorInit> {
+  return invoke("editor_open", opts?.fromEditor ? { dir, fromEditor: true } : { dir });
 }
 export function editorCurrent(): Promise<EditorInit | null> {
   return invoke("editor_current");

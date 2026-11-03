@@ -285,6 +285,11 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    (upstream's reasoning against #265 stands). + test `export_holds_last_camera_frame` (4 s
    screen, 1 s camera: 120 frames with the camera drawn at the end; a clip at 2–4 s exports and
    draws the held frame), built from dev-`ffmpeg` files, skipped without ffmpeg or Metal.
+   Note: that no-frame fallback only stops DRAWING the camera — the clip's `layoutByClip`
+   entry (sent by the app per clip) still reserves the camera's slot, so under a block layout
+   (dual / vertical) the slot stays empty in the export, exactly as in the preview. The app
+   never names a missing `camera.mp4` (`project::drop_missing_camera`), so this only happens
+   for a camera file that exists but holds no decodable frame.
 
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.

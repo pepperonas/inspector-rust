@@ -102,6 +102,13 @@ pub fn project_dir_inside_root(root: &Path, dir: &Path) -> Result<PathBuf, &'sta
 /// already closed by then, so there is nowhere else to say it), mid-take
 /// (the capture died and the take was stopped) or at stop (the writer
 /// failed). `None` when the take ended fine: a normal stop says nothing.
+/// The toast after a READY take whose camera left no file without the user having been told
+/// (see [`CameraSlot::finish_with_warning`]). A failed take gets the failure toast instead.
+pub fn camera_toast(failed: bool, warning: Option<&str>) -> Option<crate::status_toast::StatusToast> {
+    let w = warning.map(str::trim).filter(|w| !w.is_empty() && !failed)?;
+    Some(crate::status_toast::StatusToast { kind: "record".into(), on: false, title: w.to_string(), subtitle: String::new() })
+}
+
 pub fn failure_toast(at_start: bool, failed: bool, reason: Option<&str>) -> Option<crate::status_toast::StatusToast> {
     if !failed {
         return None;
@@ -556,6 +563,13 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
             }
             clone_file(&from, &stage.join(name)).map_err(|e| fail(e, &from))?;
         }
+        if p.recording.camera.is_some() && !super::project::camera_file_present(&stage) {
+            // A linked or missing camera file was left out: the take's project.json says so
+            // too, so disk and meta agree (`load_takes` would drop it anyway).
+            let mut q = p.clone();
+            q.recording.camera = None;
+            super::project::write_atomic(&stage, PROJECT_FILE, &q).map_err(|e| fail(e, &stage.join(PROJECT_FILE)))?;
+        }
         let target = takes.join(&id);
         std::fs::rename(&stage, &target).map_err(|e| fail(e, &target))
     })();
@@ -565,7 +579,7 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
     }
     let cursor = super::scene_json::read_cursor(&takes.join(&id));
     let mut meta = TakeMeta::from_recording(&p.recording, super::scene_json::has_cursor_data(cursor.as_ref()));
-    if !takes.join(&id).join(CAMERA_FILE).is_file() {
+    if !super::project::camera_file_present(&takes.join(&id)) {
         // A linked or missing camera file was left out: the take has no camera.
         meta.camera = None;
         meta.camera_offset_ms = 0;
@@ -654,7 +668,20 @@ impl CameraSlot {
 
     /// Stop the camera at the screen's end; the meta for `project.json`.
     pub fn finish(self, end_ns: i64) -> Option<super::project::CameraMeta> {
-        self.sink.and_then(|s| s.finish(end_ns).meta)
+        self.finish_with_warning(end_ns).0
+    }
+
+    /// [`Self::finish`] plus the warning the user has not seen yet: a camera that was running
+    /// but left no file (a take shorter than the first-frame grace, so `poll_lost` never fired)
+    /// would otherwise end in a silently camera-less project. A warning already shown during
+    /// the take (lost, never started, could not open) is not repeated.
+    pub fn finish_with_warning(self, end_ns: i64) -> (Option<super::project::CameraMeta>, Option<String>) {
+        let Some(sink) = self.sink else { return (None, None) };
+        let meta = sink.finish(end_ns).meta;
+        let warning = (meta.is_none() && !self.lost_reported).then(|| {
+            crate::i18n::tf("rec5.camera_unavailable", &[("reason", &crate::i18n::t("rec5.camera_no_picture"))])
+        });
+        (meta, warning)
     }
 }
 
@@ -683,6 +710,12 @@ mod mac {
     use tauri::{AppHandle, Emitter, Manager};
 
     pub const HUD_LABEL: &str = "record-hud";
+    /// The HUD's inner size. The height is MEASURED, not guessed (mockup, 440 px wide, every
+    /// toggle on, a source picked): German with the camera-denied hint = 459 px, English 441,
+    /// with two cameras (device select) 405 — the old 320 cut the Record button off. 490
+    /// leaves room for a one-line error; anything taller scrolls the middle while the Record
+    /// row stays pinned (`RecordHud` Shell). Not resizable.
+    pub const HUD_SIZE: (f64, f64) = (440.0, 490.0);
     pub const COUNTDOWN_LABEL: &str = "record-countdown";
     pub const BAR_LABEL: &str = "record-bar";
     pub const NOTES_LABEL: &str = "record-notes";
@@ -972,6 +1005,8 @@ mod mac {
         pub failure: Option<String>,
         pub video_ms: u64,
         pub mic_ms: Option<u64>,
+        /// A camera problem the bar never showed (short take, no frame): for the end toast.
+        pub camera_warning: Option<String>,
     }
 
     /// Stop everything and write the final files. No UI.
@@ -1024,7 +1059,7 @@ mod mac {
         }
 
         // After the screen, at its end (like the mic): the camera file covers the screen.
-        let camera_meta = a.camera.finish(end_ns);
+        let (camera_meta, camera_warning) = a.camera.finish_with_warning(end_ns);
 
         let cursor = a.cursor.stop();
         if let Err(e) = write_atomic(&a.dir, CURSOR_FILE, &cursor) {
@@ -1038,7 +1073,7 @@ mod mac {
         if let Err(e) = write_atomic(&a.dir, PROJECT_FILE, &project) {
             tracing::warn!("record: cannot write project.json: {e}");
         }
-        Outcome { dir: a.dir, status, failure, video_ms, mic_ms }
+        Outcome { dir: a.dir, status, failure, video_ms, mic_ms, camera_warning }
     }
 
     /// Fill the final `project.json` from the parts. The camera never changes the status: a
@@ -1148,7 +1183,7 @@ mod mac {
             .resizable(false)
             .visible(false);
         let (w, h, focused) = match label {
-            HUD_LABEL => (440.0, 320.0, true),
+            HUD_LABEL => (HUD_SIZE.0, HUD_SIZE.1, true),
             BAR_LABEL => (312.0, 54.0, false),
             NOTES_LABEL => (360.0, 420.0, true),
             _ => (0.0, 0.0, false),
@@ -1516,7 +1551,9 @@ mod mac {
             AfterStop::Reveal => crate::commands::reveal_in_file_manager(&out.dir),
         }
         let dir = out.dir.to_string_lossy().into_owned();
-        announce_failure(app, failure_toast(false, out.status == ProjectStatus::Failed, out.failure.as_deref()));
+        let failed = out.status == ProjectStatus::Failed;
+        announce_failure(app, failure_toast(false, failed, out.failure.as_deref()));
+        announce_failure(app, camera_toast(failed, out.camera_warning.as_deref()));
         let _ = app.emit(
             "record-finished",
             FinishedEvent { dir: dir.clone(), status: status_str(out.status).into(), failure: out.failure },
@@ -1831,8 +1868,25 @@ mod tests {
         let src2 = root.join("src2");
         take_project(&src2, ProjectStatus::Ready, true);
         write_atomic(&src2, PROJECT_FILE, &p).unwrap();
-        let (_, meta2) = import_take_into(&project, &src2).unwrap();
+        let (id2, meta2) = import_take_into(&project, &src2).unwrap();
         assert_eq!(meta2.camera, None);
+        // …and the copied project.json says so too (disk and meta agree).
+        assert_eq!(read_project(&project.join("takes").join(&id2)).unwrap().recording.camera, None);
+        // A linked camera file is left out the same way.
+        #[cfg(unix)]
+        {
+            let src3 = root.join("src3");
+            take_project(&src3, ProjectStatus::Ready, true);
+            write_atomic(&src3, PROJECT_FILE, &p).unwrap();
+            std::os::unix::fs::symlink(src.join(CAMERA_FILE), src3.join(CAMERA_FILE)).unwrap();
+            let (id3, meta3) = import_take_into(&project, &src3).unwrap();
+            assert_eq!(meta3.camera, None);
+            let t3 = project.join("takes").join(&id3);
+            assert!(std::fs::symlink_metadata(t3.join(CAMERA_FILE)).is_err(), "link not copied");
+            assert_eq!(read_project(&t3).unwrap().recording.camera, None);
+        }
+        // With the file, the copied project.json keeps its camera.
+        assert!(read_project(&project.join("takes").join(&id)).unwrap().recording.camera.is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1902,6 +1956,16 @@ mod tests {
         }
     }
 
+    /// The HUD fits its measured worst case (German, every toggle on, the camera-denied hint:
+    /// 459 px of content at 440 px width) — the 320 px it had cut the Record button off.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn hud_window_fits_the_measured_worst_case() {
+        const WORST_CASE: f64 = 459.0;
+        assert_eq!(mac::HUD_SIZE.0, 440.0, "the measurement was taken at 440 px width");
+        assert!(mac::HUD_SIZE.1 >= WORST_CASE, "HUD {} px < measured {WORST_CASE} px", mac::HUD_SIZE.1);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn camera_denied_records_without_camera() {
@@ -1958,12 +2022,39 @@ mod tests {
         let w = slot.warning().unwrap().to_string();
         assert_ne!(w, crate::i18n::t("rec5.camera_lost"), "a camera that never started is not 'disconnected'");
 
+        // A take that ends before the first-frame grace: `poll_lost` never fired, the camera
+        // left no file — the end says so (once), the project has no camera.
+        let (cam, _) = fake(false); // origin never set → the attrappe writes no file
+        let slot = CameraSlot::open(true, || Ok(cam));
+        let (meta, warn) = slot.finish_with_warning(1_000_000_000);
+        assert_eq!(meta, None);
+        let warn = warn.expect("a short take without a camera picture is not silent");
+        assert!(warn.contains(&crate::i18n::t("rec5.camera_no_picture")), "{warn}");
+        // Already reported during the take (never started): not repeated at the end.
+        let never = FakeCam {
+            lost: false,
+            never: true,
+            origin: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            finished_at: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+        };
+        let mut slot = CameraSlot::open(true, || Ok(Box::new(never) as Box<dyn CameraSink>));
+        assert!(slot.poll_lost());
+        assert_eq!(slot.finish_with_warning(1).1, None);
+        // A camera that could not open warned at the start: nothing more at the end.
+        assert_eq!(CameraSlot::open(true, || Err("x".into())).finish_with_warning(1).1, None);
+        // The toast: only for a ready take with a warning.
+        assert!(camera_toast(false, Some(&warn)).is_some_and(|t| t.title == warn));
+        assert!(camera_toast(true, Some(&warn)).is_none(), "a failed take gets the failure toast");
+        assert!(camera_toast(false, None).is_none());
+
         // A camera that stays: no loss, no warning, no `endedEarlyMs`.
         let (cam, _) = fake(false);
         let mut slot = CameraSlot::open(true, || Ok(cam));
         slot.set_origin(1_000);
         assert!(!slot.poll_lost());
-        assert_eq!(slot.finish(5_000_001_000).unwrap().ended_early_ms, None);
+        let (meta, warn) = slot.finish_with_warning(5_000_001_000);
+        assert_eq!(meta.unwrap().ended_early_ms, None);
+        assert_eq!(warn, None, "a camera with a file is no warning");
     }
 
     #[cfg(unix)]

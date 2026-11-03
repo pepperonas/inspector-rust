@@ -1152,13 +1152,23 @@ fn show_window(app: &AppHandle) {
     });
 }
 
+/// The project at `dir` as the editor session holds it: a camera named in project.json whose
+/// `camera.mp4` is gone (or a link) is no camera — the scene would name a missing file and the
+/// export fail. Saving the doc then writes the corrected meta back. (Inserted takes get the
+/// same gate in `load_takes`.)
+fn read_editor_project(dir: &Path) -> Result<Project, String> {
+    let mut project = project::read_project(dir)?;
+    project::drop_missing_camera(&mut project.recording, dir);
+    Ok(project)
+}
+
 /// Opens the project at `dir` in the editor: loads it, shows the window, opens the preview.
 /// Blocking (the helper's `Open` takes a moment) — call it from a worker thread. Used by the
 /// `editor_open` IPC and by the recording session after a take (Task 7).
 pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> {
     open_allowed()?;
     let dir = open_target(&dir).map_err(str::to_string)?;
-    let project = project::read_project(&dir).map_err(|e| {
+    let project = read_editor_project(&dir).map_err(|e| {
         tracing::warn!(target: "record::editor", "{}: {e}", dir.display());
         ERR_UNREADABLE.to_string()
     })?;
@@ -2318,7 +2328,7 @@ mod tests {
     }
 
     fn session_for(dir: &Path, id: u64) -> Session {
-        let project = project::read_project(dir).unwrap();
+        let project = read_editor_project(dir).unwrap();
         let doc = editor::load(&project, &TakeMetas::new());
         let mut s = Session {
             id,
@@ -2564,6 +2574,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The project's own camera.mp4 deleted (or replaced by a link) after the take: the editor
+    /// session treats the recording as camera-less — the scene names no webcam file (an export
+    /// would fail opening it) and the view's per-clip camera flag is false.
+    #[test]
+    fn a_missing_own_camera_file_is_no_camera() {
+        use crate::record::project::{CameraMeta, CAMERA_FILE};
+        let dir = tmp_project("cam-gone", "cam-gone");
+        let mut p = project::read_project(&dir).unwrap();
+        p.recording.camera = Some(CameraMeta { width: 1280, height: 720, fps: 30, offset_ms: 0, device_name: "C".into(), ended_early_ms: None });
+        project::write_atomic(&dir, PROJECT_FILE, &p).unwrap();
+        let check = |want: bool| {
+            let s = session_for(&dir, 1);
+            assert_eq!(s.project.recording.camera.is_some(), want);
+            let v = session_view(&s.project.recording, &s.doc, None, &s.takes, (1920, 1080));
+            assert_eq!(v.clip_cameras, vec![want]);
+            let scene = scene_json_with(&dir, &s.project, &s.doc, (1920, 1080), 30, &AssetRoot::dev(), None, &s.takes);
+            let path = scene["clips"][0]["webcamPath"].as_str().unwrap().to_string();
+            assert_eq!(!path.is_empty(), want, "webcamPath {path:?}");
+        };
+        // No camera.mp4 at all.
+        check(false);
+        // A real file: the camera is there.
+        std::fs::write(dir.join(CAMERA_FILE), b"cam").unwrap();
+        check(true);
+        // A link in its place is not a camera file.
+        #[cfg(unix)]
+        {
+            let elsewhere = dir.join("elsewhere.mp4");
+            std::fs::rename(dir.join(CAMERA_FILE), &elsewhere).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, dir.join(CAMERA_FILE)).unwrap();
+            check(false);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn session_view_names_the_clips_with_a_camera() {
         use crate::record::project::CameraMeta;
@@ -2796,7 +2841,7 @@ mod tests {
         let src = include_str!("editor_ipc.rs");
         let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
         let guard = open.find("open_target(&dir)").expect("open_editor validates the folder");
-        assert!(guard < open.find("read_project").unwrap());
+        assert!(guard < open.find("read_editor_project").unwrap());
         let _ = std::fs::remove_dir_all(elsewhere.parent().unwrap());
     }
 

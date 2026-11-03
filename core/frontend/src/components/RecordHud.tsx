@@ -147,7 +147,32 @@ export function RecordHud() {
   );
 
   return (
-    <Shell title={t("rec2.hud.title")} onClose={close} closeLabel={t("rec2.hud.close")}>
+    <Shell
+      title={t("rec2.hud.title")}
+      onClose={close}
+      closeLabel={t("rec2.hud.close")}
+      footer={
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void recordOpenNotes().catch(() => undefined)}
+            className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
+          >
+            <StickyNote size={13} />
+            {t("rec2.hud.notes")}
+          </button>
+          <button
+            type="button"
+            onClick={start}
+            disabled={!ready}
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-red-500 disabled:opacity-50"
+          >
+            <span className="h-2.5 w-2.5 rounded-full bg-white" />
+            {starting ? t("rec2.hud.starting") : t("rec2.hud.record")}
+          </button>
+        </div>
+      }
+    >
       <div className="grid grid-cols-2 gap-2">
         <BigButton icon={<Monitor size={22} />} label={t("rec2.hud.display")} onClick={() => pick("display")} />
         <BigButton icon={<AppWindow size={22} />} label={t("rec2.hud.window")} onClick={() => pick("window")} />
@@ -195,25 +220,6 @@ export function RecordHud() {
         className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-[13px] outline-none"
       />
       {error && <p className="text-[12px] text-red-500">{error}</p>}
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void recordOpenNotes().catch(() => undefined)}
-          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
-        >
-          <StickyNote size={13} />
-          {t("rec2.hud.notes")}
-        </button>
-        <button
-          type="button"
-          onClick={start}
-          disabled={!ready}
-          className="ml-auto flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-red-500 disabled:opacity-50"
-        >
-          <span className="h-2.5 w-2.5 rounded-full bg-white" />
-          {starting ? t("rec2.hud.starting") : t("rec2.hud.record")}
-        </button>
-      </div>
     </Shell>
   );
 }
@@ -231,16 +237,23 @@ function BigButton({ icon, label, onClick }: { icon: React.ReactNode; label: str
   );
 }
 
+/**
+ * Header and `footer` (the Record row) stay put; the middle scrolls when it is taller than the
+ * window (the window is sized for the measured worst case, see `HUD_SIZE` in session.rs, but
+ * a long error message must never push the Record button out of reach).
+ */
 function Shell({
   title,
   onClose,
   closeLabel,
   children,
+  footer,
 }: {
   title: string;
   onClose: () => void;
   closeLabel: string;
   children: React.ReactNode;
+  footer?: React.ReactNode;
 }) {
   return (
     <div className="flex h-screen w-screen flex-col gap-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl">
@@ -254,7 +267,14 @@ function Shell({
           <X size={14} />
         </button>
       </div>
-      {children}
+      <div data-testid="rec-hud-body" className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
+        {children}
+      </div>
+      {footer && (
+        <div data-testid="rec-hud-footer" className="shrink-0">
+          {footer}
+        </div>
+      )}
     </div>
   );
 }

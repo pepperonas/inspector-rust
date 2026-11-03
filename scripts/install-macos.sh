@@ -444,11 +444,16 @@ if [[ -f "${INFO_PLIST}" ]]; then
   # Same trick for NSCameraUsageDescription — required by macOS before
   # AVFoundation may ask for the camera; without it TCC ends the process
   # on the first request. Used by `record` for the optional webcam track.
+  # Unlike the other strings this one is not optional: a camera request without it is a
+  # crash, not a generic prompt. So a failed write (or a read-back that doesn't match)
+  # aborts the install instead of shipping an app that dies on "camera on".
   if plutil -replace NSCameraUsageDescription -string "${CAM_DESC}" \
-       "${INFO_PLIST}" 2>/dev/null; then
+       "${INFO_PLIST}" 2>/dev/null \
+     && [[ "$(plutil -extract NSCameraUsageDescription raw "${INFO_PLIST}" 2>/dev/null)" == "${CAM_DESC}" ]]; then
     echo "▸ Injected NSCameraUsageDescription into Info.plist"
   else
-    echo "  ⚠ plutil replace of NSCameraUsageDescription failed — Camera prompt may show generic copy"
+    echo "✗ Could not write NSCameraUsageDescription into ${INFO_PLIST} — aborting (the app would be killed by TCC on the first camera request)." >&2
+    exit 1
   fi
 
   # Same trick for NSBluetoothAlwaysUsageDescription — required by macOS
@@ -460,6 +465,9 @@ if [[ -f "${INFO_PLIST}" ]]; then
   else
     echo "  ⚠ plutil replace of NSBluetoothAlwaysUsageDescription failed — Bluetooth prompt may show generic copy"
   fi
+else
+  echo "✗ ${INFO_PLIST} not found — cannot write NSCameraUsageDescription; aborting." >&2
+  exit 1
 fi
 
 # Bundle the boom Audio driver into the app's Resources. NOT via tauri.conf

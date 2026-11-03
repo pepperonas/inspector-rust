@@ -1059,6 +1059,20 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "speedtest_run": return SPEED_RUNS[0];
     case "speedtest_history": return SPEED_RUNS;
     case "speedtest_clear_history": return null;
+    // Record HUD (stage 5): `?hud=denied` = camera on but refused (hint), otherwise authorized
+    // with two cameras (device select). Source picked, every toggle on — the HUD's worst case.
+    case "record_status":
+      return { supported: true, reason: null, phase: "idle", elapsedMs: 0, projectDir: null, source: "Studio Display (3024 × 1964)", lowDiskMinutes: null, cameraWarning: null };
+    case "get_record_config":
+      return { projectDir: "/Users/demo/Movies/Inspector Rust", countdown: true, cursorMode: "editable-overlay", systemAudio: true, mic: true, openEditor: true, autoZoom: true, camera: true, cameraDevice: "", cameraQuality: "1080p" };
+    case "set_record_config": return args.config ?? null;
+    case "record_camera_auth":
+      return new URLSearchParams(location.search).get("hud") === "denied" ? "denied" : "authorized";
+    case "record_camera_devices":
+      return [
+        { id: "cam-builtin", name: "FaceTime HD Camera", builtin: true },
+        { id: "cam-usb", name: "Studio Webcam 4K", builtin: false },
+      ];
     case "get_record_shortcuts": return mockShortcuts;
     case "set_record_shortcuts": mockShortcuts = (args.shortcuts as object) ?? {}; return mockShortcuts;
     case "editor_current": return {

@@ -80,6 +80,12 @@ if [[ -f "${INFO_PLIST}" ]]; then
     'Inspector Rust uses the camera to record you as a separate track in screen recordings ("record") — only when you turn the camera on for a recording.' \
     "${INFO_PLIST}"
 fi
+# Not optional: a camera request without the usage string is a TCC kill, not a generic
+# prompt. Never seal a bundle without it (a missing Info.plist skipped the block above).
+if ! plutil -extract NSCameraUsageDescription raw "${INFO_PLIST}" >/dev/null 2>&1; then
+  echo "✗ NSCameraUsageDescription missing in ${INFO_PLIST} — refusing to seal the bundle." >&2
+  exit 1
+fi
 
 # Ad-hoc (no Developer ID in CI). Do NOT pass `--options runtime` — hardened
 # runtime requires a real signing identity and rejects `-`.

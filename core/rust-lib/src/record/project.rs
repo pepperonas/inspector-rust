@@ -94,6 +94,21 @@ pub struct RecordingMeta {
     pub camera: Option<CameraMeta>,
 }
 
+/// Whether `dir/camera.mp4` is there as a plain file (a symlink or anything else is not).
+pub fn camera_file_present(dir: &Path) -> bool {
+    std::fs::symlink_metadata(dir.join(CAMERA_FILE)).is_ok_and(|m| m.file_type().is_file())
+}
+
+/// Drops `rec.camera` when the recording in `dir` has no usable `camera.mp4` (left out on
+/// import because it was a link, deleted later, never written). The single gate between a
+/// project.json that names a camera and the editor/scene: without it the scene would name a
+/// missing file and the export would fail.
+pub fn drop_missing_camera(rec: &mut RecordingMeta, dir: &Path) {
+    if rec.camera.is_some() && !camera_file_present(dir) {
+        rec.camera = None;
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {

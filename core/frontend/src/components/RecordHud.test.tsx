@@ -185,3 +185,26 @@ describe("RecordHud camera switch", () => {
     );
   });
 });
+
+describe("RecordHud layout", () => {
+  // happy-dom does no layout, so the measured fit lives in session.rs (`HUD_SIZE`); this pins
+  // the structure that keeps Record reachable when the middle is taller than the window.
+  it("keeps the Record row outside the scrolling middle, everything else inside it", async () => {
+    storedCamera = true;
+    cameraAuth = "denied";
+    const { findByText, getByTestId } = render(<RecordHud />);
+    await findByText("Display", { exact: false });
+    const body = getByTestId("rec-hud-body");
+    const footer = getByTestId("rec-hud-footer");
+    expect(body.className).toContain("overflow-y-auto");
+    expect(body.className).toContain("min-h-0");
+    expect(footer.className).toContain("shrink-0");
+    const record = [...footer.querySelectorAll("button")].find((b) => b.querySelector("span.rounded-full"));
+    expect(record).toBeTruthy();
+    expect(body.contains(record!)).toBe(false);
+    // The option toggles, the denied hint and the title field scroll with the middle.
+    await waitFor(() => expect(body.querySelector('[data-testid="rec-camera-denied"]')).toBeTruthy());
+    expect(body.querySelectorAll('[role="switch"]').length).toBe(5);
+    expect(body.querySelector("input")).toBeTruthy();
+  });
+});

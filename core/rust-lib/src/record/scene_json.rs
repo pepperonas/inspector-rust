@@ -71,7 +71,8 @@ pub fn load_takes(project_dir: &Path) -> TakeSources {
         if !valid_take_id(&id) || !dir.is_dir() || !dir.join(SCREEN_FILE).is_file() {
             continue;
         }
-        if let Ok(p) = read_project(&dir) {
+        if let Ok(mut p) = read_project(&dir) {
+            crate::record::project::drop_missing_camera(&mut p.recording, &dir);
             out.insert(id, TakeSource { meta: p.recording, cursor: read_cursor(&dir) });
         }
     }
@@ -1451,6 +1452,57 @@ mod tests {
         let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &cam_takes());
         assert_eq!(v["clips"][0]["webcamPath"], "");
         assert_eq!(v["clips"][2]["webcamPath"], format!("{DIR}/takes/cam/camera.mp4"));
+    }
+
+    /// An inserted take whose project.json names a camera but whose camera.mp4 is absent or a
+    /// link: `load_takes` drops the camera, so its clip names no webcam file and lays out as
+    /// no-webcam (the export would otherwise fail opening the missing file).
+    #[test]
+    fn load_takes_drops_a_camera_whose_file_is_missing() {
+        use crate::record::project::{write_atomic, CAMERA_FILE, PROJECT_FILE};
+        let dir = std::env::temp_dir().join(format!("ir-takes-cam-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mk = |id: &str| {
+            let d = dir.join(TAKES_DIR).join(id);
+            std::fs::create_dir_all(&d).unwrap();
+            let mut p = project();
+            p.recording = RecordingMeta { width: 1280, height: 720, duration_ms: 20_000, camera: Some(cam(1280, 720, 0)), ..RecordingMeta::default() };
+            write_atomic(&d, PROJECT_FILE, &p).unwrap();
+            std::fs::write(d.join(SCREEN_FILE), b"x").unwrap();
+            d
+        };
+        let real = mk("real");
+        std::fs::write(real.join(CAMERA_FILE), b"cam").unwrap();
+        mk("absent");
+        let linked = mk("linked");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(real.join(CAMERA_FILE), linked.join(CAMERA_FILE)).unwrap();
+        let takes = load_takes(&dir);
+        let metas = take_metas(&takes);
+        assert_eq!(metas["real"].camera, Some((1280, 720)));
+        assert_eq!(metas["absent"].camera, None);
+        assert_eq!(metas["linked"].camera, None);
+        let mut d = cam_doc(editor::LayoutPreset::DualFrame);
+        for id in ["real", "absent", "linked"] {
+            d.clips.push(EditClip { start_ms: 0, end_ms: 2_000, source: Some(id.into()) });
+        }
+        d.crop.resize(d.clips.len(), None);
+        let d = editor::normalize(d, 10_000, &metas);
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &takes);
+        let clips = v["clips"].as_array().unwrap();
+        let n = clips.len();
+        assert_eq!(clips[n - 3]["webcamPath"], path_str(&real.join(CAMERA_FILE)));
+        assert_eq!(clips[n - 2]["webcamPath"], "");
+        assert_eq!(clips[n - 1]["webcamPath"], "");
+        let by_clip = v["layout"]["layoutByClip"].as_array().unwrap();
+        assert_eq!(by_clip.len(), n);
+        assert!(by_clip[n - 3]["webcamRect"].is_object());
+        assert!(by_clip[n - 2].get("webcamRect").is_none(), "{}", by_clip[n - 2]);
+        assert!(by_clip[n - 1].get("webcamRect").is_none(), "{}", by_clip[n - 1]);
+        for i in 0..n {
+            assert!(editor::clip_camera(&project().recording, &metas, &d, i).is_none() || i == n - 3, "clip {i}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

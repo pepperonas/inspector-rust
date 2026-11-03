@@ -155,6 +155,7 @@ mod engine_side {
     ) -> Result<FileJob, String> {
         use transcribe_core::file;
         let info = model::find(model_id).ok_or(model::ERR_UNKNOWN)?;
+        let preset = transcribe_core::words::dtw_preset_for(info.id).ok_or(transcribe_core::words::ERR_NO_DTW)?;
         if !model::is_installed(info) {
             return Err(model::ERR_MISSING.into());
         }
@@ -169,7 +170,7 @@ mod engine_side {
                 let run = || -> Result<file::FileWords, String> {
                     let mut src = file::open_audio(&path)?;
                     emit(Event::FileProgress { done_ms: 0, total_ms: src.total_ms() });
-                    let engine = Engine::load_dtw(&model_path)?;
+                    let engine = Engine::load_dtw(&model_path, preset)?;
                     let mut stream = engine.new_stream()?;
                     let mut vad = transcribe_core::vad::SileroVad::new()?;
                     let e2 = emit.clone();

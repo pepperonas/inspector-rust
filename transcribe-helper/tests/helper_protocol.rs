@@ -242,3 +242,30 @@ fn file_words() {
     drop(stdin);
     let _ = child.wait();
 }
+
+/// A model the helper can't time words with is refused with a FileError, the
+/// helper keeps running.
+#[test]
+fn words_with_an_unknown_model_are_refused() {
+    let models = tempfile::tempdir().unwrap();
+    let mut child = spawn(models.path());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    assert!(matches!(next(&mut out), Event::Ready { .. }));
+    let cmd = transcribe_protocol::Command::TranscribeWords {
+        path: models.path().join("x.wav"),
+        lang: transcribe_protocol::Lang::Auto,
+        model: "large-v2".into(),
+    };
+    stdin.write_all(encode(&cmd).as_bytes()).unwrap();
+    match next(&mut out) {
+        Event::FileError { error } => {
+            assert!(error == "model.unknown" || error == "transcribe.unsupported", "{error}")
+        }
+        e => panic!("{e:?}"),
+    }
+    stdin.write_all(encode(&transcribe_protocol::Command::ListDevices).as_bytes()).unwrap();
+    assert!(matches!(next(&mut out), Event::Devices { .. }));
+    drop(stdin);
+    let _ = child.wait();
+}

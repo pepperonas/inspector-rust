@@ -11,6 +11,37 @@ use crate::decode::DecodeOpts;
 use crate::protocol::Word;
 use crate::text::normalize;
 
+/// A model id the helper can't time words with (no DTW alignment-head preset).
+pub const ERR_NO_DTW: &str = "transcribe.words_unsupported_model";
+
+/// The DTW alignment-head preset for a model; whisper.cpp needs the one that
+/// matches the model's architecture, a wrong one gives wrong times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DtwPreset {
+    LargeV3Turbo,
+    Medium,
+    Small,
+}
+
+/// `large-v3-turbo-*` → LargeV3Turbo, `medium-*` → Medium, `small-*` →
+/// Small; anything else (incl. the English-only `.en` variants, which have
+/// their own presets) → `None`.
+pub fn dtw_preset_for(model_id: &str) -> Option<DtwPreset> {
+    let id = model_id.trim();
+    if id.contains(".en") {
+        return None;
+    }
+    if id == "large-v3-turbo" || id.starts_with("large-v3-turbo-") {
+        Some(DtwPreset::LargeV3Turbo)
+    } else if id == "medium" || id.starts_with("medium-") {
+        Some(DtwPreset::Medium)
+    } else if id == "small" || id.starts_with("small-") {
+        Some(DtwPreset::Small)
+    } else {
+        None
+    }
+}
+
 /// One decoded token as the engine hands it over.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tok {
@@ -66,6 +97,40 @@ pub fn merge_utf8(raw: Vec<(Vec<u8>, i64, f32, bool)>) -> Vec<Tok> {
     out
 }
 
+/// Every text token's end in ms of the file. Unknown (`−1`) ends are
+/// interpolated linearly by token index between their known neighbours;
+/// unknowns before the first known end lean on the chunk start, after the
+/// last one on the chunk end. Needs at least one known end.
+fn token_ends_ms(seg_start_ms: u64, seg_end_ms: u64, toks: &[&Tok]) -> Vec<u64> {
+    let at = |cs: i64| (seg_start_ms + cs.max(0) as u64 * 10).min(seg_end_ms);
+    let known: Vec<(usize, u64)> =
+        toks.iter().enumerate().filter(|(_, t)| t.t_dtw_cs >= 0).map(|(i, t)| (i, at(t.t_dtw_cs))).collect();
+    let lerp = |(ia, a): (f64, u64), (ib, b): (f64, u64), i: f64| -> u64 {
+        if ib <= ia {
+            return a;
+        }
+        (a as f64 + (b as f64 - a as f64) * (i - ia) / (ib - ia)).round() as u64
+    };
+    (0..toks.len())
+        .map(|i| {
+            if toks[i].t_dtw_cs >= 0 {
+                return at(toks[i].t_dtw_cs);
+            }
+            let before = known.iter().rev().find(|(k, _)| *k < i).copied();
+            let after = known.iter().find(|(k, _)| *k > i).copied();
+            let fi = i as f64;
+            match (before, after) {
+                (Some((ia, a)), Some((ib, b))) => lerp((ia as f64, a), (ib as f64, b), fi),
+                // Leading unknowns: between the chunk start (index −1) and the first known end.
+                (None, Some((ib, b))) => lerp((-1.0, seg_start_ms), (ib as f64, b), fi),
+                // Trailing unknowns: between the last known end and the chunk end (one past the last token).
+                (Some((ia, a)), None) => lerp((ia as f64, a), (toks.len() as f64, seg_end_ms), fi),
+                (None, None) => seg_start_ms,
+            }
+        })
+        .collect()
+}
+
 fn has_word_chars(s: &str) -> bool {
     s.chars().any(char::is_alphanumeric)
 }
@@ -80,7 +145,13 @@ pub fn words_from_tokens(seg_start_ms: u64, seg_end_ms: u64, tokens: &[Tok]) -> 
         let starts_new = t.text.starts_with(char::is_whitespace) && has_word_chars(&t.text);
         match groups.last_mut() {
             Some(g) if !starts_new || !has_word_chars(&g.0) => {
-                g.0.push_str(&t.text);
+                // Punctuation sticks without a gap ("Hallo," / "„Hallo").
+                let piece = if !has_word_chars(&t.text) || !has_word_chars(&g.0) {
+                    t.text.trim_start()
+                } else {
+                    t.text.as_str()
+                };
+                g.0.push_str(piece);
                 g.2 = i;
                 g.3.push(t.p);
             }
@@ -91,16 +162,15 @@ pub fn words_from_tokens(seg_start_ms: u64, seg_end_ms: u64, tokens: &[Tok]) -> 
     if groups.is_empty() {
         return Vec::new();
     }
-    let dtw_ok = text_toks.iter().all(|t| t.t_dtw_cs >= 0);
+    let known = text_toks.iter().any(|t| t.t_dtw_cs >= 0);
     let span = seg_end_ms - seg_start_ms;
     let n = groups.len() as u64;
-    let at = |cs: i64| (seg_start_ms + cs.max(0) as u64 * 10).min(seg_end_ms);
+    let ends = token_ends_ms(seg_start_ms, seg_end_ms, &text_toks);
     let mut out = Vec::with_capacity(groups.len());
     let mut prev_end = seg_start_ms;
     for (k, (text, first, last, probs)) in groups.into_iter().enumerate() {
-        let (mut start, mut end) = if dtw_ok {
-            let start = if first == 0 { seg_start_ms } else { at(text_toks[first - 1].t_dtw_cs) };
-            (start, at(text_toks[last].t_dtw_cs))
+        let (mut start, mut end) = if known {
+            (if first == 0 { seg_start_ms } else { ends[first - 1] }, ends[last])
         } else {
             (seg_start_ms + span * k as u64 / n, seg_start_ms + span * (k as u64 + 1) / n)
         };
@@ -201,6 +271,36 @@ mod tests {
     }
 
     #[test]
+    fn one_unknown_time_is_interpolated_not_the_whole_chunk_spread() {
+        // Only " b" lacks a time; a and c keep theirs.
+        let ws = words_from_tokens(1000, 9000, &[tok(" a", 50), tok(" b", -1), tok(" c", 150)]);
+        let t: Vec<(u64, u64)> = ws.iter().map(|w| (w.start_ms, w.end_ms)).collect();
+        assert_eq!(t, [(1000, 1500), (1500, 2000), (2000, 2500)]);
+    }
+
+    #[test]
+    fn leading_and_trailing_unknowns_lean_on_the_segment_edges() {
+        let ws = words_from_tokens(1000, 3000, &[tok(" a", -1), tok(" b", 100), tok(" c", -1)]);
+        let t: Vec<(u64, u64)> = ws.iter().map(|w| (w.start_ms, w.end_ms)).collect();
+        // a: halfway between the start (1000) and b's end (2000); c: halfway to the end.
+        assert_eq!(t, [(1000, 1500), (1500, 2000), (2000, 2500)]);
+    }
+
+    #[test]
+    fn dtw_presets_follow_the_model_family() {
+        assert_eq!(dtw_preset_for("large-v3-turbo-q5"), Some(DtwPreset::LargeV3Turbo));
+        assert_eq!(dtw_preset_for("large-v3-turbo-q8"), Some(DtwPreset::LargeV3Turbo));
+        assert_eq!(dtw_preset_for("medium-q5"), Some(DtwPreset::Medium));
+        assert_eq!(dtw_preset_for("small-q5"), Some(DtwPreset::Small));
+        assert_eq!(dtw_preset_for("large-v3-q5"), None, "not turbo: other heads");
+        assert_eq!(dtw_preset_for("small.en-q5"), None);
+        assert_eq!(dtw_preset_for("whatever"), None);
+        for m in crate::protocol::models::MODELS {
+            assert!(dtw_preset_for(m.id).is_some(), "catalogue model {} has no preset", m.id);
+        }
+    }
+
+    #[test]
     fn times_are_monotonic_and_clamped_to_the_segment() {
         // DTW past the chunk end and running backwards.
         let ws = words_from_tokens(1000, 2000, &[tok(" a", 50), tok(" b", 30), tok(" c", 500)]);
@@ -216,7 +316,7 @@ mod tests {
     #[test]
     fn punctuation_only_token_attaches_to_previous_word() {
         let ws = words_from_tokens(0, 5000, &[tok(" Hallo", 40), tok(" ,", 45), tok(" Welt", 80), tok(".", 85)]);
-        assert_eq!(texts(&ws), ["Hallo ,", "Welt."]);
+        assert_eq!(texts(&ws), ["Hallo,", "Welt."]);
         assert_eq!(ws[0].end_ms, 450);
         assert_eq!(ws[1].start_ms, 450);
     }
@@ -224,7 +324,7 @@ mod tests {
     #[test]
     fn leading_punctuation_joins_the_next_word() {
         let ws = words_from_tokens(0, 5000, &[tok(" „", 10), tok(" Hallo", 40)]);
-        assert_eq!(texts(&ws), ["„ Hallo"]);
+        assert_eq!(texts(&ws), ["„Hallo"]);
         assert_eq!(ws[0].start_ms, 0);
     }
 

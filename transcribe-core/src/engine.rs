@@ -6,7 +6,7 @@ use crate::decode::{DecodeOpts, Decoded};
 use crate::queue::JobKind;
 use crate::text::drop_loops;
 use std::path::Path;
-use crate::words::{merge_utf8, TokDecoded, WordTranscriber};
+use crate::words::{merge_utf8, DtwPreset, TokDecoded, WordTranscriber};
 use whisper_rs::{
     DtwMode, DtwModelPreset, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
     WhisperState,
@@ -41,12 +41,18 @@ impl Engine {
 
     /// A second context for word timing: DTW token times (`t_dtw`) need
     /// flash attention OFF, so this is never the live/meeting engine. Loaded
-    /// per word job and dropped afterwards.
-    pub fn load_dtw(path: &Path) -> Result<Engine, String> {
+    /// per word job and dropped afterwards. `preset` must match the model
+    /// (`words::dtw_preset_for`).
+    pub fn load_dtw(path: &Path, preset: DtwPreset) -> Result<Engine, String> {
+        let model_preset = match preset {
+            DtwPreset::LargeV3Turbo => DtwModelPreset::LargeV3Turbo,
+            DtwPreset::Medium => DtwModelPreset::Medium,
+            DtwPreset::Small => DtwModelPreset::Small,
+        };
         HOOKS.call_once(whisper_rs::install_logging_hooks);
         let mut p = WhisperContextParameters::default();
         p.use_gpu(true).flash_attn(false).dtw_parameters(DtwParameters {
-            mode: DtwMode::ModelPreset { model_preset: DtwModelPreset::LargeV3Turbo },
+            mode: DtwMode::ModelPreset { model_preset },
             ..Default::default()
         });
         let ctx = WhisperContext::new_with_params(path.to_string_lossy().as_ref(), p)

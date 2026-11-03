@@ -718,8 +718,20 @@ mod tests {
     impl CaptureFactory for FakeCapture {
         fn start(&self, source: Source, _: Option<&str>, mut chunk: Chunk, mut err: OnError) -> Result<Box<dyn AudioInput>, String> {
             if let Some(d) = self.data.get(&source) {
-                for c in d.chunks(1600) {
-                    chunk(c);
+                if source == Source::Mic && self.data.contains_key(&Source::Sys) {
+                    // Real speaker echo reaches the mic as the system plays it;
+                    // the fake threads would otherwise race at start.
+                    let d = d.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(150));
+                        for c in d.chunks(1600) {
+                            chunk(c);
+                        }
+                    });
+                } else {
+                    for c in d.chunks(1600) {
+                        chunk(c);
+                    }
                 }
             }
             if self.fail == Some(source) {
@@ -819,7 +831,7 @@ mod tests {
             Source::Sys => "Bitte sehr, fragen Sie".into(),
         });
         let (p, r) = start(data, None, text, Duration::ZERO);
-        wait_for(&r, |e| e.iter().filter(|e| matches!(e, Event::Final { .. })).count() >= 1);
+        wait_for(&r, |e| e.iter().filter(|e| matches!(e, Event::Final { .. })).count() >= 2);
         let dir = p.stop().unwrap();
         let mut f = finals(&r);
         f.sort_by_key(|x| x.0);
@@ -836,6 +848,7 @@ mod tests {
         let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> =
             Arc::new(|_, _| "Wir treffen uns um drei".into());
         let (p, r) = start(data, None, text, Duration::ZERO);
+        wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Dropped { source: Source::Mic, .. })));
         let dir = p.stop().unwrap();
         assert_eq!(finals(&r), vec![(Source::Sys, "Wir treffen uns um drei".into())]);
         assert_eq!(read_lines(&dir).len(), 1);

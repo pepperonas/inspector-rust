@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub mod models;
 pub mod session;
 
 /// Where the audio comes from. Kept separate end to end — never mixed.

@@ -1,0 +1,16 @@
+[package]
+name = "transcribe-helper"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "The `ir-transcribe` helper process: runs transcribe-core behind a JSON-lines protocol"
+
+[[bin]]
+name = "ir-transcribe"
+path = "src/main.rs"
+
+[dependencies]
+transcribe-core = { path = "../transcribe-core" }
+transcribe-protocol = { path = "../transcribe-protocol" }

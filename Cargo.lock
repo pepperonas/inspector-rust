@@ -7403,6 +7403,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "transcribe-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "transcribe-protocol",
+]
+
+[[package]]
+name = "transcribe-helper"
+version = "0.1.0"
+dependencies = [
+ "transcribe-core",
+ "transcribe-protocol",
+]
+
+[[package]]
+name = "transcribe-protocol"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "transpose"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

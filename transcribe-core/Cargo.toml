@@ -1,0 +1,18 @@
+[package]
+name = "transcribe-core"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "Live transcription engine: capture, VAD, segmentation, local agreement, echo gate, crash-safe writer, whisper.cpp"
+
+[dependencies]
+transcribe-protocol = { path = "../transcribe-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+flate2 = "1"
+
+[dev-dependencies]
+tempfile = "3"

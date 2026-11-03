@@ -2721,9 +2721,11 @@ impl FrameGeometry {
         // touche pas. Aucune annotation flou n'envoie la clé aujourd'hui ; si un jour c'est le
         // cas, elle garde le comportement du cadre.
         if annotation.in_frame_space() {
-            let dst = annotation_dst_in([0.0, 0.0, 1.0, 1.0], x, y, w, h);
-            let dst = pad_rect(dst, render_px, PRIVACY_MASK_PAD_PX);
-            return Some(PrivacyMask::upright(dst, render_px, 1.0));
+            let rect = annotation_dst_in([0.0, 0.0, 1.0, 1.0], x, y, w, h);
+            let dst = pad_rect(rect, render_px, PRIVACY_MASK_PAD_PX);
+            let mut mask = PrivacyMask::upright(dst, render_px, 1.0);
+            mask.content = rect_within(rect, dst);
+            return Some(mask);
         }
         let upright = annotation_dst_in(self.s_dst, x, y, w, h);
         // Grossissement du zoom : le contenu grandit de `s_dst / s_ann`, le grain du masque doit
@@ -2755,6 +2757,7 @@ impl FrameGeometry {
                 None => (dst, false),
             };
             let mut mask = PrivacyMask::upright(dst, render_px, zoom_k);
+            mask.content = rect_within(upright, dst);
             // Un ovale inscrit dans la boîte ÉLARGIE ne contient plus l'ovale courant dès que
             // les deux centres diffèrent : son bord laisserait passer une frange du secret. On
             // retombe alors sur le rectangle, comme le tracé libre. Même chose dans la boîte
@@ -2785,6 +2788,9 @@ impl FrameGeometry {
         );
         let [x0, y0] = self.content_to_plane([x - mx, y - my]);
         let [x1, y1] = self.content_to_plane([x + w + mx, y + h + my]);
+        // Inspector Rust (patch 13): the annotation box itself, in the same plane fractions.
+        let [bx0, by0] = self.content_to_plane([x, y]);
+        let [bx1, by1] = self.content_to_plane([x + w, y + h]);
         // Rogné à la carte du remplissage : ce qu'elle ne montre pas n'a rien à cacher, et un
         // masque hors d'elle flouterait le fond.
         let (x0, y0, x1, y1) = if self.fill_tilt {
@@ -2854,9 +2860,12 @@ impl FrameGeometry {
             quad_px = [c[2] * rw, c[3] * rh];
             dst = c;
         }
+        // Le warp inverse rend `n` en fractions de `[x0, x1] × [y0, y1]` : la boîte y tombe ici.
+        let (sw, sh) = ((x1 - x0).max(1e-6), (y1 - y0).max(1e-6));
         Some(PrivacyMask {
             dst,
             quad_px,
+            content: [(bx0 - x0) / sw, (by0 - y0) / sh, (bx1 - bx0) / sw, (by1 - by0) / sh],
             warp: Some(local),
             projective: quad.projective,
             strength,
@@ -2975,12 +2984,17 @@ pub struct PrivacyMask {
     /// `false` quand le rect a été élargi à la trace du flou de mouvement : un ovale inscrit
     /// dans ce rect-là ne couvrirait plus l'ovale courant, le backend dessine alors le rect.
     pub oval_ok: bool,
+    /// Inspector Rust (patch 13): the annotation box inside the mask, in the mask's own 0..1
+    /// coordinates (the shader's `n`) — where a free-form outline, given in fractions of the
+    /// box, lands. Only exact while `oval_ok` (the backend falls back to the rect otherwise).
+    pub content: [f32; 4],
 }
 
 impl PrivacyMask {
     fn upright(dst: [f32; 4], render_px: [f32; 2], strength: f32) -> Self {
         Self {
             dst,
+            content: [0.0, 0.0, 1.0, 1.0],
             quad_px: [dst[2] * render_px[0], dst[3] * render_px[1]],
             warp: None,
             projective: false,
@@ -3003,6 +3017,73 @@ impl PrivacyMask {
             ),
         }
     }
+}
+
+/// `inner` in fractions of `outer` (both `[x, y, w, h]`). Inspector Rust, patch 13.
+fn rect_within(inner: [f32; 4], outer: [f32; 4]) -> [f32; 4] {
+    let (ow, oh) = (outer[2].max(1e-9), outer[3].max(1e-9));
+    [(inner[0] - outer[0]) / ow, (inner[1] - outer[1]) / oh, inner[2] / ow, inner[3] / oh]
+}
+
+/// Inspector Rust, patch 13 — the free-form blur outline as a signed distance field.
+///
+/// Upstream masks only the bounding box of a free-form blur. Here the closed polygon `points`
+/// (fractions of the annotation box, 0..1) becomes a field over that box, `width`×`height`
+/// texels with square texels in box pixels (`aspect` = box width / height in px): each value is
+/// the distance to the outline in units of the box's SHORTER side, negative inside (even-odd).
+/// The shader turns it into px with the box's current size, so the edge stays ~1 px soft at
+/// any zoom, like the oval. Bilinear filtering of a distance is exact along straight edges.
+pub fn freehand_sdf(points: &[[f32; 2]], aspect: f32) -> (u32, u32, Vec<f32>) {
+    let (w, h) = freehand_sdf_size(aspect);
+    let a = if aspect.is_finite() && aspect > 0.0 { aspect } else { 1.0 };
+    // Box in shorter-side units: the longer side is `a` or `1/a`.
+    let (sx, sy) = if a >= 1.0 { (a, 1.0) } else { (1.0, 1.0 / a) };
+    let pts: Vec<[f32; 2]> = points.iter().map(|p| [p[0] * sx, p[1] * sy]).collect();
+    let mut field = Vec::with_capacity((w * h) as usize);
+    for j in 0..h {
+        for i in 0..w {
+            let px = (i as f32 + 0.5) / w as f32 * sx;
+            let py = (j as f32 + 0.5) / h as f32 * sy;
+            field.push(polygon_signed_distance(&pts, [px, py]));
+        }
+    }
+    (w, h, field)
+}
+
+/// Texture size of [`freehand_sdf`]: 256 texels on the longer side, at least 8 on the other.
+pub fn freehand_sdf_size(aspect: f32) -> (u32, u32) {
+    const LONG: f32 = 256.0;
+    let a = if aspect.is_finite() && aspect > 0.0 { aspect } else { 1.0 };
+    if a >= 1.0 {
+        (LONG as u32, (LONG / a).round().max(8.0) as u32)
+    } else {
+        ((LONG * a).round().max(8.0) as u32, LONG as u32)
+    }
+}
+
+/// Distance from `p` to the closed polygon's outline, negative inside (even-odd rule). Fewer
+/// than three points enclose nothing: every point is outside.
+pub fn polygon_signed_distance(pts: &[[f32; 2]], p: [f32; 2]) -> f32 {
+    if pts.len() < 3 {
+        return f32::MAX;
+    }
+    let mut d2 = f32::MAX;
+    let mut inside = false;
+    for k in 0..pts.len() {
+        let a = pts[k];
+        let b = pts[(k + 1) % pts.len()];
+        let (ex, ey) = (b[0] - a[0], b[1] - a[1]);
+        let (wx, wy) = (p[0] - a[0], p[1] - a[1]);
+        let len2 = ex * ex + ey * ey;
+        let t = if len2 > 0.0 { ((wx * ex + wy * ey) / len2).clamp(0.0, 1.0) } else { 0.0 };
+        let (dx, dy) = (wx - ex * t, wy - ey * t);
+        d2 = d2.min(dx * dx + dy * dy);
+        if (a[1] > p[1]) != (b[1] > p[1]) && p[0] < a[0] + (p[1] - a[1]) / (b[1] - a[1]) * ex {
+            inside = !inside;
+        }
+    }
+    let d = d2.sqrt();
+    if inside { -d } else { d }
 }
 
 fn union_rect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
@@ -6680,6 +6761,52 @@ mod tests {
         }
         assert_eq!(m.warp, None);
         assert_eq!(m.strength, 1.0);
+    }
+
+    /// Inspector Rust, patch 13: `content` locates the annotation box inside the mask — at rest,
+    /// upright and zoomed (the free-form outline is drawn there).
+    #[test]
+    fn privacy_mask_content_is_the_annotation_box() {
+        let cfg = crate::config::all().pop().expect("au moins une config");
+        let a = blur_annotation("");
+        let render = [1170.0, 658.0];
+        for scene in [golden_scene(), zoomed_golden_scene()] {
+            let g = plan_frame(&golden_input(&scene, &cfg));
+            let m = g.privacy_mask(&a, render).expect("masque");
+            // The content under the zoom sits at `s_dst` (the mask's own reference).
+            let r = annotation_dst_in(g.s_dst, a.x, a.y, a.w, a.h);
+            let c = m.content;
+            let back = [m.dst[0] + c[0] * m.dst[2], m.dst[1] + c[1] * m.dst[3], c[2] * m.dst[2], c[3] * m.dst[3]];
+            for k in 0..4 {
+                assert!((back[k] - r[k]).abs() < 1e-5, "{back:?} au lieu de {r:?}");
+            }
+            assert!(c[0] > 0.0 && c[1] > 0.0 && c[0] + c[2] < 1.0 && c[1] + c[3] < 1.0, "box inside the padded mask: {c:?}");
+        }
+        // Tilted: the box sits inside the warp's 0..1 range, just inside the margin.
+        let g = plan_frame(&golden_input(&tilted_golden_scene(), &cfg));
+        let c = g.privacy_mask(&a, render).expect("masque").content;
+        assert!(c[0] > 0.0 && c[0] < 0.05 && c[0] + c[2] > 0.95 && c[0] + c[2] < 1.0, "{c:?}");
+        assert!(c[1] > 0.0 && c[1] < 0.05 && c[1] + c[3] > 0.95 && c[1] + c[3] < 1.0, "{c:?}");
+    }
+
+    /// Inspector Rust, patch 13: the free-form field is negative inside the polygon, positive
+    /// outside, and measures distance in units of the box's shorter side.
+    #[test]
+    fn freehand_sdf_signs_and_scale() {
+        // A triangle over a 2:1 box: apex top-centre, base along the bottom.
+        let tri = [[0.5, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let (w, h, f) = freehand_sdf(&tri, 2.0);
+        assert_eq!((w, h), (256, 128));
+        let at = |u: f32, v: f32| f[((v * h as f32) as usize).min(h as usize - 1) * w as usize + ((u * w as f32) as usize).min(w as usize - 1)];
+        assert!(at(0.5, 0.8) < 0.0, "centre of the base is inside");
+        assert!(at(0.05, 0.1) > 0.0, "top-left corner is outside");
+        assert!(at(0.95, 0.1) > 0.0, "top-right corner is outside");
+        // Bottom-centre, 0.1 box heights above the base: 0.1 short-side units from the outline.
+        assert!((at(0.5, 0.9) + 0.1).abs() < 0.01, "{}", at(0.5, 0.9));
+        assert_eq!(freehand_sdf_size(0.25), (64, 256));
+        assert_eq!(freehand_sdf_size(100.0), (256, 8));
+        assert_eq!(freehand_sdf_size(f32::NAN), (256, 256));
+        assert_eq!(polygon_signed_distance(&tri[..2], [0.5, 0.5]), f32::MAX, "two points enclose nothing");
     }
 
     /// Sous un zoom, le masque couvre le MÊME contenu qu'au repos.

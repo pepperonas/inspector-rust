@@ -145,7 +145,8 @@ impl CursorSdf {
 
 /// Demi-flottant IEEE 754 de `v`, tronqué. Les distances n'ont ni NaN ni infini ; sous 2⁻¹⁵ elles
 /// valent zéro, et c'est sans effet à cette échelle.
-fn f16_bits(v: f32) -> u16 {
+/// `pub(crate)`: Inspector Rust patch 13 encodes the free-form blur field with it.
+pub(crate) fn f16_bits(v: f32) -> u16 {
     let b = v.to_bits();
     let sign = ((b >> 16) & 0x8000) as u16;
     let e = ((b >> 23) & 0xff) as i32 - 127 + 15;

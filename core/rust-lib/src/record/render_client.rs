@@ -229,12 +229,23 @@ pub fn dev_env() -> Vec<(String, String)> {
     vec![("DYLD_FALLBACK_LIBRARY_PATH".into(), lib.to_string_lossy().into_owned())]
 }
 
+/// Name of the compositor's font directory variable (`V/src/text_fonts.rs` `FONTS_DIR_ENV`).
+pub const FONTS_DIR_ENV: &str = "OPENSCREEN_FONTS_DIR";
+
+/// The helper's environment: the fonts always, the dev ffmpeg path for a dev helper.
+pub fn helper_env(dev: bool, fonts_dir: &Path) -> Vec<(String, String)> {
+    let mut env = if dev { dev_env() } else { Vec::new() };
+    env.push((FONTS_DIR_ENV.into(), fonts_dir.to_string_lossy().into_owned()));
+    env
+}
+
 impl RenderClient {
-    /// Starts the real helper (see [`helper_path`]).
-    pub fn spawn(sink: Sink) -> Result<Self, String> {
+    /// Starts the real helper (see [`helper_path`]). `fonts_dir` goes into
+    /// `OPENSCREEN_FONTS_DIR` at process start: the compositor caches its fonts on the first
+    /// text draw (`OnceLock`), so a later change would never reach it.
+    pub fn spawn(sink: Sink, fonts_dir: &Path) -> Result<Self, String> {
         let (path, dev) = helper_path().ok_or_else(|| "record.editor.helper_missing".to_string())?;
-        let env = if dev { dev_env() } else { Vec::new() };
-        Self::spawn_with(path, env, sink)
+        Self::spawn_with(path, helper_env(dev, fonts_dir), sink)
     }
 
     pub fn spawn_with(path: PathBuf, env: Vec<(String, String)>, sink: Sink) -> Result<Self, String> {
@@ -559,6 +570,16 @@ fn read_loop(mut stdout: impl std::io::Read, tx: Sender<Reply>, shared: Arc<Shar
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_env_always_names_the_fonts() {
+        let fonts = Path::new("/x/record/fonts");
+        for dev in [false, true] {
+            let env = helper_env(dev, fonts);
+            assert!(env.contains(&(FONTS_DIR_ENV.to_string(), "/x/record/fonts".to_string())), "{env:?}");
+            assert_eq!(env.iter().any(|(k, _)| k == "DYLD_FALLBACK_LIBRARY_PATH"), dev);
+        }
+    }
     use std::os::unix::fs::PermissionsExt;
 
     /// A stand-in helper: a shell script in a fresh temp dir.

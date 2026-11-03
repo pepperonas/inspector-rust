@@ -903,7 +903,6 @@ mod tests {
     /// fichiers, enregistrées pour le processus AVANT, portent exactement les mêmes noms.
     /// Seul le chemin du fichier distingue le gagnant ; famille et graisse n'y suffisent pas.
     #[test]
-    #[ignore = "Inspector Rust: needs OpenScreen public/ assets that are not vendored (VENDORED.md)"]
     fn every_shipped_family_draws_from_its_own_files() {
         use std::os::unix::ffi::OsStrExt;
         let repo = std::fs::canonicalize(crate::text_fonts::repo_fonts_dir()).unwrap();

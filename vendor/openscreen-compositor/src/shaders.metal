@@ -3906,7 +3906,8 @@ fragment float4 ps_main(VSOut i [[stage_in]],
     // qui arrive dans `texImg` (recopie mipmappée du render target : on ne peut pas
     // échantillonner la cible sur laquelle on dessine). `i.pout` donne directement l'UV de
     // sortie. fx.x = 0 mosaïque / 1 flou ; fx.y = taille de bloc px ou rayon px ;
-    // fx.z = 0 rectangle / 1 ovale ; fx.w = 1 si le masque doit être teinté ;
+    // fx.z = 0 rectangle / 1 ovale / 2 tracé libre (Inspector Rust, patch 13 : src = boîte,
+    // texture(3) = champ de distance) ; fx.w = 1 si le masque doit être teinté ;
     // mb.z = 1 si le masque est un quad incliné (coins TL, TR dans dst_prev, BR, BL dans src_prev),
     // mb.w = 1 si son warp est projectif.
     //
@@ -3926,7 +3927,17 @@ fragment float4 ps_main(VSOut i [[stage_in]],
             n = w.xy;
         }
         float cov = 1.0;
-        if (layer.fx.z > 0.5)
+        if (layer.fx.z > 1.5)
+        {
+            // Inspector Rust, patch 13 : tracé libre. `src` = la boîte de l'annotation dans le
+            // masque ; texture(3) = distance signée au contour en unités du petit côté de la
+            // boîte, négative dedans. Même fondu que l'ovale : ~1 px, hors du contour.
+            float2 p = (n - layer.src.xy) / max(layer.src.zw, float2(1e-6));
+            float2 box_px = layer.src.zw * layer.quad_px;
+            float d = texMask.sample(samp, p, level(0.0)).r * min(box_px.x, box_px.y);
+            cov = 1.0 - smoothstep(0.0, 1.0, d);
+        }
+        else if (layer.fx.z > 0.5)
         {
             // Ovale inscrit : distance au centre en unités de demi-axes, adoucie sur ~1px. Le
             // fondu tombe HORS de l'ellipse : dedans, le masque reste plein.

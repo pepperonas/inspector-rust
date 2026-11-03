@@ -144,7 +144,10 @@ generated at build time and shipped beside this file.
 ## Fonts — Inter, Lora, Oswald, Caveat, IBM Plex Mono
 
 - **Components**: the Regular and Bold `.ttf` of each family, under
-  `resources/fonts/`.
+  `resources/fonts/`. *Inspector Rust:* the same ten files, byte for byte, ship
+  in `Contents/Resources/record/fonts/` (source tree:
+  `core/rust-lib/assets/record/fonts/`), each family's `<Family>-OFL.txt` beside
+  them and again under `Contents/Resources/THIRD-PARTY/fonts/`.
 - **Used by**: the native compositor, which draws captions and annotations with
   these files and nothing else (it registers them privately at start and never
   reads the fonts installed on the machine), and the editor's font picker.

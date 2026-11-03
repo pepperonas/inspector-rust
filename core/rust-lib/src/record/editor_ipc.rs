@@ -722,7 +722,7 @@ fn ensure_client(app: &AppHandle, reopen: bool) -> Result<Arc<RenderClient>, Str
         if let Some(c) = host.as_ref().filter(|c| !c.is_dead()) {
             return Ok(c.clone());
         }
-        let client = Arc::new(RenderClient::spawn(sink(app))?);
+        let client = Arc::new(RenderClient::spawn(sink(app), &AssetRoot::resolve(app).fonts_dir())?);
         *host = Some(client.clone());
         client
     };
@@ -1953,7 +1953,7 @@ mod tests {
         let assets = AssetRoot::dev();
         let cursor = read_cursor(&dir);
         let scene = scene_json_with(&dir, &project, &doc, out, PREVIEW_FPS, &assets, cursor.as_ref(), &TakeSources::new());
-        let client = RenderClient::spawn(Arc::new(|n| eprintln!("notice: {n:?}"))).unwrap();
+        let client = RenderClient::spawn(Arc::new(|n| eprintln!("notice: {n:?}")), &assets.fonts_dir()).unwrap();
         let (w, h) = preview_size(out);
         client.open(scene.clone(), w, h).unwrap();
         let mut got = None;

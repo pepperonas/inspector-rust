@@ -55,7 +55,8 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
 - The 16 Windows-only and 2 Linux-only integration tests, `tests/common/nv12.rs` (Windows-only).
 - `examples/` (three macOS benches; not needed, and `cargo test` would build them).
 - `public/fonts` (OFL, 2.3 MB) and `public/mediapipe` (Apache-2.0 model, 940 KB): only used by
-  three tests, which are ignored instead (see patch 7). Needed once captions/segmentation ship.
+  three tests, which are ignored instead (see patch 7). The fonts ship since stage 4 under
+  `core/rust-lib/assets/record/fonts` (patch 13); `public/mediapipe` is still not copied.
 
 ## Patches (each one, with the reason)
 
@@ -95,6 +96,8 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    `segmentation::tests::the_vendored_model_is_where_the_loader_expects_it`,
    `text_fonts::tests::only_the_font_files_of_the_directory_are_registered`,
    `text_macos::tests::every_shipped_family_draws_from_its_own_files`.
+   The two font tests run again since patch 13 (the fonts now ship); only the segmentation
+   one stays ignored.
 
 8. **Per-clip extra audio track (stage 2, Task 2 — the recorder's `mic.wav`).** RECON §6 showed
    `audioTracks` are placed, never speed-stretched, so a mic under a speed region would drift;
@@ -167,6 +170,34 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    - `tests/*.rs`: `ClipSource` literals gained `cursor_path: None`. `record-render/src/session.rs`
      `clip_sources` forwards the field.
 
+13. **Free-form blur drawn as its outline (stage 4, Task 3).** Upstream offers the
+   `freehand` blur shape but masks only its bounding box (`compositor_macos.rs`, mode 10) — a
+   promise the picture does not keep. Inspector Rust draws the closed polygon.
+   - Units (our ruling; upstream contradicts itself, RECON-stage4 §1d): `freehandPoints` are
+     fractions (0..1) of the ANNOTATION BOX, not of the screen rect.
+   - `src/frame_geometry.rs`: `PrivacyMask.content` = the annotation box inside the mask in the
+     shader's `n` coordinates (upright, frame space, and tilted — `[bx0,bx1]` in the same plane
+     fractions as the warp); `freehand_sdf` / `freehand_sdf_size` / `polygon_signed_distance`:
+     the polygon as a signed distance field over the box (256 texels on the longer side,
+     square texels, values in units of the box's shorter side, negative inside, even-odd);
+     `rect_within`. + tests `privacy_mask_content_is_the_annotation_box`,
+     `freehand_sdf_signs_and_scale`.
+   - `src/compositor_macos.rs`: `freehand_cache` (R16F field per annotation id, rebuilt when
+     the points or texture size change); mode 10 gets `fx.z = 2`, `src` = the box, the field in
+     `texture(3)`. Falls back to the bounding box (upstream behaviour) when fewer than three
+     finite points or `!mask.oval_ok` (mask widened to the motion-blur trail or clipped by a
+     slot — the oval's own rule). + tests `freehand_mask_excludes_outside_polygon` (triangle:
+     outside unchanged, inside blurred) and `freehand_mask_rectangle_unchanged` (rectangle +
+     oval frame hash taken on the unpatched compositor; two points = the rectangle).
+   - `src/shaders.metal`: mode 10 branch `fx.z > 1.5`: distance → px with the box's current
+     size, `cov = 1 − smoothstep(0, 1, d_px)` — the oval's ~1 px soft edge, outside the outline.
+     Rectangle and oval paths unchanged.
+   - `src/cursor_sdf.rs`: `f16_bits` is `pub(crate)` (reused to encode the field).
+   - Fonts (patch 7 partly undone): `src/text_fonts.rs` `repo_fonts_dir()` points at
+     `../../core/rust-lib/assets/record/fonts`, where Inspector Rust now ships the ten OFL
+     fonts; the two font tests (`only_the_font_files_of_the_directory_are_registered`,
+     `every_shipped_family_draws_from_its_own_files`) run again.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -179,10 +210,11 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-01 after patch 8: 491 passed, 0 failed, 3 ignored
 # 2026-11-01 after patch 9: 493 passed, 0 failed, 3 ignored
 # 2026-11-02 after patch 12: 494 passed, 0 failed, 3 ignored
+# 2026-11-03 after patch 13: 500 passed, 0 failed, 1 ignored
 ```
 
 ## Updating from upstream
 
-Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–7 (`grep -rn
+Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–13 (`grep -rn
 '\.\./\.\./\.\./\|\.\./\.\./public' src` finds 5/6) and diff `build.rs`/`Cargo.toml` by hand.
 Re-check `scripts/fetch-ffmpeg-macos.mjs` upstream for a new ffmpeg pin and hash.

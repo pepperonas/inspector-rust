@@ -77,6 +77,8 @@ struct Helper {
 impl Helper {
     fn start() -> Helper {
         let mut child = Proc::new(HELPER)
+            // The app sets it at spawn (`RenderClient::spawn`); text draws in the shipped fonts.
+            .env("OPENSCREEN_FONTS_DIR", concat!(env!("CARGO_MANIFEST_DIR"), "/../core/rust-lib/assets/record/fonts"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -742,5 +744,58 @@ fn two_sources_preview_crosses_into_second_take() {
     let (to_b, _) = diff(&crossed, &still_b);
     println!("back in A: diff to A {back_a:.2}; after crossing: diff to A {to_a:.2}, to B {to_b:.2}");
     assert!(to_b < to_a, "after playing over the boundary the preview must show take B (A {to_a:.2}, B {to_b:.2})");
+    assert!(h.shutdown().success());
+}
+
+/// Stage 4 (Task 3): annotations — a Caveat text, an arrow, a mosaic oval and a free-form blur
+/// (vendor patch 13) — look the same in the preview and in the export's still (mean < 3,
+/// worst 32-px block < 20). Keeps `still.jpg` / `preview.png` in the output folder for a look.
+#[test]
+#[ignore]
+fn annotations_preview_matches_still() {
+    let Some(dir) = project() else { return };
+    let out = out_dir("annotations");
+    let mut h = Helper::start();
+    let mut scene = styled_scene(&dir);
+    let end = recording(&dir).0 as f64 / 1000.0;
+    let base = |id: &str, kind: &str, x: f64, y: f64, w: f64, hh: f64, z: i32| {
+        json!({"id": id, "clipIndex": 0, "startSec": 0.0, "endSec": end, "kind": kind,
+            "x": x, "y": y, "w": w, "h": hh, "zIndex": z})
+    };
+    let mut text = base("t", "text", 0.08, 0.06, 0.5, 0.18, 0);
+    text["space"] = json!("frame");
+    text["text"] = json!({"content": "Hallo Caveat", "color": "#ffffff", "backgroundColor": "rgba(0, 0, 0, 0.7)",
+        "fontSizeRel": 64.0 / 1080.0, "fontFamily": "Caveat", "fontWeight": "bold", "fontStyle": "normal",
+        "textDecoration": "none", "textAlign": "center", "animation": "none"});
+    let mut arrow = base("a", "figure", 0.62, 0.08, 0.2, 0.2, 1);
+    arrow["space"] = json!("frame");
+    arrow["figure"] = json!({"direction": "down-left", "color": "#34B27B", "strokeWidth": 8});
+    let mut oval = base("o", "blur", 0.1, 0.45, 0.35, 0.3, 2);
+    oval["blur"] = json!({"style": "mosaic", "shape": "oval", "color": "white", "intensity": 12, "blockSize": 16});
+    let mut free = base("f", "blur", 0.55, 0.45, 0.35, 0.35, 3);
+    free["blur"] = json!({"style": "blur", "shape": "freehand", "color": "white", "intensity": 20, "blockSize": 12,
+        "freehandPoints": [{"x": 0.5, "y": 0.0}, {"x": 1.0, "y": 0.4}, {"x": 0.8, "y": 1.0},
+                           {"x": 0.2, "y": 1.0}, {"x": 0.0, "y": 0.4}]});
+    scene["annotations"] = json!([text, arrow, oval, free]);
+    // At rest (no zoom): the comparison is about the annotations, not the zoom ramp.
+    scene["zoomRegions"] = json!([]);
+    let frame = 2 * 30;
+    let (w, hgt, still) = still(&mut h, &scene, frame, &out, "still.jpg");
+    h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
+    assert_eq!(h.event(Duration::from_secs(30)), Event::Ready);
+    h.send(&Command::SetTime { source_sec: 2.0 });
+    let f = settled(&mut h, 0, 3.0);
+    assert_eq!((f.w, f.h), (w, hgt), "preview and still share a size");
+    let raw = out.join("preview.rgba");
+    std::fs::write(&raw, &f.rgba).unwrap();
+    let _ = Proc::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{hgt}"), "-i"])
+        .arg(&raw)
+        .arg(out.join("preview.png"))
+        .status();
+    let (mae, worst) = diff(&f, &still);
+    println!("annotations: {w}x{hgt}, mean abs diff {mae:.2} / 255, worst 32-px block {worst:.2} (files in {})", out.display());
+    assert!(mae < 3.0, "preview differs from the still: mean abs diff {mae:.2}");
+    assert!(worst < 20.0, "a part of the preview differs from the still: worst block {worst:.2}");
     assert!(h.shutdown().success());
 }

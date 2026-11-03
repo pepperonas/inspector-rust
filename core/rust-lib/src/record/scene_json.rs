@@ -16,7 +16,7 @@
 use super::assets::{AssetRoot, CURSOR_KINDS, AS_ARROW_DEFAULT};
 use super::click_cues::click_hits_by_source;
 use super::editor::{
-    self, take_dir, valid_take_id, zoom_scale, Aspect, Background, EditDoc, FocusMode, Frame, FrameTheme, TakeMeta,
+    self, take_dir, valid_take_id, zoom_scale, AnnotationBody, Aspect, BlurShape, Background, EditDoc, FocusMode, Frame, FrameTheme, TakeMeta,
     TakeMetas, WallpaperMotion, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, TAKES_DIR,
 };
 use super::layout;
@@ -322,6 +322,8 @@ pub fn scene_json_with(
         })
         .collect();
 
+    let annotations = annotations_json(project_dir, doc, &kept);
+
     let c = &doc.cursor;
     // Drawn when any clip's recording has pointer data (a clip without plays none).
     let show = c.show
@@ -367,6 +369,11 @@ pub fn scene_json_with(
         "output": {"width": out.0, "height": out.1, "fps": fps},
     });
 
+    // Only when there are any: a document without annotations keeps its scene byte for byte.
+    if !annotations.is_empty() {
+        scene["annotations"] = Value::Array(annotations);
+    }
+
     if show && c.click_sound {
         let level = 10f64.powf(c.click_sound_gain_db / 20.0);
         // On the programme as it plays (a missing take's clip lasts no time, see `playable`).
@@ -381,6 +388,89 @@ pub fn scene_json_with(
         }
     }
     scene
+}
+
+/// Reference height a text annotation's font size is given in (OpenScreen `annotationScale.ts`):
+/// the compositor draws `fontSizeRel × anchor height`, and text is anchored on the frame.
+pub const TEXT_REFERENCE_PX: f64 = 1080.0;
+
+fn pct(v: f64) -> f64 {
+    v / 100.0
+}
+
+fn enum_name<T: serde::Serialize>(v: &T) -> Value {
+    serde_json::to_value(v).unwrap_or(Value::Null)
+}
+
+/// The document's annotations as the compositor's `SceneAnnotation`s (`V/src/scene.rs`), the port
+/// of `sceneDescription.ts`: box percent → fractions, times in the clip's source seconds, text /
+/// image / arrow measured on the frame (`space: "frame"`), blur on the screen (no key). Sorted
+/// ascending by `zIndex` (the compositor paints in list order). An annotation of a clip that is
+/// not in the scene goes, so does an image that is not a plain file under `<project>/assets/`.
+fn annotations_json(project_dir: &Path, doc: &EditDoc, kept: &dyn Fn(usize) -> Option<usize>) -> Vec<Value> {
+    let mut out: Vec<(i32, Value)> = Vec::new();
+    for a in &doc.annotations {
+        let Some(ci) = kept(a.clip) else { continue };
+        let mut v = json!({
+            "id": a.id,
+            "clipIndex": ci,
+            "startSec": ms_to_sec(a.start_ms),
+            "endSec": ms_to_sec(a.end_ms),
+            "x": pct(a.x),
+            "y": pct(a.y),
+            "w": pct(a.w),
+            "h": pct(a.h),
+            "zIndex": a.z_index,
+        });
+        match &a.body {
+            AnnotationBody::Text(t) => {
+                v["kind"] = json!("text");
+                v["space"] = json!("frame");
+                v["text"] = json!({
+                    "content": t.content,
+                    "color": t.color,
+                    "backgroundColor": t.background,
+                    "fontSizeRel": t.font_size / TEXT_REFERENCE_PX,
+                    "fontFamily": t.font_family,
+                    "fontWeight": if t.bold { "bold" } else { "normal" },
+                    "fontStyle": if t.italic { "italic" } else { "normal" },
+                    "textDecoration": if t.underline { "underline" } else { "none" },
+                    "textAlign": enum_name(&t.align),
+                    "animation": enum_name(&t.animation),
+                });
+            }
+            AnnotationBody::Image { file } => {
+                let Some(path) = project_asset(project_dir, file) else { continue };
+                v["kind"] = json!("image");
+                v["space"] = json!("frame");
+                v["imagePath"] = json!(path_str(&path));
+            }
+            AnnotationBody::Arrow { direction, color, stroke_width } => {
+                v["kind"] = json!("figure");
+                v["space"] = json!("frame");
+                v["figure"] = json!({"direction": enum_name(direction), "color": color, "strokeWidth": stroke_width});
+            }
+            AnnotationBody::Blur(b) => {
+                v["kind"] = json!("blur");
+                let mut blur = json!({
+                    "style": enum_name(&b.style),
+                    "shape": enum_name(&b.shape),
+                    "color": enum_name(&b.color),
+                    "intensity": b.intensity,
+                    "blockSize": b.block_size,
+                });
+                if b.shape == BlurShape::Freehand {
+                    // Fractions of the annotation box (vendor patch 13 draws the polygon there).
+                    blur["freehandPoints"] =
+                        Value::Array(b.points.iter().map(|&(x, y)| json!({"x": pct(x), "y": pct(y)})).collect());
+                }
+                v["blur"] = blur;
+            }
+        }
+        out.push((a.z_index, v));
+    }
+    out.sort_by_key(|(z, _)| *z);
+    out.into_iter().map(|(_, v)| v).collect()
 }
 
 #[cfg(test)]
@@ -877,5 +967,128 @@ mod tests {
         assert!(v["zoomRegions"].as_array().unwrap().is_empty());
         assert_eq!(v["cropByClip"].as_array().unwrap().len(), 1);
         assert_eq!(v["layout"]["layoutByClip"].as_array().unwrap().len(), 1);
+    }
+
+    fn ann(id: &str, clip: usize, z: i32, body: editor::AnnotationBody) -> editor::Annotation {
+        let mut a = editor::Annotation::new(id.into(), clip, 1_000, 2_500, body, &[]);
+        a.z_index = z;
+        a
+    }
+
+    fn text_body() -> editor::AnnotationBody {
+        editor::AnnotationBody::Text(editor::TextBody { content: "Hallo".into(), font_family: "Caveat".into(), ..Default::default() })
+    }
+
+    fn freehand_body() -> editor::AnnotationBody {
+        editor::AnnotationBody::Blur(editor::BlurBody {
+            shape: BlurShape::Freehand,
+            points: vec![(0.0, 0.0), (100.0, 0.0), (50.0, 100.0)],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn annotations_emitted_in_scene() {
+        let dir = tmp_project("ann");
+        std::fs::write(dir.join(PROJECT_ASSETS_DIR).join("logo.png"), b"png").unwrap();
+        let mut d = doc();
+        let mut t = ann("t", 1, 0, text_body());
+        t.x = 25.0;
+        t.y = 40.0;
+        t.w = 30.0;
+        t.h = 20.0;
+        t.start_ms = 7_000;
+        t.end_ms = 8_500;
+        d.annotations = vec![
+            t,
+            ann("i", 0, 1, editor::AnnotationBody::Image { file: "logo.png".into() }),
+            ann(
+                "a",
+                0,
+                2,
+                editor::AnnotationBody::Arrow {
+                    direction: editor::ArrowDirection::UpLeft,
+                    color: "#34B27B".into(),
+                    stroke_width: 4.0,
+                },
+            ),
+            ann("b", 0, 3, freehand_body()),
+            ann("r", 0, 4, editor::AnnotationBody::Blur(editor::BlurBody::default())),
+        ];
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let a = v["annotations"].as_array().unwrap();
+        assert_eq!(a.len(), 5);
+        assert_eq!(
+            a[0],
+            json!({
+                "id": "t", "clipIndex": 1, "startSec": 7.0, "endSec": 8.5, "kind": "text", "space": "frame",
+                "x": 0.25, "y": 0.4, "w": 0.3, "h": 0.2, "zIndex": 0,
+                "text": {
+                    "content": "Hallo", "color": "#ffffff", "backgroundColor": "rgba(0, 0, 0, 0.7)",
+                    "fontSizeRel": 32.0 / 1080.0, "fontFamily": "Caveat", "fontWeight": "bold",
+                    "fontStyle": "normal", "textDecoration": "none", "textAlign": "center", "animation": "none",
+                },
+            })
+        );
+        assert_eq!(a[1]["kind"], "image");
+        assert_eq!(a[1]["space"], "frame");
+        assert_eq!(a[1]["imagePath"], path_str(&dir.join("assets/logo.png")));
+        assert_eq!(a[1]["startSec"], 1.0);
+        assert_eq!(a[1]["endSec"], 2.5);
+        assert_eq!(a[2]["kind"], "figure");
+        assert_eq!(a[2]["figure"], json!({"direction": "up-left", "color": "#34B27B", "strokeWidth": 4.0}));
+        assert_eq!(a[3]["kind"], "blur");
+        assert!(a[3].get("space").is_none(), "blur is measured on the screen");
+        assert_eq!(
+            a[3]["blur"],
+            json!({
+                "style": "mosaic", "shape": "freehand", "color": "white", "intensity": 12.0, "blockSize": 12.0,
+                "freehandPoints": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.5, "y": 1.0}],
+            })
+        );
+        assert_eq!(a[4]["blur"]["shape"], "rectangle");
+        assert!(a[4]["blur"].get("freehandPoints").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn annotations_sorted_by_z() {
+        let mut d = doc();
+        d.annotations = vec![ann("c", 0, 7, text_body()), ann("a", 0, 1, text_body()), ann("b", 0, 3, text_body())];
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let ids: Vec<_> = v["annotations"].as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn image_outside_assets_dropped() {
+        let dir = tmp_project("ann-img");
+        std::fs::write(dir.join("x.png"), b"png").unwrap();
+        let mut d = doc();
+        let abs = path_str(&dir.join("x.png"));
+        for bad in ["../x.png", abs.as_str(), "missing.png", ""] {
+            d.annotations = vec![ann("i", 0, 0, editor::AnnotationBody::Image { file: bad.into() })];
+            let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+            assert!(v.get("annotations").is_none(), "{bad:?} must not reach the helper");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn annotation_of_a_missing_take_is_omitted_and_reindexed() {
+        let mut d = doc();
+        d.clips[0].source = Some("gone".into());
+        d.annotations = vec![ann("x", 0, 0, text_body()), ann("y", 1, 0, text_body())];
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let a = v["annotations"].as_array().unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0]["id"], "y");
+        assert_eq!(a[0]["clipIndex"], 0);
+    }
+
+    #[test]
+    fn no_annotations_no_key() {
+        let v = scene_json_with(Path::new(DIR), &project(), &doc(), (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert!(v.get("annotations").is_none());
     }
 }

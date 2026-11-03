@@ -7,6 +7,7 @@
 //! cursors/themes.json            hotspots (fractions of the sprite image)
 //! cursors/<theme>/<state>.png    sprites; a theme ships arrow + pointer, `default` all 16
 //! sounds/{click-down,click-up}.wav
+//! fonts/<Family>-{Regular,Bold}.ttf + <Family>-OFL.txt   text annotation fonts (SIL OFL 1.1)
 //! wallpapers/NN.jpg, thumbs/NN.jpg   our own generated backgrounds (see `gen_record_wallpapers`)
 //! ```
 //!
@@ -112,6 +113,12 @@ impl AssetRoot {
         }
         let p = self.dir.join("wallpapers").join("thumbs").join(format!("{id}.jpg"));
         p.is_file().then_some(p)
+    }
+
+    /// The text annotation fonts (`TEXT_FONTS`, regular + bold each) and their OFL licences; the
+    /// render helper reads them through `OPENSCREEN_FONTS_DIR`.
+    pub fn fonts_dir(&self) -> PathBuf {
+        self.dir.join("fonts")
     }
 
     /// `(click-down, click-up)`.
@@ -357,5 +364,21 @@ mod tests {
             JpegEncoder::new_with_quality(&mut tb, 85).encode_image(&thumb).unwrap();
             std::fs::write(out.join("thumbs").join(format!("{id}.jpg")), &tb).unwrap();
         }
+    }
+
+    #[test]
+    fn fonts_dir_has_all_ten() {
+        let dir = AssetRoot::dev().fonts_dir();
+        for family in crate::record::editor::TEXT_FONTS {
+            let file = family.replace(' ', "");
+            for weight in ["Regular", "Bold"] {
+                let p = dir.join(format!("{file}-{weight}.ttf"));
+                let head = std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+                assert_eq!(&head[..4], &[0, 1, 0, 0], "{} is not a TrueType file", p.display());
+            }
+            assert!(dir.join(format!("{file}-OFL.txt")).is_file(), "{file} licence");
+        }
+        let ttf = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.path().extension().is_some_and(|x| x == "ttf")).count();
+        assert_eq!(ttf, 10);
     }
 }

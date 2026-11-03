@@ -13,7 +13,9 @@
 #   Contents/Frameworks/libav*.N.dylib, libsw*.N.dylib   install_name @rpath/<name>
 #   Contents/Resources/THIRD-PARTY/ffmpeg/          LGPL text, FFmpeg LICENSE.md, SOURCE.txt
 #   Contents/Resources/THIRD-PARTY/openscreen/      OpenScreen LICENSE (MIT), notices (Recordly MIT)
-#   Contents/Resources/record/                      cursor themes, click sounds, wallpapers + thumbs
+#   Contents/Resources/THIRD-PARTY/fonts/           SIL OFL 1.1 texts of the annotation fonts
+#   Contents/Resources/record/                      cursor themes, click sounds, wallpapers + thumbs,
+#                                                   annotation fonts (record/fonts, OPENSCREEN_FONTS_DIR)
 #
 # Apple Silicon only: the compositor is Metal + VideoToolbox on arm64. For an
 # x86_64 triple (the Intel DMG) this script does nothing and exits 0 — the
@@ -158,9 +160,17 @@ stamp="${FF_DIR}/.ir-ffmpeg-stamp"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/LICENSE" "${TP}/openscreen/LICENSE"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/THIRD-PARTY-NOTICES.md" "${TP}/openscreen/THIRD-PARTY-NOTICES.md"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/VENDORED.md" "${TP}/openscreen/VENDORED.md"
+# Text annotation fonts (Inter, Lora, Oswald, Caveat, IBM Plex Mono — SIL OFL 1.1): the OFL
+# text of each family goes next to the other notices; the fonts themselves ship with the record
+# assets below. Ten files, regular + bold, or the helper would fall back to system fonts.
+FONTS="${REPO_ROOT}/core/rust-lib/assets/record/fonts"
+n_ttf=$(find "${FONTS}" -maxdepth 1 -name '*.ttf' | wc -l | tr -d ' ')
+[[ "${n_ttf}" == "10" ]] || die "expected 10 annotation fonts in ${FONTS}, found ${n_ttf}"
+mkdir -p "${TP}/fonts"
+cp "${FONTS}"/*-OFL.txt "${TP}/fonts/"
 
 # Editor assets (cursor sprites + hotspots, click sounds, wallpapers with their picker
-# thumbnails). Read at runtime by record::assets::AssetRoot::resolve.
+# thumbnails, annotation fonts). Read at runtime by record::assets::AssetRoot::resolve.
 REC_ASSETS="${REPO_ROOT}/core/rust-lib/assets/record"
 rm -rf "${APP}/Contents/Resources/record"
 mkdir -p "${APP}/Contents/Resources/record"

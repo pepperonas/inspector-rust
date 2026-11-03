@@ -246,6 +246,11 @@ struct State {
     live: Option<LiveView>,
     /// The preview's scene (for `SetActiveClip`, which needs the clip's file).
     scene: Option<Scene>,
+    /// The same scene as sent, re-pushed when the panel is resized (`preview_scene` depends on
+    /// the panel size).
+    scene_json: Option<Value>,
+    /// The preview panel's size (`Open`, `Resize`).
+    preview: (u32, u32),
     gpu: Option<Gpu>,
     /// Compositors by output size, most recently used last.
     comps: Vec<((u32, u32), Compositor)>,
@@ -253,7 +258,7 @@ struct State {
 
 impl State {
     fn new(out: Out, exports: ExportSlot) -> Self {
-        Self { out, exports, export_id: 0, live: None, scene: None, gpu: None, comps: Vec::new() }
+        Self { out, exports, export_id: 0, live: None, scene: None, scene_json: None, preview: (0, 0), gpu: None, comps: Vec::new() }
     }
 
     fn event(&self, ev: Event) -> io::Result<()> {
@@ -274,9 +279,10 @@ impl State {
             Command::SetScene { scene } => match parse_scene(&scene) {
                 Ok(parsed) => {
                     if let Some(live) = &self.live {
-                        push_scene(live, &scene);
+                        push_scene(live, &scene, self.preview);
                     }
                     self.scene = Some(parsed);
+                    self.scene_json = Some(scene);
                     Ok(())
                 }
                 Err(e) => self.error(format!("{e:#}")),
@@ -293,7 +299,17 @@ impl State {
             }
             Command::SetPlaying { playing } => self.with_live(|l| l.set_playing(playing)),
             Command::SetTime { source_sec } => self.with_live(|l| l.set_time(source_sec)),
-            Command::Resize { w, h } => self.with_live(|l| l.set_rect(w, h)),
+            Command::Resize { w, h } => {
+                self.preview = (w, h);
+                let scene = self.scene_json.as_ref();
+                self.with_live(|l| {
+                    l.set_rect(w, h);
+                    // Blur sizes are in output px: a new panel size changes the preview's share.
+                    if let Some(scene) = scene.filter(|s| has_blur(s)) {
+                        push_scene(l, scene, (w, h));
+                    }
+                })
+            }
             Command::Frame { since_gen } => self.frame(since_gen),
             Command::Thumbs { scene, out_fps, frames, max_width } => {
                 match self.paused(|s| s.thumbs(&scene, out_fps, &frames, max_width)) {
@@ -353,11 +369,13 @@ impl State {
         let cursor = first.cursor_path.as_deref().unwrap_or("");
         let live = LiveView::create(w.max(1), h.max(1), &first.screen_path, &first.webcam_path, cursor)
             .context("starting the preview")?;
-        push_scene(&live, scene_json);
+        push_scene(&live, scene_json, (w, h));
         live.set_playing(false);
         live.set_active_clip(&first.screen_path, &first.webcam_path, first.webcam_offset_sec, 0, first.source_start_sec);
         self.live = Some(live);
         self.scene = Some(scene);
+        self.scene_json = Some(scene_json.clone());
+        self.preview = (w, h);
         Ok(())
     }
 
@@ -581,11 +599,11 @@ impl PreviewTarget for LiveView {
     }
 }
 
-/// The ONLY way a scene reaches the preview (Open, SetScene, a restarted helper's Open):
-/// the scene, then every effect value — after, because `set_scene` itself resets the
-/// cursor switches.
-pub(crate) fn push_scene(view: &impl PreviewTarget, scene: &Value) {
-    view.set_scene(&scene.to_string());
+/// The ONLY way a scene reaches the preview (Open, SetScene, Resize, a restarted helper's
+/// Open): the scene as the preview draws it (`preview_scene`), then every effect value —
+/// after, because `set_scene` itself resets the cursor switches.
+pub(crate) fn push_scene(view: &impl PreviewTarget, scene: &Value, preview: (u32, u32)) {
+    view.set_scene(&preview_scene(scene, preview).to_string());
     let p = live_params(scene);
     for (k, v) in &p.nums {
         view.set_param_num(k, *v);
@@ -596,6 +614,37 @@ pub(crate) fn push_scene(view: &impl PreviewTarget, scene: &Value) {
     for (k, v) in &p.strs {
         view.set_param_str(k, v);
     }
+}
+
+/// Whether the scene has a blur annotation (the only part `preview_scene` changes).
+fn has_blur(scene: &Value) -> bool {
+    scene["annotations"].as_array().is_some_and(|a| a.iter().any(|a| a["kind"] == "blur"))
+}
+
+/// The scene as the preview draws it. A blur annotation's `intensity` and `blockSize` are
+/// output pixels, and the compositor applies them as pixels of whatever it renders — the
+/// preview renders smaller than the export (`live.rs` `preview_render_size`: the output,
+/// contained in the panel, never larger), so the same 12-px mosaic would look twice as coarse
+/// in a half-size preview. Scaled by that ratio here, the preview shows the export's blur.
+/// Everything else in the scene is relative already.
+pub(crate) fn preview_scene(scene: &Value, (pw, ph): (u32, u32)) -> Value {
+    let (ow, oh) = (scene["output"]["width"].as_f64().unwrap_or(0.0), scene["output"]["height"].as_f64().unwrap_or(0.0));
+    if !has_blur(scene) || ow <= 0.0 || oh <= 0.0 || pw == 0 || ph == 0 {
+        return scene.clone();
+    }
+    let k = (pw.max(2) as f64 / ow).min(ph.max(2) as f64 / oh).min(1.0);
+    let mut out = scene.clone();
+    for a in out["annotations"].as_array_mut().into_iter().flatten() {
+        if a["kind"] != "blur" {
+            continue;
+        }
+        for key in ["intensity", "blockSize"] {
+            if let Some(v) = a["blur"][key].as_f64() {
+                a["blur"][key] = serde_json::json!(v * k);
+            }
+        }
+    }
+    out
 }
 
 fn parse_scene(scene: &Value) -> Result<Scene> {
@@ -1050,8 +1099,8 @@ mod tests {
         let v = styled();
         let expected = live_params(&v);
         let keys = expected.nums.len() + expected.bools.len() + expected.strs.len();
-        push_scene(&rec, &v);
-        push_scene(&rec, &v);
+        push_scene(&rec, &v, (960, 540));
+        push_scene(&rec, &v, (960, 540));
         let calls = rec.0.lock().unwrap().clone();
         assert_eq!(calls.len(), 2 * (1 + keys), "{calls:?}");
         for half in calls.chunks(1 + keys) {
@@ -1067,5 +1116,24 @@ mod tests {
         let src = include_str!("session.rs");
         let code = &src[..src.find("#[cfg(test)]").unwrap()];
         assert_eq!(code.matches(".set_scene(&").count(), 1, "only push_scene calls LiveView::set_scene");
+    }
+
+    /// Blur sizes follow the preview's share of the output; the rest stays as sent.
+    #[test]
+    fn preview_scene_scales_blur_to_the_preview() {
+        let mut v = styled();
+        v["output"] = serde_json::json!({"width": 1920, "height": 1080, "fps": 30});
+        v["annotations"] = serde_json::json!([
+            {"kind": "blur", "blur": {"intensity": 12.0, "blockSize": 16.0, "style": "mosaic"}},
+            {"kind": "text", "text": {"fontSizeRel": 0.03}},
+        ]);
+        let p = preview_scene(&v, (960, 600));
+        assert_eq!(p["annotations"][0]["blur"]["intensity"], 6.0);
+        assert_eq!(p["annotations"][0]["blur"]["blockSize"], 8.0);
+        assert_eq!(p["annotations"][1], v["annotations"][1]);
+        // Never larger than the output, and a scene without blur goes through untouched.
+        assert_eq!(preview_scene(&v, (4000, 3000))["annotations"][0]["blur"]["intensity"], 12.0);
+        let plain = styled();
+        assert_eq!(preview_scene(&plain, (960, 540)), plain);
     }
 }

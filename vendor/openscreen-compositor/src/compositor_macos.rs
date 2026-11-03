@@ -342,6 +342,10 @@ pub struct Compositor {
     sdf_cache: RefCell<
         std::collections::HashMap<String, (metal::Texture, crate::frame_geometry::SpriteShape)>,
     >,
+    /// Inspector Rust, patch 13: the free-form blur outlines as distance fields (R16F, texture(3)
+    /// of mode 10), per annotation id, with the hash of the points and texture size they came
+    /// from. Rebuilt only when one of them changes.
+    freehand_cache: RefCell<std::collections::HashMap<String, (metal::Texture, u64)>>,
 
     // --- Engine : render targets ---
     /// Render target principal RGBA8. Cible de `compose_frame`. `Private` : c'est une
@@ -875,6 +879,7 @@ impl Compositor {
             img_tick: std::cell::Cell::new(0),
             img_frame_start: std::cell::Cell::new(0),
             sdf_cache: RefCell::new(std::collections::HashMap::new()),
+            freehand_cache: RefCell::new(std::collections::HashMap::new()),
             rt,
             rt_read,
             nv12_y,
@@ -1403,6 +1408,48 @@ impl Compositor {
         let entry = (tex, sdf.shape);
         self.sdf_cache.borrow_mut().insert(path.to_string(), entry.clone());
         Ok(entry)
+    }
+
+    /// Inspector Rust, patch 13: the distance field of a free-form blur outline (`points` in
+    /// fractions of the box, `aspect` = box width / height in px), cached per annotation id.
+    fn freehand_mask(&self, id: &str, points: &[[f32; 2]], aspect: f32) -> metal::Texture {
+        use std::hash::{Hash, Hasher};
+        let (w, h) = crate::frame_geometry::freehand_sdf_size(aspect);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (w, h).hash(&mut hasher);
+        for p in points {
+            (p[0].to_bits(), p[1].to_bits()).hash(&mut hasher);
+        }
+        let key = hasher.finish();
+        if let Some((tex, k)) = self.freehand_cache.borrow().get(id) {
+            if *k == key {
+                return tex.clone();
+            }
+        }
+        let (w, h, field) = crate::frame_geometry::freehand_sdf(points, aspect);
+        let texels: Vec<u8> = field
+            .iter()
+            .flat_map(|&d| crate::cursor_sdf::f16_bits(d.clamp(-60_000.0, 60_000.0)).to_le_bytes())
+            .collect();
+        let tex = make_texture(
+            &self.gpu.device,
+            metal::MTLPixelFormat::R16Float,
+            w,
+            h,
+            cpu_storage(&self.gpu.device),
+            metal::MTLTextureUsage::ShaderRead,
+        );
+        tex.replace_region(
+            metal::MTLRegion {
+                origin: metal::MTLOrigin { x: 0, y: 0, z: 0 },
+                size: metal::MTLSize { width: w as u64, height: h as u64, depth: 1 },
+            },
+            0,
+            texels.as_ptr() as *const std::ffi::c_void,
+            (w * 2) as u64,
+        );
+        self.freehand_cache.borrow_mut().insert(id.to_string(), (tex.clone(), key));
+        tex
     }
 
     /// Ouvre une frame du point de vue de `img_cache` : tout ce qui sera touché après cet appel
@@ -1966,11 +2013,22 @@ impl Compositor {
                 "blur" => {
                     let Some(blur) = a.blur.as_ref() else { continue };
                     let Some(mask) = g.privacy_mask(a, [rw, rh]) else { continue };
-                    // Le masque en tracé libre demanderait une liste de points côté GPU : on
-                    // masque la BOÎTE ENGLOBANTE. Choix délibérément asymétrique — ne rien
-                    // dessiner laisserait passer en clair ce que l'utilisateur a désigné comme
-                    // à cacher, et un masque qui ne masque pas donne confiance à tort.
+                    // Inspector Rust, patch 13: the free-form outline is drawn for real, as a
+                    // distance field over the annotation box (`mask.content`). Upstream masked
+                    // the bounding box. The box is the fallback wherever the outline cannot be
+                    // placed exactly — fewer than three points, or a mask widened to the motion
+                    // trail / clipped by a slot (`oval_ok`, the oval's rule) — because masking
+                    // nothing would leave in clear what the user marked as hidden.
                     let freehand = blur.shape == "freehand";
+                    let outline: Vec<[f32; 2]> = blur
+                        .freehand_points
+                        .as_deref()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|p| p.x.is_finite() && p.y.is_finite())
+                        .map(|p| [p.x, p.y])
+                        .collect();
+                    let polygon = freehand && mask.oval_ok && outline.len() >= 3;
                     let is_blur = if blur.style == "blur" { 1.0 } else { 0.0 };
                     let amount = if is_blur > 0.5 { blur.intensity } else { blur.block_size };
                     // Le repli passe par le rectangle, pas l'ovale : un ovale inscrit
@@ -1978,6 +2036,17 @@ impl Compositor {
                     // Masque élargi à la trace du flou de mouvement : l'ovale n'y couvrirait plus tout.
                     let is_oval =
                         if blur.shape == "oval" && !freehand && mask.oval_ok { 1.0 } else { 0.0 };
+                    // fx.z = 2: the polygon's field is in texture(3), the box at `src`.
+                    let (shape, content) = if polygon {
+                        let c = mask.content;
+                        let box_px = [c[2] * mask.quad_px[0], c[3] * mask.quad_px[1]];
+                        let aspect = box_px[0] / box_px[1].max(1e-6);
+                        let tex = self.freehand_mask(&a.id, &outline, aspect);
+                        enc.set_fragment_texture(3, Some(&tex));
+                        (2.0, c)
+                    } else {
+                        (is_oval, [0.0, 0.0, 0.0, 0.0])
+                    };
                     // La teinte n'a de sens qu'en mosaïque : un flou teinté ne ressemble plus
                     // à un flou.
                     let tinted = if is_blur > 0.5 { 0.0 } else { 1.0 };
@@ -1993,7 +2062,8 @@ impl Compositor {
                         quad_px: mask.quad_px,
                         mode: 10.0,
                         color: tint,
-                        fx: [is_blur, amount.max(1.0) * mask.strength, is_oval, tinted],
+                        src: content,
+                        fx: [is_blur, amount.max(1.0) * mask.strength, shape, tinted],
                         src_prev,
                         dst_prev,
                         mb,
@@ -5469,4 +5539,99 @@ mod tests {
         assert_eq!(matrix_swizzle(AVCOL_SPC_BT709, false), None);
         assert_eq!(matrix_swizzle(AVCOL_SPC_BT2020_CL, true), None);
     }
+    // -----------------------------------------------------------------------
+    // Inspector Rust, patch 13 : flou en tracé libre.
+    // -----------------------------------------------------------------------
+
+    /// One blur annotation over the whole 320×180 screen (padding 0), the box at 25..75 %.
+    fn blur_ann(id: &str, style: &str, shape: &str, box_: [f32; 4], points: Option<serde_json::Value>) -> serde_json::Value {
+        let mut blur = serde_json::json!({"style": style, "shape": shape, "color": "white", "intensity": 12, "blockSize": 12});
+        if let Some(p) = points {
+            blur["freehandPoints"] = p;
+        }
+        serde_json::json!({"id": id, "clipIndex": 0, "startSec": 0.0, "endSec": 10.0, "kind": "blur",
+            "x": box_[0], "y": box_[1], "w": box_[2], "h": box_[3], "zIndex": 0, "blur": blur})
+    }
+
+    /// The composed frame (RGBA) of 2-px black/white stripes under `annotations`, or `None`
+    /// without a Metal device.
+    fn compose_striped(annotations: serde_json::Value) -> Option<Vec<u8>> {
+        let gpu = crate::d3d::Gpu::create(false).ok()?;
+        let comp = super::Compositor::new_sized(&gpu, 320, 180).expect("compositeur");
+        let mut json = shader_fx_json(serde_json::json!([]), annotations);
+        json["effects"]["padding"] = serde_json::json!(0.0);
+        let scene = Scene::from_json(&json.to_string()).expect("scène");
+        comp.set_live_params(live_params_from_scene(&scene));
+        comp.set_scene(Some(scene));
+        let screen = FakeFrame::new(320, 180, |x, _| if (x / 2) % 2 == 0 { Y_WHITE } else { Y_BLACK });
+        comp.set_timeline_time(Some(2.0));
+        comp.set_programme_time(Some(2.0));
+        unsafe { comp.compose_frame(screen.as_ptr(), screen.as_ptr(), 0.0, &fx_cfg()) }.expect("compose");
+        let (_, _, rgba) = unsafe { comp.readback_direct() }.expect("readback");
+        Some(rgba)
+    }
+
+    fn px(rgba: &[u8], x: u32, y: u32) -> [u8; 3] {
+        let i = ((y * 320 + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2]]
+    }
+
+    const P13_BOX: [f32; 4] = [0.25, 0.25, 0.5, 0.5];
+
+    /// A triangle (box top-left, top-right, bottom-left): the box's lower-right half stays clear.
+    #[test]
+    fn freehand_mask_excludes_outside_polygon() {
+        let tri = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.0, "y": 1.0}]);
+        let Some(base) = compose_striped(serde_json::json!([])) else {
+            eprintln!("pas de device Metal — test sauté");
+            return;
+        };
+        let got = compose_striped(serde_json::json!([blur_ann("f", "blur", "freehand", P13_BOX, Some(tri))])).unwrap();
+        // The box is x 80..240, y 45..135. Inside the triangle near its corner, the stripes
+        // blur into grey; in the lower-right half, and outside the box, nothing changes.
+        let mut changed = 0;
+        for (x, y) in [(96, 54), (112, 63), (100, 80), (150, 60)] {
+            let (b, g) = (px(&base, x, y), px(&got, x, y));
+            assert!(b[0] < 20 || b[0] > 235, "guard: the stripes are black or white, {b:?}");
+            if g != b {
+                changed += 1;
+                assert!(g[0] > 30 && g[0] < 225, "({x},{y}) is blurred grey, not {g:?}");
+            }
+        }
+        assert!(changed >= 3, "inside the outline the blur shows ({changed} of 4 changed)");
+        for (x, y) in [(208, 117), (230, 130), (180, 110), (238, 60), (90, 132), (40, 40), (300, 170)] {
+            assert_eq!(px(&got, x, y), px(&base, x, y), "({x},{y}) is outside the outline");
+        }
+        // The edge is soft over ~1 px, like the oval, not a staircase of field texels.
+        let row = 63u32;
+        let edge: Vec<u8> = (190..240).map(|x| px(&got, x, row)[0]).collect();
+        assert!(edge.iter().any(|&v| v > 20 && v < 235), "guard: something blurred on row {row}");
+    }
+
+    /// Rectangle and oval are bit for bit what they were before patch 13 (the hash was taken
+    /// on the unpatched compositor), and a free-form outline that cannot be placed (fewer than
+    /// three points) falls back to the rectangle.
+    #[test]
+    fn freehand_mask_rectangle_unchanged() {
+        let anns = serde_json::json!([
+            blur_ann("r", "mosaic", "rectangle", [0.05, 0.1, 0.4, 0.35], None),
+            blur_ann("o", "blur", "oval", [0.55, 0.5, 0.4, 0.4], None),
+        ]);
+        let Some(got) = compose_striped(anns) else {
+            eprintln!("pas de device Metal — test sauté");
+            return;
+        };
+        let hash = got.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+        eprintln!("rect+oval hash: {hash:#x}");
+        assert_eq!(hash, P13_RECT_OVAL_HASH, "rectangle/oval changed");
+
+        let rect = compose_striped(serde_json::json!([blur_ann("x", "mosaic", "rectangle", P13_BOX, None)])).unwrap();
+        let two = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]);
+        let free = compose_striped(serde_json::json!([blur_ann("x", "mosaic", "freehand", P13_BOX, Some(two))])).unwrap();
+        assert!(rect == free, "a free-form outline of two points masks the whole box");
+    }
+
+    /// FNV-1a of the rectangle + oval frame on the UNPATCHED compositor (M1 Pro, 2026-11-03).
+    const P13_RECT_OVAL_HASH: u64 = 0xfedeabe7b4bde71c;
+
 }

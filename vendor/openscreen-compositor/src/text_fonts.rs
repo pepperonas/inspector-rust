@@ -45,10 +45,11 @@ pub fn font_files_in(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// `public/fonts` du dépôt, pour les tests des trois backends.
+/// Les polices embarquées, pour les tests des trois backends. Inspector Rust (patch 13) : elles
+/// vivent dans `core/rust-lib/assets/record/fonts`, pas dans un `public/fonts` voisin.
 #[cfg(test)]
 pub(crate) fn repo_fonts_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../public/fonts")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../core/rust-lib/assets/record/fonts")
 }
 
 /// Les familles embarquées, telles que l'app les stocke. Miroir de `TEXT_FONT_FAMILIES`
@@ -78,7 +79,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "Inspector Rust: needs OpenScreen public/ assets that are not vendored (VENDORED.md)"]
     fn only_the_font_files_of_the_directory_are_registered() {
         let dir = repo_fonts_dir();
         let files = font_files_in(&dir);

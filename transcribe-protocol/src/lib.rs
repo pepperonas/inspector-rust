@@ -155,7 +155,12 @@ pub enum Event {
     ModelReady { model: String },
     ModelError { model: String, error: String },
     FileProgress { done_ms: u64, total_ms: u64 },
-    FileDone { txt: PathBuf },
+    FileDone {
+        txt: PathBuf,
+        /// The language most of the speech was in.
+        #[serde(default)]
+        lang: Option<String>,
+    },
     FileError { error: String },
     Devices { mic: Vec<String> },
     Error { error: String },

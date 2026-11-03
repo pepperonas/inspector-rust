@@ -131,3 +131,55 @@ fn live_session_transcribes_say() {
     assert!(lower.contains("budget"), "{txt}");
     assert!(ev.iter().any(|e| matches!(e, Event::Hypothesis { .. })), "no live preview");
 }
+
+/// File mode end to end: the fixture WAV and an m4a made from it with
+/// `afconvert` become sibling TXTs that contain the sentence.
+#[test]
+#[ignore = "needs the installed model"]
+fn file_mode_transcribes_wav_and_m4a() {
+    let models = dirs::data_dir().unwrap().join("InspectorRust/models");
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../transcribe-core/tests/fixtures/de.wav");
+    let wav = dir.path().join("Rede.wav");
+    std::fs::copy(&fixture, &wav).unwrap();
+    let m4a = dir.path().join("Rede Zwei.m4a");
+    let st = Command::new("/usr/bin/afconvert")
+        .args(["-f", "m4af", "-d", "aac"])
+        .arg(&wav)
+        .arg(&m4a)
+        .status()
+        .unwrap();
+    assert!(st.success());
+
+    let mut child = spawn(&models);
+    let mut stdin = child.stdin.take().unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    assert!(matches!(next(&mut out), Event::Ready { .. }));
+    for input in [&wav, &m4a] {
+        let cmd = transcribe_protocol::Command::TranscribeFile {
+            path: input.clone(),
+            lang: transcribe_protocol::Lang::Auto,
+            model: "large-v3-turbo-q5".into(),
+        };
+        stdin.write_all(encode(&cmd).as_bytes()).unwrap();
+        let mut progressed = false;
+        let txt = loop {
+            match next(&mut out) {
+                Event::FileProgress { .. } => progressed = true,
+                Event::FileDone { txt, lang } => {
+                    assert_eq!(lang.as_deref(), Some("de"));
+                    break txt;
+                }
+                Event::FileError { error } => panic!("{error}"),
+                _ => {}
+            }
+        };
+        assert!(progressed);
+        let text = std::fs::read_to_string(&txt).unwrap();
+        eprintln!("{} → {text}", input.display());
+        let low = text.to_lowercase();
+        assert!(low.contains("morgen") && low.contains("projekt"), "{text}");
+    }
+    drop(stdin);
+    let _ = child.wait();
+}

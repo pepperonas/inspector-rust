@@ -13,6 +13,7 @@ pub mod decode;
 pub mod resample;
 pub mod capture;
 pub mod pipeline;
+pub mod file;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod engine;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

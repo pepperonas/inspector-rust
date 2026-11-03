@@ -13,6 +13,18 @@ pub const ERR_BUSY: &str = "transcribe.busy";
 
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// A file transcription running on its own thread.
+pub struct FileJob {
+    pub cancel: Arc<AtomicBool>,
+    pub done: Arc<AtomicBool>,
+}
+
+impl FileJob {
+    pub fn running(&self) -> bool {
+        !self.done.load(Ordering::SeqCst)
+    }
+}
+
 /// Write events from any thread, one line each, in order.
 pub fn event_writer(out: impl Write + Send + 'static) -> (Emit, std::thread::JoinHandle<()>) {
     let (tx, rx) = mpsc::channel::<Event>();
@@ -92,6 +104,45 @@ mod engine_side {
         transcribe_core::capture::mic::list_input_devices()
     }
 
+    /// Transcribe one file on its own thread; `FileProgress`… then `FileDone`
+    /// or `FileError`.
+    pub fn transcribe_file(
+        path: std::path::PathBuf,
+        lang: transcribe_core::protocol::Lang,
+        model_id: &str,
+        engines: &mut Engines,
+        emit: Emit,
+    ) -> Result<FileJob, String> {
+        use transcribe_core::file;
+        let engine = engines.get(model_id)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let (c2, d2) = (cancel.clone(), done.clone());
+        std::thread::Builder::new()
+            .name("ir-transcribe-file".into())
+            .spawn(move || {
+                let _activity = transcribe_core::activity_macos::Activity::begin("Datei wird transkribiert");
+                let run = || -> Result<(std::path::PathBuf, Option<String>), String> {
+                    let mut src = file::open_audio(&path)?;
+                    let mut vad = transcribe_core::vad::SileroVad::new()?;
+                    let mut tr = WhisperTranscriber::new(engine);
+                    let e2 = emit.clone();
+                    emit(Event::FileProgress { done_ms: 0, total_ms: src.total_ms() });
+                    let text = file::transcribe_stream(src.as_mut(), &mut vad, &mut tr, lang, 4, &c2, move |d, t| {
+                        e2(Event::FileProgress { done_ms: d, total_ms: t })
+                    })?;
+                    Ok((file::write_txt(&path, &text.text)?, text.lang))
+                };
+                match run() {
+                    Ok((txt, lang)) => emit(Event::FileDone { txt, lang }),
+                    Err(error) => emit(Event::FileError { error }),
+                }
+                d2.store(true, Ordering::SeqCst);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(FileJob { cancel, done })
+    }
+
     pub fn download(id: &str, cancel: Arc<AtomicBool>, emit: Emit) {
         let Some(info) = model::find(id) else {
             emit(Event::ModelError { model: id.into(), error: model::ERR_UNKNOWN.into() });
@@ -128,6 +179,15 @@ mod engine_side {
     pub fn download(id: &str, _: Arc<AtomicBool>, emit: Emit) {
         emit(Event::ModelError { model: id.into(), error: "transcribe.unsupported".into() });
     }
+    pub fn transcribe_file(
+        _: std::path::PathBuf,
+        _: transcribe_core::protocol::Lang,
+        _: &str,
+        _: &mut Engines,
+        _: Emit,
+    ) -> Result<FileJob, String> {
+        Err("transcribe.unsupported".into())
+    }
 }
 
 pub use engine_side::*;
@@ -152,6 +212,7 @@ pub fn serve(input: impl BufRead, emit: Emit) {
     emit(Event::Ready { version: VERSION.into() });
     let mut engines = Engines::default();
     let mut session: Option<Session> = None;
+    let mut file: Option<FileJob> = None;
     let download_cancel = Arc::new(AtomicBool::new(false));
 
     for line in input.lines() {
@@ -170,9 +231,12 @@ pub fn serve(input: impl BufRead, emit: Emit) {
         if session.as_ref().is_some_and(|s| !s.pipeline.is_running()) {
             stop_session(&mut session);
         }
+        if file.as_ref().is_some_and(|f| !f.running()) {
+            file = None;
+        }
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match cmd {
             Command::Start(cfg) => {
-                if session.is_some() {
+                if session.is_some() || file.is_some() {
                     emit(Event::Error { error: ERR_BUSY.into() });
                     return true;
                 }
@@ -209,8 +273,21 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                 download_cancel.store(true, Ordering::SeqCst);
                 true
             }
-            Command::TranscribeFile { .. } | Command::CancelFile => {
-                emit(Event::FileError { error: "transcribe.file_unavailable".into() });
+            Command::TranscribeFile { path, lang, model } => {
+                if session.is_some() || file.is_some() {
+                    emit(Event::FileError { error: ERR_BUSY.into() });
+                    return true;
+                }
+                match transcribe_file(path, lang, &model, &mut engines, emit.clone()) {
+                    Ok(j) => file = Some(j),
+                    Err(error) => emit(Event::FileError { error }),
+                }
+                true
+            }
+            Command::CancelFile => {
+                if let Some(f) = &file {
+                    f.cancel.store(true, Ordering::SeqCst);
+                }
                 true
             }
             Command::ListDevices => {
@@ -226,5 +303,8 @@ pub fn serve(input: impl BufRead, emit: Emit) {
         }
     }
     download_cancel.store(true, Ordering::SeqCst);
+    if let Some(f) = &file {
+        f.cancel.store(true, Ordering::SeqCst);
+    }
     stop_session(&mut session);
 }

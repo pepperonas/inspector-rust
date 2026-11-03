@@ -54,7 +54,7 @@ fn events() -> Vec<Event> {
         Event::ModelReady { model: "m".into() },
         Event::ModelError { model: "m".into(), error: "e".into() },
         Event::FileProgress { done_ms: 1, total_ms: 2 },
-        Event::FileDone { txt: "/x.txt".into() },
+        Event::FileDone { txt: "/x.txt".into(), lang: Some("de".into()) },
         Event::FileError { error: "e".into() },
         Event::Devices { mic: vec!["a".into()] },
         Event::Error { error: "e".into() },

@@ -826,6 +826,46 @@ describe("transcript cut (stage 6)", () => {
     expect(restoreGap(edited, 0).zooms.length).toBe(2);
   });
 
+  it("cut_shorter_than_min_clip_keeps_the_tail", () => {
+    const doc = addZoom(base(), 0, 3000); // 3000–5000 spans the cut
+    const out = cutSourceRange(doc, 0, 4000, 4050);
+    expect(out.clips).toEqual([
+      { startMs: 0, endMs: 4000 },
+      { startMs: 4050, endMs: 10_000 },
+    ]);
+    expect(out.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([[0, 3000, 4000], [1, 4050, 5000]]);
+    // Any short cut anywhere keeps the full remaining tail (the old double split dropped it).
+    for (const s of [500, 2000, 9000]) {
+      const r = cutSourceRange(base(), 0, s, s + 1);
+      expect(r.clips).toEqual([{ startMs: 0, endMs: s }, { startMs: s + 1, endMs: 10_000 }]);
+    }
+    // A region wholly inside the cut is dropped; a later one is untouched.
+    let d = addAnnotation(base(), "text", 0, 4100);
+    d = { ...d, annotations: [{ ...d.annotations[0], startMs: 4100, endMs: 4400 }] };
+    expect(cutSourceRange(d, 0, 4000, 4500).annotations).toEqual([]);
+    const back = restoreGap(out, 0);
+    expect(back.zooms.map((z) => [z.clip, z.startMs, z.endMs])).toEqual([[0, 3000, 5000]]);
+  });
+
+  it("restore_gap_pairs_halves_in_any_array_order", () => {
+    let doc = addZoom(base(), 0, 3000);
+    doc = { ...doc, speed: [{ clip: 0, startMs: 2000, endMs: 8000, speed: 2 }] };
+    const cut = cutSourceRange(doc, 0, 4000, 4500);
+    const reversed = { ...cut, zooms: [...cut.zooms].reverse(), speed: [...cut.speed].reverse() };
+    expect(reversed.zooms[0].clip).toBe(1);
+    const back = restoreGap(reversed, 0);
+    expect(back.zooms.map((z) => [z.id, z.clip, z.startMs, z.endMs])).toEqual([[doc.zooms[0].id, 0, 3000, 5000]]);
+    expect(back.speed).toEqual([{ clip: 0, startMs: 2000, endMs: 8000, speed: 2 }]);
+  });
+
+  it("restore_gap_refuses_different_crops", () => {
+    const cut = cutSourceRange(base(), 0, 4000, 4500);
+    expect(canRestoreGap(cut, 0)).toBe(true);
+    const cropped = setCrop(cut, 1, { x: 0.1, y: 0.1, w: 0.5, h: 0.5 });
+    expect(canRestoreGap(cropped, 0)).toBe(false);
+    expect(restoreGap(cropped, 0)).toBe(cropped);
+  });
+
   it("restore_gap_refuses_different_takes_or_reordered_clips", () => {
     const takes = base({
       clips: [{ startMs: 0, endMs: 4000 }, { startMs: 5000, endMs: 9000, source: "take-2" }],

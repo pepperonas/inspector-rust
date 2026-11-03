@@ -4645,5 +4645,11 @@
   "meeting.err.transcribe_file_decode": "Der Ton dieser Datei ließ sich nicht lesen.",
   "meeting.err.transcribe_file_needs_ffmpeg": "Dieses Format braucht ffmpeg (brew install ffmpeg); wav, m4a, mp3, aac, flac und mp4 gehen ohne.",
   "meeting.err.transcribe_file_too_many": "Neben dieser Datei liegen schon zu viele Transkripte.",
-  "meeting.err.transcribe_timeout": "Der Transkriptions-Helfer hat nicht geantwortet."
+  "meeting.err.transcribe_timeout": "Der Transkriptions-Helfer hat nicht geantwortet.",
+  "tick.drag": "Ziehen zum Verschieben",
+  "tick.mini": "Minimieren",
+  "tick.max": "Maximieren",
+  "tick.restore": "Normale Größe",
+  "tick.dock": "Zurück an den Bildschirmrand",
+  "tick.off": "Laufband ausschalten (⌃⇧⌥K schaltet es wieder ein)"
 }

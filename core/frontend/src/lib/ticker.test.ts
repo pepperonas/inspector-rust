@@ -77,3 +77,16 @@ describe("ticker model", () => {
     expect([0, 1, 2].map((i) => showsLabel(p, i))).toEqual([true, false, true]);
   });
 });
+
+describe("ticker modes", () => {
+  it("a size button toggles between its mode and the normal bar", async () => {
+    const { nextMode, lastLines } = await import("./ticker");
+    expect(nextMode("bar", "max")).toBe("max");
+    expect(nextMode("max", "max")).toBe("bar");
+    expect(nextMode("max", "mini")).toBe("mini");
+    expect(nextMode("mini", "mini")).toBe("bar");
+    const p = ["a", "b", "c"].map((id) => ({ id, source: "mic" as const, text: id, final: true }));
+    expect(lastLines(p, 2).map((x) => x.id)).toEqual(["b", "c"]);
+    expect(lastLines(p, 0)).toEqual([]);
+  });
+});

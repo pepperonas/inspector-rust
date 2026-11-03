@@ -99,6 +99,16 @@ export function prune(
 }
 
 /** Show the MIC/SYS chip where the speaker changes. */
+/** The last `n` pieces for the maximised view (finals and previews). Pure. */
+export function lastLines(pieces: Piece[], n: number): Piece[] {
+  return n > 0 ? pieces.slice(-n) : [];
+}
+
+/** The mode a click on the size buttons switches to. Pure. */
+export function nextMode(current: "bar" | "mini" | "max", clicked: "mini" | "max"): "bar" | "mini" | "max" {
+  return current === clicked ? "bar" : clicked;
+}
+
 export function showsLabel(pieces: Piece[], index: number): boolean {
   return index === 0 || pieces[index - 1].source !== pieces[index].source;
 }

@@ -4645,5 +4645,11 @@
   "meeting.err.transcribe_file_decode": "This file's audio could not be read.",
   "meeting.err.transcribe_file_needs_ffmpeg": "This format needs ffmpeg (brew install ffmpeg); wav, m4a, mp3, aac, flac and mp4 work without it.",
   "meeting.err.transcribe_file_too_many": "Too many transcripts already exist next to this file.",
-  "meeting.err.transcribe_timeout": "The transcription helper did not answer."
+  "meeting.err.transcribe_timeout": "The transcription helper did not answer.",
+  "tick.drag": "Drag to move",
+  "tick.mini": "Minimise",
+  "tick.max": "Maximise",
+  "tick.restore": "Normal size",
+  "tick.dock": "Back to the screen edge",
+  "tick.off": "Turn the ticker off (Ctrl+Shift+Alt+K turns it on again)"
 }

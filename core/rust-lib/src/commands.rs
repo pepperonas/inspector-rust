@@ -9699,6 +9699,45 @@ pub fn set_meeting_config(
     Ok(cfg)
 }
 
+/// The ticker's own buttons: mode (`bar`/`mini`/`max`), switch it off,
+/// remember where it was dragged, or dock it again.
+#[derive(Debug, serde::Deserialize)]
+pub struct TickerPatch {
+    pub mode: Option<String>,
+    pub visible: Option<bool>,
+    #[serde(default)]
+    pub save_place: bool,
+    #[serde(default)]
+    pub reset_place: bool,
+}
+
+#[tauri::command]
+pub fn ticker_update(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    patch: TickerPatch,
+) -> Result<crate::meeting::MeetingConfig, String> {
+    let mut cfg = crate::meeting::MeetingConfig::load(&db);
+    if let Some(m) = patch.mode {
+        cfg.ticker.mode = m;
+    }
+    if let Some(v) = patch.visible {
+        cfg.ticker.visible = v;
+    }
+    if patch.reset_place {
+        cfg.ticker.place = None;
+    }
+    if patch.save_place {
+        if let Some(p) = crate::ticker::current_place(&app) {
+            cfg.ticker.place = Some(p);
+        }
+    }
+    let cfg = cfg.normalized();
+    cfg.save(&db)?;
+    crate::meeting_ui::apply_config(&app, &cfg);
+    Ok(cfg)
+}
+
 #[tauri::command]
 pub fn meeting_model_status() -> Vec<crate::meeting::ModelStatus> {
     crate::meeting::model_status()

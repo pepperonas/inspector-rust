@@ -11,7 +11,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - **Live transcription — `meeting` (alias `mitschrift`, Ctrl+Shift+Alt+L).** Transcribes the microphone (`MIC`, you) and the system audio (`SYS`, the other side) at the same time and separately, locally with Whisper large-v3-turbo on the GPU; German by default, English or automatic German/English detection per sentence in the settings. Every line is written and synced at once to `~/Documents/Transkripte/<date_time>/` (`transkript.txt`, `transkript.jsonl`, `session.json`, optionally the raw audio of each sentence), so a crash or a forced quit loses at most the sentence being spoken; the next start reports an interrupted session. A thin ticker at the top or bottom of a screen (Ctrl+Shift+Alt+K) shows the text as it is spoken, over full-screen apps and on every Space, and lets clicks through. Lines the microphone picks up from the speakers are dropped. While recording the menu-bar icon shows a red dot. The speech model is downloaded once and checked against its checksum. Apple Silicon only; system audio comes from a Core Audio process tap (ScreenCaptureKit as fallback).
 
+- **Ticker controls.** Hover over the ticker to drag it anywhere (the place is remembered), shrink it to a pill, show five lines, dock it again or switch it off.
+
 ### Fixed (during review)
+- A line from the speakers no longer shows up a second time as MIC when the other side talks in long passages: the echo filter waits while the system audio is still speaking and also recognises a microphone line that is part of a longer system line.
+- The meeting panel's transcript box no longer runs over the folder link and the session list.
 - A lost microphone or system audio source now keeps trying to come back for the whole session (quick retries, then every 30 s) instead of giving up after 30 attempts; a capture that stops delivering audio (after a Core Audio restart or wake from sleep) is restarted; both sources no longer race when the voice-detection model is set up on first use.
 - The menu-bar tooltip and a toast say when a source is lost; repeating warnings are shown once per kind.
 - Quitting the app during a meeting no longer cuts off the last sentences: the helper finishes the session on its own. A helper that crashes while starting no longer leaves the panel spinning.

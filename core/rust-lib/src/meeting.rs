@@ -39,6 +39,12 @@ pub struct TickerConfig {
     pub font_px: u8,
     pub opacity: f32,
     pub speed_px_s: u16,
+    /// `"bar"` (one scrolling line), `"mini"` (a short pill) or `"max"`
+    /// (several wrapped lines).
+    pub mode: String,
+    /// Where the user dragged it, as fractions of the free space of the work
+    /// area (0 = left/top, 1 = right/bottom); `None` = docked by `position`.
+    pub place: Option<(f32, f32)>,
 }
 
 impl Default for TickerConfig {
@@ -51,6 +57,8 @@ impl Default for TickerConfig {
             font_px: 15,
             opacity: 0.85,
             speed_px_s: 60,
+            mode: "bar".into(),
+            place: None,
         }
     }
 }
@@ -64,6 +72,13 @@ impl TickerConfig {
         self.font_px = self.font_px.clamp(11, 28);
         self.opacity = if self.opacity.is_finite() { self.opacity.clamp(0.3, 1.0) } else { 0.85 };
         self.speed_px_s = self.speed_px_s.clamp(20, 200);
+        if !matches!(self.mode.as_str(), "bar" | "mini" | "max") {
+            self.mode = "bar".into();
+        }
+        self.place = self
+            .place
+            .filter(|(x, y)| x.is_finite() && y.is_finite())
+            .map(|(x, y)| (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
         self
     }
 }

@@ -345,7 +345,7 @@ pub fn set_hit_rect(app: &AppHandle, rect: Option<HitRect>) {
 /// (`NSEvent.mouseLocation` + the window frame, both Cocoa points — no DPI
 /// conversion to get wrong). Must run on the main thread.
 #[cfg(target_os = "macos")]
-fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
+pub(crate) fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
     use objc2::encode::{Encode, Encoding};
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
@@ -389,7 +389,7 @@ fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
+pub(crate) fn pointer_local(win: &WebviewWindow) -> Option<(f64, f64)> {
     let c = win.app_handle().cursor_position().ok()?;
     let p = win.outer_position().ok()?;
     let sf = win.scale_factor().ok()?;

@@ -5785,6 +5785,24 @@ export interface TickerConfig {
   font_px: number;
   opacity: number;
   speed_px_s: number;
+  /** One scrolling line, a short pill, or several wrapped lines. */
+  mode: TickerMode;
+  /** Dragged position as fractions of the free space; null = docked. */
+  place: [number, number] | null;
+}
+
+export type TickerMode = "bar" | "mini" | "max";
+
+export interface TickerPatch {
+  mode?: TickerMode;
+  visible?: boolean;
+  save_place?: boolean;
+  reset_place?: boolean;
+}
+
+/** The ticker's own buttons (mode, off, remember / reset its place). */
+export function tickerUpdate(patch: TickerPatch): Promise<MeetingConfig> {
+  return invoke("ticker_update", { patch });
 }
 
 export interface MeetingConfig {

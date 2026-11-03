@@ -9,7 +9,7 @@ const idle: MeetingState = {
 const cfg: MeetingConfig = {
   mic: true, sys: true, mic_device: null, model: "large-v3-turbo-q5", lang: "auto", root: null, keep_audio: true,
   audio_days: 7, dedupe: "auto", dedupe_threshold: 0.75,
-  ticker: { visible: true, position: "bottom", display: null, width_pct: 70, font_px: 15, opacity: 0.85, speed_px_s: 60 },
+  ticker: { visible: true, position: "bottom", display: null, width_pct: 70, font_px: 15, opacity: 0.85, speed_px_s: 60, mode: "bar", place: null },
 };
 let installed = true;
 let state: MeetingState = idle;

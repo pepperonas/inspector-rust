@@ -1340,6 +1340,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::meeting_sessions,
             commands::get_meeting_config,
             commands::set_meeting_config,
+            commands::ticker_update,
             commands::meeting_model_status,
             commands::meeting_model_download,
             commands::meeting_model_cancel,

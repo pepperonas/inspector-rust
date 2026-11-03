@@ -17,6 +17,14 @@ icon shows a red dot and the tray menu says "Stop transcription".
 
 - Switch either source on or off in the panel, the tray or Settings.
 - **Ctrl+Shift+Alt+K** shows or hides the ticker without stopping.
+- **The ticker's own buttons** appear when the pointer is over it (otherwise
+  it lets every click through to the app below): a grip to drag it anywhere
+  (the place is remembered, per screen as fractions of the free space), −
+  for a short pill, ⤢ for five wrapped lines, ⌖ to dock it at the screen
+  edge again, × to switch it off.
+- **Speakers:** MIC (this Mac's microphone, you) and SYS (what the Mac plays,
+  the other side) are kept apart. Several people *within* SYS (or several in
+  the room on MIC) are not told apart — there is no speaker recognition yet.
 - The tray's "Open transcripts" opens the current session folder.
 
 The first start needs the speech model (`large-v3-turbo`, 574 MB). The panel

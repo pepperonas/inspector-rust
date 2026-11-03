@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.232.0] — 2026-11-03
+
+### Added
+- **`record` — webcam.** A Camera switch in the recording HUD records the webcam into its own file, `camera.mp4` (30 fps, not mirrored), on the same clock as the screen and the audio, with pauses taken out like everywhere else. The camera permission is asked for once; if it is refused the HUD says so and offers the System Settings pane. Settings → Recording picks the camera and the quality (1080p, 1440p or 2160p). If the camera drops out during a take the recording keeps going and the bar shows a one-time hint.
+- **`record` editor — camera layouts.** A Camera tab sets how the webcam sits in the picture: picture-in-picture (the default), dual frame, vertical, camera only or no camera; anchor (3×3 grid), size 15–60 %, square or rounded mask with its rounding, mirror, "shrink during a zoom", and framing by zoom and pan. A layout lane under the zoom track holds layout changes: **L** switches to another layout from the playhead, blocks move by dragging, **Delete** removes the selected one.
+- **`record` editor — camera background.** The camera can be shown as it is, cut out onto transparent, blurred behind the person or placed on a background of your own. The cut-out uses a bundled MediaPipe selfie-segmentation model (Apache-2.0) that runs inside the render helper.
+- **`record` editor — presets carry the camera look.** Style presets store the camera style (layout, size, mask, rounding, mirror, background) without anchor and framing, which belong to the recording.
+
+### Changed
+- The render helper grows from 4.2 MB to 27.7 MB because it now statically links the ONNX runtime for the segmentation.
+- When the webcam ends before the screen (the camera was lost or switched off), the export holds the camera's last frame to the end instead of shortening the clip.
+- The record editor document is now version 4; older projects open unchanged and keep the look they had.
+
 ## [0.231.0] — 2026-11-03
 
 ### Added

@@ -263,7 +263,7 @@ impl AudioSource for FfmpegSource {
         }
         self.rest.extend_from_slice(&buf[..n]);
         let whole = self.rest.len() / 4 * 4;
-        out.extend(self.rest[..whole].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+        out.extend(self.rest[..whole].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
         self.rest.drain(..whole);
         Ok(true)
     }

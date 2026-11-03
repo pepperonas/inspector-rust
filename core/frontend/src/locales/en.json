@@ -3960,13 +3960,12 @@
   "trx.lang_missing": "Language value missing: --language de",
   "trx.lang_once": "Specify the language only once",
   "trx.lang_pos": "Put the language parameter before or after the path",
-  "trx.no_ffmpeg": "ffmpeg missing — please install it (macOS: brew install ffmpeg)",
   "trx.no_selection": "No audio/video file selected in Finder — select a file or pass transcribe <path>",
   "trx.not_found": "File not found: {path}",
   "trx.one_path": "Give exactly one path or select several files in Finder",
   "trx.unknown_param": "Unknown parameter: {token}. Use --language de.",
   "trx.unsupported": "Unsupported audio/video file: {path}",
-  "trx.worker_silent": "Worker exited without reporting this file",
+  "trx.worker_silent": "The transcription helper did not report this file",
   "tsx.active_per_day": "Active time per day",
   "tsx.activity": "Activity",
   "tsx.apps": "Apps",
@@ -4641,5 +4640,10 @@
   "mtg.set.font": "Font size",
   "mtg.set.speed": "Speed",
   "mtg.set.opacity": "Opacity",
-  "mtg.set.hotkeys": "Shortcuts: ⌃⇧⌥L starts/stops, ⌃⇧⌥K shows/hides the ticker (change them under Global shortcuts)."
+  "mtg.set.hotkeys": "Shortcuts: ⌃⇧⌥L starts/stops, ⌃⇧⌥K shows/hides the ticker (change them under Global shortcuts).",
+  "trx.lang_de_en": "Transcription speaks German and English: --language de, en or auto.",
+  "meeting.err.transcribe_file_decode": "This file's audio could not be read.",
+  "meeting.err.transcribe_file_needs_ffmpeg": "This format needs ffmpeg (brew install ffmpeg); wav, m4a, mp3, aac, flac and mp4 work without it.",
+  "meeting.err.transcribe_file_too_many": "Too many transcripts already exist next to this file.",
+  "meeting.err.transcribe_timeout": "The transcription helper did not answer."
 }

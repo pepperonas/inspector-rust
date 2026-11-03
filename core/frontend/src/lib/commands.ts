@@ -869,6 +869,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Audio/Video → TXT locally · Finder selection or path · --start dictates from the microphone",
     description_de: "Audio/Video → TXT lokal · Finder-Auswahl oder Pfad · --start diktiert vom Mikrofon",
     requiresArg: false,
+    platform: ["mac"],
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────
   {

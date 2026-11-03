@@ -1,30 +1,23 @@
 //! Live dictation: `transcribe --start` records the microphone and shows the
 //! text while you speak; `transcribe --stop` (or Enter / the stop button) ends
-//! it, a more accurate pass runs over the whole recording, and the result goes
-//! to the clipboard + history.
+//! it and the text goes to the clipboard + history. `--song` transcribes what
+//! this Mac plays, `--room` a song heard through the microphone.
 //!
-//! Pieces:
-//! * capture — the shared native cpal path (`mic_capture::start_chunks`), each
-//!   chunk resampled to 16 kHz mono `i16` (`shazam::resample_to_16k_i16`) and
-//!   appended to one buffer that holds the whole recording;
-//! * [`Segmenter`] (pure) — cuts that stream at pauses into segments;
-//! * a Python worker (`assets/transcribe/live.py`, same venv as the file mode)
-//!   that decodes a closed segment as `final` (its text is kept) and the open
-//!   one as `partial` (shown greyed, replaced on the next update);
-//! * [`LiveJob`] (pure `apply`) — the state the preview panel renders.
+//! The audio, the voice detection and Whisper run in the `ir-transcribe`
+//! helper — the same engine as `meeting`, in `Mode::Dictation` / `Song` /
+//! `Room` — with a private cache folder as the session root that is deleted
+//! afterwards. This module keeps the [`LiveJob`] the panel renders, the song
+//! recognition (Shazam windows come from the helper via `Command::Window`)
+//! and the optional ducking of the music.
 //!
 //! The session lives in the backend, so closing the popup never stops it; the
 //! footer shows a REC light and typing `transcribe` reconnects via `status()`.
 
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-const WORKER: &str = include_str!("../assets/transcribe/live.py");
+use transcribe_protocol::{Command, DedupeMode, Event, Mode, SessionConfig, Source, SourceStatus};
 
 /// Tauri event with the full [`LiveJob`] snapshot after every change.
 pub const LIVE_EVENT: &str = "transcribe-live";
@@ -35,193 +28,16 @@ pub const ERR_BUSY: &str = "transcribe.busy";
 
 /// Sample rate of everything below.
 pub const RATE: usize = 16_000;
-/// Hard stop after an hour (the whole recording stays in memory: ~115 MB).
+/// Hard stop after an hour.
 pub const MAX_SECONDS: u64 = 3600;
-
-// ── Segmenter ───────────────────────────────────────────────────────────────
-//
-// ⚠️ The segmenter decides WHERE to cut, never WHAT to keep. Its first version
-// dropped everything between "speech" segments, and an energy threshold
-// cannot tell a voice from music: with music playing, whole sentences fell
-// into the gaps and were never transcribed (measured: a song at speech level
-// lost 3.5–10.7 s of a 13 s dictation). Now the segments tile the recording
-// without gaps; only true silence (nothing above MIN_THRESHOLD) is skipped,
-// and Whisper decides what is speech — it returns "" for music alone.
-
-/// 20 ms analysis frames.
+/// 20 ms analysis frames (song windows).
 pub const FRAME: usize = RATE / 50;
-/// Silence kept before the first sound — word onsets are quiet.
-pub const PRE_ROLL: usize = RATE / 5;
-/// A pause this long is a cut point once enough sound is in the segment …
-pub const PAUSE_SHORT: usize = RATE * 6 / 10;
-/// … and this much sound is "enough".
-pub const SPEECH_FOR_SHORT_PAUSE: usize = RATE * 3 / 2;
-/// A pause this long is always a cut point.
-pub const PAUSE_LONG: usize = RATE * 3 / 2;
-/// A short pause only cuts a segment at least this long. With loud music every
-/// beat gap looks like a pause; sub-second fragments leave Whisper without
-/// context and it invents words (measured), whole phrases it gets right.
-pub const MIN_CUT: usize = RATE * 3;
-/// Less sound than this is a cough or a click — not worth a decode.
-pub const MIN_SPEECH: usize = RATE * 3 / 10;
-/// Without a pause (music, non-stop talking) cut after this long …
-pub const SOFT_SEGMENT: usize = RATE * 12;
-/// Soft cap for a song heard through the microphone. Measured 2026-10-22 (a
-/// song from the speakers, recorded by the built-in mic, word recall against
-/// the digital transcript): base 0.34 with 12-s pieces, 0.49 with 20 s; 30 s
-/// produced nothing at all. A sung line needs more context than a spoken one.
-pub const SONG_SEGMENT: usize = RATE * 20;
-/// … at the quietest moment of its last stretch, so a word is rarely split.
-pub const CUT_SEARCH: usize = RATE * 4;
 /// Below this frame RMS (−40 dBFS) a frame is silence, whatever is playing.
 pub const MIN_THRESHOLD: f32 = 0.01;
-/// A frame is "quiet" (a pause) below FLOOR_FACTOR × the noise floor.
-pub const FLOOR_FACTOR: f32 = 3.0;
-
-/// A closed segment: absolute sample indices `[start, end)` of the recording.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Seg {
-    pub start: usize,
-    pub end: usize,
-}
-
-/// Cuts a sample stream into back-to-back segments. Pure: feed samples, get
-/// the segments that closed.
-#[derive(Debug)]
-pub struct Segmenter {
-    /// Absolute index of the first sample in `pending`.
-    pos: usize,
-    pending: Vec<i16>,
-    /// Start of the segment being collected.
-    start: usize,
-    /// RMS of each frame since `start`.
-    frames: Vec<f32>,
-    floor: f32,
-    /// Longest segment before it is cut without a pause.
-    soft: usize,
-}
-
-impl Default for Segmenter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Segmenter {
-    pub fn new() -> Self {
-        Self::with_soft(SOFT_SEGMENT)
-    }
-
-    /// A segmenter that cuts non-stop sound after `soft` samples.
-    pub fn with_soft(soft: usize) -> Self {
-        let soft = soft.max(CUT_SEARCH + FRAME);
-        Segmenter { pos: 0, pending: Vec::new(), start: 0, frames: Vec::new(), floor: 0.002, soft }
-    }
-
-    /// Feed the next samples; returns the segments that closed.
-    pub fn push(&mut self, samples: &[i16]) -> Vec<Seg> {
-        self.pending.extend_from_slice(samples);
-        let mut out = Vec::new();
-        let mut used = 0;
-        while self.pending.len() - used >= FRAME {
-            let rms = frame_rms(&self.pending[used..used + FRAME]);
-            used += FRAME;
-            if let Some(seg) = self.frame(rms) {
-                out.push(seg);
-            }
-        }
-        self.pending.drain(..used);
-        self.pos += used;
-        out
-    }
-
-    /// The segment still being collected: `(start, audible samples)` — None
-    /// while it is silence only.
-    pub fn open(&self) -> Option<(usize, usize)> {
-        let loud = self.count(|r| r > MIN_THRESHOLD);
-        (loud > 0).then_some((self.start, loud))
-    }
-
-    /// End of input: close what is left if it holds real sound.
-    pub fn flush(&mut self) -> Option<Seg> {
-        let end = self.start + self.frames.len() * FRAME;
-        let keep = self.count(|r| r > MIN_THRESHOLD) >= MIN_SPEECH;
-        let seg = Seg { start: self.start, end };
-        self.start = end;
-        self.frames.clear();
-        keep.then_some(seg)
-    }
-
-    fn quiet_level(&self) -> f32 {
-        MIN_THRESHOLD.max(self.floor * FLOOR_FACTOR)
-    }
-
-    /// Samples in frames matching `f`.
-    fn count(&self, f: impl Fn(f32) -> bool) -> usize {
-        self.frames.iter().filter(|&&r| f(r)).count() * FRAME
-    }
-
-    /// Close `[start, start + n frames)` and start the next segment there.
-    /// Silence-only (or click-only) stretches are skipped, never emitted.
-    fn cut(&mut self, n: usize) -> Option<Seg> {
-        let loud = self.frames[..n].iter().filter(|&&r| r > MIN_THRESHOLD).count() * FRAME;
-        let seg = Seg { start: self.start, end: self.start + n * FRAME };
-        self.frames.drain(..n);
-        self.start = seg.end;
-        (loud >= MIN_SPEECH).then_some(seg)
-    }
-
-    fn frame(&mut self, rms: f32) -> Option<Seg> {
-        // Noise floor = a slow-rising, fast-falling minimum. Speech dips between
-        // syllables pull it down at once; a steady sound (a fan, music) lifts it
-        // within ~1 s — so pauses are found relative to what is playing.
-        if rms < self.floor {
-            self.floor += (rms - self.floor) * 0.1;
-        } else {
-            self.floor += (rms - self.floor) * 0.01;
-        }
-        self.frames.push(rms);
-        let quiet = self.quiet_level();
-        let quiet_run = self.frames.iter().rev().take_while(|&&r| r <= quiet).count() * FRAME;
-        let len = self.frames.len() * FRAME;
-        // How much is actually sound — the pauses inside a phrase don't count.
-        let sound = self.count(|r| r > quiet);
-        // Nothing but silence so far: slide the start along, but keep the last
-        // PRE_ROLL — a word's first sound is quieter than the threshold.
-        if self.frames.iter().all(|&r| r <= MIN_THRESHOLD) {
-            let drop = self.frames.len().saturating_sub(PRE_ROLL / FRAME);
-            self.start += drop * FRAME;
-            self.frames.drain(..drop);
-            return None;
-        }
-        // A pause only ends something that stood out from the background.
-        // Under steady loud music the floor sits at the music, EVERY frame
-        // reads as "quiet", and without this guard the long-pause rule cut
-        // the recording into 0.74 s scraps (measured) — the soft cap below
-        // handles that case instead, with whole phrases for Whisper.
-        if (quiet_run >= PAUSE_LONG && sound >= MIN_SPEECH)
-            || (quiet_run >= PAUSE_SHORT && sound >= SPEECH_FOR_SHORT_PAUSE && len >= MIN_CUT)
-        {
-            // Cut in the middle of the pause: both sides keep a little air.
-            let n = (len - quiet_run / 2) / FRAME;
-            return self.cut(n);
-        }
-        if len >= self.soft {
-            // No pause found: cut at the quietest frame of the last stretch
-            // (the later one on a tie, so the segment stays as long as allowed).
-            let total = self.frames.len();
-            let from = total - CUT_SEARCH / FRAME;
-            let mut best = from;
-            for i in from..total {
-                if self.frames[i] <= self.frames[best] {
-                    best = i;
-                }
-            }
-            return self.cut(best + 1);
-        }
-        None
-    }
-}
+/// A microphone that sends no audio this long after the start is broken.
+pub const NO_AUDIO_AFTER: Duration = Duration::from_secs(5);
+/// How long the helper may take to decode what was open at the stop.
+pub const STOP_WAIT: Duration = Duration::from_secs(120);
 
 fn frame_rms(frame: &[i16]) -> f32 {
     if frame.is_empty() {
@@ -231,15 +47,41 @@ fn frame_rms(frame: &[i16]) -> f32 {
     (sum / frame.len() as f64).sqrt() as f32
 }
 
+/// The helper's `Window` answer as samples.
+pub fn decode_window(pcm_b64: &str) -> Vec<i16> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(pcm_b64)
+        .map(|b| b.as_chunks::<2>().0.iter().map(|c| i16::from_le_bytes(*c)).collect())
+        .unwrap_or_default()
+}
+
+/// The session the helper runs for a dictation or song. Nothing of it is
+/// kept: `root` is a private folder deleted at the end. Pure.
+pub fn session_config(source: LiveSource, lang: transcribe_protocol::Lang, cfg: &crate::meeting::MeetingConfig, root: PathBuf) -> SessionConfig {
+    let (mode, sources) = source.session();
+    SessionConfig {
+        sources,
+        mic_device: cfg.mic_device.clone(),
+        model: cfg.model.clone(),
+        lang,
+        root,
+        keep_audio: false,
+        dedupe: DedupeMode::Never,
+        dedupe_threshold: cfg.dedupe_threshold,
+        mode,
+    }
+}
+
 // ── State ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LiveState {
-    /// Worker loading the model; the microphone is already recording.
+    /// The helper is loading the model; the session starts once it is ready.
     Starting,
     Recording,
-    /// Stopped; the accurate model runs over the whole recording.
+    /// Stopped; the helper decodes what was still open.
     Finalizing,
     Done,
     Failed,
@@ -271,14 +113,17 @@ impl LiveSource {
         matches!(self, LiveSource::Mic | LiveSource::Room)
     }
 
-    /// Soft cap for the segmenter. The digital capture keeps the 12 s the
-    /// dictation uses (longer pieces measured no gain there); through the
-    /// microphone 20 s is clearly better (see [`SONG_SEGMENT`]).
-    pub fn soft_segment(self) -> usize {
+    /// The engine mode and the sources it records.
+    pub fn session(self) -> (Mode, Vec<Source>) {
         match self {
-            LiveSource::Room => SONG_SEGMENT,
-            LiveSource::Mic | LiveSource::System => SOFT_SEGMENT,
+            LiveSource::Mic => (Mode::Dictation, vec![Source::Mic]),
+            LiveSource::System => (Mode::Song, vec![Source::Sys]),
+            LiveSource::Room => (Mode::Room, vec![Source::Mic]),
         }
+    }
+
+    fn capture(self) -> Source {
+        if self == LiveSource::System { Source::Sys } else { Source::Mic }
     }
 }
 
@@ -305,9 +150,9 @@ pub struct LiveJob {
     pub committed: String,
     /// Text of the segment still being spoken — replaced on every update.
     pub partial: String,
-    /// The accurate pass over the whole recording, once it is done.
+    /// Kept for the panel's wire format; the engine's finals are the result.
     pub final_text: Option<String>,
-    /// The model the worker is loading right now (first use downloads it).
+    /// The model the helper is loading right now.
     pub loading_model: Option<String>,
     pub copied: bool,
     pub error: Option<String>,
@@ -326,26 +171,6 @@ pub struct LiveJob {
     last_final_seq: u64,
     #[serde(skip)]
     partial_seq: u64,
-}
-
-/// One line from the worker.
-#[derive(Debug, serde::Deserialize, PartialEq)]
-#[serde(tag = "event", rename_all = "snake_case")]
-pub enum LiveEvent {
-    Model { name: String },
-    Ready,
-    Text { seq: u64, kind: String, text: String },
-    Finalizing { name: String },
-    Final { text: String },
-    Error {
-        #[serde(default)]
-        seq: Option<u64>,
-        error: String,
-    },
-}
-
-pub fn parse_event(line: &str) -> Option<LiveEvent> {
-    serde_json::from_str(line.trim()).ok()
 }
 
 /// What Whisper writes for silence or noise. Kept short: the segmenter already
@@ -406,50 +231,46 @@ impl LiveJob {
         matches!(self.state, LiveState::Starting | LiveState::Recording | LiveState::Finalizing)
     }
 
-    pub fn apply(&mut self, event: LiveEvent) {
-        match event {
-            LiveEvent::Model { name } | LiveEvent::Finalizing { name } => {
-                self.loading_model = Some(name)
-            }
-            LiveEvent::Ready => {
+    /// Fold one helper event in. Pure.
+    pub fn apply(&mut self, ev: &Event) {
+        match ev {
+            Event::Started { .. } => {
                 self.loading_model = None;
                 if self.state == LiveState::Starting {
                     self.state = LiveState::Recording;
                 }
             }
-            LiveEvent::Text { seq, kind, text } => {
-                let text = if is_noise_text(&text) { String::new() } else { text };
-                if kind == "final" {
-                    self.committed = join(&self.committed, &text);
-                    self.last_final_seq = self.last_final_seq.max(seq);
-                    // The partial was a preview of this (or an older) segment.
-                    if self.partial_seq <= seq {
-                        self.partial.clear();
-                    }
-                } else if seq > self.last_final_seq {
-                    self.partial = text;
-                    self.partial_seq = seq;
+            Event::Hypothesis { seq, stable, pending, .. } => {
+                if *seq > self.last_final_seq {
+                    let text = join(stable, pending);
+                    self.partial = if is_noise_text(&text) { String::new() } else { text };
+                    self.partial_seq = *seq;
                 }
             }
-            LiveEvent::Final { text } => {
-                self.loading_model = None;
-                if !is_noise_text(&text) {
-                    self.final_text = Some(text.trim().to_string());
+            Event::Final { seq, text, .. } => {
+                if !is_noise_text(text) {
+                    self.committed = join(&self.committed, text);
+                }
+                self.last_final_seq = self.last_final_seq.max(*seq);
+                // The partial was a preview of this (or an older) segment.
+                if self.partial_seq <= *seq {
+                    self.partial.clear();
                 }
             }
-            LiveEvent::Error { error, .. } => {
-                tracing::warn!("transcribe live worker: {error}");
+            Event::Dropped { seq, .. } => {
+                self.last_final_seq = self.last_final_seq.max(*seq);
+                if self.partial_seq <= *seq {
+                    self.partial.clear();
+                }
             }
+            Event::Level { rms, .. } => self.level = meter_level(*rms),
+            _ => {}
         }
     }
 
-    /// What was heard: the accurate pass, else the live text. A failed
-    /// accurate pass never loses the words already shown.
+    /// What was heard: the kept finals and the segment still open.
     pub fn transcript_text(&self) -> String {
-        match &self.final_text {
-            Some(t) if !t.trim().is_empty() => t.clone(),
-            _ => join(&self.committed, &self.partial),
-        }
+        join(&self.committed, &self.partial)
     }
 
     /// The catalogue lyrics of the recognised song, if any.
@@ -465,12 +286,6 @@ impl LiveJob {
             (Some(song), Some(lyrics)) => crate::shazam::lyrics_clip_text(&song.title, &song.artist, lyrics),
             _ => self.transcript_text(),
         }
-    }
-
-    /// The slow accurate pass is only worth it when its text is what gets
-    /// copied — not once the catalogue already has the exact lyrics.
-    pub fn needs_accurate_pass(&self) -> bool {
-        self.catalogue_lyrics().is_none() && !self.transcript_text().trim().is_empty()
     }
 }
 
@@ -525,12 +340,6 @@ pub fn meter_level(rms: f32) -> f32 {
     ((20.0 * rms.log10() + 60.0) / 60.0).clamp(0.0, 1.0)
 }
 
-/// Prompt for the next decode: the end of what was already said, so names and
-/// spelling stay consistent across segments.
-pub fn prompt_tail(committed: &str, max_chars: usize) -> String {
-    let n = committed.chars().count();
-    committed.chars().skip(n.saturating_sub(max_chars)).collect()
-}
 
 // ── Session ─────────────────────────────────────────────────────────────────
 
@@ -569,17 +378,32 @@ fn update(f: impl FnOnce(&mut LiveJob)) {
     }
 }
 
-/// Start dictating. Errors with [`ERR_BUSY`] while one (or a file job) runs.
+/// Start dictating. Errors with [`ERR_BUSY`] while one (or a file job, or a
+/// meeting) runs, and with a readable sentence when the engine can't start.
 pub fn start(app: tauri::AppHandle, language: Option<String>, source: LiveSource) -> Result<LiveJob, String> {
+    if !crate::transcribe_client::supported() {
+        return Err(crate::transcribe::user_error(crate::transcribe_client::ERR_UNSUPPORTED));
+    }
+    let lang = crate::transcribe::lang_of(language.as_deref())?;
+    let cfg = {
+        use tauri::Manager;
+        app.try_state::<crate::db::DbHandle>()
+            .map(|db| crate::meeting::MeetingConfig::load(&db))
+            .unwrap_or_default()
+    };
+    crate::meeting::model_ready(&cfg.model).map_err(|e| crate::transcribe::user_error(&e))?;
     let job = {
         let mut guard = JOB.lock();
         if guard.as_ref().is_some_and(LiveJob::is_active)
             || crate::transcribe::status().is_some_and(|j| j.is_active())
+            || crate::meeting::is_running()
+            || crate::transcribe_client::is_busy()
         {
             return Err(ERR_BUSY.into());
         }
         let mut job = LiveJob::new(NEXT_ID.fetch_add(1, Ordering::SeqCst), language.clone(), now_ms());
         job.source = source;
+        job.loading_model = Some(cfg.model.clone());
         *guard = Some(job.clone());
         job
     };
@@ -589,7 +413,7 @@ pub fn start(app: tauri::AppHandle, language: Option<String>, source: LiveSource
     let id = job.id;
     std::thread::Builder::new()
         .name("ir-transcribe-live".into())
-        .spawn(move || run(app, id, language, source))
+        .spawn(move || run(app, id, lang, source, cfg))
         .map_err(|e| format!("transcribe live: {e}"))?;
     Ok(job)
 }
@@ -624,123 +448,6 @@ fn private_dir(id: u64) -> Result<PathBuf, String> {
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
     Ok(dir)
-}
-
-fn write_pcm(path: &Path, samples: &[i16]) -> Result<(), String> {
-    let mut bytes = Vec::with_capacity(samples.len() * 2);
-    for s in samples {
-        bytes.extend_from_slice(&s.to_le_bytes());
-    }
-    std::fs::write(path, bytes).map_err(|e| format!("pcm: {e}"))
-}
-
-struct Worker {
-    child: std::process::Child,
-    stdin: Option<std::process::ChildStdin>,
-    lines: std::sync::mpsc::Receiver<LiveEvent>,
-    stderr: std::thread::JoinHandle<String>,
-}
-
-impl Worker {
-    fn spawn(language: Option<&str>) -> Result<Worker, String> {
-        let python = crate::transcribe::python();
-        tracing::info!("transcribe live: worker {}", python.display());
-        let mut cmd = Command::new(python);
-        cmd.args(["-c", WORKER])
-            .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUNBUFFERED", "1")
-            .env("IR_TRANSCRIBE_LANGUAGE", language.unwrap_or(""))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
-        let mut child = cmd.spawn().map_err(|e| {
-            format!(
-                "Python/Whisper nicht verfügbar: {e}. Einmal python3 scripts/setup-transcribe.py ausführen; alternativ IR_WHISPER_PYTHON setzen."
-            )
-        })?;
-        let stdin = child.stdin.take();
-        let stdout = child.stdout.take().ok_or("worker stdout")?;
-        let stderr = child.stderr.take();
-        let (tx, lines) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if let Some(ev) = parse_event(&line) {
-                    if tx.send(ev).is_err() {
-                        break;
-                    }
-                }
-            }
-        });
-        let stderr = std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut s) = stderr {
-                let _ = s.read_to_string(&mut text);
-            }
-            text
-        });
-        Ok(Worker { child, stdin, lines, stderr })
-    }
-
-    fn send(&mut self, req: serde_json::Value) -> bool {
-        match self.stdin.as_mut() {
-            Some(w) => writeln!(w, "{req}").and_then(|_| w.flush()).is_ok(),
-            None => false,
-        }
-    }
-
-    fn crashed(mut self) -> String {
-        drop(self.stdin.take());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        crate::transcribe::user_error(&self.stderr.join().unwrap_or_default())
-    }
-
-    fn close(mut self) {
-        drop(self.stdin.take());
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn log_event(ev: &LiveEvent) {
-    match ev {
-        LiveEvent::Text { seq, kind, text } => {
-            tracing::info!("transcribe live: {kind} #{seq} → {} chars", text.chars().count())
-        }
-        LiveEvent::Final { text } => tracing::info!("transcribe live: final pass → {} chars", text.chars().count()),
-        other => tracing::info!("transcribe live: {other:?}"),
-    }
-}
-
-/// Pump every waiting worker line into the job. `Err` = the worker is gone.
-fn drain(worker: &Worker, busy: &mut bool) -> Result<(), ()> {
-    loop {
-        match worker.lines.try_recv() {
-            Ok(ev) => {
-                log_event(&ev);
-                // Every reply to a request frees the worker; the model notices don't.
-                if !matches!(ev, LiveEvent::Model { .. } | LiveEvent::Ready | LiveEvent::Finalizing { .. }) {
-                    *busy = false;
-                }
-                update(|j| j.apply(ev));
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(()),
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => return Err(()),
-        }
-    }
 }
 
 // --- Lowering the music while dictating -------------------------------------
@@ -790,33 +497,6 @@ pub fn duck_wanted(setting: Option<&str>, source: LiveSource) -> bool {
     source == LiveSource::Mic && setting.is_some_and(|v| v.trim() == "true")
 }
 
-/// The running audio input of a session.
-enum Input {
-    Mic(crate::mic_capture::MicStream),
-    #[cfg(target_os = "macos")]
-    System(crate::system_audio::SystemAudio),
-}
-
-impl Input {
-    fn stop(&mut self) {
-        match self {
-            Input::Mic(m) => m.stop(),
-            #[cfg(target_os = "macos")]
-            Input::System(s) => s.stop(),
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn start_system_audio(on_chunk: impl Fn(&[f32], u32) + Send + Sync + 'static) -> Result<Input, String> {
-    crate::system_audio::start(on_chunk).map(Input::System)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn start_system_audio(_on_chunk: impl Fn(&[f32], u32) + Send + Sync + 'static) -> Result<Input, String> {
-    Err(crate::i18n::t("trx.song_macos_only"))
-}
-
 fn duck_output(_app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
@@ -849,7 +529,6 @@ pub fn restore_output() {
     #[cfg(not(target_os = "macos"))]
     let _ = (before, target);
 }
-
 /// One Shazam attempt on a window of the recording; on a match the lyrics are
 /// fetched and both land in the job (and the Shazam history).
 fn spawn_recognize(app: tauri::AppHandle, id: u64, window: Vec<i16>, flag: Arc<AtomicBool>) {
@@ -884,237 +563,185 @@ fn spawn_recognize(app: tauri::AppHandle, id: u64, window: Vec<i16>, flag: Arc<A
     }
 }
 
-fn run(app: tauri::AppHandle, id: u64, language: Option<String>, source: LiveSource) {
+/// What the session loop does with one helper event. Pure.
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    Apply,
+    /// The helper refused or lost the session.
+    Fail(String),
+    /// The session is over (after a stop).
+    Ended(Option<String>),
+    /// A song window to try against Shazam.
+    Window(Vec<i16>),
+    Ignore,
+}
+
+pub fn step(ev: &Event, source: LiveSource, started: bool) -> Step {
+    match ev {
+        Event::Stopped { error, .. } => Step::Ended(error.clone()),
+        Event::Error { error } if !started => Step::Fail(error.clone()),
+        Event::SourceState { source: s, state: SourceStatus::Lost, detail } if *s == source.capture() && source.uses_mic() => {
+            Step::Fail(detail.clone().unwrap_or_else(|| crate::i18n::t("trx.live_no_mic")))
+        }
+        Event::Window { source: s, pcm_b64 } if *s == source.capture() => Step::Window(decode_window(pcm_b64)),
+        Event::Warning { code, detail } => {
+            tracing::warn!("transcribe live: {code}: {detail}");
+            Step::Ignore
+        }
+        Event::Started { .. }
+        | Event::Hypothesis { .. }
+        | Event::Final { .. }
+        | Event::Dropped { .. }
+        | Event::Level { .. } => Step::Apply,
+        _ => Step::Ignore,
+    }
+}
+
+fn run(app: tauri::AppHandle, id: u64, lang: transcribe_protocol::Lang, source: LiveSource, cfg: crate::meeting::MeetingConfig) {
     let dir = match private_dir(id) {
         Ok(d) => d,
         Err(e) => return finish(&app, Some(e), None),
     };
-    let mut worker = match Worker::spawn(language.as_deref()) {
-        Ok(w) => w,
-        Err(e) => return finish(&app, Some(e), Some(&dir)),
-    };
+    let (tx, rx) = std::sync::mpsc::channel::<Event>();
+    let tx = parking_lot::Mutex::new(tx);
+    let sub = crate::transcribe_client::subscribe(move |ev| {
+        if !matches!(
+            ev,
+            Event::ModelProgress { .. } | Event::ModelReady { .. } | Event::ModelError { .. } | Event::Devices { .. }
+                | Event::FileProgress { .. } | Event::FileDone { .. } | Event::FileError { .. }
+        ) {
+            let _ = tx.lock().send(ev.clone());
+        }
+    });
+    let outcome = session(&app, id, lang, source, &cfg, &dir, &rx);
+    crate::transcribe_client::unsubscribe(sub);
+    restore_output();
+    if CANCEL.load(Ordering::SeqCst) {
+        update(|j| j.state = LiveState::Cancelled);
+        return finish(&app, None, Some(&dir));
+    }
+    finish(&app, outcome.err(), Some(&dir));
+}
 
-    let buffer: Arc<parking_lot::Mutex<Vec<i16>>> = Arc::default();
-    let level = Arc::new(AtomicU32::new(0));
-    let on_chunk = {
-        let buffer = buffer.clone();
-        let level = level.clone();
-        move |chunk: &[f32], rate: u32| {
-            let pcm = crate::shazam::resample_to_16k_i16(chunk, rate);
-            level.store(crate::mic_capture::chunk_rms(chunk).to_bits(), Ordering::Relaxed);
-            buffer.lock().extend_from_slice(&pcm);
-        }
-    };
-    let mut input = match source {
-        LiveSource::Mic | LiveSource::Room => {
-            if duck_wanted(duck_setting(&app).as_deref(), source) {
-                duck_output(&app);
-            }
-            Input::Mic(crate::mic_capture::start_chunks(app.clone(), on_chunk))
-        }
-        LiveSource::System => match start_system_audio(on_chunk) {
-            Ok(input) => input,
-            Err(e) => {
-                worker.close();
-                return finish(&app, Some(e), Some(&dir));
-            }
-        },
-    };
+/// Run one helper session until it is stopped and fully decoded.
+fn session(
+    app: &tauri::AppHandle,
+    id: u64,
+    lang: transcribe_protocol::Lang,
+    source: LiveSource,
+    cfg: &crate::meeting::MeetingConfig,
+    dir: &Path,
+    rx: &std::sync::mpsc::Receiver<Event>,
+) -> Result<(), String> {
+    if duck_wanted(duck_setting(app).as_deref(), source) {
+        duck_output(app);
+    }
+    crate::transcribe_client::send(&Command::Start(session_config(source, lang, cfg, dir.to_path_buf())))
+        .map_err(|e| crate::transcribe::user_error(&e))?;
     tracing::info!("transcribe live: source {source:?}");
 
-    let started = Instant::now();
-    let mut seg = Segmenter::with_soft(source.soft_segment());
-    // Song recognition runs on its own thread (network) — the loop only
-    // looks at whether one is in flight and when the last one started.
+    let mut started: Option<Instant> = None;
+    let mut heard = false;
     let recognizing = Arc::new(AtomicBool::new(false));
+    let mut window_asked = false;
     let mut last_recognize: Option<Instant> = None;
-    let mut processed = 0usize;
-    let mut finals: VecDeque<Seg> = VecDeque::new();
-    let mut busy = false;
-    let mut ready = false;
-    let mut seq = 0u64;
-    let mut last_partial = Instant::now();
-    let mut last_partial_len = 0usize;
-    let mut crashed: Option<String> = None;
-    let mut last_log = Instant::now();
-    let mut peak = 0f32;
+    let mut stop_sent: Option<Instant> = None;
+    let begun = Instant::now();
 
-    let send_decode = |worker: &mut Worker, seq: &mut u64, samples: &[i16], kind: &str| -> bool {
-        *seq += 1;
-        let path = dir.join(format!("{}-{kind}.pcm", *seq));
-        if write_pcm(&path, samples).is_err() {
-            return false;
-        }
-        let prompt = status().map(|j| prompt_tail(&j.committed, 200)).unwrap_or_default();
-        worker.send(serde_json::json!({
-            "op": "decode", "seq": *seq, "kind": kind,
-            "path": path.to_string_lossy(), "prompt": prompt,
-        }))
-    };
-
-    // ── Recording ──
     loop {
-        std::thread::sleep(Duration::from_millis(100));
-        if drain(&worker, &mut busy).is_err() {
-            crashed = Some(String::new());
-            break;
-        }
-        if !ready && status().is_some_and(|j| j.state == LiveState::Recording) {
-            ready = true;
-        }
-        let total = {
-            let b = buffer.lock();
-            let new = b[processed..].to_vec();
-            processed = b.len();
-            drop(b);
-            finals.extend(seg.push(&new));
-            processed
-        };
-        let elapsed = started.elapsed();
-        peak = peak.max(f32::from_bits(level.load(Ordering::Relaxed)));
-        if last_log.elapsed() >= Duration::from_secs(5) {
-            tracing::info!(
-                "transcribe live: {:.0}s, {} samples, peak rms {peak:.4}, {} queued, open {:?}, ready {ready}, busy {busy}",
-                elapsed.as_secs_f32(), total, finals.len(), seg.open()
-            );
-            last_log = Instant::now();
-            peak = 0.0;
-        }
-        update(|j| {
-            j.elapsed_ms = elapsed.as_millis() as u64;
-            j.level = meter_level(f32::from_bits(level.load(Ordering::Relaxed)));
-        });
-        // Nothing playing yet is fine for a song (press play after starting);
-        // a microphone that delivers nothing is broken.
-        if source.uses_mic() && total == 0 && elapsed > Duration::from_secs(5) {
-            crashed = Some(crate::i18n::t("trx.live_no_mic"));
-            break;
-        }
-        let (tries, matched) = status().map(|j| (j.recognize_tries, j.song.is_some())).unwrap_or((0, true));
-        if recognize_due(
-            source,
-            total,
-            last_recognize.map(|t| t.elapsed().as_millis() as u64),
-            tries,
-            recognizing.load(Ordering::SeqCst),
-            matched,
-        ) {
-            let window = buffer.lock()[total - RECOGNIZE_WINDOW..total].to_vec();
-            if window_has_sound(&window) {
-                last_recognize = Some(Instant::now());
-                update(|j| j.recognize_tries += 1);
-                spawn_recognize(app.clone(), id, window, recognizing.clone());
-            }
-        }
-        if ready && !busy {
-            if let Some(s) = finals.pop_front() {
-                let samples = buffer.lock()[s.start..s.end].to_vec();
-                busy = send_decode(&mut worker, &mut seq, &samples, "final");
-            } else if let Some((start, speech)) = seg.open() {
-                if speech >= RATE / 2
-                    && last_partial.elapsed() >= Duration::from_millis(1500)
-                    && total > last_partial_len
-                {
-                    let samples = buffer.lock()[start..total].to_vec();
-                    busy = send_decode(&mut worker, &mut seq, &samples, "partial");
-                    last_partial = Instant::now();
-                    last_partial_len = total;
-                }
-            }
-        }
-        publish(&app);
-        if CANCEL.load(Ordering::SeqCst)
-            || STOP.load(Ordering::SeqCst)
-            || elapsed >= Duration::from_secs(MAX_SECONDS)
-        {
-            break;
-        }
-    }
-    input.stop();
-    drop(input);
-    restore_output();
-
-    if CANCEL.load(Ordering::SeqCst) {
-        worker.close();
-        update(|j| j.state = LiveState::Cancelled);
-        return finish(&app, None, Some(&dir));
-    }
-    if let Some(reason) = crashed {
-        let error = if reason.is_empty() { worker.crashed() } else {
-            worker.close();
-            reason
-        };
-        return finish(&app, Some(error), Some(&dir));
-    }
-
-    // ── Finalizing ──
-    update(|j| j.state = LiveState::Finalizing);
-    publish(&app);
-    let samples = std::mem::take(&mut *buffer.lock());
-    finals.extend(seg.push(&samples[processed..]));
-    finals.extend(seg.flush());
-    let deadline = Instant::now() + Duration::from_secs(120);
-    // A model still loading means nothing was decoded yet; wait for it too.
-    while (!finals.is_empty() || busy || !ready) && Instant::now() < deadline {
-        if CANCEL.load(Ordering::SeqCst) {
-            break;
-        }
-        if drain(&worker, &mut busy).is_err() {
-            break;
-        }
-        if !ready && status().is_some_and(|j| j.state != LiveState::Starting) {
-            ready = true;
-        }
-        if ready && !busy {
-            match finals.pop_front() {
-                Some(s) => busy = send_decode(&mut worker, &mut seq, &samples[s.start..s.end], "final"),
-                None => break,
-            }
-        }
-        std::thread::sleep(Duration::from_millis(50));
-        publish(&app);
-    }
-    if CANCEL.load(Ordering::SeqCst) {
-        worker.close();
-        update(|j| j.state = LiveState::Cancelled);
-        return finish(&app, None, Some(&dir));
-    }
-    // A recognition still on the wire may bring the exact lyrics; give it a
-    // moment before deciding whether the slow pass is needed.
-    let wait = Instant::now() + Duration::from_secs(15);
-    while recognizing.load(Ordering::SeqCst) && Instant::now() < wait && !CANCEL.load(Ordering::SeqCst) {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    // The accurate pass over everything — only if there was speech at all
-    // and the catalogue does not already have the exact text.
-    let spoke = status().is_some_and(|j| j.needs_accurate_pass());
-    if spoke {
-        let all = dir.join("all.pcm");
-        if write_pcm(&all, &samples).is_ok()
-            && worker.send(serde_json::json!({ "op": "finalize", "path": all.to_string_lossy() }))
-        {
-            let secs = (samples.len() / RATE) as u64;
-            let deadline = Instant::now() + Duration::from_secs(90 + secs * 3);
-            let mut done = false;
-            while !done && Instant::now() < deadline && !CANCEL.load(Ordering::SeqCst) {
-                match worker.lines.recv_timeout(Duration::from_millis(200)) {
-                    Ok(ev) => {
-                        done = matches!(ev, LiveEvent::Final { .. } | LiveEvent::Error { seq: None, .. });
-                        update(|j| j.apply(ev));
-                        publish(&app);
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(ev) => match step(&ev, source, started.is_some()) {
+                Step::Apply => {
+                    if matches!(ev, Event::Started { .. }) {
+                        started = Some(Instant::now());
                     }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    if matches!(ev, Event::Level { .. }) {
+                        heard = true;
+                    }
+                    update(|j| j.apply(&ev));
                 }
+                Step::Fail(e) => {
+                    let _ = crate::transcribe_client::send(&Command::Stop);
+                    let _ = wait_stopped(rx, Duration::from_secs(10));
+                    return Err(crate::transcribe::user_error(&e));
+                }
+                Step::Ended(error) => return error.map_or(Ok(()), |e| Err(crate::transcribe::user_error(&e))),
+                Step::Window(window) => {
+                    window_asked = false;
+                    if window_has_sound(&window) {
+                        last_recognize = Some(Instant::now());
+                        update(|j| j.recognize_tries += 1);
+                        spawn_recognize(app.clone(), id, window, recognizing.clone());
+                    }
+                }
+                Step::Ignore => {}
+            },
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(crate::transcribe_client::ERR_HELPER_DIED.into()),
+        }
+        if let Some(t0) = started {
+            let elapsed = t0.elapsed();
+            update(|j| j.elapsed_ms = elapsed.as_millis() as u64);
+            // Nothing playing yet is fine for a song (press play after
+            // starting); a microphone that delivers nothing is broken.
+            if stop_sent.is_none() && source.uses_mic() && !heard && elapsed > NO_AUDIO_AFTER {
+                let _ = crate::transcribe_client::send(&Command::Stop);
+                let _ = wait_stopped(rx, Duration::from_secs(10));
+                return Err(crate::i18n::t("trx.live_no_mic"));
+            }
+            let (tries, matched) = status().map(|j| (j.recognize_tries, j.song.is_some())).unwrap_or((0, true));
+            let recorded = elapsed.as_millis() as usize * RATE / 1000;
+            if stop_sent.is_none()
+                && !window_asked
+                && recognize_due(
+                    source,
+                    recorded,
+                    last_recognize.map(|t| t.elapsed().as_millis() as u64),
+                    tries,
+                    recognizing.load(Ordering::SeqCst),
+                    matched,
+                )
+            {
+                window_asked = true;
+                last_recognize = Some(Instant::now());
+                let secs = (RECOGNIZE_WINDOW / RATE) as u32;
+                let _ = crate::transcribe_client::send(&Command::Window { source: source.capture(), secs });
+            }
+        } else if begun.elapsed() > Duration::from_secs(120) && stop_sent.is_none() {
+            return Err(crate::transcribe::user_error("transcribe.timeout"));
+        }
+        publish(app);
+        let want_stop = CANCEL.load(Ordering::SeqCst)
+            || STOP.load(Ordering::SeqCst)
+            || started.is_some_and(|t| t.elapsed() >= Duration::from_secs(MAX_SECONDS));
+        if want_stop && stop_sent.is_none() {
+            stop_sent = Some(Instant::now());
+            if !CANCEL.load(Ordering::SeqCst) {
+                update(|j| j.state = LiveState::Finalizing);
+                publish(app);
+            }
+            let _ = crate::transcribe_client::send(&Command::Stop);
+            // A recognition still on the wire may bring the exact lyrics.
+            let wait = Instant::now() + Duration::from_secs(15);
+            while recognizing.load(Ordering::SeqCst) && Instant::now() < wait && !CANCEL.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(100));
             }
         }
+        if stop_sent.is_some_and(|t| t.elapsed() > STOP_WAIT) {
+            return Err(crate::transcribe::user_error("transcribe.timeout"));
+        }
     }
-    worker.close();
-    if CANCEL.load(Ordering::SeqCst) {
-        update(|j| j.state = LiveState::Cancelled);
-        return finish(&app, None, Some(&dir));
+}
+
+/// Swallow events until the helper reports the session stopped.
+fn wait_stopped(rx: &std::sync::mpsc::Receiver<Event>, max: Duration) -> bool {
+    let end = Instant::now() + max;
+    while Instant::now() < end {
+        if let Ok(Event::Stopped { .. }) = rx.recv_timeout(Duration::from_millis(100)) {
+            return true;
+        }
     }
-    finish(&app, None, Some(&dir));
+    false
 }
 
 /// End of a session: copy the text (unless cancelled), settle the state,
@@ -1143,9 +770,7 @@ fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
         j.loading_model = None;
         // The transcript shown stays what was heard (the catalogue lyrics,
         // when copied instead, are shown with the song).
-        if j.final_text.is_none() {
-            j.committed = j.transcript_text();
-        }
+        j.committed = j.transcript_text();
         j.partial.clear();
         j.result = (!cancelled).then(|| text.clone());
         if !cancelled {
@@ -1196,118 +821,8 @@ mod duck_tests {
 mod tests {
     use super::*;
 
-    /// `ms` milliseconds of speech-like sound: 300 ms "syllables" with 80 ms
-    /// gaps. Real speech dips between words; a gapless tone is a fan, and the
-    /// segmenter rightly learns it as room noise.
-    fn tone(ms: usize) -> Vec<i16> {
-        (0..RATE * ms / 1000)
-            .map(|i| {
-                let in_word = (i % (RATE * 380 / 1000)) < RATE * 300 / 1000;
-                if in_word { ((i as f32 * 0.2).sin() * 8000.0) as i16 } else { 0 }
-            })
-            .collect()
-    }
     fn silence(ms: usize) -> Vec<i16> {
         vec![0; RATE * ms / 1000]
-    }
-    fn feed(seg: &mut Segmenter, parts: &[Vec<i16>]) -> Vec<Seg> {
-        // Odd chunk sizes, like the microphone delivers them.
-        let all: Vec<i16> = parts.concat();
-        all.chunks(733).flat_map(|c| seg.push(c)).collect()
-    }
-
-    /// Every sample in `[from, to)` lies inside some segment.
-    fn covered(segs: &[Seg], from: usize, to: usize) -> bool {
-        (from..to).step_by(FRAME).all(|i| segs.iter().any(|s| s.start <= i && i < s.end))
-    }
-
-    #[test]
-    fn a_pause_after_enough_speech_cuts_in_the_middle_of_it() {
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[silence(500), tone(2000), silence(800)]);
-        assert_eq!(out.len(), 1, "{out:?}");
-        // Leading silence is skipped except a short pre-roll before the first sound.
-        assert_eq!(out[0].start, RATE / 2 - PRE_ROLL);
-        // The cut sits inside the pause, after every word.
-        assert!(out[0].end >= RATE / 2 + 2 * RATE && out[0].end < RATE / 2 + 2 * RATE + RATE * 8 / 10);
-    }
-
-    #[test]
-    fn a_short_pause_does_not_cut_a_short_phrase() {
-        let mut s = Segmenter::new();
-        // 0.8 s of speech, 0.7 s pause, more speech: one sentence, not two.
-        let out = feed(&mut s, &[tone(800), silence(700), tone(800)]);
-        assert!(out.is_empty(), "{out:?}");
-        assert!(s.open().is_some());
-        // ~1.3 s of words in total: under the short-pause bar, so it waits for
-        // the long pause — and then closes as ONE segment.
-        assert!(feed(&mut s, &[silence(800)]).is_empty());
-        let out = feed(&mut s, &[silence(800)]);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].start, 0);
-    }
-
-    #[test]
-    fn only_silence_may_fall_between_segments() {
-        let mut s = Segmenter::new();
-        let input: Vec<i16> = [tone(2000), silence(650), tone(2000), silence(900), tone(1500)].concat();
-        let mut all: Vec<Seg> = input.chunks(733).flat_map(|c| s.push(c)).collect();
-        all.extend(s.flush());
-        assert!(all.len() >= 2, "{all:?}");
-        for (i, f) in input.chunks(FRAME).enumerate() {
-            if frame_rms(f) > MIN_THRESHOLD {
-                assert!(covered(&all, i * FRAME, i * FRAME + 1), "audible frame {i} dropped: {all:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn clicks_and_silence_produce_nothing() {
-        let mut s = Segmenter::new();
-        assert!(feed(&mut s, &[silence(5000)]).is_empty());
-        assert!(s.open().is_none());
-        assert!(s.flush().is_none());
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[tone(100), silence(2000)]);
-        assert!(out.is_empty(), "a click is not a segment: {out:?}");
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[tone(500), silence(1600)]);
-        assert_eq!(out.len(), 1, "half a second of speech is still words");
-    }
-
-    #[test]
-    fn non_stop_sound_is_cut_regularly_at_its_quietest_moment() {
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[tone(40_000)]);
-        assert!(out.len() >= 3, "{out:?}");
-        for seg in &out {
-            assert!(seg.end - seg.start <= SOFT_SEGMENT, "{seg:?}");
-        }
-        for w in out.windows(2) {
-            assert_eq!(w[0].end, w[1].start);
-        }
-        // The cut lands in a gap between "syllables", not inside one.
-        let gap = |i: usize| (i % (RATE * 380 / 1000)) >= RATE * 300 / 1000;
-        assert!(out.iter().all(|seg| gap(seg.end - 1)), "{out:?}");
-    }
-
-    /// The bug that prompted the rewrite: speech over music that is about as
-    /// loud as the voice. An energy rule cannot tell them apart, so nothing
-    /// in the speech may be left out of a segment — Whisper sorts it out.
-    #[test]
-    fn speech_over_loud_music_is_never_dropped() {
-        let mut speech = silence(2000);
-        speech.extend(tone(3000));
-        speech.extend(silence(1200));
-        speech.extend(tone(4000));
-        speech.extend(silence(2000));
-        let bed = music(speech.len() * 1000 / RATE);
-        let mix: Vec<i16> = speech.iter().zip(&bed).map(|(&a, &b)| a.saturating_add(b)).collect();
-        let mut s = Segmenter::new();
-        let mut out: Vec<Seg> = mix.chunks(733).flat_map(|c| s.push(c)).collect();
-        out.extend(s.flush());
-        assert!(covered(&out, 2 * RATE, 2 * RATE + 3 * RATE), "first sentence lost: {out:?}");
-        assert!(covered(&out, 6 * RATE + RATE / 5, 6 * RATE + RATE / 5 + 4 * RATE), "second sentence lost: {out:?}");
     }
 
     fn music(ms: usize) -> Vec<i16> {
@@ -1322,38 +837,28 @@ mod tests {
             .collect()
     }
 
-    /// Steady loud music is not a string of pauses: it is cut in whole
-    /// stretches, never into sub-second scraps Whisper cannot read.
-    #[test]
-    fn loud_music_alone_is_cut_in_long_pieces_not_scraps() {
-        let mut s = Segmenter::new();
-        let out = feed(&mut s, &[music(40_000)]);
-        assert!(!out.is_empty());
-        for seg in &out {
-            assert!(seg.end - seg.start >= MIN_CUT, "scrap: {out:?}");
-        }
+    fn fin(seq: u64, text: &str) -> Event {
+        Event::Final { source: Source::Mic, seq, start_ms: 0, end_ms: 0, lang: "de".into(), text: text.into(), confidence: 0.9 }
     }
 
-    /// A song through the microphone is cut in 20-s pieces, a dictation in
-    /// 12-s pieces — the measured difference (see SONG_SEGMENT).
-    #[test]
-    fn a_song_from_another_device_gets_longer_pieces() {
-        let mut dict = Segmenter::with_soft(LiveSource::Mic.soft_segment());
-        let mut room = Segmenter::with_soft(LiveSource::Room.soft_segment());
-        let d = feed(&mut dict, &[music(45_000)]);
-        let r = feed(&mut room, &[music(45_000)]);
-        let longest = |v: &[Seg]| v.iter().map(|s| s.end - s.start).max().unwrap_or(0);
-        assert!(longest(&d) <= SOFT_SEGMENT, "{d:?}");
-        assert!(longest(&r) > SOFT_SEGMENT && longest(&r) <= SONG_SEGMENT, "{r:?}");
-        assert!(r.len() < d.len());
-        assert_eq!(LiveSource::System.soft_segment(), SOFT_SEGMENT);
+    fn hyp(seq: u64, stable: &str, pending: &str) -> Event {
+        Event::Hypothesis { source: Source::Mic, seq, stable: stable.into(), pending: pending.into() }
     }
 
     #[test]
-    fn sources_know_what_they_are() {
+    fn sources_map_to_engine_modes() {
         assert!(!LiveSource::Mic.is_song() && LiveSource::Mic.uses_mic());
         assert!(LiveSource::System.is_song() && !LiveSource::System.uses_mic());
         assert!(LiveSource::Room.is_song() && LiveSource::Room.uses_mic());
+        assert_eq!(LiveSource::Mic.session(), (Mode::Dictation, vec![Source::Mic]));
+        assert_eq!(LiveSource::System.session(), (Mode::Song, vec![Source::Sys]));
+        assert_eq!(LiveSource::Room.session(), (Mode::Room, vec![Source::Mic]));
+        let cfg = crate::meeting::MeetingConfig::default();
+        let c = session_config(LiveSource::Mic, transcribe_protocol::Lang::De, &cfg, "/tmp/x".into());
+        assert!(!c.keep_audio, "a dictation never keeps audio");
+        assert_eq!(c.dedupe, DedupeMode::Never);
+        assert_eq!(c.root, PathBuf::from("/tmp/x"));
+        assert_eq!(c.model, cfg.model);
     }
 
     #[test]
@@ -1384,100 +889,60 @@ mod tests {
     }
 
     #[test]
-    fn catalogue_lyrics_win_and_skip_the_slow_pass() {
+    fn helper_windows_decode_to_samples() {
+        use base64::Engine as _;
+        let pcm: Vec<u8> = [1i16, -2, 300].iter().flat_map(|s| s.to_le_bytes()).collect();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(pcm);
+        assert_eq!(decode_window(&b64), vec![1, -2, 300]);
+        assert_eq!(decode_window("not base64!"), Vec::<i16>::new());
+    }
+
+    #[test]
+    fn catalogue_lyrics_win() {
         let mut j = LiveJob::new(1, None, 0);
-        j.apply(text(1, "final", "something heard"));
-        assert!(j.needs_accurate_pass());
+        j.apply(&fin(1, "something heard"));
         assert_eq!(j.result_text(), "something heard");
         // Recognised, but the catalogue has no lyrics: the transcript stays.
         j.song = Some(SongInfo { title: "T".into(), artist: "A".into(), lyrics: None, ..Default::default() });
         assert_eq!(j.result_text(), "something heard");
-        assert!(j.needs_accurate_pass());
         // With lyrics: those are copied, the heard text is still available.
         j.song.as_mut().unwrap().lyrics = Some("line one\nline two".into());
         assert_eq!(j.result_text(), crate::shazam::lyrics_clip_text("T", "A", "line one\nline two"));
         assert_eq!(j.transcript_text(), "something heard");
-        assert!(!j.needs_accurate_pass());
         // Blank lyrics count as none.
         j.song.as_mut().unwrap().lyrics = Some("  ".into());
         assert_eq!(j.result_text(), "something heard");
-        // Nothing heard: no slow pass either.
-        let empty = LiveJob::new(2, None, 0);
-        assert!(!empty.needs_accurate_pass());
-    }
-
-    /// A short pause after a short burst inside music does not cut either.
-    #[test]
-    fn a_beat_gap_does_not_cut_a_young_segment() {
-        let mut s = Segmenter::new();
-        // 1.5 s of sound in a 2.7 s stretch: enough speech for a short-pause
-        // cut, but too short a piece to give Whisper context.
-        let mut input = silence(300);
-        input.extend(tone(1900));
-        input.extend(silence(700));
-        input.extend(tone(1600));
-        let out = feed(&mut s, &[input]);
-        assert!(out.iter().all(|g| g.end - g.start >= MIN_CUT), "{out:?}");
     }
 
     #[test]
-    fn flush_keeps_the_last_words_when_stopped_mid_sentence() {
-        let mut s = Segmenter::new();
-        assert!(feed(&mut s, &[tone(1200)]).is_empty());
-        let seg = s.flush().expect("speech at the stop is kept");
-        assert_eq!(seg.start, 0);
-        assert_eq!(seg.end, (RATE * 12 / 10 / FRAME) * FRAME);
-    }
-
-    fn text(seq: u64, kind: &str, t: &str) -> LiveEvent {
-        LiveEvent::Text { seq, kind: kind.into(), text: t.into() }
-    }
-
-    #[test]
-    fn finals_append_and_partials_preview_the_open_segment() {
+    fn finals_append_and_hypotheses_preview_the_open_segment() {
         let mut j = LiveJob::new(1, None, 0);
-        j.apply(LiveEvent::Ready);
+        j.apply(&Event::Started { session_dir: "/x".into(), sources: vec![Source::Mic] });
         assert_eq!(j.state, LiveState::Recording);
-        j.apply(text(1, "partial", "Hallo"));
-        assert_eq!(j.partial, "Hallo");
-        j.apply(text(2, "final", "Hallo Welt."));
+        j.apply(&hyp(1, "Hallo", "Welt"));
+        assert_eq!(j.partial, "Hallo Welt");
+        j.apply(&fin(1, "Hallo Welt."));
         assert_eq!((j.committed.as_str(), j.partial.as_str()), ("Hallo Welt.", ""));
-        j.apply(text(3, "partial", "Wie geht"));
-        j.apply(text(4, "final", "Wie geht es?"));
+        j.apply(&hyp(2, "Wie", "geht"));
+        j.apply(&fin(2, "Wie geht es?"));
         assert_eq!(j.committed, "Hallo Welt. Wie geht es?");
         assert_eq!(j.result_text(), "Hallo Welt. Wie geht es?");
     }
 
     #[test]
-    fn a_stale_partial_never_shows_after_its_final() {
+    fn a_stale_hypothesis_never_shows_after_its_final() {
         let mut j = LiveJob::new(1, None, 0);
-        j.apply(text(5, "final", "Erster Satz."));
-        j.apply(text(4, "partial", "Erster"));
+        j.apply(&fin(5, "Erster Satz."));
+        j.apply(&hyp(4, "Erster", ""));
         assert_eq!(j.partial, "", "a preview older than the kept text is dropped");
-        j.apply(text(6, "partial", "Zweiter"));
+        j.apply(&hyp(6, "Zweiter", ""));
         assert_eq!(j.partial, "Zweiter");
-    }
-
-    #[test]
-    fn the_accurate_pass_replaces_the_live_text() {
-        let mut j = LiveJob::new(1, None, 0);
-        j.apply(text(1, "final", "hallo welt"));
-        j.apply(LiveEvent::Final { text: " Hallo, Welt! ".into() });
-        assert_eq!(j.result_text(), "Hallo, Welt!");
-    }
-
-    #[test]
-    fn a_failed_accurate_pass_keeps_the_live_text() {
-        let mut j = LiveJob::new(1, None, 0);
-        j.apply(text(1, "final", "Das bleibt."));
-        j.apply(text(2, "partial", "und das"));
-        j.apply(LiveEvent::Error { seq: None, error: "boom".into() });
-        assert_eq!(j.result_text(), "Das bleibt. und das");
-        j.apply(LiveEvent::Final { text: "  ".into() });
-        assert_eq!(j.result_text(), "Das bleibt. und das");
-        // Even an empty accurate text that got past `apply` never wins.
-        j.final_text = Some(String::new());
-        assert_eq!(j.result_text(), "Das bleibt. und das");
+        // A dropped segment clears its preview too.
+        j.apply(&Event::Dropped { source: Source::Mic, seq: 6, reason: "empty".into() });
+        assert_eq!(j.partial, "");
+        // Words still open at the stop are not lost.
+        j.apply(&hyp(7, "und das", ""));
+        assert_eq!(j.result_text(), "Erster Satz. und das");
     }
 
     #[test]
@@ -1486,173 +951,36 @@ mod tests {
         assert!(is_noise_text(" ... "));
         assert!(!is_noise_text("Das ZDF berichtet heute."));
         let mut j = LiveJob::new(1, None, 0);
-        j.apply(text(1, "final", "Untertitel der Amara.org-Community"));
+        j.apply(&fin(1, "Untertitel der Amara.org-Community"));
         assert_eq!(j.committed, "");
     }
 
     #[test]
-    fn worker_lines_parse_and_noise_is_ignored() {
-        assert_eq!(parse_event(r#"{"event":"ready"}"#), Some(LiveEvent::Ready));
+    fn the_loop_fails_on_refusal_and_a_lost_microphone_only() {
+        let refused = Event::Error { error: "model.missing".into() };
+        assert_eq!(step(&refused, LiveSource::Mic, false), Step::Fail("model.missing".into()));
+        // An unrelated error during a running session does not end it.
+        assert_eq!(step(&refused, LiveSource::Mic, true), Step::Ignore);
+        let lost = |s| Event::SourceState { source: s, state: SourceStatus::Lost, detail: Some("weg".into()) };
+        assert_eq!(step(&lost(Source::Mic), LiveSource::Mic, true), Step::Fail("weg".into()));
+        // Song mode records the system audio: a lost microphone is not ours.
+        assert_eq!(step(&lost(Source::Mic), LiveSource::System, true), Step::Ignore);
+        // The system tap retries on its own; a song keeps going.
+        assert_eq!(step(&lost(Source::Sys), LiveSource::System, true), Step::Ignore);
         assert_eq!(
-            parse_event(r#"{"event":"text","seq":3,"kind":"final","text":"Hi"}"#),
-            Some(text(3, "final", "Hi"))
+            step(&Event::Stopped { session_dir: None, error: Some("x".into()) }, LiveSource::Mic, true),
+            Step::Ended(Some("x".into()))
         );
-        assert_eq!(
-            parse_event(r#"{"event":"error","seq":null,"error":"x"}"#),
-            Some(LiveEvent::Error { seq: None, error: "x".into() })
-        );
-        assert_eq!(parse_event("Downloading model 10%"), None);
-    }
-
-
-    /// Real end-to-end check against the installed Whisper venv (macOS `say`
-    /// supplies the speech): segmenter → worker → kept text, then the accurate
-    /// pass. `cargo test -p inspector-rust-core --lib transcribe_live_live -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    #[cfg(target_os = "macos")]
-    fn transcribe_live_live() {
-        let dir = std::env::temp_dir().join(format!("ir-live-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let wav = dir.join("speech.wav");
-        let ok = Command::new("say")
-            .args(["-v", "Anna", "-o"])
-            .arg(&wav)
-            .args([
-                "--data-format=LEI16@16000",
-                "Guten Morgen. Heute testen wir das Diktat. [[slnc 1200]] Der zweite Satz kommt nach einer Pause.",
-            ])
-            .status()
-            .unwrap();
-        assert!(ok.success());
-        let bytes = std::fs::read(&wav).unwrap();
-        let data = bytes.windows(4).position(|w| w == b"data").unwrap() + 8;
-        let mut pcm: Vec<i16> = bytes[data..].as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
-        pcm.extend(vec![0i16; RATE * 2]);
-
-        let mut worker = Worker::spawn(Some("de")).expect("worker");
-        let mut seg = Segmenter::new();
-        let mut segs: Vec<Seg> = pcm.chunks(640).flat_map(|c| seg.push(c)).collect();
-        segs.extend(seg.flush());
-        println!("segments: {segs:?}");
-        assert!(segs.len() >= 2, "the pause should split the dictation: {segs:?}");
-
-        let mut job = LiveJob::new(1, Some("de".into()), 0);
-        let wait = |worker: &mut Worker, job: &mut LiveJob, until: fn(&LiveEvent) -> bool| loop {
-            let ev = worker.lines.recv_timeout(Duration::from_secs(300)).expect("worker reply");
-            let stop = until(&ev);
-            job.apply(ev);
-            if stop {
-                break;
-            }
-        };
-        wait(&mut worker, &mut job, |e| matches!(e, LiveEvent::Ready));
-        for (i, sg) in segs.iter().enumerate() {
-            let path = dir.join(format!("{i}.pcm"));
-            write_pcm(&path, &pcm[sg.start..sg.end]).unwrap();
-            let t0 = Instant::now();
-            assert!(worker.send(serde_json::json!({"op":"decode","seq":i as u64 + 1,"kind":"final","path":path.to_string_lossy(),"prompt":""})));
-            wait(&mut worker, &mut job, |e| matches!(e, LiveEvent::Text { .. } | LiveEvent::Error { .. }));
-            println!("segment {i}: {:?} in {:?}", job.committed, t0.elapsed());
-        }
-        let live = job.committed.to_lowercase();
-        assert!(live.contains("morgen") && live.contains("satz"), "{live}");
-        let all = dir.join("all.pcm");
-        write_pcm(&all, &pcm).unwrap();
-        let t0 = Instant::now();
-        assert!(worker.send(serde_json::json!({"op":"finalize","path":all.to_string_lossy()})));
-        wait(&mut worker, &mut job, |e| matches!(e, LiveEvent::Final { .. } | LiveEvent::Error { seq: None, .. }));
-        println!("final in {:?}: {:?}", t0.elapsed(), job.final_text);
-        assert!(job.final_text.as_deref().is_some_and(|t| t.to_lowercase().contains("pause")));
-        worker.close();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-
-    /// Diagnosis: segments + decoded text for raw 16 kHz i16 files in
-    /// `IR_MIX_DIR` (speech mixed with music). Not an assertion test.
-    #[test]
-    #[ignore]
-    fn transcribe_live_mix_diag() {
-        let Ok(dir) = std::env::var("IR_MIX_DIR") else { return };
-        let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "pcm")).collect();
-        files.sort();
-        let decode = std::env::var("IR_MIX_DECODE").is_ok();
-        let lang = std::env::var("IR_MIX_LANG").ok();
-        let mut worker = decode.then(|| Worker::spawn(lang.as_deref()).expect("worker"));
-        if let Some(w) = worker.as_mut() {
-            loop { if matches!(w.lines.recv().unwrap(), LiveEvent::Ready) { break; } }
-        }
-        for f in files {
-            let bytes = std::fs::read(&f).unwrap();
-            let pcm: Vec<i16> = bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
-            // IR_MIX_SOFT=<seconds>: the soft cap (20 = a song through the mic).
-            let soft = std::env::var("IR_MIX_SOFT").ok().and_then(|v| v.parse::<usize>().ok())
-                .map_or(SOFT_SEGMENT, |secs| secs * RATE);
-            let mut seg = Segmenter::with_soft(soft);
-            let mut segs: Vec<Seg> = pcm.chunks(640).flat_map(|c| seg.push(c)).collect();
-            let open = seg.open();
-            segs.extend(seg.flush());
-            println!("{}: {:?} (open at end: {open:?})", f.display(), segs.iter().map(|s| (s.start as f32 / 16000.0, s.end as f32 / 16000.0)).collect::<Vec<_>>());
-            if let Some(w) = worker.as_mut() {
-                for (i, sg) in segs.iter().enumerate() {
-                    let path = std::env::temp_dir().join(format!("ir-mix-{i}.pcm"));
-                    write_pcm(&path, &pcm[sg.start..sg.end]).unwrap();
-                    w.send(serde_json::json!({"op":"decode","seq":1,"kind":"final","path":path.to_string_lossy(),"prompt":""}));
-                    loop {
-                        match w.lines.recv().unwrap() {
-                            // Counts only: the input may be a song, never print its lyrics.
-                            LiveEvent::Text { text, .. } => { println!("   [{i}] {} chars", text.trim().chars().count()); break; }
-                            LiveEvent::Error { error, .. } => { println!("   [{i}] ERROR {error}"); break; }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// The worker's pure helpers, run with the system Python (stdlib only —
-    /// the module imports Whisper lazily). Skipped where python3 is missing.
-    #[test]
-    fn worker_drops_loops_and_settles_the_language() {
-        let dir = std::env::temp_dir().join(format!("ir-live-py-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("live.py"), WORKER).unwrap();
-        let check = r#"
-import live
-d = live.drop_loops
-assert d(["a", "a", "a", "a", "b"]) == ["b"], d(["a", "a", "a", "a", "b"])
-assert d(["a", "a", "b", "b", "c"]) == ["a", "a", "b", "b", "c"]
-assert d([]) == []
-r = {"segments": [{"text": " x ", "avg_logprob": -0.4, "compression_ratio": 1.0}] * 6
-                 + [{"text": " real line ", "avg_logprob": -0.5, "compression_ratio": 1.2},
-                    {"text": " noise ", "avg_logprob": -3.0, "compression_ratio": 1.0}]}
-assert live.confident_text(r) == "real line", live.confident_text(r)
-s = live.settled_language
-long = "x" * live.LOCK_CHARS
-assert s(None, False, {"language": "en"}, long) == "en"
-assert s(None, False, {"language": "sn"}, "short") is None
-assert s("en", False, {"language": "sn"}, long) == "en"
-assert s("de", True, {"language": "en"}, long) == "de"
-print("ok")
-"#;
-        let out = std::process::Command::new("python3")
-            .args(["-I", "-c", &format!("import sys; sys.path.insert(0, {:?})
-{check}", dir.to_string_lossy())])
-            .output();
-        let _ = std::fs::remove_dir_all(&dir);
-        let Ok(out) = out else { return };
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(step(&fin(1, "a"), LiveSource::Mic, true), Step::Apply);
     }
 
     #[test]
-    fn meter_and_prompt_helpers() {
+    fn meter_level_maps_dbfs() {
         assert_eq!(meter_level(0.0), 0.0);
         assert_eq!(meter_level(1.0), 1.0);
         assert!((meter_level(0.031_622_8) - 0.5).abs() < 0.01);
-        assert_eq!(prompt_tail("abcdef", 3), "def");
-        assert_eq!(prompt_tail("äöü", 10), "äöü");
+        let mut j = LiveJob::new(1, None, 0);
+        j.apply(&Event::Level { source: Source::Mic, rms: 1.0 });
+        assert_eq!(j.level, 1.0);
     }
 }

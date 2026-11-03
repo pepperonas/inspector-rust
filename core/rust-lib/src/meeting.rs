@@ -450,10 +450,7 @@ pub fn start(db: &DbHandle, sources: Option<Vec<Source>>) -> Result<MeetingState
     if sources.contains(&Source::Mic) && mic_authorization() == 2 {
         return Err(ERR_MIC_DENIED.into());
     }
-    let info = models::find(&cfg.model).ok_or(models::ERR_UNKNOWN)?;
-    if !models::is_installed_at(&crate::meeting::model_path(info), info) {
-        return Err(models::ERR_MISSING.into());
-    }
+    model_ready(&cfg.model)?;
     ensure_subscribed();
     let state = update(|s| {
         s.starting = true;
@@ -475,6 +472,15 @@ pub fn start(db: &DbHandle, sources: Option<Vec<Source>>) -> Result<MeetingState
         }
     });
     Ok(state)
+}
+
+/// The model is known and downloaded (sentinels `model.unknown` / `model.missing`).
+pub fn model_ready(id: &str) -> Result<(), String> {
+    let info = models::find(id).ok_or(models::ERR_UNKNOWN)?;
+    if !models::is_installed_at(&model_path(info), info) {
+        return Err(models::ERR_MISSING.into());
+    }
+    Ok(())
 }
 
 /// Raw audio older than `days` (only `*/audio/*.wav`).

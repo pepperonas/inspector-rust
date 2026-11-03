@@ -3960,13 +3960,12 @@
   "trx.lang_missing": "Sprachvorgabe fehlt: --language de",
   "trx.lang_once": "Sprache nur einmal angeben",
   "trx.lang_pos": "Sprachparameter vor oder nach dem Pfad angeben",
-  "trx.no_ffmpeg": "ffmpeg fehlt — bitte installieren (macOS: brew install ffmpeg)",
   "trx.no_selection": "Keine Audio-/Videodatei im Finder ausgewählt — Datei markieren oder transcribe <pfad> angeben",
   "trx.not_found": "Datei nicht gefunden: {path}",
   "trx.one_path": "Bitte genau einen Pfad angeben oder mehrere Dateien im Finder markieren",
   "trx.unknown_param": "Unbekannter Parameter: {token}. Verwende --language de.",
   "trx.unsupported": "Keine unterstützte Audio-/Videodatei: {path}",
-  "trx.worker_silent": "Worker beendet, ohne diese Datei zu melden",
+  "trx.worker_silent": "Der Transkriptions-Helfer hat diese Datei nicht gemeldet",
   "tsx.active_per_day": "Aktive Zeit je Tag",
   "tsx.activity": "Tätigkeit",
   "tsx.apps": "Apps",
@@ -4641,5 +4640,10 @@
   "mtg.set.font": "Schriftgröße",
   "mtg.set.speed": "Geschwindigkeit",
   "mtg.set.opacity": "Deckkraft",
-  "mtg.set.hotkeys": "Kurzbefehle: ⌃⇧⌥L startet/stoppt, ⌃⇧⌥K blendet das Laufband ein/aus (änderbar unter Globale Kurzbefehle)."
+  "mtg.set.hotkeys": "Kurzbefehle: ⌃⇧⌥L startet/stoppt, ⌃⇧⌥K blendet das Laufband ein/aus (änderbar unter Globale Kurzbefehle).",
+  "trx.lang_de_en": "Transkribiert wird Deutsch und Englisch: --language de, en oder auto.",
+  "meeting.err.transcribe_file_decode": "Der Ton dieser Datei ließ sich nicht lesen.",
+  "meeting.err.transcribe_file_needs_ffmpeg": "Dieses Format braucht ffmpeg (brew install ffmpeg); wav, m4a, mp3, aac, flac und mp4 gehen ohne.",
+  "meeting.err.transcribe_file_too_many": "Neben dieser Datei liegen schon zu viele Transkripte.",
+  "meeting.err.transcribe_timeout": "Der Transkriptions-Helfer hat nicht geantwortet."
 }

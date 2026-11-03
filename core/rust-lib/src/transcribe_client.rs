@@ -29,6 +29,8 @@ static LISTENERS: Mutex<Vec<(u64, Listener)>> = Mutex::new(Vec::new());
 static NEXT: AtomicU64 = AtomicU64::new(1);
 /// A session (or file job) is running in the helper.
 static BUSY: AtomicBool = AtomicBool::new(false);
+/// A file job was sent and has not answered yet.
+static FILE_BUSY: AtomicBool = AtomicBool::new(false);
 
 /// Transcription runs on Apple Silicon Macs only (whisper.cpp on Metal).
 pub fn supported() -> bool {
@@ -49,7 +51,8 @@ pub fn helper_path() -> Option<PathBuf> {
 fn dispatch(ev: &Event) {
     match ev {
         Event::Started { .. } => BUSY.store(true, Ordering::SeqCst),
-        Event::Stopped { .. } | Event::FileDone { .. } | Event::FileError { .. } => BUSY.store(false, Ordering::SeqCst),
+        Event::Stopped { .. } => BUSY.store(false, Ordering::SeqCst),
+        Event::FileDone { .. } | Event::FileError { .. } => FILE_BUSY.store(false, Ordering::SeqCst),
         _ => {}
     }
     let listeners: Vec<Listener> = LISTENERS.lock().iter().map(|(_, l)| l.clone()).collect();
@@ -89,6 +92,9 @@ fn spawn() -> Result<Running, String> {
             if BUSY.swap(false, Ordering::SeqCst) {
                 dispatch(&Event::Stopped { session_dir: None, error: Some(ERR_HELPER_DIED.into()) });
             }
+            if FILE_BUSY.load(Ordering::SeqCst) {
+                dispatch(&Event::FileError { error: ERR_HELPER_DIED.into() });
+            }
         })
         .map_err(|e| e.to_string())?;
     Ok(Running { child, stdin })
@@ -102,7 +108,15 @@ pub fn send(cmd: &Command) -> Result<(), String> {
     }
     let r = guard.as_mut().expect("just set");
     let line = encode(cmd);
+    // Set before writing: the answer can arrive before `write_all` returns.
+    let file = matches!(cmd, Command::TranscribeFile { .. });
+    if file {
+        FILE_BUSY.store(true, Ordering::SeqCst);
+    }
     if let Err(e) = r.stdin.write_all(line.as_bytes()).and_then(|_| r.stdin.flush()) {
+        if file {
+            FILE_BUSY.store(false, Ordering::SeqCst);
+        }
         // A dead pipe: drop it; the next call starts a fresh helper.
         if let Some(mut dead) = guard.take() {
             let _ = dead.child.kill();
@@ -141,7 +155,7 @@ pub fn request<T: Send + 'static>(
 }
 
 pub fn is_busy() -> bool {
-    BUSY.load(Ordering::SeqCst)
+    BUSY.load(Ordering::SeqCst) || FILE_BUSY.load(Ordering::SeqCst)
 }
 
 /// App exit: end the helper (it closes a running session cleanly on EOF).

@@ -1,25 +1,35 @@
 # Local audio/video transcription
 
-Enter `transcribe` in the Inspector search bar to transcribe the MP4 or other
-media files selected in Finder. Like `md2pdf`, an explicit path takes precedence:
+Enter `transcribe` in the Inspector search bar to transcribe the audio or video
+files selected in Finder. Like `md2pdf`, an explicit path takes precedence:
 
 ```text
 transcribe
 transcribe --language de
 transcribe "~/Videos/Mein Interview.mp4" --language de
-transcribe -l en ~/Downloads/meeting.mp4
+transcribe -l en ~/Downloads/meeting.m4a
 transcribe ~/Downloads/meeting.mp4 --language=auto
 ```
 
-`--language` / `-l` accepts Whisper language codes (`de`, `en`, `fr`, …) and
-English language names (`german`, `english`, …). Without it, or with `auto`, the
-language is detected separately for each input. Place the option before or after
-the path. Quote paths containing spaces; unquoted spaces are also preserved.
-Use `--` before a relative filename that starts with a dash.
+The engine is the same as `meeting`: whisper.cpp with **large-v3-turbo** on the
+Mac's GPU (Metal), in the `ir-transcribe` helper process. It runs on **Apple
+Silicon Macs only** and transcribes **German and English**. `--language` / `-l`
+takes `de`, `en` or `auto` (also `german`, `deutsch`, `english`). Without it,
+or with `auto`, the language is detected per segment and settled to German or
+English. Place the option before or after the path. Quote paths containing
+spaces; unquoted spaces are also preserved. Use `--` before a relative filename
+that starts with a dash.
+
+The speech model is downloaded once, from the `meeting` panel or Settings →
+Live transcription (large-v3-turbo q5, ~574 MB). The model chosen there is used
+here too.
 
 Supported extensions: MP4, MP3, M4A, WAV, AAC, FLAC, OGG, OPUS, WebM, MOV, MKV,
 AVI (case insensitive). Only supported files in a mixed Finder selection are
-processed. Finder selection requires macOS; Windows and Linux take a path.
+processed. Core Audio reads WAV, M4A, MP3, AAC, FLAC and the audio of MP4
+directly; MOV, MKV, WebM, OGG, OPUS and AVI need **ffmpeg** (`brew install
+ffmpeg`) — without it that file fails with a hint and the rest of the batch
+still runs.
 
 ## Live dictation
 
@@ -37,61 +47,35 @@ recording without copying anything.
 
 How it works:
 
-- The microphone is captured natively (the same path as `bpm` / `iris`), never
-  through the web view, so other apps' playback is not interrupted.
-- The stream is cut into back-to-back pieces at pauses (≥ 0.6 s once a piece
-  is 3 s long, any 1.5 s pause after sound), or after 12 s at the quietest
-  moment. Nothing is thrown away except true silence — an energy rule cannot
-  tell a voice from music, so Whisper decides what is speech. Each finished
-  piece is transcribed with the fast `base` model and kept; the one still
-  being spoken is shown greyed and updated about every 1.5 s.
-- Background music works: Whisper's own confidence drops what it invents on
-  music (measured: speech scores −0.2…−0.5, inventions −3…−6, cut at −1).
-  Tested with a song under the dictation — complete up to music as loud as
-  the voice; louder than the voice a word or two can go wrong.
-- After the stop, the accurate `small` model runs once over the whole
-  recording (a few seconds) and replaces the live text. That final text is
-  copied to the clipboard and saved in the clipboard history. If the accurate
-  pass fails, the live text is copied instead — dictated words are never lost.
+- The helper runs a session in `Mode::Dictation`: the microphone only, the same
+  voice detection (Silero), segmentation and decoding as `meeting`. The open
+  segment is shown greyed (the part two passes agree on stays, the rest may
+  still change); a finished segment is kept.
+- When you stop, what is still open is decoded, the kept text is copied to the
+  clipboard and saved in the clipboard history. There is no second "accurate"
+  pass any more — large-v3-turbo is already the accurate model.
 - Esc or closing the popup does not stop the recording. A red **Dict** light
   in the footer shows it is still listening; type `transcribe` to see it or
   stop it. A dictation ends automatically after 60 minutes.
-- Nothing leaves the machine. The audio is kept in memory and in a private
-  cache folder only while the session runs. (Song modes send a short audio
-  fingerprint to Shazam — see below.)
+- Nothing leaves the machine and nothing is kept: the session writes into a
+  private cache folder that is deleted at the end. (Song modes send a short
+  audio fingerprint to Shazam — see below.)
 
-The first dictation downloads the `base` model (~140 MB). Override the models
-with `IR_WHISPER_LIVE_MODEL` (live, default `base`) and `IR_WHISPER_MODEL`
-(final pass, default `small`). A dictation and a file transcription cannot run
-at the same time.
-
-Measured on an M1 Pro: a 3-second sentence takes 0.6–0.9 s with `base`; the
-final pass over 6.6 s of speech took 8 s with `small`.
+A dictation, a song session, a file transcription and a `meeting` cannot run at
+the same time — the second one reports "busy".
 
 ### Lyrics from a song: `transcribe --song`
 
 `transcribe --song` (also `--lyrics`, `--system`) writes down what this Mac
-plays instead of what the microphone hears. The audio comes straight from the
-system (ScreenCaptureKit, our own app excluded) — no speaker, room or
-microphone in between, and the music stays at full volume. Needs the Screen
-Recording permission, the same as OCR and screenshots. Panel: "Transcribe
-song" next to "Start recording".
+plays instead of what the microphone hears. The helper takes the system audio
+directly (the Core Audio process tap, ScreenCaptureKit on older systems) — no
+speaker, room or microphone in between, and the music stays at full volume.
+Panel: "Transcribe song" next to "Start recording".
 
-Why a separate source: through the microphone, a song at full volume came
-back as nothing at all (every passage 0 characters, field log 2026-10-21).
-Taken digitally, Whisper reads sung lyrics with confidence −0.4 … −0.9 —
-inside the filter that keeps speech (−1.0). Measured on a 60-s song excerpt
-(base): the sung parts came through, the instrumental intro stayed empty.
-
-Two worker rules matter for songs (and help dictation too):
-
-- **Repetition loops are dropped.** On an instrumental passage Whisper repeats
-  one invented line; ≥ 3 identical lines in a row are discarded, a line sung
-  twice stays (`MAX_REPEAT`).
-- **The language is settled once.** Short chunks of music get misdetected
-  (an English song came out as Shona). The first chunk with ≥ 20 confident
-  characters fixes the language for the rest of the session and the final
-  pass; `--language` still overrides it.
+Why a separate source: through the microphone, a song at full volume came back
+as nothing at all (field log 2026-10-21). Taken digitally, Whisper reads sung
+lyrics. Song sessions use 20-s segments (`Mode::Song`), because a sung line
+needs more context than a spoken one.
 
 ### A song from another device: `transcribe --room`
 
@@ -99,64 +83,25 @@ Two worker rules matter for songs (and help dictation too):
 microphone to a song playing elsewhere — a stereo, a phone, the radio. Panel:
 "Song from another device". Two things run side by side:
 
-- **Shazam recognises the song.** Every 8 s, the last 10 s of audio are sent
-  as a fingerprint (not the audio itself) until a match, at most 15 tries.
-  When the lyrics catalogue (lrclib) has the song, its **exact lyrics** are
-  copied at the stop instead of what Whisper heard, with a "Title – Artist"
-  line on top; the slow final pass is skipped then. The match also lands in
+- **Shazam recognises the song.** Every 8 s the app asks the helper for the
+  last 10 s of audio (`Command::Window`) and sends a fingerprint (not the audio
+  itself) until a match, at most 15 tries. When the lyrics catalogue (lrclib)
+  has the song, its **exact lyrics** are copied at the stop instead of what
+  Whisper heard, with a "Title – Artist" line on top. The match also lands in
   the Shazam history. `--song` (this Mac) does the same recognition.
-- **Whisper writes along** for songs the catalogue lacks. Through the
-  microphone the pieces are 20 s long instead of 12 s.
+- **Whisper writes along** for songs the catalogue lacks (`Mode::Room`,
+  20-s segments).
 
-Measured 2026-10-22 (a 60-s song from the MacBook speakers at 75 %, recorded
-by the built-in microphone):
-
-| | words found |
-|---|---|
-| live, 12-s pieces (base) | 169 characters kept |
-| live, 20-s pieces (base) | 269 characters kept |
-| final pass over the whole recording (small) | 76 % of the words, 83 % correct |
-| Shazam, 10-s windows | matched in 2 of 6 windows |
-
-Vocal separation (Demucs) before Whisper was tried and made it worse (recall
-0.76 → 0.60), so it is not used. Through the microphone the system audio
-(`--song`) stays more exact; use `--room` only when the song is not on this
-Mac. Very loud music close to the microphone can still come back empty.
+Vocal separation (Demucs) before Whisper was tried in 0.225 and made it worse,
+so it is not used. Through the microphone the system audio (`--song`) stays
+more exact; use `--room` only when the song is not on this Mac.
 
 ### Turning the music down while dictating (opt-in)
 
 With the setting `transcribe.duck_audio = true`, a dictation from the
 microphone lowers the system output to 10 % and restores it afterwards (not if
-you changed the volume meanwhile). Off by default since 0.224.0: the music is
-never touched unless you ask for it, and never in song mode.
-
-## Setup
-
-Install Python 3.10 or newer and ffmpeg, then run from the repository:
-
-```bash
-# macOS
-brew install python ffmpeg
-python3 scripts/setup-transcribe.py
-
-# Linux (Debian/Ubuntu)
-sudo apt install python3 python3-venv ffmpeg
-python3 scripts/setup-transcribe.py
-```
-
-On Windows, install Python and ffmpeg (available on PATH), then run
-`py scripts/setup-transcribe.py`. The script installs `openai-whisper` and
-`truststore` (OS certificates for model downloads), with their dependencies,
-in an isolated environment below your local application data folder:
-
-- macOS: `~/Library/Application Support/InspectorRust/transcribe/venv`
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/InspectorRust/transcribe/venv`
-- Windows: `%LOCALAPPDATA%\InspectorRust\transcribe\venv`
-
-Alternatively, set `IR_WHISPER_PYTHON` to the Python executable in an existing
-environment containing `openai-whisper`, then start Inspector from that
-environment. Without a dedicated environment, Inspector tries system Python.
-GUI launches also find ffmpeg in the usual Homebrew locations.
+you changed the volume meanwhile). Off by default: the music is never touched
+unless you ask for it, and never in song mode.
 
 ## Results
 
@@ -172,51 +117,50 @@ transcripts already written stay. When the batch ends while the view is closed,
 a status message reports the result; macOS also shows a system notification.
 A failed file does not stop the remaining batch.
 
-Whisper reports progress in 30-second windows, so a short clip jumps straight
-from "Audio wird gelesen…" to done, and language detection happens before the
-first step.
+The files are transcribed one after another, streamed: the audio is decoded,
+resampled to 16 kHz mono, cut at pauses and each segment is decoded as it
+comes — a long file never sits in memory. Progress moves after every segment.
 
-Each transcript is UTF-8 plain text in the input folder: `clip.mp4` becomes
-`clip.txt`. Existing files are never overwritten: subsequent runs create
-`clip 2.txt`, `clip 3.txt`, etc. Output creation is exclusive, including when
-multiple runs finish at the same time. Failed writes remove their partial output.
+Each transcript is UTF-8 plain text in the input folder, one line per segment:
+`clip.mp4` becomes `clip.txt`. Existing files are never overwritten: subsequent
+runs create `clip 2.txt`, `clip 3.txt`, etc. (gaps are reused). Output creation
+is exclusive, including when runs finish at the same time; a failed write
+removes its partial output. Repetition loops on silent or instrumental
+passages are dropped (≥ 3 identical lines in a row), and the same filter as in
+`meeting` removes Whisper's known silence phrases. No timestamps, no speaker
+labels, no translation.
 
-Whisper's multilingual `small` model runs locally on CPU, loading once per batch.
-Its weights are downloaded on first use, requiring internet and disk space;
-afterwards it uses the cached model. Media is not uploaded. For development,
-`IR_WHISPER_MODEL` can select another Whisper model (e.g. `tiny` for a smoke test).
-Model names ending in `.en` support English only, so use a multilingual model
-for other languages. This command transcribes without translation. It does not
-produce timestamps or identify speakers. Transcription accuracy depends on the
-recording; a video must contain an audio track.
+Measured on an M1 Pro (large-v3-turbo q5): a 15-s segment decodes in ~1 s; the
+German test sentence (5 s) as WAV and as M4A came back word for word.
 
 ## Troubleshooting
 
-- **No media selected:** select the file(s) in Finder before opening Inspector,
-  or specify a path. On Windows/Linux an explicit path is required.
-- **Whisper or Python unavailable:** run the setup script above, or point
-  `IR_WHISPER_PYTHON` at an environment with `openai-whisper` installed. The
-  dedicated environment is detected automatically by the installed app.
-- **ffmpeg unavailable:** install it and ensure it is on PATH. Homebrew's standard
-  locations are also detected when Inspector is launched from Finder.
-- **Unknown language:** use a supported Whisper code such as `de` or `en`, an
-  English name such as `german`, or `auto`. `-l` and `--language` are equivalent.
-- **Download fails:** the first run needs internet access. The setup includes
-  `truststore` so model downloads use the operating system's certificates.
-- **Video without audio:** that file fails with the decoder's error; other files
-  in the selection still run.
+- **No media selected:** select the file(s) in Finder before opening
+  Inspector, or specify a path.
+- **"The speech model is not downloaded yet":** open `meeting` and download it.
+- **"This format needs ffmpeg":** install it (`brew install ffmpeg`); Homebrew's
+  locations are found when Inspector is launched from Finder.
+- **Other languages:** only German and English are supported; use `--language
+  de`, `en` or `auto`.
+- **Video without audio:** that file fails; other files in the selection still
+  run.
+- **"Live transcription needs a Mac with Apple Silicon":** Intel Macs, Windows
+  and Linux have no transcription.
 
-## Validation
+## Implementation
 
-The macOS worker was tested with a German MP4, both with `--language de` and with
-automatic detection. Existing TXT files stayed intact; new outputs used ` 2`
-and ` 3` suffixes. A batch containing a video without audio continued to the next
-file. Offline worker tests: `python3 -B scripts/test-transcribe.py`; Rust parser,
-selection and summary tests live in `transcribe.rs`. Windows/Linux runtime use
-has not been verified.
+`core/rust-lib/src/transcribe.rs` (arguments, Finder selection, the per-file
+job), `live_transcribe.rs` (dictation and song sessions), `transcribe_client.rs`
+(the helper process). In the helper: `transcribe-core/src/file.rs` (decoding
+via `ExtAudioFile`, ffmpeg fallback, segmentation, TXT naming) and
+`pipeline.rs` (the live session). Commands and events are JSON lines between
+app and helper (`transcribe-protocol`); paths never go through a shell.
 
-Implementation: shared Rust `transcribe.rs`, embedded Python worker
-`assets/transcribe/runner.py`, IPC `transcribe_run`. Paths/language travel as
-JSON over stdin, never through shell interpolation.
+Tests: `cargo test -p transcribe-core --lib file::` (segmentation, progress,
+naming, Core Audio reading the fixture) and, with the model installed,
+`cargo test --release -p transcribe-helper --test helper_protocol file_mode --
+--ignored --nocapture` (WAV and an `afconvert`-made M4A end to end).
 
-Whisper API reference: [official implementation](https://github.com/openai/whisper/blob/main/whisper/transcribe.py).
+The Python worker (`openai-whisper`, `scripts/setup-transcribe.py`) used until
+0.231 is gone; its virtual environment under
+`~/Library/Application Support/InspectorRust/transcribe/venv` can be deleted.

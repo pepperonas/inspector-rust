@@ -5435,15 +5435,27 @@ pub async fn transcribe_run(
     tauri::async_runtime::spawn_blocking(move || {
         if crate::transcribe::status().is_some_and(|j| j.is_active())
             || crate::live_transcribe::is_active()
+            || crate::meeting::is_running()
         {
             return Err(crate::transcribe::ERR_BUSY.to_string());
         }
+        let model = {
+            use tauri::Manager;
+            app.try_state::<crate::db::DbHandle>()
+                .map(|db| crate::meeting::MeetingConfig::load(&db).model)
+                .unwrap_or_else(|| transcribe_protocol::models::DEFAULT_MODEL.into())
+        };
         let inputs = (|| {
+            if !crate::transcribe_client::supported() {
+                return Err(crate::transcribe::user_error(crate::transcribe_client::ERR_UNSUPPORTED));
+            }
             let args = crate::transcribe::parse_args(&arg)?;
             if args.live.is_some() {
                 // `--start` / `--stop` go through `transcribe_live_*`.
                 return Err(crate::i18n::t("trx.live_route"));
             }
+            crate::transcribe::lang_of(args.language.as_deref())?;
+            crate::meeting::model_ready(&model).map_err(|e| crate::transcribe::user_error(&e))?;
             let path = args
                 .path
                 .as_deref()
@@ -5464,7 +5476,7 @@ pub async fn transcribe_run(
             Ok::<_, String>((paths, args.language))
         })();
         match inputs {
-            Ok((paths, language)) => crate::transcribe::start(app, paths, language),
+            Ok((paths, language)) => crate::transcribe::start(app, paths, language, model),
             Err(e) => Ok(crate::transcribe::record_failure(&app, e)),
         }
     })

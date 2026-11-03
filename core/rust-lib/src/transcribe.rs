@@ -1,11 +1,14 @@
 //! Local audio/video → sibling TXT, selected in Finder or passed explicitly.
-//! The embedded Python worker loads Whisper once per batch; no shell involved.
+//! The files are transcribed one after another by the `ir-transcribe` helper
+//! (whisper.cpp on Metal, the model chosen for `meeting`); this module keeps
+//! the per-file job the panel shows.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use transcribe_protocol::{Event, Lang};
 
-const RUNNER: &str = include_str!("../assets/transcribe/runner.py");
+/// The helper's error when a file job was cancelled.
+pub const ERR_FILE_CANCELLED: &str = "transcribe.file_cancelled";
 const EXTENSIONS: &[&str] = &[
     "mp4", "mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "webm", "mov", "mkv", "avi",
 ];
@@ -180,33 +183,14 @@ pub fn choose_inputs(
     Ok(files)
 }
 
-pub fn environment_python() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("InspectorRust/transcribe/venv")
-        .join(if cfg!(windows) {
-            "Scripts/python.exe"
-        } else {
-            "bin/python3"
-        })
-}
-
-pub(crate) fn python() -> PathBuf {
-    if let Some(path) = std::env::var_os("IR_WHISPER_PYTHON") {
-        return PathBuf::from(path);
+/// The languages the engine transcribes: German, English or automatic.
+pub fn lang_of(language: Option<&str>) -> Result<Lang, String> {
+    match language.map(|l| l.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("") | Some("auto") => Ok(Lang::Auto),
+        Some("de" | "german" | "deutsch" | "ger" | "deu") => Ok(Lang::De),
+        Some("en" | "english" | "englisch" | "eng") => Ok(Lang::En),
+        Some(_) => Err(crate::i18n::t("trx.lang_de_en")),
     }
-    let dedicated = environment_python();
-    if dedicated.is_file() {
-        return dedicated;
-    }
-    if cfg!(target_os = "macos") {
-        for path in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"] {
-            if Path::new(path).is_file() {
-                return PathBuf::from(path);
-            }
-        }
-    }
-    PathBuf::from(if cfg!(windows) { "python" } else { "python3" })
 }
 
 // ---------------------------------------------------------------------------
@@ -306,10 +290,8 @@ pub enum WorkerEvent {
 /// How the worker process ended.
 #[derive(Debug, PartialEq)]
 pub enum Exit {
-    /// Exit code 0 — every file reported its own outcome.
+    /// Every file was sent and answered.
     Ok,
-    /// Non-zero exit / spawn failure, with the stderr text.
-    Crashed(String),
     /// The user cancelled.
     Cancelled,
 }
@@ -412,7 +394,6 @@ impl Job {
     pub fn finish(&mut self, exit: Exit, now: u64) {
         let (phase, leftover, reason) = match exit {
             Exit::Cancelled => (Phase::Cancelled, FileState::Cancelled, None),
-            Exit::Crashed(err) => (Phase::Failed, FileState::Failed, Some(user_error(&err))),
             Exit::Ok => (
                 Phase::Finished,
                 FileState::Failed,
@@ -475,10 +456,24 @@ impl Job {
     }
 }
 
-/// Parse one stdout line; anything that isn't a worker event (a library
-/// printing to stdout) is ignored rather than breaking the job.
-pub fn parse_event(line: &str) -> Option<WorkerEvent> {
-    serde_json::from_str(line.trim()).ok()
+/// A helper event for the file at `index`. `None` = not about files (or the
+/// cancel answer, which `finish(Cancelled)` handles). Pure.
+pub fn file_event(index: usize, ev: &Event) -> Option<WorkerEvent> {
+    match ev {
+        Event::FileProgress { done_ms, total_ms } => Some(WorkerEvent::Progress { index, done: *done_ms, total: *total_ms }),
+        Event::FileDone { txt, lang } => Some(WorkerEvent::Done {
+            index,
+            output: txt.to_string_lossy().into_owned(),
+            language: lang.clone(),
+        }),
+        Event::FileError { error } if error != ERR_FILE_CANCELLED => Some(WorkerEvent::Failed { index, error: error.clone() }),
+        _ => None,
+    }
+}
+
+/// The helper's answer that ends the file: done, failed or cancelled.
+pub fn ends_file(ev: &Event) -> bool {
+    matches!(ev, Event::FileDone { .. } | Event::FileError { .. })
 }
 
 fn now_ms() -> u64 {
@@ -490,7 +485,6 @@ fn now_ms() -> u64 {
 
 static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static JOB: parking_lot::Mutex<Option<Job>> = parking_lot::Mutex::new(None);
-static CHILD: parking_lot::Mutex<Option<std::process::Child>> = parking_lot::Mutex::new(None);
 static CANCELLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The current (or last) job — for a panel that opens after the start.
@@ -536,6 +530,7 @@ pub fn start(
     app: tauri::AppHandle,
     paths: Vec<PathBuf>,
     language: Option<String>,
+    model: String,
 ) -> Result<Job, String> {
     let job = {
         let mut guard = JOB.lock();
@@ -553,10 +548,10 @@ pub fn start(
     };
     CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
     publish(&app, &job);
-    let request = serde_json::json!({ "paths": paths, "language": language });
+    let lang = lang_of(language.as_deref()).unwrap_or(Lang::Auto);
     std::thread::Builder::new()
         .name("ir-transcribe".into())
-        .spawn(move || run_job(app, request))
+        .spawn(move || run_job(app, paths, lang, model))
         .map_err(|e| format!("transcribe: {e}"))?;
     Ok(job)
 }
@@ -567,96 +562,70 @@ pub fn cancel() -> bool {
         return false;
     }
     CANCELLED.store(true, std::sync::atomic::Ordering::SeqCst);
-    if let Some(child) = CHILD.lock().as_mut() {
-        let _ = child.kill();
-    }
+    let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
     true
 }
 
-fn worker_command() -> Result<Command, String> {
-    let ffmpeg = crate::ffmpeg_util::ffmpeg_path()
-        .ok_or_else(|| crate::i18n::t("trx.no_ffmpeg"))?;
-    let mut path_dirs = vec![ffmpeg.parent().unwrap_or(Path::new(".")).to_path_buf()];
-    if let Some(current) = std::env::var_os("PATH") {
-        path_dirs.extend(std::env::split_paths(&current));
-    }
-    let path_env = std::env::join_paths(path_dirs).map_err(|e| e.to_string())?;
-    let mut cmd = Command::new(python());
-    cmd.args(["-c", RUNNER])
-        .env("PATH", path_env)
-        .env("PYTHONIOENCODING", "utf-8")
-        .env("PYTHONUNBUFFERED", "1")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    Ok(cmd)
-}
+/// Longest silence from the helper before a file counts as lost (model
+/// load and a long segment on a slow Mac stay far below this).
+const FILE_SILENCE: std::time::Duration = std::time::Duration::from_secs(600);
 
-fn run_job(app: tauri::AppHandle, request: serde_json::Value) {
-    use std::io::{BufRead, BufReader, Read};
-    let exit = (|| -> Exit {
-        let mut cmd = match worker_command() {
-            Ok(cmd) => cmd,
-            Err(e) => return Exit::Crashed(e),
-        };
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                return Exit::Crashed(format!(
-                    "Python/Whisper nicht verfügbar: {e}. Einmal python3 scripts/setup-transcribe.py ausführen; alternativ IR_WHISPER_PYTHON setzen."
-                ))
-            }
-        };
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(request.to_string().as_bytes());
+/// Transcribe one file through the helper, folding its events into the job.
+/// Returns false when the file can't continue (cancelled).
+fn run_file(app: &tauri::AppHandle, index: usize, path: &Path, lang: Lang, model: &str) -> bool {
+    use std::sync::atomic::Ordering;
+    let now = now_ms();
+    update(app, |job| job.apply(WorkerEvent::Start { index }, now));
+    let (tx, rx) = std::sync::mpsc::channel::<Event>();
+    let tx = parking_lot::Mutex::new(tx);
+    let sub = crate::transcribe_client::subscribe(move |ev| {
+        if matches!(ev, Event::FileProgress { .. } | Event::FileDone { .. } | Event::FileError { .. }) {
+            let _ = tx.lock().send(ev.clone());
         }
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        // Drain stderr on its own thread so a chatty library can't fill the
-        // pipe and stall the worker.
-        let err_reader = std::thread::spawn(move || {
-            let mut text = String::new();
-            if let Some(mut s) = stderr {
-                let _ = s.read_to_string(&mut text);
-            }
-            text
-        });
-        *CHILD.lock() = Some(child);
-        // A cancel that landed before the child was stored.
-        if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-            if let Some(c) = CHILD.lock().as_mut() {
-                let _ = c.kill();
-            }
-        }
-        if let Some(out) = stdout {
-            for line in BufReader::new(out).lines() {
-                let Ok(line) = line else { break };
-                if let Some(event) = parse_event(&line) {
+    });
+    let cmd = transcribe_protocol::Command::TranscribeFile { path: path.to_path_buf(), lang, model: model.to_string() };
+    let mut go_on = true;
+    if let Err(error) = crate::transcribe_client::send(&cmd) {
+        let now = now_ms();
+        update(app, |job| job.apply(WorkerEvent::Failed { index, error }, now));
+    } else {
+        loop {
+            match rx.recv_timeout(FILE_SILENCE) {
+                Ok(ev) => {
+                    if let Some(we) = file_event(index, &ev) {
+                        let now = now_ms();
+                        update(app, |job| job.apply(we, now));
+                    }
+                    if ends_file(&ev) {
+                        break;
+                    }
+                }
+                Err(_) => {
                     let now = now_ms();
-                    update(&app, |job| job.apply(event, now));
+                    let error = crate::transcribe_client::ERR_HELPER_DIED.to_string();
+                    update(app, |job| job.apply(WorkerEvent::Failed { index, error }, now));
+                    let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+                    break;
                 }
             }
         }
-        let status = CHILD.lock().take().map(|mut c| c.wait());
-        let stderr_text = err_reader.join().unwrap_or_default();
-        if CANCELLED.load(std::sync::atomic::Ordering::SeqCst) {
-            return Exit::Cancelled;
-        }
-        match status {
-            Some(Ok(s)) if s.success() => Exit::Ok,
-            Some(Ok(_)) => Exit::Crashed(stderr_text),
-            Some(Err(e)) => Exit::Crashed(format!("Whisper: {e}")),
-            None => Exit::Crashed("Whisper-Prozess verloren".into()),
-        }
-    })();
-    if let Exit::Crashed(e) = &exit {
-        tracing::warn!("transcribe: {e}");
     }
+    crate::transcribe_client::unsubscribe(sub);
+    if CANCELLED.load(Ordering::SeqCst) {
+        go_on = false;
+    }
+    go_on
+}
+
+fn run_job(app: tauri::AppHandle, paths: Vec<PathBuf>, lang: Lang, model: String) {
+    use std::sync::atomic::Ordering;
+    update(&app, |job| job.apply(WorkerEvent::Model, now_ms()));
+    for (index, path) in paths.iter().enumerate() {
+        if CANCELLED.load(Ordering::SeqCst) || !run_file(&app, index, path, lang, &model) {
+            break;
+        }
+    }
+    let exit = if CANCELLED.load(Ordering::SeqCst) { Exit::Cancelled } else { Exit::Ok };
     let now = now_ms();
     update(&app, |job| job.finish(exit, now));
     if let Some(job) = status() {
@@ -713,6 +682,16 @@ impl Summary {
 }
 
 pub fn user_error(error: &str) -> String {
+    // A sentinel from the engine (`model.missing`, `transcribe.file_decode` …)
+    // becomes the sentence the meeting panel shows for it too.
+    let e = error.trim();
+    if !e.is_empty() && !e.contains(char::is_whitespace) && e.contains('.') {
+        let key = format!("meeting.err.{}", e.replace('.', "_"));
+        let s = crate::i18n::t(&key);
+        if s != key {
+            return s;
+        }
+    }
     match error
         .lines()
         .rev()
@@ -899,29 +878,44 @@ mod tests {
     }
 
     #[test]
-    fn worker_lines_parse_and_noise_is_ignored() {
-        assert_eq!(
-            parse_event(r#"{"event":"model"}"#),
-            Some(WorkerEvent::Model)
-        );
-        assert_eq!(
-            parse_event(r#"{"event":"progress","index":1,"done":30,"total":120}"#),
-            Some(WorkerEvent::Progress {
-                index: 1,
-                done: 30,
-                total: 120
-            })
-        );
-        assert_eq!(
-            parse_event(r#"{"event":"done","index":0,"output":"/a/eins.txt"}"#),
-            Some(WorkerEvent::Done {
-                index: 0,
-                output: "/a/eins.txt".into(),
-                language: None
-            })
-        );
-        assert_eq!(parse_event("Detected language: German"), None);
-        assert_eq!(parse_event(r#"{"event":"unknown"}"#), None);
+    fn file_job_maps_progress_and_done_events() {
+        let mut job = batch();
+        job.apply(WorkerEvent::Start { index: 1 }, 10);
+        for ev in [
+            Event::FileProgress { done_ms: 30_000, total_ms: 120_000 },
+            Event::Level { source: transcribe_protocol::Source::Mic, rms: 0.1 },
+        ] {
+            if let Some(we) = file_event(1, &ev) {
+                job.apply(we, 20);
+            }
+        }
+        assert_eq!(job.files[1].progress, 0.25);
+        assert_eq!(job.files[0].state, FileState::Queued, "events land on their own file");
+        let done = Event::FileDone { txt: "/a/zwei.txt".into(), lang: Some("de".into()) };
+        assert!(ends_file(&done));
+        job.apply(file_event(1, &done).unwrap(), 30);
+        assert_eq!(job.files[1].state, FileState::Done);
+        assert_eq!(job.files[1].output.as_deref(), Some("/a/zwei.txt"));
+        assert_eq!(job.files[1].language.as_deref(), Some("de"));
+
+        let failed = Event::FileError { error: "transcribe.file_decode".into() };
+        job.apply(file_event(0, &failed).unwrap(), 40);
+        assert_eq!(job.files[0].state, FileState::Failed);
+        assert_ne!(job.files[0].error.as_deref(), Some("transcribe.file_decode"), "a sentinel becomes a sentence");
+
+        // The answer to a cancel ends the file but is no failure.
+        let cancelled = Event::FileError { error: ERR_FILE_CANCELLED.into() };
+        assert!(ends_file(&cancelled));
+        assert_eq!(file_event(0, &cancelled), None);
+    }
+
+    #[test]
+    fn languages_are_german_english_or_auto() {
+        assert_eq!(lang_of(None).unwrap(), Lang::Auto);
+        assert_eq!(lang_of(Some("auto")).unwrap(), Lang::Auto);
+        assert_eq!(lang_of(Some("DE")).unwrap(), Lang::De);
+        assert_eq!(lang_of(Some("english")).unwrap(), Lang::En);
+        assert!(lang_of(Some("fr")).is_err());
     }
 
     #[test]
@@ -1045,15 +1039,8 @@ mod tests {
     }
 
     #[test]
-    fn a_crashed_worker_never_leaves_a_row_running() {
-        let mut job = batch();
-        job.apply(WorkerEvent::Model, 0);
-        job.finish(Exit::Crashed("Traceback…\nWhisper fehlt.".into()), 5);
-        assert_eq!(job.phase, Phase::Failed);
-        assert_eq!(job.error.as_deref(), Some("Whisper fehlt."));
-        assert!(job.files.iter().all(|f| f.state == FileState::Failed));
-        assert_eq!(job.message(), "Whisper fehlt.");
-        // A clean exit that skipped a file still closes that row.
+    fn a_skipped_file_never_leaves_a_row_running() {
+        // A clean end that skipped a file still closes that row.
         let mut job = batch();
         job.apply(WorkerEvent::Start { index: 0 }, 0);
         job.apply(

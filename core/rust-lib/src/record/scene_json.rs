@@ -729,7 +729,7 @@ mod tests {
             "output": {"aspect": "16:9"},
             "micGainDb": -6.0,
         });
-        let d = editor::migrate(v1, false).expect("v1 migrates");
+        let d = editor::migrate(v1).expect("v1 migrates");
         assert_eq!(d.appearance, Appearance::plain());
         assert_eq!(d.cursor, CursorStyle::plain());
         d
@@ -1405,7 +1405,7 @@ mod tests {
     fn cam_doc(preset: editor::LayoutPreset) -> EditDoc {
         let mut d = doc();
         d.appearance.padding = 20.0;
-        d.camera = editor::CameraStyle { preset, ..editor::CameraStyle::default_for(true) };
+        d.camera = editor::CameraStyle { preset, ..editor::CameraStyle::default() };
         d
     }
 
@@ -1593,6 +1593,28 @@ mod tests {
         assert_eq!(scene(&d, &cam_project())["webcamEffect"]["mode"], "transparent");
         // Without any camera there is nothing to cut out.
         assert!(scene(&d, &project()).get("webcamEffect").is_none());
+    }
+
+    /// Ruling R3: a camera-less v3 project migrates to the PiP default, keeps its old scene byte
+    /// for byte, and shows the camera of a camera take appended later.
+    #[test]
+    fn camera_less_project_shows_an_appended_camera_take() {
+        let v3 = json!({"version": 3, "clips": [{"startMs": 0, "endMs": 4_000}], "output": {"aspect": "16:9"}, "autoZoomDone": true});
+        let d = editor::migrate(v3).expect("v3 migrates");
+        assert_eq!(d.camera.preset, editor::LayoutPreset::PictureInPicture);
+        let before = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert_eq!(before["layout"]["preset"], "no-webcam", "no camera anywhere: the old scene");
+        assert_eq!(before["layout"]["webcamSize"], 1.0);
+        assert!(before["layout"].get("webcamRect").is_none());
+        let takes = cam_takes();
+        let metas = take_metas(&takes);
+        let d = editor::normalize(editor::append_take(&d, "cam", &metas["cam"]), 10_000, &metas);
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &takes);
+        assert_eq!(v["layout"]["preset"], "picture-in-picture");
+        let by_clip = v["layout"]["layoutByClip"].as_array().unwrap();
+        assert!(by_clip[0].get("webcamRect").is_none(), "the project's own clip has no camera");
+        assert!(by_clip[1]["webcamRect"].is_object(), "the take's camera is shown: {}", by_clip[1]);
+        assert_eq!(v["clips"][1]["webcamPath"], format!("{DIR}/takes/cam/camera.mp4"));
     }
 
     /// Every key the camera emission writes is a field of the compositor's types

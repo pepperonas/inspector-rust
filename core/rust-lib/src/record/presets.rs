@@ -759,10 +759,31 @@ mod tests {
         let applied = apply_preset(&target, &p, &root, &tmp("oldcam-p"));
         assert_eq!(applied.camera, target.camera, "the document keeps its camera look");
         assert_eq!(applied.appearance, styled().appearance);
-        // And a preset without a camera never writes the key at all.
+        // Saving from today's document always writes a camera style (every document has one).
         let entry = save_preset(&root, "NoCam", &styled(), &tmp("oldcam-q")).unwrap();
         let text = std::fs::read_to_string(presets_dir(&root).join(&entry.file)).unwrap();
-        assert!(text.contains("\"camera\""), "a v4 document always has a camera look to save: {text}");
+        assert!(text.contains("\"camera\""), "{text}");
+    }
+
+    /// Ruling R3: a preset saved from a project without a camera does not hide the camera of the
+    /// project it is applied to; an explicit "without camera" is kept.
+    #[test]
+    fn preset_from_a_camera_less_project_keeps_the_camera() {
+        let root = tmp("r3");
+        // `doc()` has no camera in its recording; its camera style is the standard (PiP).
+        let entry = save_preset(&root, "From plain", &styled(), &tmp("r3-src")).unwrap();
+        let p = read_preset(&root, &entry.file).unwrap();
+        assert_eq!(p.camera.as_ref().unwrap().preset, LayoutPreset::PictureInPicture);
+        let target = camera_styled();
+        assert_eq!(apply_preset(&target, &p, &root, &tmp("r3-dst")).camera.preset, LayoutPreset::PictureInPicture);
+        // The user's explicit "without camera" survives save and apply.
+        let mut off = styled();
+        off.camera.preset = LayoutPreset::NoWebcam;
+        let entry = save_preset(&root, "Off", &off, &tmp("r3-off")).unwrap();
+        let p = read_preset(&root, &entry.file).unwrap();
+        assert_eq!(apply_preset(&target, &p, &root, &tmp("r3-dst2")).camera.preset, LayoutPreset::NoWebcam);
+        let meta = RecordingMeta { duration_ms: 10_000, ..Default::default() };
+        assert_eq!(default_doc(&meta, Some(&p)).camera.preset, LayoutPreset::NoWebcam);
     }
 
     #[test]

@@ -230,12 +230,14 @@ export function cameraRoundness(camera: Pick<RecordCameraStyle, "roundness" | "m
   return camera.roundness ?? (camera.mask === "square" ? CAMERA_ROUNDNESS_SQUARE : CAMERA_ROUNDNESS_RECTANGLE);
 }
 
-/** "Layout from here": a region on `clip` from `sourceMs` (clamped into the clip). One already
- *  starting there is replaced. Rust drops a region at or after the clip's end. */
+/** "Layout from here": a region on `clip` from `sourceMs` (a time before the clip's start counts
+ *  as its start). One already starting there is replaced. At or after the clip's end there is
+ *  nothing to change: the same doc comes back (no undo step). */
 export function addLayoutRegion(doc: RecordEditDoc, clip: number, sourceMs: number, preset: RecordLayoutPreset): RecordEditDoc {
   const c = doc.clips[clip];
   if (!c) return doc;
-  const startMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)));
+  const startMs = Math.max(c.startMs, Math.round(sourceMs));
+  if (startMs >= c.endMs) return doc;
   const kept = (doc.layoutRegions ?? []).filter((r) => !(r.clip === clip && r.startMs === startMs));
   return { ...doc, layoutRegions: [...kept, { id: crypto.randomUUID(), clip, startMs, preset }] };
 }

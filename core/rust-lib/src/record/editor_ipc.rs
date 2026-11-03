@@ -2265,7 +2265,7 @@ mod tests {
             annotations: Vec::new(),
             audio_tracks: Vec::new(),
             system_gain_db: 0.0,
-            camera: crate::record::editor::CameraStyle::default_for(false),
+            camera: crate::record::editor::CameraStyle::default(),
             layout_regions: Vec::new(),
         }
     }

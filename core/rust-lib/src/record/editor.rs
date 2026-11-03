@@ -696,13 +696,12 @@ impl Default for CameraStyle {
     }
 }
 
+/// `Default` is THE camera default (migration, new documents, serde): upstream's look with
+/// picture-in-picture for every project, camera or not. A clip without a camera resolves to
+/// `no-webcam` only where it is laid out (`LayoutPreset::resolve`); `no-webcam` in a document
+/// is the user's explicit "without camera" — a default stored there would hide the camera of a
+/// take inserted later and of every project a preset saved from it is applied to.
 impl CameraStyle {
-    /// Upstream's defaults; a project without a camera starts at `no-webcam`.
-    pub fn default_for(has_camera: bool) -> Self {
-        let preset = if has_camera { LayoutPreset::PictureInPicture } else { LayoutPreset::NoWebcam };
-        CameraStyle { preset, ..CameraStyle::default() }
-    }
-
     /// The rounding in use: the stored one or the mask's standard.
     pub fn resolved_roundness(&self) -> f64 {
         self.roundness.unwrap_or(match self.mask {
@@ -858,18 +857,19 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
         audio_tracks: Vec::new(),
         system_gain_db: 0.0,
         camera: {
-            let base = CameraStyle::default_for(meta.camera.is_some());
+            let base = CameraStyle::default();
             preset.and_then(|p| p.camera.as_ref()).map_or_else(|| base.clone(), |c| c.apply_to(&base))
         },
         layout_regions: Vec::new(),
     }
 }
 
-/// Reads a stored editor block: v4 as is, v3 upgraded with the camera look of `has_camera`
-/// (picture-in-picture, else no-webcam) and no layout regions, v2 upgraded with no annotations, no tracks and the
+/// Reads a stored editor block: v4 as is, v3 upgraded with the standard camera look
+/// (`CameraStyle::default()`, picture-in-picture whether or not there is a camera) and no layout
+/// regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
 /// (`Appearance::plain`, no pointer, no zooms, aspect as saved). Anything else is `None`.
-pub fn migrate(value: serde_json::Value, has_camera: bool) -> Option<EditDoc> {
+pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
     let mut doc = serde_json::from_value::<EditDoc>(value).ok()?;
     if doc.clips.is_empty() {
         return None;
@@ -893,8 +893,8 @@ pub fn migrate(value: serde_json::Value, has_camera: bool) -> Option<EditDoc> {
     }
     if doc.version == 3 {
         doc.version = 4;
-        // Upstream's standard where there is a camera, else the screen alone (no-webcam).
-        doc.camera = CameraStyle::default_for(has_camera);
+        // The standard look for every project; clips without a camera resolve per clip.
+        doc.camera = CameraStyle::default();
         doc.layout_regions = Vec::new();
     }
     (doc.version == EDITOR_VERSION).then_some(doc)
@@ -909,7 +909,7 @@ pub fn load(project: &Project, takes: &TakeMetas) -> EditDoc {
 /// [`load`]; a project without a readable editor block (a new one) starts with `preset`'s look.
 pub fn load_with(project: &Project, takes: &TakeMetas, preset: Option<&super::presets::Preset>) -> EditDoc {
     let meta = &project.recording;
-    match migrate(project.editor.clone(), project_has_camera(project, takes)) {
+    match migrate(project.editor.clone()) {
         Some(doc) => normalize(doc, meta.duration_ms, takes),
         // A hand-edited preset file is clamped like any stored look.
         None if preset.is_some() => normalize(default_doc(meta, preset), meta.duration_ms, takes),
@@ -917,14 +917,9 @@ pub fn load_with(project: &Project, takes: &TakeMetas, preset: Option<&super::pr
     }
 }
 
-/// The project's own recording or any inserted take has a camera.
-pub fn project_has_camera(project: &Project, takes: &TakeMetas) -> bool {
-    project.recording.camera.is_some() || takes.values().any(|t| t.camera.is_some())
-}
-
 /// No stored editor block can be read: the project opens as new.
 pub fn is_new(project: &Project) -> bool {
-    migrate(project.editor.clone(), false).is_none()
+    migrate(project.editor.clone()).is_none()
 }
 
 pub fn store(project: &mut Project, doc: &EditDoc) {
@@ -1892,7 +1887,7 @@ pub(crate) mod tests {
             annotations: Vec::new(),
             audio_tracks: Vec::new(),
             system_gain_db: 0.0,
-            camera: CameraStyle::default_for(false),
+            camera: CameraStyle::default(),
             layout_regions: Vec::new(),
         }
     }
@@ -2224,7 +2219,7 @@ pub(crate) mod tests {
     #[test]
     fn unknown_version_falls_back_to_default() {
         let json = serde_json::json!({"version": 99, "clips": [{"startMs": 0, "endMs": 5000}]});
-        assert!(migrate(json.clone(), false).is_none());
+        assert!(migrate(json.clone()).is_none());
         assert_eq!(load(&project_with(json), &NO_TAKES), default_doc(&meta(10_000), None));
     }
 
@@ -2380,13 +2375,13 @@ pub(crate) mod tests {
     #[test]
     fn v2_doc_migrates_without_change() {
         let v2: EditDoc = serde_json::from_value(v2_json()).unwrap();
-        let d = migrate(v2_json(), false).unwrap();
+        let d = migrate(v2_json()).unwrap();
         assert_eq!(d.version, EDITOR_VERSION);
         assert!(d.annotations.is_empty() && d.audio_tracks.is_empty());
         assert_eq!(d.system_gain_db, 0.0);
         assert!(d.clips.iter().all(|c| c.source.is_none()));
-        // A project without a camera lays out as `no-webcam`; no layout regions.
-        assert_eq!(d.camera, CameraStyle::default_for(false));
+        // The standard camera look (clips without a camera resolve per clip); no layout regions.
+        assert_eq!(d.camera, CameraStyle::default());
         assert!(d.layout_regions.is_empty());
         // Everything a v2 document carried comes through untouched.
         assert_eq!(EditDoc { version: 2, camera: v2.camera.clone(), ..d.clone() }, v2);
@@ -2860,36 +2855,37 @@ pub(crate) mod tests {
 
     #[test]
     fn v3_doc_migrates_with_camera_default() {
-        let with = migrate(v3_json(), true).expect("v3 migrates");
-        assert_eq!(with.version, EDITOR_VERSION);
-        assert_eq!(with.camera.preset, LayoutPreset::PictureInPicture);
-        assert_eq!(with.camera.size_pct, 40.0);
-        assert_eq!(with.camera.anchor, CameraAnchor::BottomRight);
-        assert_eq!(with.camera.mask, CameraMask::Square);
-        assert_eq!(with.camera.resolved_roundness(), 0.7);
-        assert!(with.camera.reactive_zoom && !with.camera.mirror);
-        assert_eq!(with.camera.background, CameraBackground { mode: CameraBgMode::None, blur: 0.5, custom: Background::Wallpaper { id: DEFAULT_WALLPAPER.into() } });
-        assert!(with.layout_regions.is_empty());
-        let without = migrate(v3_json(), false).expect("v3 migrates");
-        assert_eq!(without.camera.preset, LayoutPreset::NoWebcam);
-        // Everything else of the v3 document comes through untouched.
-        assert_eq!(EditDoc { camera: with.camera.clone(), ..without.clone() }, with);
-        // Through load: the project's own camera decides, so does an inserted take's.
+        // Every project gets the standard look — with or without a camera (ruling R3).
+        let d = migrate(v3_json()).expect("v3 migrates");
+        assert_eq!(d.version, EDITOR_VERSION);
+        assert_eq!(d.camera, CameraStyle::default());
+        assert_eq!(d.camera.preset, LayoutPreset::PictureInPicture);
+        assert_eq!(d.camera.size_pct, 40.0);
+        assert_eq!(d.camera.anchor, CameraAnchor::BottomRight);
+        assert_eq!(d.camera.mask, CameraMask::Square);
+        assert_eq!(d.camera.resolved_roundness(), 0.7);
+        assert!(d.camera.reactive_zoom && !d.camera.mirror);
+        assert_eq!(d.camera.background, CameraBackground { mode: CameraBgMode::None, blur: 0.5, custom: Background::Wallpaper { id: DEFAULT_WALLPAPER.into() } });
+        assert!(d.layout_regions.is_empty());
+        // Through load: a camera-less project stores PiP too (no `no-webcam` default).
         let mut p = project_with(v3_json());
-        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::NoWebcam);
-        let takes = TakeMetas::from([("t".to_string(), TakeMeta { camera: Some((1280, 720)), ..TakeMeta::default() })]);
-        assert_eq!(load(&p, &takes).camera.preset, LayoutPreset::PictureInPicture);
+        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::PictureInPicture);
         p.recording.camera = Some(camera_meta());
         assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::PictureInPicture);
-        // A stored v4 document keeps its own camera look.
-        let mut v4 = with.clone();
-        v4.camera.preset = LayoutPreset::DualFrame;
-        store(&mut p, &v4);
-        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::DualFrame);
-        // A new project: the camera decides the default too.
-        assert_eq!(default_doc(&meta(1_000), None).camera.preset, LayoutPreset::NoWebcam);
+        // A stored v4 document keeps its own camera look, including an explicit "without camera".
+        for preset in [LayoutPreset::DualFrame, LayoutPreset::NoWebcam] {
+            let mut v4 = d.clone();
+            v4.camera.preset = preset;
+            store(&mut p, &v4);
+            assert_eq!(load(&p, &NO_TAKES).camera.preset, preset);
+        }
+        // A new project, camera or not: the same standard.
+        assert_eq!(default_doc(&meta(1_000), None).camera, CameraStyle::default());
         let m = RecordingMeta { camera: Some(camera_meta()), ..meta(1_000) };
-        assert_eq!(default_doc(&m, None).camera, CameraStyle::default_for(true));
+        assert_eq!(default_doc(&m, None).camera, CameraStyle::default());
+        // A v4 block without a `camera` key reads the same default (serde).
+        let bare: EditDoc = serde_json::from_value(serde_json::json!({"version": 4, "clips": [{"startMs": 0, "endMs": 1000}]})).unwrap();
+        assert_eq!(bare.camera, CameraStyle::default());
     }
 
     #[test]

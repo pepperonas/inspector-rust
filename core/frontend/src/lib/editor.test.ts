@@ -609,6 +609,10 @@ describe("camera style + layout regions", () => {
     expect(c.layoutRegions.map((r) => r.startMs)).toEqual([1000, 3000]);
     expect(new Set(c.layoutRegions.map((r) => r.id)).size).toBe(2);
     expect(addLayoutRegion(c, 7, 1000, "dual-frame")).toBe(c);
+    // At or after the clip's end: nothing to change, the same doc (no undo step).
+    expect(addLayoutRegion(c, 0, 5000, "dual-frame")).toBe(c);
+    expect(addLayoutRegion(c, 0, 9000, "dual-frame")).toBe(c);
+    expect(addLayoutRegion(c, 0, 4999.6, "dual-frame")).toBe(c);
     expect(removeLayoutRegion(c, c.layoutRegions[0].id).layoutRegions.map((r) => r.startMs)).toEqual([3000]);
   });
 

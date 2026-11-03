@@ -99,7 +99,7 @@ pub fn parse_args(arg: &str) -> Result<Args, String> {
             if value.is_empty() || !value.chars().all(|c| c.is_ascii_alphabetic()) {
                 return Err(crate::i18n::t("trx.lang_invalid"));
             }
-            result.language = (value != "auto").then_some(value);
+            result.language = Some(value);
         } else if !quoted && !flags_done && (token == "--start" || token == "--stop") {
             let action = if token == "--start" { LiveAction::Start } else { LiveAction::Stop };
             if result.live.is_some_and(|a| a != action) {
@@ -184,9 +184,12 @@ pub fn choose_inputs(
 }
 
 /// The languages the engine transcribes: German, English or automatic.
+/// Without `--language` it is German (user decision 2026-11-03); `auto`
+/// detects German or English per segment.
 pub fn lang_of(language: Option<&str>) -> Result<Lang, String> {
     match language.map(|l| l.trim().to_ascii_lowercase()).as_deref() {
-        None | Some("") | Some("auto") => Ok(Lang::Auto),
+        None | Some("") => Ok(Lang::De),
+        Some("auto") => Ok(Lang::Auto),
         Some("de" | "german" | "deutsch" | "ger" | "deu") => Ok(Lang::De),
         Some("en" | "english" | "englisch" | "eng") => Ok(Lang::En),
         Some(_) => Err(crate::i18n::t("trx.lang_de_en")),
@@ -548,7 +551,7 @@ pub fn start(
     };
     CANCELLED.store(false, std::sync::atomic::Ordering::SeqCst);
     publish(&app, &job);
-    let lang = lang_of(language.as_deref()).unwrap_or(Lang::Auto);
+    let lang = lang_of(language.as_deref()).unwrap_or(Lang::De);
     std::thread::Builder::new()
         .name("ir-transcribe".into())
         .spawn(move || run_job(app, paths, lang, model))
@@ -731,7 +734,7 @@ mod tests {
                 room: false,
             }
         );
-        assert_eq!(parse_args("-l auto").unwrap(), Args::default());
+        assert_eq!(parse_args("-l auto").unwrap().language.as_deref(), Some("auto"));
         assert_eq!(
             parse_args("--language=english")
                 .unwrap()
@@ -911,7 +914,7 @@ mod tests {
 
     #[test]
     fn languages_are_german_english_or_auto() {
-        assert_eq!(lang_of(None).unwrap(), Lang::Auto);
+        assert_eq!(lang_of(None).unwrap(), Lang::De, "German is the default");
         assert_eq!(lang_of(Some("auto")).unwrap(), Lang::Auto);
         assert_eq!(lang_of(Some("DE")).unwrap(), Lang::De);
         assert_eq!(lang_of(Some("english")).unwrap(), Lang::En);

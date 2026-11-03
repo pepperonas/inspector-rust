@@ -1057,7 +1057,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     description: "Whisper (large-v3-turbo on the Mac's GPU, the same engine as `meeting`) transcribes German and English locally in the background. TXT beside source; existing files kept as name 2.txt. Without a path: Finder selection. Language detected per file unless specified. `--start` dictates from the microphone instead: the text appears while you speak, the command then reads `transcribe --stop`, and Enter ends the recording — the text goes to the clipboard. `--song` writes down the lyrics of what this Mac plays: it records the system audio directly (not the microphone), so the music stays at full volume. `--room` does the same for a song playing on another device (stereo, phone, radio), through the microphone. In both song modes Shazam recognises the song along the way; if the lyrics catalogue has it, its exact lyrics are copied instead of what was heard.",
     arguments: [{ name: "pfad", required: false, description: "Media path; omit for Finder selection." }],
     flags: [
-      { flag: "--language, -l", value_type: "language", description: "de, en or auto; before/after path; also for --start.", default: "auto" },
+      { flag: "--language, -l", value_type: "language", description: "de, en or auto (detects German or English); before/after path; also for --start.", default: "de" },
       { flag: "--start", description: "Dictate from the microphone; the text shows live in the preview." },
       { flag: "--stop", description: "End the dictation (Enter does it too while it records)." },
       { flag: "--song", description: "Lyrics from what this Mac plays — records the system audio instead of the microphone; implies --start. Also --lyrics, --system." },

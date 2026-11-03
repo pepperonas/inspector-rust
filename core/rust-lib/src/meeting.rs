@@ -92,7 +92,7 @@ impl Default for MeetingConfig {
             sys: true,
             mic_device: None,
             model: models::DEFAULT_MODEL.into(),
-            lang: Lang::Auto,
+            lang: Lang::De,
             root: None,
             keep_audio: true,
             audio_days: 7,

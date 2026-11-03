@@ -14,9 +14,8 @@ transcribe ~/Downloads/meeting.mp4 --language=auto
 The engine is the same as `meeting`: whisper.cpp with **large-v3-turbo** on the
 Mac's GPU (Metal), in the `ir-transcribe` helper process. It runs on **Apple
 Silicon Macs only** and transcribes **German and English**. `--language` / `-l`
-takes `de`, `en` or `auto` (also `german`, `deutsch`, `english`). Without it,
-or with `auto`, the language is detected per segment and settled to German or
-English. Place the option before or after the path. Quote paths containing
+takes `de`, `en` or `auto` (also `german`, `deutsch`, `english`). Without it
+the language is **German**; `auto` detects German or English per segment. Place the option before or after the path. Quote paths containing
 spaces; unquoted spaces are also preserved. Use `--` before a relative filename
 that starts with a dash.
 

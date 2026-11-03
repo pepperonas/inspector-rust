@@ -48,9 +48,9 @@ Previews (the grey text in the ticker) are never written.
 
 - Whisper `large-v3-turbo` (5-bit) on the GPU via whisper.cpp. Smaller
   models can be chosen in Settings.
-- Language: automatic per sentence, but only German or English are
-  considered (short sentences otherwise get mistaken for other languages).
-  It can also be fixed to one of them.
+- Language: German by default (Settings → Live transcription). "Automatic"
+  decides per sentence, but only between German and English (short sentences
+  otherwise get mistaken for other languages); English can be fixed too.
 - Speech detection: Silero VAD. A sentence is cut at a pause, at the latest
   after 15 s at its quietest moment.
 - The ticker shows a preview every second; words two previews agree on stay

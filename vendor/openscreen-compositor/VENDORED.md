@@ -187,11 +187,16 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      `texture(3)`. Falls back to the bounding box (upstream behaviour) when fewer than three
      finite points or `!mask.oval_ok` (mask widened to the motion-blur trail or clipped by a
      slot — the oval's own rule). + tests `freehand_mask_excludes_outside_polygon` (triangle:
-     outside unchanged, inside blurred) and `freehand_mask_rectangle_unchanged` (rectangle +
-     oval frame hash taken on the unpatched compositor; two points = the rectangle).
+     outside unchanged, inside blurred, ~1-px monotone edge) and
+     `freehand_mask_rectangle_unchanged` (behaviour, no GPU hash: rectangle blurs its box and
+     nothing outside the pad, oval keeps the box corners and masks its centre; two points =
+     the rectangle). The cache drops outlines of annotations no longer in the scene (`set_scene`).
    - `src/shaders.metal`: mode 10 branch `fx.z > 1.5`: distance → px with the box's current
      size, `cov = 1 − smoothstep(0, 1, d_px)` — the oval's ~1 px soft edge, outside the outline.
-     Rectangle and oval paths unchanged.
+     Rectangle and oval paths unchanged. Under a tilted screen the box size used for the px
+     scale and the field's aspect come from the axis-aligned bounding box of the projected quad
+     (`src.zw * quad_px`), so the edge softness and the field's aspect are approximate there;
+     inside/outside stays exact (the warp inverse maps `n` exactly).
    - `src/cursor_sdf.rs`: `f16_bits` is `pub(crate)` (reused to encode the field).
    - Fonts (patch 7 partly undone): `src/text_fonts.rs` `repo_fonts_dir()` points at
      `../../core/rust-lib/assets/record/fonts`, where Inspector Rust now ships the ten OFL
@@ -210,7 +215,7 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-01 after patch 8: 491 passed, 0 failed, 3 ignored
 # 2026-11-01 after patch 9: 493 passed, 0 failed, 3 ignored
 # 2026-11-02 after patch 12: 494 passed, 0 failed, 3 ignored
-# 2026-11-03 after patch 13: 500 passed, 0 failed, 1 ignored
+# 2026-11-03 after patch 13: 501 passed, 0 failed, 1 ignored
 ```
 
 ## Updating from upstream

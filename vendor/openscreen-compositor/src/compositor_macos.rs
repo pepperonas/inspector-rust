@@ -989,6 +989,10 @@ impl Compositor {
     /// déjà prêts. Après la pose de la scène : l'éviction épargne ce qu'elle montre.
     pub fn set_scene(&self, s: Option<Scene>) {
         *self.scene.borrow_mut() = s;
+        // Inspector Rust, patch 13: free-form outlines of annotations no longer in the scene go.
+        self.freehand_cache.borrow_mut().retain(|id, _| {
+            self.scene.borrow().as_ref().is_some_and(|scene| scene.annotations.iter().any(|a| &a.id == id))
+        });
         if let Some(scene) = self.scene.borrow().as_ref() {
             for effect in &scene.shader_effects {
                 self.shader_fx_entry(effect);
@@ -5602,36 +5606,110 @@ mod tests {
         for (x, y) in [(208, 117), (230, 130), (180, 110), (238, 60), (90, 132), (40, 40), (300, 170)] {
             assert_eq!(px(&got, x, y), px(&base, x, y), "({x},{y}) is outside the outline");
         }
-        // The edge is soft over ~1 px, like the oval, not a staircase of field texels.
+        // The edge is soft over ~1 px (like the oval), not a hard cut and not a smear: across
+        // the hypotenuse on row 63 (it crosses x ≈ 207) the share of the blur, measured against
+        // the whole box blurred, goes 1 → 0 with at most three pixels in between, monotonically.
+        let full = compose_striped(serde_json::json!([blur_ann("f", "blur", "rectangle", P13_BOX, None)])).unwrap();
         let row = 63u32;
-        let edge: Vec<u8> = (190..240).map(|x| px(&got, x, row)[0]).collect();
-        assert!(edge.iter().any(|&v| v > 20 && v < 235), "guard: something blurred on row {row}");
+        let share: Vec<(u32, f32)> = (196..220u32)
+            .filter_map(|x| {
+                let (b, g, f) = (px(&base, x, row)[0] as f32, px(&got, x, row)[0] as f32, px(&full, x, row)[0] as f32);
+                ((f - b).abs() > 40.0).then(|| (x, ((g - b) / (f - b)).clamp(0.0, 1.0)))
+            })
+            .collect();
+        assert!(share.len() >= 16, "guard: the stripes differ from the blur on most of the row: {share:?}");
+        assert!(share.iter().filter(|(x, _)| *x <= 203).all(|(_, a)| *a > 0.95), "inside the edge fully blurred: {share:?}");
+        assert!(share.iter().filter(|(x, _)| *x >= 211).all(|(_, a)| *a < 0.05), "outside the edge untouched: {share:?}");
+        let ramp = share.iter().filter(|(_, a)| *a > 0.05 && *a < 0.95).count();
+        assert!(ramp >= 1 && ramp <= 3, "a soft edge of ~1 px, {ramp} intermediate px: {share:?}");
+        assert!(share.windows(2).all(|w| w[1].1 <= w[0].1 + 0.05), "the edge falls off monotonically: {share:?}");
     }
 
-    /// Rectangle and oval are bit for bit what they were before patch 13 (the hash was taken
-    /// on the unpatched compositor), and a free-form outline that cannot be placed (fewer than
-    /// three points) falls back to the rectangle.
+    /// An outline whose annotation left the scene is dropped from the cache.
     #[test]
-    fn freehand_mask_rectangle_unchanged() {
-        let anns = serde_json::json!([
-            blur_ann("r", "mosaic", "rectangle", [0.05, 0.1, 0.4, 0.35], None),
-            blur_ann("o", "blur", "oval", [0.55, 0.5, 0.4, 0.4], None),
-        ]);
-        let Some(got) = compose_striped(anns) else {
+    fn freehand_cache_drops_outlines_of_removed_annotations() {
+        let Ok(gpu) = crate::d3d::Gpu::create(false) else {
             eprintln!("pas de device Metal — test sauté");
             return;
         };
-        let hash = got.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-        eprintln!("rect+oval hash: {hash:#x}");
-        assert_eq!(hash, P13_RECT_OVAL_HASH, "rectangle/oval changed");
+        let comp = super::Compositor::new_sized(&gpu, 320, 180).expect("compositeur");
+        let tri = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.0, "y": 1.0}]);
+        let scene = |anns: serde_json::Value| {
+            let mut json = shader_fx_json(serde_json::json!([]), anns);
+            json["effects"]["padding"] = serde_json::json!(0.0);
+            Scene::from_json(&json.to_string()).expect("scène")
+        };
+        let s = scene(serde_json::json!([blur_ann("f", "blur", "freehand", P13_BOX, Some(tri))]));
+        comp.set_live_params(live_params_from_scene(&s));
+        comp.set_scene(Some(s.clone()));
+        let screen = FakeFrame::new(320, 180, |_, _| Y_WHITE);
+        comp.set_timeline_time(Some(2.0));
+        comp.set_programme_time(Some(2.0));
+        unsafe { comp.compose_frame(screen.as_ptr(), screen.as_ptr(), 0.0, &fx_cfg()) }.expect("compose");
+        assert_eq!(comp.freehand_cache.borrow().len(), 1);
+        comp.set_scene(Some(s));
+        assert_eq!(comp.freehand_cache.borrow().len(), 1, "a re-sent scene keeps the outline");
+        comp.set_scene(Some(scene(serde_json::json!([]))));
+        assert!(comp.freehand_cache.borrow().is_empty(), "the removed annotation's outline is gone");
+    }
+
+    /// Rectangle and oval still mask what they masked before patch 13, checked by behaviour
+    /// (no GPU-specific hash): the rectangle blurs its whole box and nothing outside the 1-px
+    /// pad; the oval leaves the box corners (outside the ellipse) untouched and quantises its
+    /// centre. A free-form outline that cannot be placed (two points) is the rectangle.
+    #[test]
+    fn freehand_mask_rectangle_unchanged() {
+        // Box px: rect x 16..144, y 18..81; oval x 176..304, y 90..162 (320×180, padding 0).
+        let rect_box = [0.05, 0.1, 0.4, 0.35];
+        let oval_box = [0.55, 0.5, 0.4, 0.4];
+        let anns = serde_json::json!([
+            blur_ann("r", "blur", "rectangle", rect_box, None),
+            blur_ann("o", "mosaic", "oval", oval_box, None),
+        ]);
+        let Some(base) = compose_striped(serde_json::json!([])) else {
+            eprintln!("pas de device Metal — test sauté");
+            return;
+        };
+        let got = compose_striped(anns).unwrap();
+        let to_px = |b: [f32; 4]| [b[0] * 320.0, b[1] * 180.0, (b[0] + b[2]) * 320.0, (b[1] + b[3]) * 180.0];
+        let (r, o) = (to_px(rect_box), to_px(oval_box));
+        let within = |b: [f32; 4], x: u32, y: u32, m: f32| {
+            let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+            x > b[0] - m && x < b[2] + m && y > b[1] - m && y < b[3] + m
+        };
+        let (mut inside, mut grey) = (0, 0);
+        for y in 0..180 {
+            for x in 0..320 {
+                // Two px around each box: the 1-px pad plus filtering.
+                if !within(r, x, y, 2.0) && !within(o, x, y, 2.0) {
+                    assert_eq!(px(&got, x, y), px(&base, x, y), "({x},{y}) is outside both masks");
+                }
+                if within(r, x, y, -4.0) {
+                    inside += 1;
+                    let v = px(&got, x, y)[0];
+                    if v > 30 && v < 225 {
+                        grey += 1;
+                    }
+                }
+            }
+        }
+        assert!(grey == inside, "the rectangle blurs its whole box: {grey} of {inside} grey");
+        // Oval: the corners of its box are outside the ellipse; its centre is a mosaic, i.e.
+        // the 2-px stripes are gone (whole blocks of one value) and tinted.
+        for (x, y) in [(178, 92), (301, 92), (178, 159), (301, 159)] {
+            assert_eq!(px(&got, x, y), px(&base, x, y), "oval corner ({x},{y}) is outside the ellipse");
+        }
+        let centre: Vec<u8> = (234..246).map(|x| px(&got, x, 126)[0]).collect();
+        let base_c: Vec<u8> = (234..246).map(|x| px(&base, x, 126)[0]).collect();
+        assert_ne!(centre, base_c, "the oval's centre is masked");
+        let changed = centre.iter().zip(&base_c).filter(|(a, b)| a != b).count();
+        assert!(changed >= 4, "a mosaic block replaces the stripes ({changed} of 12 px changed): {centre:?}");
+        assert!(centre.iter().all(|&v| v >= 120), "white tint at 50 %: {centre:?}");
 
         let rect = compose_striped(serde_json::json!([blur_ann("x", "mosaic", "rectangle", P13_BOX, None)])).unwrap();
         let two = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 1.0}]);
         let free = compose_striped(serde_json::json!([blur_ann("x", "mosaic", "freehand", P13_BOX, Some(two))])).unwrap();
         assert!(rect == free, "a free-form outline of two points masks the whole box");
     }
-
-    /// FNV-1a of the rectangle + oval frame on the UNPATCHED compositor (M1 Pro, 2026-11-03).
-    const P13_RECT_OVAL_HASH: u64 = 0xfedeabe7b4bde71c;
 
 }

@@ -119,6 +119,23 @@ describe("RecordHud camera switch", () => {
     expect(recordOpenCameraSettings).toHaveBeenCalledTimes(1);
   });
 
+  it("a permission granted in System Settings after a refusal counts on the next try (no reopen)", async () => {
+    cameraAuth = "denied";
+    const r = render(<RecordHud />);
+    const sw = await cameraSwitch(r);
+    await act(async () => {});
+    fireEvent.click(sw);
+    await act(async () => {});
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    // The user allows the camera in System Settings while the HUD stays open.
+    cameraAuth = "authorized";
+    fireEvent.click(sw);
+    await act(async () => {});
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(r.queryByTestId("rec-camera-denied")).toBeNull();
+    expect(recordCameraRequest).not.toHaveBeenCalled();
+  });
+
   it("with the permission undecided it asks exactly once, then turns on", async () => {
     cameraAuth = "not-determined";
     const r = render(<RecordHud />);

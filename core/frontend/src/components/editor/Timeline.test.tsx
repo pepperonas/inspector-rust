@@ -630,3 +630,115 @@ describe("Timeline audio", () => {
     expect(screen.getByTestId("ed-track").closest("[inert]")).toBeTruthy();
   });
 });
+
+describe("Timeline layout lane", () => {
+  /** Clip 0 = programme 0–5 s (source 0–5 s), clip 1 = 5–10 s (source 6–11 s). */
+  function setupLayout(
+    regions: RecordEditDoc["layoutRegions"],
+    over: { positionMs?: number; selectedLayout?: string | null; cameras?: boolean[] } = {},
+  ) {
+    const doc = { ...doc0(), camera: { ...doc0().camera, preset: "picture-in-picture" as const }, layoutRegions: regions };
+    const base = view0(doc);
+    const layoutSpans = regions.map((r, index) => {
+      const off = r.clip === 0 ? 0 : -1_000;
+      const end = r.clip === 0 ? 5_000 : 10_000;
+      return { index, progStartMs: r.startMs + off, progEndMs: end };
+    });
+    const onChange = vi.fn();
+    const onSelectLayout = vi.fn();
+    const onLayoutAdded = vi.fn();
+    render(
+      <Timeline
+        view={{ ...base, layoutSpans, clipCameras: over.cameras ?? [true, true] }}
+        thumbs={[]}
+        positionMs={over.positionMs ?? 0}
+        durationMs={11_000}
+        selectedClip={null}
+        onSelect={() => undefined}
+        onSeek={() => undefined}
+        getDoc={() => doc}
+        onChange={onChange}
+        onError={() => undefined}
+        onSpeedValue={() => undefined}
+        onSpeedRemove={() => undefined}
+        onWidth={() => undefined}
+        selectedLayout={over.selectedLayout ?? null}
+        onSelectLayout={onSelectLayout}
+        onLayoutAdded={onLayoutAdded}
+      />,
+    );
+    return { onChange, onSelectLayout, onLayoutAdded };
+  }
+
+  it("l_adds_region_at_playhead with the layout in force there and selects it", async () => {
+    const { onChange, onSelectLayout, onLayoutAdded } = setupLayout([], { positionMs: 7_000 });
+    const ev = new KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    await flush();
+    expect(ev.defaultPrevented).toBe(true);
+    expect(toSource).toHaveBeenCalledWith(7_000);
+    const next = onChange.mock.calls[0][0] as RecordEditDoc;
+    expect(next.layoutRegions).toHaveLength(1);
+    expect(next.layoutRegions[0]).toMatchObject({ clip: 1, startMs: 8_000, preset: "picture-in-picture" });
+    expect(onSelectLayout).toHaveBeenCalledWith(next.layoutRegions[0].id);
+    // The editor brings up the camera tab for it.
+    expect(onLayoutAdded).toHaveBeenCalledWith(next.layoutRegions[0].id);
+  });
+
+  it("inside a region L takes that region's layout", async () => {
+    const { onChange } = setupLayout([{ id: "r", clip: 0, startMs: 1_000, preset: "dual-frame" }], { positionMs: 3_000 });
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true }));
+    await flush();
+    const next = onChange.mock.calls[0][0] as RecordEditDoc;
+    expect(next.layoutRegions.find((r) => r.id !== "r")).toMatchObject({ clip: 0, startMs: 3_000, preset: "dual-frame" });
+  });
+
+  it("without a camera there is no lane and L does nothing", async () => {
+    const { onChange } = setupLayout([], { positionMs: 7_000, cameras: [false, false] });
+    expect(screen.queryByTestId("ed-layout-track")).toBeNull();
+    const ev = new KeyboardEvent("keydown", { key: "l", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    await flush();
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("a block click selects it, Delete removes the selected one", () => {
+    const { onSelectLayout } = setupLayout([{ id: "r", clip: 1, startMs: 8_000, preset: "camera-only" }]);
+    const block = screen.getByTestId("ed-layout");
+    expect(block.style.left).toBe("700px");
+    fireEvent.pointerDown(block, { clientX: 710, pointerId: 1 });
+    fireEvent.pointerUp(block, { clientX: 710, pointerId: 1 });
+    expect(onSelectLayout).toHaveBeenCalledWith("r");
+    cleanup();
+    const sel = setupLayout([{ id: "r", clip: 1, startMs: 8_000, preset: "camera-only" }], { selectedLayout: "r" });
+    const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect((sel.onChange.mock.calls[0][0] as RecordEditDoc).layoutRegions).toEqual([]);
+    expect(sel.onSelectLayout).toHaveBeenCalledWith(null);
+  });
+
+  it("dragging a region's start snaps onto a clip edge within 8 px; 9 px does not", async () => {
+    // Region at source 8 s of clip 1 = programme 7 s (x 700). Drag to x 507 (7 px from 5 s).
+    const { onChange } = setupLayout([{ id: "r", clip: 1, startMs: 8_000, preset: "camera-only" }]);
+    const block = screen.getByTestId("ed-layout");
+    fireEvent.pointerDown(block, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 507, pointerId: 1 });
+    expect(screen.getByTestId("ed-snap-guide").style.left).toBe("500px");
+    expect(block.style.left).toBe("500px");
+    fireEvent.pointerUp(block, { clientX: 507, pointerId: 1 });
+    await flush();
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).layoutRegions[0]).toMatchObject({ clip: 1, startMs: 6_000 });
+
+    cleanup();
+    const second = setupLayout([{ id: "r", clip: 1, startMs: 8_000, preset: "camera-only" }]);
+    const b2 = screen.getByTestId("ed-layout");
+    fireEvent.pointerDown(b2, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(b2, { clientX: 509, pointerId: 1 });
+    expect(screen.queryByTestId("ed-snap-guide")).toBeNull();
+    fireEvent.pointerUp(b2, { clientX: 509, pointerId: 1 });
+    await flush();
+    expect((second.onChange.mock.calls[0][0] as RecordEditDoc).layoutRegions[0]).toMatchObject({ clip: 1, startMs: 6_090 });
+  });
+});

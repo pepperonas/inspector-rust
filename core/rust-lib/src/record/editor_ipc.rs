@@ -926,7 +926,9 @@ pub fn session_view(
     };
     let click_hits = click_hits_by_source(doc, |s| cursor_of(s).filter(|r| has_cursor_data(Some(r))));
     let screen_rects = screen_boxes(meta, &take_metas(takes), doc, out).iter().map(|(r, _)| [r.x, r.y, r.width, r.height]).collect();
-    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, takes: take_metas(takes), ..editor::view(doc) }
+    let metas = take_metas(takes);
+    let clip_cameras = (0..doc.clips.len()).map(|i| editor::clip_camera(meta, &metas, doc, i).is_some()).collect();
+    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, clip_cameras, takes: metas, ..editor::view(doc) }
 }
 
 /// The document with the planner's zooms appended (`plan_auto_zooms`: new auto regions only,
@@ -2560,6 +2562,22 @@ mod tests {
         let (again, _) = doc_for_open(&stored, None, false, &TakeMetas::new(), Some(&other));
         assert_eq!(again.appearance.padding, 7.0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn session_view_names_the_clips_with_a_camera() {
+        use crate::record::project::CameraMeta;
+        let cam = CameraMeta { width: 1280, height: 720, fps: 30, offset_ms: 0, device_name: "C".into(), ended_early_ms: None };
+        let meta = RecordingMeta { width: 1920, height: 1080, fps: 30, duration_ms: 20_000, camera: Some(cam), ..Default::default() };
+        let mut d = doc(&[(0, 10_000), (0, 4_000)]);
+        d.clips[1].source = Some("t".into());
+        let v = session_view(&meta, &d, None, &TakeSources::new(), (1920, 1080));
+        // Clip 1 names a take that is not there: no camera (`clip_camera`).
+        assert_eq!(v.clip_cameras, vec![true, false]);
+        let plain = RecordingMeta { camera: None, ..meta };
+        assert_eq!(session_view(&plain, &doc(&[(0, 10_000)]), None, &TakeSources::new(), (1920, 1080)).clip_cameras, vec![false]);
+        let j = serde_json::to_value(&v).unwrap();
+        assert_eq!(j["clipCameras"], serde_json::json!([true, false]));
     }
 
     #[test]

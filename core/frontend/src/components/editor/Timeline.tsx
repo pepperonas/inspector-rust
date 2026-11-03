@@ -4,6 +4,8 @@ import { editorToSource, type RecordAnnotationKind, type RecordEditDoc, type Rec
 import {
   MAX_SPEED,
   addAnnotation,
+  addLayoutRegion,
+  removeLayoutRegion,
   laneRows,
   nextAnnotationId,
   removeAnnotation,
@@ -33,6 +35,7 @@ import { snapGuide, snapTargets, type Snapping } from "../../lib/timeline-snap";
 import { AudioLane, LaneHint, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
 import { useKeyLabel } from "./bindings-context";
 import { DEFAULT_BINDINGS, matchAction, type Binding, type Bindings } from "../../lib/editor-shortcuts";
+import { PRESET_LABEL, hasAnyCamera, layoutStartProg, moveLayoutRegion, presetAt } from "../../lib/camera-layout";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -77,6 +80,15 @@ type Drag =
       clipSpan: { progStartMs: number; progEndMs: number };
     }
   | { kind: "clip"; from: number; x0: number; dx: number }
+  | {
+      kind: "layout";
+      id: string;
+      clip: number;
+      x0: number;
+      dx: number;
+      span: { progStartMs: number; progEndMs: number };
+      clipSpan: { progStartMs: number; progEndMs: number };
+    }
   | { kind: "head" };
 
 /** A pointer moved less than this many px: a click (select), not a drag. */
@@ -113,6 +125,9 @@ export function Timeline({
   resolveTrackEdge,
   locked = false,
   bindings = DEFAULT_BINDINGS,
+  selectedLayout = null,
+  onSelectLayout = () => undefined,
+  onLayoutAdded = () => undefined,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -148,6 +163,11 @@ export function Timeline({
   locked?: boolean;
   /** The editor key map (lib/editor-shortcuts.ts); every key this track uses goes through it. */
   bindings?: Bindings;
+  /** The layout region (`id`) the camera tab edits. */
+  selectedLayout?: string | null;
+  onSelectLayout?: (id: string | null) => void;
+  /** The layout key made a region (the editor brings up its settings). */
+  onLayoutAdded?: (id: string) => void;
 }) {
   const t = useT();
   const keyLabel = useKeyLabel();
@@ -169,7 +189,9 @@ export function Timeline({
   const scale = width / total;
   const doc = view.doc;
   const snapping: Snapping = { targets: snapTargets(view), pxPerMs: scale };
-  const selection: Selection = selectedZoom
+  const selection: Selection = selectedLayout
+    ? { kind: "layout", id: selectedLayout }
+    : selectedZoom
     ? { kind: "zoom", id: selectedZoom }
     : selectedAnnotation
       ? { kind: "annotation", id: selectedAnnotation }
@@ -193,9 +215,11 @@ export function Timeline({
 
   // Latest values for the window key handler (registered once per enable flip).
   const annotationSpans = view.annotationSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings });
+  const camera = hasAnyCamera(view);
+  const layoutSpans = view.layoutSpans ?? [];
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view };
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
@@ -285,9 +309,34 @@ export function Timeline({
             cur.onSelectZoom(made.id);
           })
           .catch(() => undefined);
+      } else if (action === "layoutHere") {
+        // "Change layout here": a region at the playhead with the layout in force there; the
+        // camera tab comes up for it. Only with a camera in the recording.
+        if (!cur.camera) return;
+        e.preventDefault();
+        const preset = presetAt(cur.view, cur.positionMs);
+        void editorToSource(cur.positionMs)
+          .then((at) => {
+            if (!at) return;
+            const doc = cur.getDoc();
+            const next = addLayoutRegion(doc, at.clip, at.sourceMs, preset);
+            if (next === doc) return;
+            // `addLayoutRegion` appends the new region.
+            const made = next.layoutRegions[next.layoutRegions.length - 1];
+            cur.onChange(next);
+            if (made) {
+              cur.onSelectLayout(made.id);
+              cur.onLayoutAdded(made.id);
+            }
+          })
+          .catch(() => undefined);
       } else if (action === "deleteSelected") {
         // The selected region; with none the editor deletes the clip.
-        if (cur.selectedTrack) {
+        if (cur.selectedLayout) {
+          e.preventDefault();
+          cur.onChange(removeLayoutRegion(cur.getDoc(), cur.selectedLayout));
+          cur.onSelectLayout(null);
+        } else if (cur.selectedTrack) {
           e.preventDefault();
           cur.onChange(removeTrack(cur.getDoc(), cur.selectedTrack));
           cur.onSelectTrack(null);
@@ -357,8 +406,30 @@ export function Timeline({
     const edges = d.mode === "move" ? [g.progStartMs, g.progEndMs] : [d.mode === "start" ? g.progStartMs : g.progEndMs];
     return snapGuide(edges, snapping.targets);
   };
+  /** Where a layout drag puts the region's start (programme ms). */
+  const layoutPreview = (d: Extract<Drag, { kind: "layout" }>) =>
+    layoutStartProg(d.span, d.clipSpan, scale > 0 ? d.dx / scale : 0, snapping);
+  const layoutGuide = (d: Extract<Drag, { kind: "layout" }>) =>
+    Math.abs(d.dx) < CLICK_SLOP_PX || scale <= 0 ? null : snapGuide([layoutPreview(d)], snapping.targets);
   // A lane guide only counts while the lane has bars (its last track may vanish mid-drag).
-  const guide = drag?.kind === "zoom" ? zoomGuide(drag) : (view.tracks ?? []).length > 0 ? laneGuide : null;
+  const guide =
+    drag?.kind === "zoom"
+      ? zoomGuide(drag)
+      : drag?.kind === "layout"
+        ? layoutGuide(drag)
+        : (view.tracks ?? []).length > 0
+          ? laneGuide
+          : null;
+
+  /** Commits a layout drag: the new start through Rust (R12), kept inside the clip. */
+  const commitLayout = async (d: Extract<Drag, { kind: "layout" }>) => {
+    const doc = getDoc();
+    const c = doc.clips[d.clip];
+    if (!c) return;
+    const startMs = await zoomSourceAt(d.clip, d.clipSpan, c, layoutPreview(d), (p) => editorToSource(p));
+    const next = moveLayoutRegion(getDoc(), d.id, startMs);
+    if (next !== getDoc()) onChange(next);
+  };
 
   /** Commits a zoom or annotation drag: programme edges → source through Rust, inside its clip. */
   const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {
@@ -400,7 +471,7 @@ export function Timeline({
   const onMove = (e: ReactPointerEvent) => {
     if (!drag) return;
     if (drag.kind === "head") onSeek(progAt(e.clientX));
-    else if (drag.kind === "zoom" || drag.kind === "clip") setDrag({ ...drag, dx: e.clientX - drag.x0 });
+    else if (drag.kind === "zoom" || drag.kind === "clip" || drag.kind === "layout") setDrag({ ...drag, dx: e.clientX - drag.x0 });
     else if (drag.kind === "trim") {
       const next = { ...drag, dx: e.clientX - drag.x0 };
       setDrag(next);
@@ -435,6 +506,8 @@ export function Timeline({
         .catch(() => undefined);
     } else if (d.kind === "zoom") {
       if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitZoom(d).catch(onError);
+    } else if (d.kind === "layout") {
+      if (Math.abs(d.dx) >= CLICK_SLOP_PX && scale > 0) void commitLayout(d).catch(onError);
     } else if (d.kind === "clip") {
       const to = clipTarget(d);
       if (to != null) onMoveClip?.(d.from, to);
@@ -756,6 +829,45 @@ export function Timeline({
             );
           })}
         </div>
+
+        {/* Layout lane (under the zoom track, only with a camera): a block per layout change from
+            Rust's programme spans; dragging a block moves where it starts. */}
+        {camera && (
+          <div className="relative mt-1 h-5" data-testid="ed-layout-track" aria-label={t("rec5.cam.lane")}>
+            {layoutSpans.length === 0 && <LaneHint text={hint("rec5.keys.hint_layout", bindings.layoutHere)} />}
+            {layoutSpans.map((span) => {
+              const r = doc.layoutRegions[span.index];
+              const clipSpan = r ? view.clips[r.clip] : undefined;
+              if (!r || !clipSpan) return null;
+              const d = drag?.kind === "layout" && drag.id === r.id ? drag : null;
+              const left = d && Math.abs(d.dx) >= CLICK_SLOP_PX ? layoutPreview(d) : span.progStartMs;
+              const sel = selectedLayout === r.id;
+              const name = t(PRESET_LABEL[r.preset]);
+              return (
+                <div
+                  key={r.id}
+                  data-testid="ed-layout"
+                  data-preset={r.preset}
+                  aria-selected={sel}
+                  title={t("rec5.cam.region_block", { preset: name })}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    capture(e);
+                    onSelectLayout(r.id);
+                    setDrag({ kind: "layout", id: r.id, clip: r.clip, x0: e.clientX, dx: 0, span, clipSpan });
+                  }}
+                  className={
+                    "absolute top-0 flex h-full cursor-ew-resize items-center overflow-hidden rounded-sm border border-teal-400 bg-teal-500/60 px-1.5 text-[10px] font-medium text-white " +
+                    (sel ? " ring-2 ring-[var(--color-accent)]" : "")
+                  }
+                  style={{ left: left * scale, width: Math.max(10, (span.progEndMs - left) * scale) }}
+                >
+                  <span className="truncate">{name}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Audio lane: music and voiceover tracks (Rust's programme entries) */}
         <AudioLane

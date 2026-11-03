@@ -43,6 +43,7 @@ import {
   editorSeek,
   editorThumbs,
   editorToSource,
+  editorSegmentationAvailable,
   editorUpdate,
   editorVoiceoverCancel,
   editorVoiceoverStart,
@@ -57,6 +58,7 @@ import {
   type EditorPlayback,
   type EditorSourcePos,
   type RecordAnnotationKind,
+  type RecordLayoutPreset,
   type RecordEditDoc,
   type RecordEditorView,
 } from "../lib/ipc";
@@ -66,6 +68,7 @@ import {
   MAX_MIC_DB,
   MIN_MIC_DB,
   addAnnotation,
+  addLayoutRegion,
   addSpeed,
   addTrack,
   addZoom,
@@ -103,6 +106,7 @@ import { ProjectDialog } from "./editor/ProjectDialog";
 import { PresetsMenu } from "./editor/PresetsMenu";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
+import { hasAnyCamera } from "../lib/camera-layout";
 import { FocusOverlay } from "./editor/FocusOverlay";
 import { AnnotationOverlay, type AnnotationPatch } from "./editor/AnnotationOverlay";
 import { registerAnnotationFonts } from "./editor/AnnotationTab";
@@ -214,6 +218,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const selectedZoom = selection?.kind === "zoom" ? selection.id : null;
   const selectedAnnotation = selection?.kind === "annotation" ? selection.id : null;
   const selectedTrack = selection?.kind === "track" ? selection.id : null;
+  const selectedLayout = selection?.kind === "layout" ? selection.id : null;
   const setSelected = useCallback(
     (index: number | null) => setSelection((cur) => (index != null ? { kind: "clip", index } : cur?.kind === "clip" ? null : cur)),
     [],
@@ -230,6 +235,12 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     (id: string | null) => setSelection((cur) => (id ? { kind: "track", id } : cur?.kind === "track" ? null : cur)),
     [],
   );
+  const setSelectedLayout = useCallback(
+    (id: string | null) => setSelection((cur) => (id ? { kind: "layout", id } : cur?.kind === "layout" ? null : cur)),
+    [],
+  );
+  /** Whether the helper can cut the camera's background out (`null` while asking). */
+  const [segmentation, setSegmentation] = useState<boolean | null>(null);
   /** A running voiceover take (state for the UI, ref for event handlers). */
   const [voiceover, setVoiceoverState] = useState<VoiceoverView | null>(null);
   const voRef = useRef<VoiceoverView | null>(null);
@@ -430,9 +441,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [report, t],
   );
 
-  const toggleInspector = useCallback(() => {
+  const setInspector = useCallback((open: (o: boolean) => boolean) => {
     setInspectorOpen((o) => {
-      const next = !o;
+      const next = open(o);
       try {
         localStorage.setItem(INSPECTOR_KEY, next ? "1" : "0");
       } catch {
@@ -441,6 +452,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       return next;
     });
   }, []);
+  const toggleInspector = useCallback(() => setInspector((o) => !o), [setInspector]);
+  /** "Change layout here" made a region: its settings (the camera tab) come up. */
+  const layoutAdded = useCallback(() => setInspector(() => true), [setInspector]);
 
   const undo = useCallback(() => {
     const d = history.current?.undo();
@@ -488,6 +502,18 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   }, [playing, applyPlayback, report]);
 
   /** Source position of the playhead, without moving it. */
+  // The helper names its model once it is ready: ask per session and after a restart.
+  useEffect(() => {
+    if (!init || fatal) return;
+    let dead = false;
+    void editorSegmentationAvailable()
+      .then((ok) => !dead && setSegmentation(ok))
+      .catch(() => !dead && setSegmentation(false));
+    return () => {
+      dead = true;
+    };
+  }, [init?.sessionId, fatal]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sourceHere = useCallback(
     () =>
       editorToSource(posRef.current).catch((e) => {
@@ -541,6 +567,20 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     commit(next);
     setSelectedZoom(made.id);
   }, [commit, sourceHere, cur, setSelectedZoom]);
+
+  /** "From here" in the camera tab with no region under the playhead: one there (Rust maps). */
+  const addLayoutHere = useCallback(
+    async (preset: RecordLayoutPreset) => {
+      const at = await sourceHere();
+      const doc = cur();
+      if (!at || !doc) return;
+      const next = addLayoutRegion(doc, at.clip, at.sourceMs, preset);
+      if (next === doc) return;
+      commit(next);
+      setSelectedLayout(next.layoutRegions[next.layoutRegions.length - 1].id);
+    },
+    [commit, sourceHere, cur, setSelectedLayout],
+  );
 
   const addAnnotationHere = useCallback(
     async (kind: RecordAnnotationKind) => {
@@ -1025,6 +1065,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   };
   // Crop works on the cropped clip's own recording and size (presets included).
   const cropMedia = clipMedia(doc, view.takes, cropClip, mainMedia);
+  // The camera to frame on: the playhead's clip's, else the first clip with one (Rust says which).
+  const cams = view.clipCameras ?? [];
+  const camClip = cams[cue.source?.clip ?? -1] ? (cue.source?.clip ?? 0) : cams.findIndex(Boolean);
+  const cameraSrc = camClip >= 0 ? fileOf(clipMedia(doc, view.takes, camClip, mainMedia), "camera.mp4") : null;
 
   const iconBtn =
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
@@ -1221,6 +1265,12 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             voiceover={voiceover}
             onVoiceoverStop={finishVoiceover}
             onVoiceoverCancel={cancelVoiceover}
+            view={view}
+            positionMs={pos}
+            segmentation={hasAnyCamera(view) ? segmentation : null}
+            cameraSrc={cameraSrc}
+            onAddLayoutRegion={(preset) => void addLayoutHere(preset)}
+            selectedLayout={selectedLayout}
           />
         )}
       </aside>
@@ -1338,6 +1388,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onSelectTrack={setSelectedTrack}
           resolveTrackEdge={resolveTrackEdge}
           locked={!!voiceover}
+          selectedLayout={selectedLayout}
+          onSelectLayout={setSelectedLayout}
+          onLayoutAdded={layoutAdded}
         />
       </div>
 

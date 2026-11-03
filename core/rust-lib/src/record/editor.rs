@@ -803,6 +803,16 @@ pub struct AnnotationSpan {
     pub prog_end_ms: u64,
 }
 
+/// One layout region on the programme timeline: from its start until the clip's next region or
+/// the clip's end (the part the scene gives it). `index` points into `EditDoc::layout_regions`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutSpan {
+    pub index: usize,
+    pub prog_start_ms: u64,
+    pub prog_end_ms: u64,
+}
+
 /// What the editor UI draws its timeline from.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -816,6 +826,11 @@ pub struct EditorView {
     /// Annotations in programme ms (Rust's mapping, like zooms): the annotation lane and the
     /// Tab order (by programme start) read these, never source ms.
     pub annotation_spans: Vec<AnnotationSpan>,
+    /// Layout regions in programme ms (Rust's mapping): the layout lane draws these.
+    pub layout_spans: Vec<LayoutSpan>,
+    /// Per clip: whether it has a camera (`clip_camera`). Filled by the editor session (empty
+    /// from [`view`], which has no recording metadata); the camera tab and the layout lane ask it.
+    pub clip_cameras: Vec<bool>,
     /// The recorded clicks on the programme clock (`click_cues::click_hits`), for the preview's
     /// click sound. Filled by the editor session (empty from [`view`], which has no cursor data).
     pub click_hits: Vec<super::click_cues::ClickHit>,
@@ -1707,6 +1722,29 @@ pub fn view(doc: &EditDoc) -> EditorView {
             prog_end_ms: source_to_programme(doc, a.clip, a.end_ms),
         })
         .collect();
+    let layout_spans = doc
+        .layout_regions
+        .iter()
+        .enumerate()
+        .filter_map(|(index, r)| {
+            let c = doc.clips.get(r.clip)?;
+            if r.start_ms < c.start_ms || r.start_ms >= c.end_ms {
+                return None;
+            }
+            let end = doc
+                .layout_regions
+                .iter()
+                .filter(|o| o.clip == r.clip && o.start_ms > r.start_ms && o.start_ms < c.end_ms)
+                .map(|o| o.start_ms)
+                .min()
+                .unwrap_or(c.end_ms);
+            Some(LayoutSpan {
+                index,
+                prog_start_ms: source_to_programme(doc, r.clip, r.start_ms),
+                prog_end_ms: source_to_programme(doc, r.clip, end),
+            })
+        })
+        .collect();
     EditorView {
         doc: doc.clone(),
         programme_ms: programme_duration_ms(doc),
@@ -1714,6 +1752,8 @@ pub fn view(doc: &EditDoc) -> EditorView {
         speed,
         zooms,
         annotation_spans,
+        layout_spans,
+        clip_cameras: Vec::new(),
         click_hits: Vec::new(),
         screen_rects: Vec::new(),
         output_size: [0, 0],
@@ -2984,6 +3024,25 @@ pub(crate) mod tests {
         // PiP floats over the screen and does not change the shape.
         d.camera.preset = LayoutPreset::PictureInPicture;
         assert_eq!(ratio(&d, &m), screen_only);
+    }
+
+    #[test]
+    fn view_layout_spans_run_to_the_next_region_or_the_clip_end() {
+        // Clip 0: source 1–5 s (programme 0–4 s); clip 1: source 6–10 s at 2× (programme 4–6 s).
+        let mut d = doc(vec![clip(1_000, 5_000), clip(6_000, 10_000)], vec![sr(1, 6_000, 10_000, 2.0)]);
+        d.layout_regions = vec![
+            lr("a", 0, 2_000, LayoutPreset::DualFrame),
+            lr("b", 0, 3_500, LayoutPreset::CameraOnly),
+            lr("c", 1, 8_000, LayoutPreset::VerticalStack),
+        ];
+        let v = view(&d);
+        let spans: Vec<_> = v.layout_spans.iter().map(|s| (s.index, s.prog_start_ms, s.prog_end_ms)).collect();
+        assert_eq!(spans, vec![(0, 1_000, 2_500), (1, 2_500, 4_000), (2, 5_000, 6_000)]);
+        // A region of a clip that is gone has no span.
+        d.layout_regions.push(lr("x", 7, 0, LayoutPreset::DualFrame));
+        assert_eq!(view(&d).layout_spans.len(), 3);
+        let j = serde_json::to_value(view(&d)).unwrap();
+        assert!(j["layoutSpans"][0].get("progStartMs").is_some());
     }
 
     #[test]

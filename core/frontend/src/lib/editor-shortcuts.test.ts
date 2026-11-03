@@ -36,8 +36,17 @@ describe("editor shortcuts", () => {
       paste: { key: "v", ctrl: true },
       openProject: { key: "o", ctrl: true },
       showShortcuts: { key: "?" },
+      layoutHere: { key: "l" },
     });
-    expect(ACTIONS).toHaveLength(14);
+    expect(ACTIONS).toHaveLength(15);
+  });
+
+  it("L changes the layout here and collides with no other default (nor a fixed key)", () => {
+    expect(matchAction(key("l"), DEFAULT_BINDINGS)).toBe("layoutHere");
+    expect(matchAction(key("L"), DEFAULT_BINDINGS)).toBe("layoutHere");
+    expect(findConflict(DEFAULT_BINDINGS, "layoutHere", { key: "l" })).toBeNull();
+    const held = ACTIONS.map((a) => JSON.stringify(DEFAULT_BINDINGS[a]));
+    expect(new Set(held).size).toBe(held.length);
   });
 
   it("matches the defaults, with ⌘ or Ctrl, Delete equal to Backspace", () => {

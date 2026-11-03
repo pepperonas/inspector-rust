@@ -10,6 +10,8 @@ export type Selection =
   | { kind: "zoom"; id: string }
   | { kind: "annotation"; id: string }
   | { kind: "track"; id: string }
+  /** A layout region (stage 5): selectable and deletable, not copied. */
+  | { kind: "layout"; id: string }
   | null;
 
 /** The editor's region clipboard: a snapshot of the copied regions (never the live objects). */
@@ -23,7 +25,7 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 /** The selected region as clipboard data; `null` for a clip, nothing or a missing id. */
 export function copyRegions(doc: RecordEditDoc, selection: Selection): ClipboardRegions | null {
-  if (!selection || selection.kind === "clip") return null;
+  if (!selection || selection.kind === "clip" || selection.kind === "layout") return null;
   const out: ClipboardRegions = { zooms: [], annotations: [], tracks: [] };
   if (selection.kind === "zoom") {
     const z = doc.zooms.find((x) => x.id === selection.id);
@@ -44,7 +46,7 @@ export function copyRegions(doc: RecordEditDoc, selection: Selection): Clipboard
 /** Copy + remove as one document (one undo step); `null` when there is nothing to cut. */
 export function cutRegions(doc: RecordEditDoc, selection: Selection): { data: ClipboardRegions; doc: RecordEditDoc } | null {
   const data = copyRegions(doc, selection);
-  if (!data || !selection || selection.kind === "clip") return null;
+  if (!data || !selection || selection.kind === "clip" || selection.kind === "layout") return null;
   const next =
     selection.kind === "zoom"
       ? removeZoom(doc, selection.id)

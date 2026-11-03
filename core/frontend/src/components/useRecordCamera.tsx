@@ -29,7 +29,9 @@ export function useRecordCamera() {
     if (asking.current) return false;
     asking.current = true;
     try {
-      let a = auth ?? (await recordCameraAuth().catch(() => null));
+      // A refusal may have been lifted in System Settings meanwhile: read it again then.
+      const stale = auth === null || auth === "denied" || auth === "restricted";
+      let a = stale ? await recordCameraAuth().catch(() => auth) : auth;
       if (a === "not-determined") a = await recordCameraRequest().catch(() => a);
       setAuth(a);
       setAttempted(true);

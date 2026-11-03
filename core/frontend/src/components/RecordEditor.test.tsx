@@ -35,6 +35,7 @@ vi.mock("../lib/ipc", () => ({
   editorUpdate: (id: number, d: RecordEditDoc) => editorUpdate(d, id),
   // Like serde on the Rust side: a fractional u64 is an error, not a value.
   editorSeek: (t: number) => (Number.isInteger(t) ? editorSeek(t) : Promise.reject(new Error(`float ${t}`))),
+  editorSegmentationAvailable: async () => true,
   editorToSource: (t: number) =>
     Number.isInteger(t) ? editorToSource(t) : Promise.reject(new Error(`float ${t}`)),
   editorPlay: (p: boolean) => editorPlay(p),

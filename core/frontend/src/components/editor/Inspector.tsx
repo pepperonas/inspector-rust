@@ -5,14 +5,14 @@ import type {
   RecordAspect,
   RecordBackground,
   RecordEditDoc,
+  RecordEditorView,
   RecordFrame,
+  RecordLayoutPreset,
   RecordWallpaperMotion,
   RecordZoomRegion,
 } from "../../lib/ipc";
 import {
   BOUNCE_LEVELS,
-  COLOR_PRESETS,
-  GRADIENT_PRESETS,
   SHADOW_LEVELS,
   ZOOM_DEPTHS,
   fmtZoom,
@@ -24,9 +24,10 @@ import {
   updateZoom,
   zoomScale,
 } from "../../lib/editor";
-import { Chip, Chips, Group, Slider, Swatch, Toggle, chipClass } from "./InspectorParts";
+import { BackgroundPicker, Chip, Chips, Group, Slider, Swatch, Toggle, chipClass } from "./InspectorParts";
 import { AnnotationTab } from "./AnnotationTab";
 import { AudioTab, VoiceoverPanel, type VoiceoverView } from "./AudioTab";
+import { CameraTab } from "./CameraTab";
 import { useT, type MessageKey } from "../../lib/i18n";
 
 export interface InspectorProps {
@@ -72,13 +73,26 @@ export interface InspectorProps {
   voiceover?: VoiceoverView | null;
   onVoiceoverStop?: () => void;
   onVoiceoverCancel?: () => void;
+  /** Rust's spans and per-clip camera answer, for the camera tab. */
+  view?: Pick<RecordEditorView, "doc" | "layoutSpans" | "clipCameras">;
+  /** Playhead, programme ms (the camera tab's "from here"). */
+  positionMs?: number;
+  /** The helper can cut the camera's background out; `null` while asking. */
+  segmentation?: boolean | null;
+  /** The camera file to frame on (asset URL). */
+  cameraSrc?: string | null;
+  /** "From here" with no region under the playhead: a region with `preset` there. */
+  onAddLayoutRegion?: (preset: RecordLayoutPreset) => void;
+  /** The layout region (`id`) selected on the timeline; brings up the camera tab. */
+  selectedLayout?: string | null;
 }
 
-type Tab = "background" | "frame" | "cursor" | "zoom" | "annotation" | "audio";
+type Tab = "background" | "frame" | "cursor" | "camera" | "zoom" | "annotation" | "audio";
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
   { id: "frame", label: "rec3.insp.tab_frame" },
   { id: "cursor", label: "rec3.insp.tab_cursor" },
+  { id: "camera", label: "rec5.cam.tab" },
   { id: "zoom", label: "rec3.zoom.tab" },
   { id: "annotation", label: "rec4.ann.tab" },
   { id: "audio", label: "rec4.audio.tab" },
@@ -109,7 +123,6 @@ const THEME_LABELS: Record<string, MessageKey> = {
   "glass-lens": "rec3.insp.theme.glass-lens",
 };
 
-const sameBg = (a: RecordBackground, b: RecordBackground) => JSON.stringify(a) === JSON.stringify(b);
 const fmt = (v: number, digits: number) => (Math.round(v * 10 ** digits) / 10 ** digits).toString();
 
 /**
@@ -120,9 +133,23 @@ export function Inspector(props: InspectorProps) {
   const t = useT();
   const selectedAnnotation = props.selectedAnnotation ?? null;
   const selectedTrack = props.selectedTrack ?? null;
+  const selectedLayout = props.selectedLayout ?? null;
   const [tab, setTab] = useState<Tab>(
-    props.selectedZoom ? "zoom" : selectedAnnotation ? "annotation" : selectedTrack ? "audio" : "background",
+    props.selectedZoom
+      ? "zoom"
+      : selectedAnnotation
+        ? "annotation"
+        : selectedTrack
+          ? "audio"
+          : selectedLayout
+            ? "camera"
+            : "background",
   );
+  const [seenLayout, setSeenLayout] = useState(selectedLayout);
+  if (selectedLayout !== seenLayout) {
+    setSeenLayout(selectedLayout);
+    if (selectedLayout) setTab("camera");
+  }
   // Selecting a zoom or an annotation brings its settings up (derived during render).
   const [seenZoom, setSeenZoom] = useState(props.selectedZoom);
   if (props.selectedZoom !== seenZoom) {
@@ -175,6 +202,23 @@ export function Inspector(props: InspectorProps) {
         {tab === "background" && <BackgroundTab {...props} />}
         {tab === "frame" && <FrameTab {...props} />}
         {tab === "cursor" && <CursorTab {...props} />}
+        {tab === "camera" && (
+          <CameraTab
+            doc={props.doc}
+            view={props.view ?? { doc: props.doc, layoutSpans: [], clipCameras: [] }}
+            positionMs={props.positionMs ?? 0}
+            segmentation={props.segmentation ?? null}
+            cameraSrc={props.cameraSrc ?? null}
+            assets={props.assets}
+            assetUrl={props.assetUrl}
+            projectAssetUrl={props.projectAssetUrl}
+            onImport={props.onImport}
+            onCommit={props.onCommit}
+            onLive={props.onLive}
+            onLiveEnd={props.onLiveEnd}
+            onAddRegion={props.onAddLayoutRegion ?? (() => undefined)}
+          />
+        )}
         {tab === "zoom" && <ZoomTab {...props} />}
         {tab === "annotation" && (
           <AnnotationTab
@@ -215,66 +259,17 @@ function BackgroundTab({ doc, assets, assetUrl, projectAssetUrl, onCommit, onLiv
   const a = doc.appearance;
   const bg = a.background;
   const setBg = (background: RecordBackground) => onCommit(setAppearance(doc, { background }));
-  const pickImage = async () => {
-    const file = await onImport("image");
-    if (file) setBg({ kind: "image", file });
-  };
   const motionOk = motionAllowed(bg);
   return (
     <>
-      <Group label={t("rec3.insp.wallpapers")}>
-        <div className="grid grid-cols-4 gap-1.5">
-          {(assets?.wallpapers ?? []).map((w, i) => (
-            <Swatch
-              key={w.id}
-              label={t("rec3.insp.wallpaper_n", { n: i + 1 })}
-              active={sameBg(bg, { kind: "wallpaper", id: w.id })}
-              onClick={() => setBg({ kind: "wallpaper", id: w.id })}
-              className="aspect-video"
-            >
-              <img src={assetUrl(w.thumb)} alt="" className="h-full w-full rounded-[5px] object-cover" draggable={false} />
-            </Swatch>
-          ))}
-        </div>
-      </Group>
-      <Group label={t("rec3.insp.gradients")}>
-        <div className="grid grid-cols-8 gap-1.5">
-          {GRADIENT_PRESETS.map((g, i) => (
-            <Swatch
-              key={i}
-              label={t("rec3.insp.gradient_n", { n: i + 1 })}
-              active={sameBg(bg, g)}
-              onClick={() => setBg(g)}
-              className="aspect-square shadow-[inset_0_0_0_1px_var(--color-border)]"
-              style={{ background: `linear-gradient(${g.angleDeg}deg, ${g.stops.join(", ")})` }}
-            />
-          ))}
-        </div>
-      </Group>
-      <Group label={t("rec3.insp.colors")}>
-        <div className="grid grid-cols-8 gap-1.5">
-          {COLOR_PRESETS.map((c) => (
-            <Swatch
-              key={c}
-              label={t("rec3.insp.color_n", { color: c })}
-              active={sameBg(bg, { kind: "color", color: c })}
-              onClick={() => setBg({ kind: "color", color: c })}
-              className="aspect-square shadow-[inset_0_0_0_1px_var(--color-border)]"
-              style={{ background: c }}
-            />
-          ))}
-        </div>
-      </Group>
-      <Group label={t("rec3.insp.own_image")}>
-        <div className="flex items-center gap-2">
-          {bg.kind === "image" && (
-            <img src={projectAssetUrl(bg.file)} alt="" className="h-9 w-16 rounded-md border border-[var(--color-accent)] object-cover" />
-          )}
-          <button type="button" onClick={() => void pickImage()} className={chipClass(false)}>
-            {t("rec3.insp.pick_image")}
-          </button>
-        </div>
-      </Group>
+      <BackgroundPicker
+        value={bg}
+        onPick={setBg}
+        assets={assets}
+        assetUrl={assetUrl}
+        projectAssetUrl={projectAssetUrl}
+        onImport={onImport}
+      />
       <Group label={t("rec3.insp.motion")} hint={motionOk ? undefined : t("rec3.insp.motion_hint")}>
         <Chips>
           {MOTIONS.map((m) => (

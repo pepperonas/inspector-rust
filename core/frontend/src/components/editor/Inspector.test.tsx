@@ -189,6 +189,14 @@ describe("Inspector", () => {
     expect(screen.getByRole("slider", { name: "Hotspot Y" })).toBeTruthy();
   });
 
+  it("selecting a layout region brings up the camera tab", () => {
+    const { props, rerender } = mount();
+    expect(screen.getByRole("tab", { name: "Camera" }).getAttribute("aria-selected")).toBe("false");
+    rerender(<Inspector {...props} selectedLayout="r1" />);
+    expect(screen.getByRole("tab", { name: "Camera" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("ed-camera-controls")).toBeTruthy();
+  });
+
   describe("zoom tab", () => {
     const z = (id: string, origin: "auto" | "manual", over: Partial<RecordEditDoc["zooms"][number]> = {}) => ({
       id,

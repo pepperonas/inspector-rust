@@ -5456,6 +5456,11 @@ export interface RecordEditorView {
   zooms: { index: number; progStartMs: number; progEndMs: number }[];
   /** Annotations in programme ms (`index` into `doc.annotations`; Rust's mapping). */
   annotationSpans?: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Layout regions in programme ms (`index` into `doc.layoutRegions`; Rust's mapping): from the
+   *  region's start until the clip's next region or the clip's end. */
+  layoutSpans?: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Per clip: whether it has a camera (Rust's `clip_camera`; empty outside an editor session). */
+  clipCameras?: boolean[];
   /** Recorded clicks on the programme clock (the preview's click sound). */
   clickHits: RecordClickHit[];
   /** Per clip: the screen's box in the output `[x, y, w, h]` (fractions). */
@@ -5635,7 +5640,7 @@ export interface RecordPresetsList {
 export function recordPresetsList(): Promise<RecordPresetsList> {
   return invoke("record_presets_list");
 }
-/** Saves the open document's look (background, frame, pointer, aspect) as a preset. */
+/** Saves the open document's look (background, frame, pointer, camera look, aspect) as a preset. */
 export function recordPresetSave(sessionId: number, name: string): Promise<RecordPresetEntry> {
   return invoke("record_preset_save", { sessionId, name });
 }

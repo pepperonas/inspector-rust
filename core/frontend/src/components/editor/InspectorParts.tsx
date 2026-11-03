@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
-import { INSPECTOR_RANGES, clampSetting, type InspectorSetting } from "../../lib/editor";
+import { COLOR_PRESETS, GRADIENT_PRESETS, INSPECTOR_RANGES, clampSetting, type InspectorSetting } from "../../lib/editor";
+import type { EditorAssets, RecordBackground } from "../../lib/ipc";
+import { useT } from "../../lib/i18n";
 
 /** Shared controls of the editor's settings column (inspector tabs and the annotation tab). */
 
@@ -65,11 +67,21 @@ export function Swatch({
   );
 }
 
-export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({
+  label,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <label className="flex items-center justify-between gap-2 text-[12px]">
       {label}
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     </label>
   );
 }
@@ -141,4 +153,87 @@ export function Slider({
 }) {
   const r = INSPECTOR_RANGES[setting];
   return <RangeSlider {...rest} min={r.min} max={r.max} step={r.step} onLive={(v) => onLive(clampSetting(setting, v))} />;
+}
+
+const sameBg = (a: RecordBackground, b: RecordBackground) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Wallpapers, gradients, colours and an own image: the background picker of the background
+ *  tab, also the camera's own background (one picker, never a second copy). */
+export function BackgroundPicker({
+  value,
+  onPick,
+  assets,
+  assetUrl,
+  projectAssetUrl,
+  onImport,
+}: {
+  value: RecordBackground;
+  onPick: (bg: RecordBackground) => void;
+  assets: EditorAssets | null;
+  assetUrl: (path: string) => string;
+  projectAssetUrl: (file: string) => string;
+  onImport: (kind: "image" | "cursor") => Promise<string | null>;
+}) {
+  const t = useT();
+  const pickImage = async () => {
+    const file = await onImport("image");
+    if (file) onPick({ kind: "image", file });
+  };
+  return (
+    <>
+      <Group label={t("rec3.insp.wallpapers")}>
+        <div className="grid grid-cols-4 gap-1.5">
+          {(assets?.wallpapers ?? []).map((w, i) => (
+            <Swatch
+              key={w.id}
+              label={t("rec3.insp.wallpaper_n", { n: i + 1 })}
+              active={sameBg(value, { kind: "wallpaper", id: w.id })}
+              onClick={() => onPick({ kind: "wallpaper", id: w.id })}
+              className="aspect-video"
+            >
+              <img src={assetUrl(w.thumb)} alt="" className="h-full w-full rounded-[5px] object-cover" draggable={false} />
+            </Swatch>
+          ))}
+        </div>
+      </Group>
+      <Group label={t("rec3.insp.gradients")}>
+        <div className="grid grid-cols-8 gap-1.5">
+          {GRADIENT_PRESETS.map((g, i) => (
+            <Swatch
+              key={i}
+              label={t("rec3.insp.gradient_n", { n: i + 1 })}
+              active={sameBg(value, g)}
+              onClick={() => onPick(g)}
+              className="aspect-square shadow-[inset_0_0_0_1px_var(--color-border)]"
+              style={{ background: `linear-gradient(${g.angleDeg}deg, ${g.stops.join(", ")})` }}
+            />
+          ))}
+        </div>
+      </Group>
+      <Group label={t("rec3.insp.colors")}>
+        <div className="grid grid-cols-8 gap-1.5">
+          {COLOR_PRESETS.map((c) => (
+            <Swatch
+              key={c}
+              label={t("rec3.insp.color_n", { color: c })}
+              active={sameBg(value, { kind: "color", color: c })}
+              onClick={() => onPick({ kind: "color", color: c })}
+              className="aspect-square shadow-[inset_0_0_0_1px_var(--color-border)]"
+              style={{ background: c }}
+            />
+          ))}
+        </div>
+      </Group>
+      <Group label={t("rec3.insp.own_image")}>
+        <div className="flex items-center gap-2">
+          {value.kind === "image" && (
+            <img src={projectAssetUrl(value.file)} alt="" className="h-9 w-16 rounded-md border border-[var(--color-accent)] object-cover" />
+          )}
+          <button type="button" onClick={() => void pickImage()} className={chipClass(false)}>
+            {t("rec3.insp.pick_image")}
+          </button>
+        </div>
+      </Group>
+    </>
+  );
 }

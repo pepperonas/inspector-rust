@@ -9,9 +9,11 @@ use crate::decode::DecodeOpts;
 use crate::pipeline::Transcriber;
 use crate::protocol::{Lang, Source};
 use crate::queue::JobKind;
-use crate::segment::{Segmenter, MAX_SEG, RATE, VAD_FRAME};
+use crate::protocol::Word;
+use crate::segment::{Seg, Segmenter, MAX_SEG, RATE, VAD_FRAME};
 use crate::text::{drop_loops, normalize};
 use crate::vad::Vad;
+use crate::words::{filter_words, words_from_tokens, WordTranscriber};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,51 +70,20 @@ pub struct FileText {
     pub lang: Option<String>,
 }
 
-/// Decode, segment and transcribe a whole stream. `progress(done_ms, total_ms)`
-/// runs after every segment and at the end.
-pub fn transcribe_stream(
+/// Read, VAD and segment a whole stream; `on_seg(seg, samples)` runs for every
+/// speech segment (the last one flushed at the end). `progress(done_ms,
+/// total_ms)` runs after every segment and once at the end (at 100 %).
+fn drive(
     src: &mut dyn AudioSource,
     vad: &mut dyn Vad,
-    tr: &mut dyn Transcriber,
-    lang: Lang,
-    threads: usize,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, u64),
-) -> Result<FileText, String> {
+    mut on_seg: impl FnMut(Seg, &[f32]) -> Result<(), String>,
+) -> Result<(), String> {
     let total = src.total_ms();
     let mut seg = Segmenter::new(MAX_SEG);
     let mut pending: Vec<f32> = Vec::new();
-    let mut lines: Vec<String> = Vec::new();
-    let mut langs: Vec<(String, usize)> = Vec::new();
-    let mut tail = String::new();
-    let mut last_lang: Option<String> = None;
     let mut read_samples: u64 = 0;
-
-    let mut decode = |samples: &[f32], tail: &mut String, last_lang: &mut Option<String>| -> Result<(), String> {
-        let opts = DecodeOpts {
-            kind: JobKind::Final,
-            lang,
-            last_lang: last_lang.clone(),
-            prompt: tail.clone(),
-            threads,
-        };
-        let d = tr.decode(Source::Mic, samples, &opts)?;
-        if d.text.is_empty() {
-            return Ok(());
-        }
-        let n = d.text.chars().count();
-        match langs.iter_mut().find(|(l, _)| *l == d.lang) {
-            Some((_, c)) => *c += n,
-            None => langs.push((d.lang.clone(), n)),
-        }
-        *last_lang = Some(d.lang.clone());
-        let joined = format!("{tail} {}", d.text);
-        let start = joined.char_indices().rev().nth(PROMPT_CHARS).map(|(i, _)| i).unwrap_or(0);
-        *tail = joined[start..].trim().to_string();
-        lines.push(d.text);
-        Ok(())
-    };
-
     loop {
         if cancel.load(Ordering::SeqCst) {
             return Err(ERR_CANCELLED.into());
@@ -124,11 +95,11 @@ pub fn transcribe_stream(
         if n > 0 || !more {
             let frames: Vec<f32> = pending.drain(..n).collect();
             let probs = vad.probs(&frames)?;
-            for (_, samples) in seg.push(&frames, &probs) {
+            for (s, samples) in seg.push(&frames, &probs) {
                 if cancel.load(Ordering::SeqCst) {
                     return Err(ERR_CANCELLED.into());
                 }
-                decode(&samples, &mut tail, &mut last_lang)?;
+                on_seg(s, &samples)?;
                 progress(read_samples * 1000 / RATE as u64, total);
             }
         }
@@ -136,11 +107,57 @@ pub fn transcribe_stream(
             break;
         }
     }
-    if let Some((_, samples)) = seg.flush() {
-        decode(&samples, &mut tail, &mut last_lang)?;
+    if let Some((s, samples)) = seg.flush() {
+        on_seg(s, &samples)?;
     }
     let done = read_samples * 1000 / RATE as u64;
     progress(done, total.max(done));
+    Ok(())
+}
+
+/// Count `n` characters of text for `lang`; the language with the most wins.
+fn tally(langs: &mut Vec<(String, usize)>, lang: &str, n: usize) {
+    match langs.iter_mut().find(|(l, _)| l == lang) {
+        Some((_, c)) => *c += n,
+        None => langs.push((lang.to_string(), n)),
+    }
+}
+
+/// The last `PROMPT_CHARS` of everything so far, the next decode's prompt.
+fn next_prompt(tail: &str, text: &str) -> String {
+    let joined = format!("{tail} {text}");
+    let start = joined.char_indices().rev().nth(PROMPT_CHARS).map(|(i, _)| i).unwrap_or(0);
+    joined[start..].trim().to_string()
+}
+
+/// Decode, segment and transcribe a whole stream. `progress(done_ms, total_ms)`
+/// runs after every segment and at the end.
+pub fn transcribe_stream(
+    src: &mut dyn AudioSource,
+    vad: &mut dyn Vad,
+    tr: &mut dyn Transcriber,
+    lang: Lang,
+    threads: usize,
+    cancel: &AtomicBool,
+    progress: impl FnMut(u64, u64),
+) -> Result<FileText, String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut langs: Vec<(String, usize)> = Vec::new();
+    let mut tail = String::new();
+    let mut last_lang: Option<String> = None;
+
+    drive(src, vad, cancel, progress, |_, samples| {
+        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
+        let d = tr.decode(Source::Mic, samples, &opts)?;
+        if d.text.is_empty() {
+            return Ok(());
+        }
+        tally(&mut langs, &d.lang, d.text.chars().count());
+        last_lang = Some(d.lang.clone());
+        tail = next_prompt(&tail, &d.text);
+        lines.push(d.text);
+        Ok(())
+    })?;
     let lang = langs.into_iter().max_by_key(|(_, n)| *n).map(|(l, _)| l);
     let lines = drop_loops(lines, MAX_REPEAT);
     // Drop exact repeats Whisper sometimes produces across a segment cut.
@@ -152,6 +169,52 @@ pub fn transcribe_stream(
         kept.push(l);
     }
     Ok(FileText { text: kept.join("\n"), lang })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileWords {
+    pub words: Vec<Word>,
+    /// The language most of the speech was in (`de`/`en`), if any.
+    pub lang: Option<String>,
+}
+
+fn samples_to_ms(n: u64) -> u64 {
+    n * 1000 / RATE as u64
+}
+
+/// Like `transcribe_stream`, but every word with its time in ms of the file:
+/// each segment's own start (from the segmenter) is the offset its token
+/// times are added to.
+pub fn transcribe_words_stream(
+    src: &mut dyn AudioSource,
+    vad: &mut dyn Vad,
+    tr: &mut dyn WordTranscriber,
+    lang: Lang,
+    threads: usize,
+    cancel: &AtomicBool,
+    progress: impl FnMut(u64, u64),
+) -> Result<FileWords, String> {
+    let mut words: Vec<Word> = Vec::new();
+    let mut langs: Vec<(String, usize)> = Vec::new();
+    let mut tail = String::new();
+    let mut last_lang: Option<String> = None;
+
+    drive(src, vad, cancel, progress, |s, samples| {
+        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
+        let d = tr.decode_tokens(samples, &opts)?;
+        let ws = words_from_tokens(samples_to_ms(s.start), samples_to_ms(s.end), &d.tokens);
+        if ws.is_empty() {
+            return Ok(());
+        }
+        let text = ws.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+        tally(&mut langs, &d.lang, text.chars().count());
+        last_lang = Some(d.lang.clone());
+        tail = next_prompt(&tail, &text);
+        words.extend(ws);
+        Ok(())
+    })?;
+    let lang = langs.into_iter().max_by_key(|(_, n)| *n).map(|(l, _)| l);
+    Ok(FileWords { words: filter_words(words), lang })
 }
 
 /// `name.txt`, `name 2.txt`, … — the first that doesn't exist yet (same rule as
@@ -499,6 +562,45 @@ mod tests {
         assert_eq!(d, t, "ends at 100 %");
         assert_eq!(t, 8500);
         assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "never backwards");
+    }
+
+    struct FakeWords(usize);
+    impl WordTranscriber for FakeWords {
+        fn decode_tokens(&mut self, _: &[f32], o: &DecodeOpts) -> Result<crate::words::TokDecoded, String> {
+            assert_eq!(o.kind, JobKind::Final);
+            self.0 += 1;
+            let t = |text: &str, cs| crate::words::Tok { text: text.into(), t_dtw_cs: cs, p: 0.9, special: false };
+            Ok(crate::words::TokDecoded {
+                tokens: vec![t(" Satz", 20), t(&format!(" {}", self.0), 50)],
+                lang: "de".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn words_carry_the_segment_offset() {
+        let mut src = Samples::new(speech_with_pauses());
+        let r = transcribe_words_stream(
+            &mut src,
+            &mut EnergyVad::new(0.05),
+            &mut FakeWords(0),
+            Lang::Auto,
+            2,
+            &AtomicBool::new(false),
+            |_, _| {},
+        )
+        .unwrap();
+        let t: Vec<&str> = r.words.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(t, ["Satz", "1", "Satz", "2"]);
+        assert_eq!(r.lang.as_deref(), Some("de"));
+        // Speech starts at 0.5 s and 4.5 s; each segment carries PAD before it.
+        let (a, b) = (r.words[0].start_ms, r.words[2].start_ms);
+        assert!((150..=500).contains(&a), "{a}");
+        assert!((4150..=4500).contains(&b), "second segment offset missing: {b}");
+        assert_eq!(r.words[1].start_ms, a + 200, "word 2 starts at word 1's end");
+        assert_eq!(r.words[3].start_ms, b + 200);
+        assert_eq!(r.words[3].end_ms, b + 500);
+        assert!(r.words.windows(2).all(|w| w[0].end_ms <= w[1].start_ms));
     }
 
     #[test]

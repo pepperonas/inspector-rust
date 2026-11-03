@@ -144,6 +144,49 @@ mod engine_side {
         Ok(FileJob { cancel, done })
     }
 
+    /// Words with times for one file on its own thread: `FileProgress`… then
+    /// `FileWords` or `FileError`. A DTW-capable context is loaded for the
+    /// job (flash attention off) and freed when it ends.
+    pub fn transcribe_words(
+        path: std::path::PathBuf,
+        lang: transcribe_core::protocol::Lang,
+        model_id: &str,
+        emit: Emit,
+    ) -> Result<FileJob, String> {
+        use transcribe_core::file;
+        let info = model::find(model_id).ok_or(model::ERR_UNKNOWN)?;
+        if !model::is_installed(info) {
+            return Err(model::ERR_MISSING.into());
+        }
+        let model_path = model::path_of(info);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let (c2, d2) = (cancel.clone(), done.clone());
+        std::thread::Builder::new()
+            .name("ir-transcribe-words".into())
+            .spawn(move || {
+                let _activity = transcribe_core::activity_macos::Activity::begin("Wortzeiten werden ermittelt");
+                let run = || -> Result<file::FileWords, String> {
+                    let mut src = file::open_audio(&path)?;
+                    emit(Event::FileProgress { done_ms: 0, total_ms: src.total_ms() });
+                    let engine = Engine::load_dtw(&model_path)?;
+                    let mut stream = engine.new_stream()?;
+                    let mut vad = transcribe_core::vad::SileroVad::new()?;
+                    let e2 = emit.clone();
+                    file::transcribe_words_stream(src.as_mut(), &mut vad, &mut stream, lang, 4, &c2, move |d, t| {
+                        e2(Event::FileProgress { done_ms: d, total_ms: t })
+                    })
+                };
+                match run() {
+                    Ok(r) => emit(Event::FileWords { words: r.words, lang: r.lang }),
+                    Err(error) => emit(Event::FileError { error }),
+                }
+                d2.store(true, Ordering::SeqCst);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(FileJob { cancel, done })
+    }
+
     pub fn download(id: &str, cancel: Arc<AtomicBool>, emit: Emit) {
         let Some(info) = model::find(id) else {
             emit(Event::ModelError { model: id.into(), error: model::ERR_UNKNOWN.into() });
@@ -185,6 +228,14 @@ mod engine_side {
         _: transcribe_core::protocol::Lang,
         _: &str,
         _: &mut Engines,
+        _: Emit,
+    ) -> Result<FileJob, String> {
+        Err("transcribe.unsupported".into())
+    }
+    pub fn transcribe_words(
+        _: std::path::PathBuf,
+        _: transcribe_core::protocol::Lang,
+        _: &str,
         _: Emit,
     ) -> Result<FileJob, String> {
         Err("transcribe.unsupported".into())
@@ -286,6 +337,17 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                     return true;
                 }
                 match transcribe_file(path, lang, &model, &mut engines, emit.clone()) {
+                    Ok(j) => file = Some(j),
+                    Err(error) => emit(Event::FileError { error }),
+                }
+                true
+            }
+            Command::TranscribeWords { path, lang, model } => {
+                if session.is_some() || file.is_some() {
+                    emit(Event::FileError { error: ERR_BUSY.into() });
+                    return true;
+                }
+                match transcribe_words(path, lang, &model, emit.clone()) {
                     Ok(j) => file = Some(j),
                     Err(error) => emit(Event::FileError { error }),
                 }

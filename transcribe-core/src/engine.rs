@@ -6,7 +6,11 @@ use crate::decode::{DecodeOpts, Decoded};
 use crate::queue::JobKind;
 use crate::text::drop_loops;
 use std::path::Path;
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState};
+use crate::words::{merge_utf8, TokDecoded, WordTranscriber};
+use whisper_rs::{
+    DtwMode, DtwModelPreset, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+    WhisperState,
+};
 
 pub struct Engine {
     ctx: WhisperContext,
@@ -28,6 +32,23 @@ impl Engine {
         HOOKS.call_once(whisper_rs::install_logging_hooks);
         let mut p = WhisperContextParameters::default();
         p.use_gpu(true).flash_attn(true);
+        let ctx = WhisperContext::new_with_params(path.to_string_lossy().as_ref(), p)
+            .map_err(|e| format!("load {}: {e}", path.display()))?;
+        let de_id = whisper_rs::get_lang_id("de").ok_or("no de language id")? as usize;
+        let en_id = whisper_rs::get_lang_id("en").ok_or("no en language id")? as usize;
+        Ok(Engine { ctx, de_id, en_id })
+    }
+
+    /// A second context for word timing: DTW token times (`t_dtw`) need
+    /// flash attention OFF, so this is never the live/meeting engine. Loaded
+    /// per word job and dropped afterwards.
+    pub fn load_dtw(path: &Path) -> Result<Engine, String> {
+        HOOKS.call_once(whisper_rs::install_logging_hooks);
+        let mut p = WhisperContextParameters::default();
+        p.use_gpu(true).flash_attn(false).dtw_parameters(DtwParameters {
+            mode: DtwMode::ModelPreset { model_preset: DtwModelPreset::LargeV3Turbo },
+            ..Default::default()
+        });
         let ctx = WhisperContext::new_with_params(path.to_string_lossy().as_ref(), p)
             .map_err(|e| format!("load {}: {e}", path.display()))?;
         let de_id = whisper_rs::get_lang_id("de").ok_or("no de language id")? as usize;
@@ -148,6 +169,62 @@ impl Stream {
             no_speech,
             rejected,
         })
+    }
+}
+
+/// Word timing on a `load_dtw` engine: greedy (DTW follows one path), token
+/// timestamps on; otherwise the final decode's rules — language, no
+/// context, prompt, silence never decoded, rejected segments left out.
+impl WordTranscriber for Stream {
+    fn decode_tokens(&mut self, samples: &[f32], opts: &DecodeOpts) -> Result<TokDecoded, String> {
+        let threads = opts.threads.max(1);
+        if is_silent(samples) {
+            return Ok(TokDecoded { tokens: Vec::new(), lang: resolve_lang(opts.lang, None, opts.last_lang.as_deref()) });
+        }
+        let lang = match opts.lang.forced() {
+            Some(l) => l.to_string(),
+            None => {
+                let detected = self.detect(samples, threads);
+                resolve_lang(opts.lang, detected, opts.last_lang.as_deref())
+            }
+        };
+        let lang_static: &'static str = if lang == "en" { "en" } else { "de" };
+        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        p.set_n_threads(threads as i32);
+        p.set_language(Some(lang_static));
+        p.set_translate(false);
+        p.set_print_progress(false);
+        p.set_print_realtime(false);
+        p.set_print_special(false);
+        p.set_print_timestamps(false);
+        p.set_suppress_blank(true);
+        p.set_no_context(true);
+        p.set_token_timestamps(true);
+        let prompt: String = opts.prompt.chars().filter(|c| *c != '\0').collect();
+        if !prompt.trim().is_empty() {
+            p.set_initial_prompt(&prompt);
+        }
+        self.state.full(p, samples).map_err(|e| format!("decode: {e}"))?;
+
+        let mut raw = Vec::new();
+        for seg in self.state.as_iter() {
+            let text = seg.to_str_lossy().map(|c| c.trim().to_string()).unwrap_or_default();
+            let mut probs = Vec::new();
+            let mut toks = Vec::new();
+            for i in 0..seg.n_tokens() {
+                let Some(t) = seg.get_token(i) else { continue };
+                let special = t.token_id() >= self.eot;
+                let d = t.token_data();
+                if !special {
+                    probs.push(d.p);
+                }
+                toks.push((t.to_bytes().map(<[u8]>::to_vec).unwrap_or_default(), d.t_dtw, d.p, special));
+            }
+            if accept(&text, mean_logprob(&probs), seg.no_speech_probability()).is_ok() {
+                raw.extend(toks);
+            }
+        }
+        Ok(TokDecoded { tokens: merge_utf8(raw), lang })
     }
 }
 

@@ -64,7 +64,7 @@ fn dispatch(ev: &Event) {
             BUSY.store(false, Ordering::SeqCst)
         }
         Event::Error { .. } => STARTING.store(false, Ordering::SeqCst),
-        Event::FileDone { .. } | Event::FileError { .. } => FILE_BUSY.store(false, Ordering::SeqCst),
+        Event::FileDone { .. } | Event::FileWords { .. } | Event::FileError { .. } => FILE_BUSY.store(false, Ordering::SeqCst),
         _ => {}
     }
     let listeners: Vec<Listener> = LISTENERS.lock().iter().map(|(_, l)| l.clone()).collect();
@@ -137,7 +137,7 @@ pub fn send(cmd: &Command) -> Result<(), String> {
     let r = guard.as_mut().expect("just set");
     let line = encode(cmd);
     // Set before writing: the answer can arrive before `write_all` returns.
-    let file = matches!(cmd, Command::TranscribeFile { .. });
+    let file = matches!(cmd, Command::TranscribeFile { .. } | Command::TranscribeWords { .. });
     if file {
         FILE_BUSY.store(true, Ordering::SeqCst);
     }

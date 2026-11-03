@@ -183,3 +183,62 @@ fn file_mode_transcribes_wav_and_m4a() {
     drop(stdin);
     let _ = child.wait();
 }
+
+/// Word timing end to end: `say` speaks a known German sentence into a WAV,
+/// `TranscribeWords` returns its words in order with monotonic times that end
+/// inside the file.
+#[test]
+#[ignore = "needs the installed model"]
+fn file_words() {
+    let models = dirs::data_dir().unwrap().join("InspectorRust/models");
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("satz.wav");
+    let sentence = "Guten Morgen, heute besprechen wir den Zeitplan für das nächste Quartal.";
+    let st = Command::new("say")
+        .args(["-v", "Anna", "--data-format=LEI16@16000", "-o"])
+        .arg(&wav)
+        .arg(sentence)
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let bytes = std::fs::metadata(&wav).unwrap().len();
+    let file_ms = bytes.saturating_sub(44) * 1000 / (16_000 * 2);
+
+    let mut child = spawn(&models);
+    let mut stdin = child.stdin.take().unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    assert!(matches!(next(&mut out), Event::Ready { .. }));
+    let cmd = transcribe_protocol::Command::TranscribeWords {
+        path: wav.clone(),
+        lang: transcribe_protocol::Lang::De,
+        model: "large-v3-turbo-q5".into(),
+    };
+    let t = Instant::now();
+    stdin.write_all(encode(&cmd).as_bytes()).unwrap();
+    let (words, lang) = loop {
+        match next(&mut out) {
+            Event::FileWords { words, lang } => break (words, lang),
+            Event::FileError { error } => panic!("{error}"),
+            _ => {}
+        }
+    };
+    eprintln!("{} ms, file {file_ms} ms, lang {lang:?}", t.elapsed().as_millis());
+    for w in &words {
+        eprintln!("  {:>6}–{:>6} {:.2} {}", w.start_ms, w.end_ms, w.p, w.text);
+    }
+    let norm = |s: &str| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+    let got: Vec<String> = words.iter().map(|w| norm(&w.text)).collect();
+    let want = ["guten", "morgen", "heute", "besprechen", "wir", "den", "zeitplan", "für", "das", "nächste", "quartal"];
+    let mut it = got.iter();
+    for w in want {
+        assert!(it.any(|g| g == w), "{w} missing or out of order in {got:?}");
+    }
+    let mut prev = 0;
+    for w in &words {
+        assert!(w.start_ms >= prev && w.end_ms >= w.start_ms, "not monotonic: {words:?}");
+        prev = w.end_ms;
+    }
+    assert!(prev <= file_ms + 200, "last word ends at {prev}, file is {file_ms} ms");
+    drop(stdin);
+    let _ = child.wait();
+}

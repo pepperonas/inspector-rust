@@ -102,6 +102,16 @@ pub struct SessionConfig {
     pub mode: Mode,
 }
 
+/// One recognised word. `start_ms`/`end_ms` are milliseconds of the file;
+/// `p` is the mean token probability (0..1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Word {
+    pub text: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub p: f32,
+}
+
 /// App → helper.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -116,6 +126,9 @@ pub enum Command {
     DownloadModel { model: String },
     CancelDownload,
     TranscribeFile { path: PathBuf, lang: Lang, model: String },
+    /// A whole file → words with times (`FileProgress`… then `FileWords` or
+    /// `FileError`; `CancelFile` stops it). Same busy rule as `TranscribeFile`.
+    TranscribeWords { path: PathBuf, lang: Lang, model: String },
     CancelFile,
     ListDevices,
     Shutdown,
@@ -164,6 +177,14 @@ pub enum Event {
         lang: Option<String>,
     },
     FileError { error: String },
+    /// The answer to `TranscribeWords`: every word in order, times in ms of
+    /// the file.
+    FileWords {
+        words: Vec<Word>,
+        /// The language most of the speech was in.
+        #[serde(default)]
+        lang: Option<String>,
+    },
     Devices { mic: Vec<String> },
     Error { error: String },
 }

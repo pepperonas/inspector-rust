@@ -24,6 +24,7 @@ fn commands() -> Vec<Command> {
         Command::DownloadModel { model: "small-q5".into() },
         Command::CancelDownload,
         Command::TranscribeFile { path: "/a b.m4a".into(), lang: Lang::De, model: "x".into() },
+        Command::TranscribeWords { path: "/p/mic.wav".into(), lang: Lang::Auto, model: "x".into() },
         Command::CancelFile,
         Command::SetLang { lang: Lang::En },
         Command::ListDevices,
@@ -57,6 +58,10 @@ fn events() -> Vec<Event> {
         Event::FileProgress { done_ms: 1, total_ms: 2 },
         Event::FileDone { txt: "/x.txt".into(), lang: Some("de".into()) },
         Event::FileError { error: "e".into() },
+        Event::FileWords {
+            words: vec![Word { text: "Hallo".into(), start_ms: 300, end_ms: 800, p: 0.5 }],
+            lang: Some("de".into()),
+        },
         Event::Devices { mic: vec!["a".into()] },
         Event::Error { error: "e".into() },
     ]
@@ -89,4 +94,17 @@ fn source_labels() {
     assert_eq!(Source::Mic.label(), "MIC");
     assert_eq!(Source::Sys.label(), "SYS");
     assert_eq!(encode(&Source::Mic).trim(), "\"mic\"");
+}
+
+#[test]
+fn words_command_and_event_use_their_tags() {
+    let c = encode(&Command::TranscribeWords { path: "/a.wav".into(), lang: Lang::De, model: "m".into() });
+    assert!(c.contains("\"cmd\":\"transcribe_words\""), "{c}");
+    let e = encode(&Event::FileWords { words: vec![], lang: None });
+    assert!(e.contains("\"event\":\"file_words\""), "{e}");
+    // An old helper's answer without `lang` still reads.
+    assert_eq!(
+        decode_event(r#"{"event":"file_words","words":[{"text":"a","start_ms":1,"end_ms":2,"p":1.0}]}"#).unwrap(),
+        Event::FileWords { words: vec![Word { text: "a".into(), start_ms: 1, end_ms: 2, p: 1.0 }], lang: None }
+    );
 }

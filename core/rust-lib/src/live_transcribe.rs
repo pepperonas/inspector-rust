@@ -618,7 +618,7 @@ fn run(app: tauri::AppHandle, id: u64, lang: transcribe_protocol::Lang, source: 
         if !matches!(
             ev,
             Event::ModelProgress { .. } | Event::ModelReady { .. } | Event::ModelError { .. } | Event::Devices { .. }
-                | Event::FileProgress { .. } | Event::FileDone { .. } | Event::FileError { .. }
+                | Event::FileProgress { .. } | Event::FileDone { .. } | Event::FileWords { .. } | Event::FileError { .. }
         ) {
             let _ = tx.lock().send(ev.clone());
         }

@@ -13,6 +13,7 @@ import {
   previewRatio,
   setAppearance,
 } from "./editor";
+import { CAPTION_DEFAULTS } from "./editor";
 
 const doc = (padding = 0): RecordEditDoc =>
   ({
@@ -54,6 +55,8 @@ const doc = (padding = 0): RecordEditDoc =>
       background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
     },
     layoutRegions: [],
+    transcripts: [],
+    captions: { ...CAPTION_DEFAULTS },
   }) as RecordEditDoc;
 
 describe("inspector presets", () => {

@@ -370,7 +370,9 @@ pub fn scene_json_with(
         })
         .collect();
 
-    let annotations = annotations_json(project_dir, doc, &kept);
+    let mut annotations = annotations_json(project_dir, doc, &kept);
+    // Captions after every annotation (painted last); none without a transcript or when off.
+    annotations.extend(super::captions::caption_entries(doc, out, &kept));
 
     let c = &doc.cursor;
     // Drawn when any clip's recording has pointer data (a clip without plays none).
@@ -688,6 +690,7 @@ mod tests {
 
     const GOLDEN: &str = include_str!("fixtures/scene-golden.json");
     const GOLDEN_STYLED: &str = include_str!("fixtures/scene-golden-styled.json");
+    const GOLDEN_CAPTIONS: &str = include_str!("fixtures/scene-golden-captions.json");
     const DIR: &str = "/Users/someone/Movies/Inspector Rust/take-1";
     const PLACEHOLDER: &str = "<PROJECT>";
     const ASSETS_PLACEHOLDER: &str = "<ASSETS>";
@@ -1314,6 +1317,54 @@ mod tests {
         assert_eq!(a.len(), 1);
         assert_eq!(a[0]["id"], "y");
         assert_eq!(a[0]["clipIndex"], 0);
+    }
+
+    /// The caption entries of a small transcript over the stage-2 document (two clips, the
+    /// second from 6.5 s): golden for the annotations block; the rest of the scene is the
+    /// unchanged `scene-golden.json`.
+    #[test]
+    fn scene_with_captions() {
+        let mut d = doc();
+        let w = |id: &str, s: u64, e: u64, t: &str| editor::TranscriptWord { id: id.into(), start_ms: s, end_ms: e, text: t.into(), original_text: None };
+        d.transcripts = vec![editor::Transcript {
+            source: None,
+            lang: "de".into(),
+            words: vec![
+                w("w1", 500, 800, "Hallo"),
+                w("w2", 850, 1_200, "zusammen,"),
+                w("w3", 1_250, 1_500, "das"),
+                w("w4", 3_700, 4_300, "geht"),
+                w("w5", 6_000, 6_900, "über"),
+                w("w6", 7_000, 7_400, "Clips."),
+            ],
+        }];
+        d.captions.enabled = true;
+        // A real annotation above the base: captions still paint after it.
+        let mut a = ann("note", 1, 500_000, text_body());
+        a.start_ms = 7_000;
+        a.end_ms = 8_000;
+        d.annotations = vec![a];
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let list = &v["annotations"];
+        check_golden(&canonical(list), GOLDEN_CAPTIONS, "scene-golden-captions.json");
+        let ids: Vec<&str> = list.as_array().unwrap().iter().map(|a| a["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["note", "caption-0-0", "caption-0-1", "caption-1-0"]);
+        // Everything but the annotations is the scene without captions, byte for byte.
+        let mut plain = d.clone();
+        plain.captions.enabled = false;
+        let mut without = scene_json_with(Path::new(DIR), &project(), &plain, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let mut with = v.clone();
+        with.as_object_mut().unwrap().remove("annotations");
+        without.as_object_mut().unwrap().remove("annotations");
+        assert_eq!(canonical(&with), canonical(&without));
+        // Captions off: the plain document's scene has only the real annotation.
+        let off = scene_json_with(Path::new(DIR), &project(), &plain, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert_eq!(off["annotations"].as_array().unwrap().len(), 1);
+        // Transcript without captions on and no annotations: the stage-2 golden, unchanged.
+        let mut bare = doc();
+        bare.transcripts = d.transcripts.clone();
+        let g = scene_json(Path::new(DIR), &project(), &bare, (1920, 1080), 30, &assets());
+        assert_eq!(placeholders(&g), GOLDEN);
     }
 
     #[test]

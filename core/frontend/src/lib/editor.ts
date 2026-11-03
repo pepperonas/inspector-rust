@@ -19,6 +19,7 @@ import type {
   RecordBackground,
   RecordCropRect,
   RecordCameraStyle,
+  RecordCaptionSettings,
   RecordCursorStyle,
   RecordEditDoc,
   RecordLayoutPreset,
@@ -690,6 +691,68 @@ export const MUSIC_DEFAULT_GAIN_DB = -18;
 export const MUSIC_DEFAULT_FADE_MS = 1000;
 /** Length of a freshly added annotation (upstream `DEFAULT_NEW_REGION_SEC`). */
 export const NEW_ANNOTATION_MS = 2000;
+
+// ── captions (stage 6) ──────────────────────────────────────────────────────
+// Mirrors of the constants in record/captions.rs (a test reads that file and pins them).
+
+/** What a stored font size is read into (px at a 1080-high frame). */
+export const CAPTION_FONT_SIZE_RANGE = [12, 200] as const;
+/** What the captions pane offers. */
+export const CAPTION_FONT_SIZE_UI_RANGE = [16, 140] as const;
+export const CAPTION_PLATE_OPACITY_RANGE = [0.4, 0.9] as const;
+/** A plate opacity below this reads as "no plate". */
+export const CAPTION_PLATE_OFF_BELOW = 0.2;
+export const CAPTION_PLATE_DARK = "#000000";
+export const CAPTION_PLATE_LIGHT = "#ffffff";
+export const CAPTION_INSET_Y_MAX = 50;
+export const CAPTION_INSET_X_MAX = 25;
+export const CAPTION_INSET_STEP = 0.5;
+export const CAPTION_LANDSCAPE_ASPECT = 1.5;
+export const CAPTION_INSET_Y_LANDSCAPE = 1.5;
+export const CAPTION_INSET_Y_PORTRAIT = 12.5;
+export const CAPTION_INSET_X_LANDSCAPE = 10;
+export const CAPTION_INSET_X_PORTRAIT = 5;
+export const CAPTION_WORDS_RANGE = [1, 12] as const;
+
+export interface CaptionLook {
+  fontFamily: string;
+  bold: boolean;
+  fontSize: number;
+  color: string;
+  plate: boolean;
+  plateColor: string;
+  plateOpacity: number;
+}
+/** The named looks, classic first (= the default look). */
+export const CAPTION_LOOKS: readonly (readonly [string, CaptionLook])[] = [
+  ["classic", { fontFamily: "Inter", bold: true, fontSize: 48, color: "#ffffff", plate: true, plateColor: "#000000", plateOpacity: 0.55 }],
+  ["bold", { fontFamily: "Oswald", bold: true, fontSize: 60, color: "#fde047", plate: true, plateColor: "#000000", plateOpacity: 0.85 }],
+  ["minimal", { fontFamily: "Inter", bold: false, fontSize: 40, color: "#ffffff", plate: true, plateColor: "#000000", plateOpacity: 0.4 }],
+  ["light", { fontFamily: "Inter", bold: true, fontSize: 48, color: "#111111", plate: true, plateColor: "#ffffff", plateOpacity: 0.9 }],
+];
+
+/** `CaptionSettings::default()`: off, the classic look, bottom centre, the aspect's insets. */
+export const CAPTION_DEFAULTS: RecordCaptionSettings = {
+  enabled: false,
+  ...CAPTION_LOOKS[0][1],
+  anchorV: "bottom",
+  anchorH: "center",
+  insetY: null,
+  insetX: null,
+  minWords: 2,
+  maxWords: 7,
+  lang: "auto",
+};
+
+/** The vertical / horizontal inset in force for an output aspect (`w / h`). */
+export function captionInsets(s: RecordCaptionSettings, aspect: number): { y: number; x: number } {
+  const land = aspect >= CAPTION_LANDSCAPE_ASPECT;
+  const clamp = (v: number, max: number) => Math.min(max, Math.max(0, v));
+  return {
+    y: clamp(s.insetY ?? (land ? CAPTION_INSET_Y_LANDSCAPE : CAPTION_INSET_Y_PORTRAIT), CAPTION_INSET_Y_MAX),
+    x: clamp(s.insetX ?? (land ? CAPTION_INSET_X_LANDSCAPE : CAPTION_INSET_X_PORTRAIT), CAPTION_INSET_X_MAX),
+  };
+}
 
 /** The body a new annotation of `kind` starts with (upstream defaults). */
 export function defaultAnnotationBody(kind: RecordAnnotationKind): RecordAnnotationBody {

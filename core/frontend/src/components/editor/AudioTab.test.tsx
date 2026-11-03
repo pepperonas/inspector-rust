@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAudioTrack, RecordEditDoc } from "../../lib/ipc";
 import { AudioTab, VoiceoverPanel, snap, voiceoverMeter, type AudioTabProps } from "./AudioTab";
+import { CAPTION_DEFAULTS } from "../../lib/editor";
 
 afterEach(cleanup);
 
@@ -41,6 +42,8 @@ const doc = (audioTracks: RecordAudioTrack[] = [], systemGainDb = 0): RecordEdit
     systemGainDb,
     camera: {} as RecordEditDoc["camera"],
     layoutRegions: [],
+    transcripts: [],
+    captions: { ...CAPTION_DEFAULTS },
   }) as RecordEditDoc;
 
 function mount(d: RecordEditDoc, selected: string | null = null, over: Partial<AudioTabProps> = {}) {

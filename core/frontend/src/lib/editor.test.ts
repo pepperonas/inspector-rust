@@ -1,8 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import EDITOR_RS from "../../../rust-lib/src/record/editor.rs?raw";
+import CAPTIONS_RS from "../../../rust-lib/src/record/captions.rs?raw";
 import type { RecordEditDoc, RecordEditorView } from "./ipc";
 import {
   ANNOTATION_DEFAULT_RECT,
+  CAPTION_DEFAULTS,
+  CAPTION_FONT_SIZE_RANGE,
+  CAPTION_FONT_SIZE_UI_RANGE,
+  CAPTION_INSET_STEP,
+  CAPTION_INSET_X_LANDSCAPE,
+  CAPTION_INSET_X_MAX,
+  CAPTION_INSET_X_PORTRAIT,
+  CAPTION_INSET_Y_LANDSCAPE,
+  CAPTION_INSET_Y_MAX,
+  CAPTION_INSET_Y_PORTRAIT,
+  CAPTION_LANDSCAPE_ASPECT,
+  CAPTION_LOOKS,
+  CAPTION_PLATE_DARK,
+  CAPTION_PLATE_LIGHT,
+  CAPTION_PLATE_OFF_BELOW,
+  CAPTION_PLATE_OPACITY_RANGE,
+  CAPTION_WORDS_RANGE,
+  captionInsets,
   BLUR_BLOCK_RANGE,
   BLUR_INTENSITY_RANGE,
   DEFAULT_ARROW_COLOR,
@@ -104,6 +123,8 @@ const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
     background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
   },
   layoutRegions: [],
+  transcripts: [],
+  captions: CAPTION_DEFAULTS,
   ...over,
 });
 
@@ -665,3 +686,62 @@ describe("camera style + layout regions", () => {
     expect([lim("CAMERA_SIZE_MIN"), lim("CAMERA_SIZE_MAX")]).toEqual([...CAMERA_SIZE_RANGE]);
   });
 });
+
+describe("captions (stage 6)", () => {
+  it("the caption constants mirror record/captions.rs", () => {
+    const raw = (name: string) => {
+      const m = new RegExp(`pub const ${name}: [^=]+= ([^;]+);`).exec(CAPTIONS_RS);
+      expect(m, name).not.toBeNull();
+      return m![1];
+    };
+    const num = (name: string) => Number(raw(name));
+    const tuple = (name: string) => raw(name).replace(/[()]/g, "").split(",").map((v) => Number(v.trim()));
+    expect(tuple("CAPTION_FONT_SIZE_RANGE")).toEqual([...CAPTION_FONT_SIZE_RANGE]);
+    expect(tuple("CAPTION_FONT_SIZE_UI_RANGE")).toEqual([...CAPTION_FONT_SIZE_UI_RANGE]);
+    expect(tuple("CAPTION_PLATE_OPACITY_RANGE")).toEqual([...CAPTION_PLATE_OPACITY_RANGE]);
+    expect(tuple("CAPTION_WORDS_RANGE")).toEqual([...CAPTION_WORDS_RANGE]);
+    expect(num("CAPTION_PLATE_OFF_BELOW")).toBe(CAPTION_PLATE_OFF_BELOW);
+    expect(num("CAPTION_INSET_Y_MAX")).toBe(CAPTION_INSET_Y_MAX);
+    expect(num("CAPTION_INSET_X_MAX")).toBe(CAPTION_INSET_X_MAX);
+    expect(num("CAPTION_INSET_STEP")).toBe(CAPTION_INSET_STEP);
+    expect(num("CAPTION_LANDSCAPE_ASPECT")).toBe(CAPTION_LANDSCAPE_ASPECT);
+    expect(num("CAPTION_INSET_Y_LANDSCAPE")).toBe(CAPTION_INSET_Y_LANDSCAPE);
+    expect(num("CAPTION_INSET_Y_PORTRAIT")).toBe(CAPTION_INSET_Y_PORTRAIT);
+    expect(num("CAPTION_INSET_X_LANDSCAPE")).toBe(CAPTION_INSET_X_LANDSCAPE);
+    expect(num("CAPTION_INSET_X_PORTRAIT")).toBe(CAPTION_INSET_X_PORTRAIT);
+    expect(num("DEFAULT_CAPTION_MIN_WORDS")).toBe(CAPTION_DEFAULTS.minWords);
+    expect(num("DEFAULT_CAPTION_MAX_WORDS")).toBe(CAPTION_DEFAULTS.maxWords);
+    expect(JSON.parse(raw("CAPTION_PLATE_DARK"))).toBe(CAPTION_PLATE_DARK);
+    expect(JSON.parse(raw("CAPTION_PLATE_LIGHT"))).toBe(CAPTION_PLATE_LIGHT);
+    // The looks, entry by entry.
+    const block = /pub const CAPTION_LOOKS: [^=]+= \[([\s\S]*?)\];/.exec(CAPTIONS_RS);
+    expect(block).not.toBeNull();
+    const rust = [...block![1].matchAll(/\("(\w+)", CaptionLook \{ ([^}]*) \}\)/g)].map((m) => {
+      const f = Object.fromEntries(m[2].split(", ").map((kv) => kv.split(": ")));
+      return [
+        m[1],
+        {
+          fontFamily: JSON.parse(f.font_family),
+          bold: f.bold === "true",
+          fontSize: Number(f.font_size),
+          color: JSON.parse(f.color),
+          plate: f.plate === "true",
+          plateColor: JSON.parse(f.plate_color),
+          plateOpacity: Number(f.plate_opacity),
+        },
+      ];
+    });
+    expect(rust).toHaveLength(4);
+    expect(rust).toEqual(CAPTION_LOOKS.map(([n, l]) => [n, { ...l }]));
+  });
+
+  it("the defaults are the classic look, off, with the aspect's insets", () => {
+    expect(CAPTION_DEFAULTS.enabled).toBe(false);
+    expect(CAPTION_DEFAULTS.fontSize).toBe(48);
+    expect([CAPTION_DEFAULTS.insetY, CAPTION_DEFAULTS.insetX]).toEqual([null, null]);
+    expect(captionInsets(CAPTION_DEFAULTS, 16 / 9)).toEqual({ y: 1.5, x: 10 });
+    expect(captionInsets(CAPTION_DEFAULTS, 9 / 16)).toEqual({ y: 12.5, x: 5 });
+    expect(captionInsets({ ...CAPTION_DEFAULTS, insetY: 70, insetX: 3 }, 9 / 16)).toEqual({ y: 50, x: 3 });
+  });
+});
+

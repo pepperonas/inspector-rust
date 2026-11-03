@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub const EDITOR_VERSION: u32 = 4;
+pub const EDITOR_VERSION: u32 = 5;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -778,6 +778,111 @@ pub struct EditDoc {
     /// Layout changes within the video (v4), see [`LayoutRegion`].
     #[serde(default, deserialize_with = "lenient_vec")]
     pub layout_regions: Vec<LayoutRegion>,
+    /// One transcript per recording (v5), words in that recording's SOURCE ms. Captions are
+    /// derived from it on every scene build (`captions::caption_entries`), never stored.
+    #[serde(default, deserialize_with = "lenient_vec")]
+    pub transcripts: Vec<Transcript>,
+    /// How the captions look and where they sit (v5).
+    #[serde(default)]
+    pub captions: CaptionSettings,
+}
+
+/// The words of one recording, with times in that recording's SOURCE ms.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Transcript {
+    /// `None` = the project's own take, else the inserted take's id (like `EditClip::source`).
+    #[serde(default)]
+    pub source: Option<String>,
+    /// The language the words are in (`de`, `en`, …).
+    #[serde(default)]
+    pub lang: String,
+    #[serde(default, deserialize_with = "lenient_vec")]
+    pub words: Vec<TranscriptWord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptWord {
+    #[serde(default)]
+    pub id: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    /// What is shown (an empty text hides the word from the captions).
+    #[serde(default)]
+    pub text: String,
+    /// What the recognizer heard, kept once the word was corrected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptionAnchorV {
+    Top,
+    #[default]
+    Bottom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptionAnchorH {
+    Left,
+    #[default]
+    Center,
+    Right,
+}
+
+/// The captions' look and place (OpenScreen `CaptionSettings`, values in `captions.rs`).
+/// `inset_y`/`inset_x` = `None` means the output aspect's standard, resolved at every scene
+/// build — it is never written down as a number, so a later aspect change still gets its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CaptionSettings {
+    pub enabled: bool,
+    /// Pixels at a 1080-high frame.
+    pub font_size: f64,
+    pub font_family: String,
+    pub bold: bool,
+    pub color: String,
+    pub plate: bool,
+    /// `#rrggbb`; the opacity is its own field.
+    pub plate_color: String,
+    pub plate_opacity: f64,
+    pub anchor_v: CaptionAnchorV,
+    pub anchor_h: CaptionAnchorH,
+    /// Percent of the frame height from the anchored edge.
+    pub inset_y: Option<f64>,
+    /// Percent of the frame width from the anchored edge (ignored when centred).
+    pub inset_x: Option<f64>,
+    pub min_words: u8,
+    pub max_words: u8,
+    /// The language a (re-)transcription asks for.
+    pub lang: transcribe_protocol::Lang,
+}
+
+impl Default for CaptionSettings {
+    fn default() -> Self {
+        use super::captions as c;
+        let look = c::CAPTION_LOOKS[0].1;
+        CaptionSettings {
+            enabled: false,
+            font_size: look.font_size,
+            font_family: look.font_family.into(),
+            bold: look.bold,
+            color: look.color.into(),
+            plate: look.plate,
+            plate_color: look.plate_color.into(),
+            plate_opacity: look.plate_opacity,
+            anchor_v: CaptionAnchorV::Bottom,
+            anchor_h: CaptionAnchorH::Center,
+            inset_y: None,
+            inset_x: None,
+            min_words: c::DEFAULT_CAPTION_MIN_WORDS,
+            max_words: c::DEFAULT_CAPTION_MAX_WORDS,
+            lang: transcribe_protocol::Lang::Auto,
+        }
+    }
 }
 
 /// One clip on the programme timeline.
@@ -893,10 +998,12 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
             preset.and_then(|p| p.camera.as_ref()).map_or_else(|| base.clone(), |c| c.apply_to(&base))
         },
         layout_regions: Vec::new(),
+        transcripts: Vec::new(),
+        captions: CaptionSettings::default(),
     }
 }
 
-/// Reads a stored editor block: v4 as is, v3 upgraded with the standard camera look
+/// Reads a stored editor block: v5 as is, v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
 /// (`CameraStyle::default()`, picture-in-picture whether or not there is a camera) and no layout
 /// regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
@@ -928,6 +1035,11 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
         // The standard look for every project; clips without a camera resolve per clip.
         doc.camera = CameraStyle::default();
         doc.layout_regions = Vec::new();
+    }
+    if doc.version == 4 {
+        doc.version = 5;
+        doc.transcripts = Vec::new();
+        doc.captions = CaptionSettings::default();
     }
     (doc.version == EDITOR_VERSION).then_some(doc)
 }
@@ -1204,6 +1316,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         system_gain_db,
         camera,
         layout_regions,
+        transcripts,
+        captions,
         ..
     } = doc;
     crop.resize(clips.len(), None);
@@ -1298,7 +1412,42 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         system_gain_db: clamp_or(system_gain_db, SYSTEM_GAIN_RANGE.0, SYSTEM_GAIN_RANGE.1, 0.0),
         camera: normalize_camera(camera),
         layout_regions,
+        transcripts: normalize_transcripts(transcripts, duration_ms, takes),
+        captions: super::captions::normalize_settings(captions),
     }
+}
+
+/// One transcript per recording (a later one for the same recording wins); each recording's
+/// words sorted by time, clamped into that recording (`duration_ms` for the own take, the take's
+/// length from `takes`, unclamped when the take is not readable right now — like its clips),
+/// words starting at or past its end dropped, ids made unique.
+fn normalize_transcripts(transcripts: Vec<Transcript>, duration_ms: u64, takes: &TakeMetas) -> Vec<Transcript> {
+    let mut out: Vec<Transcript> = Vec::new();
+    for t in transcripts {
+        let source = t.source.filter(|s| !s.trim().is_empty());
+        let limit = match &source {
+            None => Some(duration_ms),
+            Some(id) => takes.get(id).filter(|_| valid_take_id(id)).map(|m| m.duration_ms),
+        };
+        let mut words: Vec<TranscriptWord> = t
+            .words
+            .into_iter()
+            .filter(|w| limit.is_none_or(|l| w.start_ms < l))
+            .map(|w| {
+                let end = limit.map_or(w.end_ms, |l| w.end_ms.min(l)).max(w.start_ms);
+                TranscriptWord { end_ms: end, ..w }
+            })
+            .collect();
+        words.sort_by_key(|w| (w.start_ms, w.end_ms));
+        let mut taken = HashSet::new();
+        for w in &mut words {
+            w.id = unique_id(std::mem::take(&mut w.id), "w", &mut taken);
+        }
+        let lang: String = t.lang.trim().chars().take(16).collect();
+        out.retain(|o| o.source != source);
+        out.push(Transcript { source, lang, words });
+    }
+    out
 }
 
 /// `taken` ∪ the result never holds `id` twice: an empty or repeated id gets `{prefix}-{n}`.
@@ -1318,6 +1467,11 @@ fn unique_id(id: String, prefix: &str, taken: &mut std::collections::HashSet<Str
 
 /// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb(…)`, `rgba(…)` or `transparent` — what the
 /// compositor's colour parser reads (`frame_geometry.rs:120-136`).
+/// [`valid_color`] for the captions module.
+pub(crate) fn is_valid_color(c: &str) -> bool {
+    valid_color(c)
+}
+
 fn valid_color(c: &str) -> bool {
     let c = c.trim();
     if c.eq_ignore_ascii_case("transparent") {
@@ -1951,6 +2105,8 @@ pub(crate) mod tests {
             system_gain_db: 0.0,
             camera: CameraStyle::default(),
             layout_regions: Vec::new(),
+            transcripts: Vec::new(),
+            captions: CaptionSettings::default(),
         }
     }
 
@@ -1994,12 +2150,130 @@ pub(crate) mod tests {
             serde_json::json!(null),
             serde_json::json!("garbage"),
             serde_json::json!({"version": 1, "clips": "nope"}),
-            serde_json::json!({"version": 5, "clips": [{"startMs": 0, "endMs": 5000}]}),
+            serde_json::json!({"version": EDITOR_VERSION + 1, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 0, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 1, "clips": []}),
         ] {
             assert_eq!(load(&project_with(editor.clone()), &NO_TAKES), def, "{editor}");
         }
+    }
+
+    fn word(id: &str, start_ms: u64, end_ms: u64, text: &str) -> TranscriptWord {
+        TranscriptWord { id: id.into(), start_ms, end_ms, text: text.into(), original_text: None }
+    }
+
+    #[test]
+    fn v4_doc_opens_with_captions_off_and_no_transcripts() {
+        let v4 = serde_json::json!({
+            "version": 4,
+            "clips": [{"startMs": 0, "endMs": 5_000}],
+            "autoZoomDone": true,
+            // A stray key from somewhere else must not switch captions on in an old project.
+            "captions": {"enabled": true},
+            "transcripts": [{"words": [{"startMs": 0, "endMs": 100, "text": "x"}]}],
+        });
+        let d = migrate(v4).unwrap();
+        assert_eq!(d.version, 5);
+        assert!(d.transcripts.is_empty());
+        assert_eq!(d.captions, CaptionSettings::default());
+        assert!(!d.captions.enabled);
+        // A v4 block with neither key reads the same.
+        let bare = migrate(serde_json::json!({"version": 4, "clips": [{"startMs": 0, "endMs": 1000}]})).unwrap();
+        assert!(bare.transcripts.is_empty() && bare.captions == CaptionSettings::default());
+    }
+
+    #[test]
+    fn normalize_clamps_caption_settings() {
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.captions = CaptionSettings {
+            font_size: 300.0,
+            plate_opacity: 0.1,
+            min_words: 9,
+            max_words: 3,
+            font_family: "Comic Sans".into(),
+            color: "nope".into(),
+            plate_color: "rgba(1, 2, 3, 0.5)".into(),
+            inset_y: Some(80.0),
+            inset_x: Some(-4.0),
+            ..CaptionSettings::default()
+        };
+        let c = normalize(d.clone(), 10_000, &NO_TAKES).captions;
+        assert_eq!(c.font_size, 200.0);
+        assert_eq!(c.plate_opacity, 0.1, "kept as stored");
+        assert!(!crate::record::captions::plate_on(&c), "below 0.2 reads as no plate");
+        assert_eq!((c.min_words, c.max_words), (3, 9));
+        assert_eq!(c.font_family, "Inter");
+        assert_eq!(c.color, "#ffffff");
+        assert_eq!(c.plate_color, "#000000");
+        assert_eq!((c.inset_y, c.inset_x), (Some(50.0), Some(0.0)));
+        // Between 0.2 and the lower bound: the nearest valid value; above: the upper bound.
+        d.captions = CaptionSettings { plate_opacity: 0.3, font_size: 4.0, min_words: 0, max_words: 40, ..CaptionSettings::default() };
+        let c = normalize(d.clone(), 10_000, &NO_TAKES).captions;
+        assert_eq!((c.plate_opacity, c.font_size, c.min_words, c.max_words), (0.4, 12.0, 1, 12));
+        d.captions = CaptionSettings { plate_opacity: 2.0, font_size: f64::NAN, ..CaptionSettings::default() };
+        let c = normalize(d, 10_000, &NO_TAKES).captions;
+        assert_eq!((c.plate_opacity, c.font_size), (0.9, 48.0));
+    }
+
+    #[test]
+    fn transcript_words_are_sorted_and_clamped_to_the_take() {
+        let mut takes = TakeMetas::new();
+        takes.insert("t1".into(), TakeMeta { duration_ms: 3_000, ..TakeMeta::default() });
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.transcripts = vec![
+            Transcript {
+                source: None,
+                lang: " de ".into(),
+                words: vec![
+                    word("b", 2_000, 2_400, "zwei"),
+                    word("a", 1_000, 1_300, "eins"),
+                    word("a", 9_800, 11_000, "drei"),
+                    word("c", 12_000, 12_500, "weg"),
+                    word("", 500, 400, "rückwärts"),
+                ],
+            },
+            Transcript { source: Some("t1".into()), lang: "en".into(), words: vec![word("x", 2_900, 4_000, "end"), word("y", 3_000, 3_100, "past")] },
+            Transcript { source: Some("gone".into()), lang: "en".into(), words: vec![word("z", 50_000, 60_000, "kept")] },
+        ];
+        let n = normalize(d.clone(), 10_000, &takes);
+        let own = &n.transcripts[0];
+        assert_eq!(own.lang, "de");
+        let got: Vec<(&str, u64, u64)> = own.words.iter().map(|w| (w.text.as_str(), w.start_ms, w.end_ms)).collect();
+        assert_eq!(got, vec![("rückwärts", 500, 500), ("eins", 1_000, 1_300), ("zwei", 2_000, 2_400), ("drei", 9_800, 10_000)]);
+        let ids: HashSet<&str> = own.words.iter().map(|w| w.id.as_str()).collect();
+        assert_eq!(ids.len(), 4, "ids are unique: {ids:?}");
+        let take = &n.transcripts[1];
+        assert_eq!(take.words.iter().map(|w| (w.start_ms, w.end_ms)).collect::<Vec<_>>(), vec![(2_900, 3_000)]);
+        // A take that is not readable right now keeps its words as stored.
+        assert_eq!(n.transcripts[2].words[0].end_ms, 60_000);
+        // One transcript per recording: the later one wins.
+        d.transcripts.push(Transcript { source: None, lang: "en".into(), words: vec![word("n", 100, 200, "neu")] });
+        let n = normalize(d, 10_000, &takes);
+        assert_eq!(n.transcripts.len(), 3);
+        let own = n.transcripts.iter().find(|t| t.source.is_none()).unwrap();
+        assert_eq!(own.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(), vec!["neu"]);
+    }
+
+    #[test]
+    fn inset_none_survives_a_save_roundtrip() {
+        let mut p = project_with(serde_json::json!({}));
+        let mut d = normalize(example(), 10_000, &NO_TAKES);
+        d.captions.enabled = true;
+        d.captions.font_size = 60.0;
+        store(&mut p, &d);
+        assert_eq!(p.editor["captions"]["insetY"], serde_json::Value::Null);
+        let back = load(&p, &NO_TAKES);
+        assert_eq!((back.captions.inset_y, back.captions.inset_x), (None, None));
+        assert_eq!(back, d);
+        // A set inset stays set.
+        d.captions.inset_y = Some(7.5);
+        store(&mut p, &d);
+        assert_eq!(load(&p, &NO_TAKES).captions.inset_y, Some(7.5));
+        // Words round-trip, an unset `originalText` is not written.
+        d.transcripts = vec![Transcript { source: None, lang: "de".into(), words: vec![word("w1", 0, 100, "hallo")] }];
+        store(&mut p, &d);
+        assert!(p.editor["transcripts"][0]["words"][0].get("originalText").is_none());
+        assert_eq!(load(&p, &NO_TAKES), d);
     }
 
     #[test]

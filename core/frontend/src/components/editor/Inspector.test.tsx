@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { EditorAssets, RecordEditDoc } from "../../lib/ipc";
 import { Inspector, type InspectorProps } from "./Inspector";
+import { CAPTION_DEFAULTS } from "../../lib/editor";
 
 const doc0 = (over: Partial<RecordEditDoc["appearance"]> = {}): RecordEditDoc => ({
   version: 3,
@@ -44,6 +45,8 @@ const doc0 = (over: Partial<RecordEditDoc["appearance"]> = {}): RecordEditDoc =>
     background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
   },
   layoutRegions: [],
+  transcripts: [],
+  captions: { ...CAPTION_DEFAULTS },
 });
 
 const assets = (hasCursorData = true): EditorAssets => ({

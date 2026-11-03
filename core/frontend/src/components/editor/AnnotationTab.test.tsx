@@ -6,6 +6,7 @@ import { TEXT_FONTS, defaultAnnotationBody } from "../../lib/editor";
 import { BindingsContext } from "./bindings-context";
 import { DEFAULT_BINDINGS, type Bindings } from "../../lib/editor-shortcuts";
 import { AnnotationTab, annotationFontCss, registerAnnotationFonts, type AnnotationTabProps } from "./AnnotationTab";
+import { CAPTION_DEFAULTS } from "../../lib/editor";
 
 afterEach(cleanup);
 
@@ -49,6 +50,8 @@ const doc = (annotations: RecordAnnotation[]): RecordEditDoc =>
       background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
     },
     layoutRegions: [],
+    transcripts: [],
+    captions: { ...CAPTION_DEFAULTS },
   }) as RecordEditDoc;
 
 function mount(d: RecordEditDoc, selected: string | null, over: Partial<AnnotationTabProps> = {}, bindings: Bindings = DEFAULT_BINDINGS) {

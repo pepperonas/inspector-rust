@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAudioTrack, RecordEditDoc, RecordEditorView, RecordTrackSpan, RecordWaveSpan } from "../../lib/ipc";
+import { CAPTION_DEFAULTS } from "../../lib/editor";
 
 const toSource = vi.fn();
 vi.mock("../../lib/ipc", () => ({ editorToSource: (p: number) => toSource(p) }));
@@ -77,6 +78,8 @@ const doc = (audioTracks: RecordAudioTrack[]): RecordEditDoc =>
       background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
     },
     layoutRegions: [],
+    transcripts: [],
+    captions: { ...CAPTION_DEFAULTS },
   }) as RecordEditDoc;
 
 const view = (d: RecordEditDoc, tracks: RecordTrackSpan[], waveforms: RecordWaveSpan[] = []): RecordEditorView => ({

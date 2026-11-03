@@ -108,6 +108,8 @@ mod tests {
             system_gain_db: 0.0,
             camera: crate::record::editor::CameraStyle::default(),
             layout_regions: Vec::new(),
+            transcripts: Vec::new(),
+            captions: Default::default(),
         }
     }
 

@@ -77,6 +77,7 @@ vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `asset:/
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: (o: unknown) => openDialog(o) }));
 
 import { RecordEditor } from "./RecordEditor";
+import { CAPTION_DEFAULTS } from "../lib/editor";
 
 const doc0: RecordEditDoc = {
   version: 3,
@@ -126,6 +127,8 @@ const doc0: RecordEditDoc = {
     background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
   },
   layoutRegions: [],
+  transcripts: [],
+  captions: { ...CAPTION_DEFAULTS },
 };
 const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   let t = 0;

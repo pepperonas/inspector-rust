@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { RecordAnnotation, RecordAnnotationBody, RecordEditDoc, RecordEditorView, RecordZoomRegion } from "../../lib/ipc";
 import { defaultAnnotationBody } from "../../lib/editor";
 import { KEY_LAYER, onEditorKey } from "../../lib/editor-keys";
+import { CAPTION_DEFAULTS } from "../../lib/editor";
 
 const toSource = vi.fn();
 vi.mock("../../lib/ipc", () => ({ editorToSource: (p: number) => toSource(p) }));
@@ -64,6 +65,8 @@ const doc0 = (zooms: RecordZoomRegion[] = []): RecordEditDoc =>
       background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
     },
     layoutRegions: [],
+    transcripts: [],
+    captions: { ...CAPTION_DEFAULTS },
   }) as RecordEditDoc;
 
 /** Programme spans: clip 0 = 0–5 s, clip 1 = 5–10 s (source 6–11 s). */

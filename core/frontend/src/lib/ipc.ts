@@ -5453,6 +5453,43 @@ export interface RecordLayoutRegion {
   startMs: number;
   preset: RecordLayoutPreset;
 }
+/** One word of a transcript, times in SOURCE ms of its recording. */
+export interface RecordTranscriptWord {
+  id: string;
+  startMs: number;
+  endMs: number;
+  /** What is shown; empty hides the word from the captions. */
+  text: string;
+  /** What the recognizer heard, set once the word was corrected (absent otherwise). */
+  originalText?: string | null;
+}
+/** The words of one recording (`source` null = the project's own take, else a take id). */
+export interface RecordTranscript {
+  source: string | null;
+  lang: string;
+  words: RecordTranscriptWord[];
+}
+export type RecordCaptionAnchorV = "top" | "bottom";
+export type RecordCaptionAnchorH = "left" | "center" | "right";
+/** The captions' look and place (`record/captions.rs`). `insetY`/`insetX` null = the output
+ *  aspect's standard, resolved at every scene build (never frozen). */
+export interface RecordCaptionSettings {
+  enabled: boolean;
+  fontSize: number;
+  fontFamily: string;
+  bold: boolean;
+  color: string;
+  plate: boolean;
+  plateColor: string;
+  plateOpacity: number;
+  anchorV: RecordCaptionAnchorV;
+  anchorH: RecordCaptionAnchorH;
+  insetY: number | null;
+  insetX: number | null;
+  minWords: number;
+  maxWords: number;
+  lang: "auto" | "de" | "en";
+}
 export interface RecordEditDoc {
   version: number;
   clips: RecordEditClip[];
@@ -5470,6 +5507,9 @@ export interface RecordEditDoc {
   systemGainDb: number;
   camera: RecordCameraStyle;
   layoutRegions: RecordLayoutRegion[];
+  /** One transcript per recording (v5); captions are derived from it, never stored. */
+  transcripts: RecordTranscript[];
+  captions: RecordCaptionSettings;
 }
 export interface RecordEditorView {
   doc: RecordEditDoc;

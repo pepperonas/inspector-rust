@@ -91,9 +91,9 @@ pub fn clip_layout(
     let a = &doc.appearance;
     let even_border = doc.output.aspect == Aspect::Auto;
     let src = editor::clip_source_size(meta, takes, doc, clip);
-    let camera = editor::clip_camera_box(meta, takes, doc, clip);
-    let preset = preset.resolve(camera.is_some());
-    let camera = camera.filter(|_| preset != LayoutPreset::NoWebcam);
+    // `no-webcam` drops the camera; a clip without one lays out the screen alone under any
+    // preset (`composite_layout`'s fallback), which is what resolving it would give.
+    let camera = editor::clip_camera_box(meta, takes, doc, clip).filter(|_| preset != LayoutPreset::NoWebcam);
     let look = doc.camera.look(preset);
     (layout::composite_layout(out, src.0 as f64 / src.1 as f64, camera, &look, a.padding, a.frame, even_border), src)
 }

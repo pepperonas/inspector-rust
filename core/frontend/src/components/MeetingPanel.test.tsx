@@ -66,3 +66,16 @@ describe("MeetingPanel", () => {
     expect((screen.getByTestId("meeting-toggle") as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("MeetingPanel layout", () => {
+  it("does not lay the sections out as a shrinking flex column", async () => {
+    // Field report 2026-11-03: in a flex column the lines box shrank and its
+    // text ran over "Show transcript folder" and the session list.
+    const src = (await import("./MeetingPanel.tsx?raw")).default as string;
+    const root = src.match(/data-testid="meeting-panel"/) ? src.slice(src.indexOf('<div className="'), src.indexOf('data-testid="meeting-panel"')) : "";
+    expect(root).not.toMatch(/\bflex-col\b/);
+    const box = src.slice(src.lastIndexOf('<div', src.indexOf('data-testid="meeting-lines"')), src.indexOf('data-testid="meeting-lines"'));
+    expect(box).toMatch(/overflow-y-auto/);
+    expect(box).toMatch(/max-h-/);
+  });
+});

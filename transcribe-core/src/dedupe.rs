@@ -1,8 +1,10 @@
 //! Echo gate: without headphones the microphone hears the speakers, so a
 //! sentence from the other side arrives twice — once as SYS, once as MIC. A
 //! MIC segment that overlaps a SYS segment in time and reads almost the same
-//! is dropped. MIC finals wait up to `HOLD_MS` for the matching SYS final,
-//! because the two streams finish their segments at different moments.
+//! is dropped. MIC finals wait for the matching SYS final, because the two
+//! streams finish their segments at different moments: `HOLD_MS` when SYS is
+//! quiet, up to `HOLD_MAX_MS` while SYS is still talking (a SYS segment can be
+//! 15 s long and is decoded after it ends — field case 2026-11-03).
 
 use crate::protocol::Source;
 use crate::text::similarity;
@@ -10,6 +12,11 @@ use std::collections::VecDeque;
 
 pub const OVERLAP_TOLERANCE_MS: u64 = 1000;
 pub const HOLD_MS: u64 = 3000;
+/// Longest wait for SYS while it keeps talking (15-s segment + decode).
+pub const HOLD_MAX_MS: u64 = 20_000;
+/// A MIC line whose words are this share of the nearby SYS words is an echo
+/// (catches a MIC segment that is only part of a longer SYS one).
+pub const MIN_CONTAINMENT_WORDS: usize = 4;
 pub const SYS_MEMORY_MS: u64 = 30_000;
 pub const DEFAULT_THRESHOLD: f32 = 0.75;
 
@@ -36,6 +43,8 @@ pub struct EchoGate {
     pub enabled: bool,
     held: VecDeque<(FinalSeg, u64)>,
     recent_sys: VecDeque<FinalSeg>,
+    /// SYS has an open segment or a final in the queue.
+    sys_busy: bool,
 }
 
 fn overlaps(a: &FinalSeg, b: &FinalSeg) -> bool {
@@ -44,7 +53,13 @@ fn overlaps(a: &FinalSeg, b: &FinalSeg) -> bool {
 
 impl EchoGate {
     pub fn new(threshold: f32, enabled: bool) -> Self {
-        EchoGate { threshold, enabled, held: VecDeque::new(), recent_sys: VecDeque::new() }
+        EchoGate { threshold, enabled, held: VecDeque::new(), recent_sys: VecDeque::new(), sys_busy: false }
+    }
+
+    /// Tell the gate whether SYS is still producing text (set before every
+    /// `offer`/`tick`).
+    pub fn set_sys_busy(&mut self, busy: bool) {
+        self.sys_busy = busy;
     }
 
     /// Is `mic` an echo of a remembered SYS segment (or of two neighbouring
@@ -52,12 +67,20 @@ impl EchoGate {
     fn echo_of(&self, mic: &FinalSeg) -> Option<f32> {
         let near: Vec<&FinalSeg> = self.recent_sys.iter().filter(|s| overlaps(mic, s)).collect();
         let mut best = 0.0f32;
-        for (i, s) in near.iter().enumerate() {
-            best = best.max(similarity(&mic.text, &s.text));
-            if let Some(next) = near.get(i + 1) {
-                best = best.max(similarity(&mic.text, &format!("{} {}", s.text, next.text)));
+        // Every run of consecutive SYS segments: the streams cut a passage at
+        // different places, a MIC line can cover two or three SYS lines.
+        for i in 0..near.len() {
+            let mut joined = String::new();
+            for s in &near[i..] {
+                if !joined.is_empty() {
+                    joined.push(' ');
+                }
+                joined.push_str(&s.text);
+                best = best.max(similarity(&mic.text, &joined));
             }
         }
+        let all: Vec<&str> = near.iter().map(|s| s.text.as_str()).collect();
+        best = best.max(containment(&mic.text, &all.join(" ")));
         (best >= self.threshold).then_some(best)
     }
 
@@ -78,7 +101,11 @@ impl EchoGate {
     fn release_ready(&mut self, now_ms: u64, force: bool) -> Vec<Release> {
         let mut out = Vec::new();
         while let Some((mic, arrived)) = self.held.front() {
-            let ready = force || now_ms >= arrived + HOLD_MS || self.sys_caught_up(mic);
+            let waited = now_ms.saturating_sub(*arrived);
+            let ready = force
+                || (!self.sys_busy && waited >= HOLD_MS)
+                || waited >= HOLD_MAX_MS
+                || self.sys_caught_up(mic);
             if !ready {
                 break;
             }
@@ -121,6 +148,28 @@ impl EchoGate {
     }
 }
 
+/// Share of `part`'s words that also occur in `whole` (each word of `whole`
+/// counted once). 0 for fewer than `MIN_CONTAINMENT_WORDS` words. Pure.
+pub fn containment(part: &str, whole: &str) -> f32 {
+    let words = |t: &str| crate::text::normalize(t).split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    let p = words(part);
+    if p.len() < MIN_CONTAINMENT_WORDS {
+        return 0.0;
+    }
+    let mut pool = std::collections::HashMap::<String, usize>::new();
+    for w in words(whole) {
+        *pool.entry(w).or_default() += 1;
+    }
+    let mut hit = 0usize;
+    for w in &p {
+        if let Some(n) = pool.get_mut(w).filter(|n| **n > 0) {
+            *n -= 1;
+            hit += 1;
+        }
+    }
+    hit as f32 / p.len() as f32
+}
+
 /// Does the current output look like headphones (no echo possible)?
 pub fn headphones_suggest_off(transport: &str, data_source: Option<&str>) -> bool {
     let t = transport.to_lowercase();
@@ -148,6 +197,52 @@ mod tests {
                 Release::Drop(s, _) => (s.source, false),
             })
             .collect()
+    }
+
+    /// The field case (2026-11-03, speakers): SYS cut one passage into two
+    /// segments, MIC heard it as one; the second SYS final came long after
+    /// the 3-s hold, so the MIC line was kept as a duplicate.
+    #[test]
+    fn mic_waits_while_sys_is_still_speaking_and_matches_both_segments() {
+        let mut g = EchoGate::new(DEFAULT_THRESHOLD, true);
+        g.set_sys_busy(true);
+        g.offer(seg(Source::Sys, 1, 10_000, 14_000, "Ich glaube, wir alle kennen solche Inhalte aus den sozialen Medien."), 14_500);
+        let mic = "Ich glaube, wir alle kennen solche Inhalte aus den sozialen Medien und ich sage ganz klar, ich finde vieles von dem, was mir dort begegnet, selbst einfach blöd.";
+        assert!(g.offer(seg(Source::Mic, 2, 10_100, 22_000, mic), 22_500).is_empty());
+        assert!(g.tick(27_000).is_empty(), "SYS is still talking: keep waiting");
+        let r = g.offer(
+            seg(Source::Sys, 3, 14_200, 22_100, "Ich sage ganz klar, ich finde vieles von dem, was mir dort begegnet, selbst einfach blöd."),
+            30_000,
+        );
+        assert_eq!(kinds(&r), vec![(Source::Sys, true), (Source::Mic, false)]);
+    }
+
+    #[test]
+    fn a_held_mic_line_is_released_by_the_long_cap() {
+        let mut g = EchoGate::new(DEFAULT_THRESHOLD, true);
+        g.set_sys_busy(true);
+        g.offer(seg(Source::Mic, 1, 10_000, 12_000, "Hallo zusammen"), 12_000);
+        assert!(g.tick(12_000 + HOLD_MAX_MS - 1).is_empty());
+        assert_eq!(kinds(&g.tick(12_000 + HOLD_MAX_MS)), vec![(Source::Mic, true)]);
+    }
+
+    #[test]
+    fn echo_of_a_part_of_a_longer_sys_line_is_dropped() {
+        let mut g = EchoGate::new(DEFAULT_THRESHOLD, true);
+        g.offer(
+            seg(Source::Sys, 1, 10_000, 25_000, "Flat Earther, die behaupten die Erde sei eine Scheibe, Blogger, die die wildesten Verschwörungstheorien verbreiten, und selbsternannte Experten."),
+            25_100,
+        );
+        let r = g.offer(seg(Source::Mic, 2, 11_000, 18_000, "Blogger die die wildesten Verschwörungstheorien verbreiten"), 25_200);
+        assert_eq!(kinds(&r), vec![(Source::Mic, false)]);
+    }
+
+    #[test]
+    fn own_reply_sharing_a_few_words_is_kept() {
+        let mut g = EchoGate::new(DEFAULT_THRESHOLD, true);
+        g.offer(seg(Source::Sys, 1, 10_000, 14_000, "Das ist die neue Version, die wir morgen ausliefern."), 14_100);
+        let r = g.offer(seg(Source::Mic, 2, 12_000, 14_500, "Ja, das sehe ich genauso, die ist gut."), 14_600);
+        assert_eq!(kinds(&r), vec![(Source::Mic, true)]);
     }
 
     #[test]

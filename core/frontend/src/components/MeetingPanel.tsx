@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioLines, Download, FolderOpen, Mic, Monitor, Square, Circle } from "lucide-react";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import {
@@ -129,12 +129,20 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [focused, onExit]);
 
+  // The newest line stays in view (the box scrolls, the panel does not jump).
+  const linesRef = useRef<HTMLDivElement>(null);
+  const lineCount = state?.line_count ?? 0;
+  useEffect(() => {
+    const el = linesRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lineCount, state?.hypotheses]);
+
   const pct = state?.download ? downloadPercent(state.download.done, state.download.total) : null;
   const shownError = errorText(error ?? state?.error);
   const elapsed = running && state?.started_ms ? formatElapsed(now - state.started_ms) : null;
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[13px]" data-testid="meeting-panel">
+    <div className="h-full space-y-3 overflow-y-auto p-4 text-[13px]" data-testid="meeting-panel">
       <div className="flex items-center gap-2">
         <AudioLines size={18} className="text-[var(--color-accent)]" />
         <h2 className="text-[15px] font-semibold">{t("mtg.title")}</h2>
@@ -231,7 +239,7 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
       ))}
 
       {(running || (state?.lines.length ?? 0) > 0) && (
-        <div className="flex min-h-[120px] flex-col gap-1 rounded-lg border border-[var(--color-border)] p-2" data-testid="meeting-lines">
+        <div ref={linesRef} className="flex max-h-[22rem] min-h-[120px] flex-col gap-1 overflow-y-auto rounded-lg border border-[var(--color-border)] p-2" data-testid="meeting-lines">
           {state?.lines.slice(-30).map((l) => (
             <div key={`${l.source}-${l.seq}`} className="flex gap-2">
               <span className="shrink-0 tabular-nums text-[11px] text-[var(--color-muted)]">{clockTime(l.start_ms)}</span>
@@ -258,7 +266,7 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
       )}
 
       {state?.dir && (
-        <button type="button" onClick={() => void revealPath(state.dir!)} className="inline-flex items-center gap-1.5 self-start text-[12px] underline">
+        <button type="button" onClick={() => void revealPath(state.dir!)} className="inline-flex items-center gap-1.5 text-[12px] underline">
           <FolderOpen size={12} /> {t("mtg.show_folder")}
         </button>
       )}

@@ -616,12 +616,13 @@ fn inference_loop(mut c: InferenceCtx) {
         if let Some(job) = job {
             run_job(&mut c, &mut st, &mut audio, job);
         }
-        let mut rel = c.gate.tick(now_ms());
         // Nobody is talking on SYS and none of its finals wait: a held MIC
         // line cannot be an echo of anything still to come — release it now
         // instead of after the full hold time.
         let sys_idle = !c.shared.speaking[idx(Source::Sys)].load(Ordering::SeqCst)
             && !c.shared.queue.lock().unwrap_or_else(|e| e.into_inner()).has_final(Source::Sys);
+        c.gate.set_sys_busy(!sys_idle);
+        let mut rel = c.gate.tick(now_ms());
         if sys_idle {
             rel.extend(c.gate.drain());
         }

@@ -157,7 +157,12 @@ pub fn is_take_name(name: &str) -> bool {
 
 /// Removes take files in `assets` that no track uses and that are older than `max_age` (an
 /// interrupted take: crash, kill). Only our own names are touched. Returns how many went.
+/// A symlinked `assets` (planted in a project opened from anywhere) is never entered, and a
+/// symlinked entry is never deleted — the sweep stays inside the real project folder.
 pub fn sweep_orphans(assets: &Path, referenced: &HashSet<String>, now: SystemTime, max_age: Duration) -> usize {
+    if !std::fs::symlink_metadata(assets).is_ok_and(|m| m.file_type().is_dir()) {
+        return 0;
+    }
     let Ok(entries) = std::fs::read_dir(assets) else { return 0 };
     let mut removed = 0;
     for e in entries.flatten() {
@@ -165,12 +170,13 @@ pub fn sweep_orphans(assets: &Path, referenced: &HashSet<String>, now: SystemTim
         if !is_take_name(&name) || referenced.contains(&name) {
             continue;
         }
-        let Ok(meta) = e.metadata() else { continue };
-        if !meta.is_file() {
+        let path = e.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+        if !meta.file_type().is_file() {
             continue;
         }
         let old = meta.modified().ok().and_then(|m| now.duration_since(m).ok()).is_some_and(|age| age >= max_age);
-        if old && std::fs::remove_file(e.path()).is_ok() {
+        if old && std::fs::remove_file(&path).is_ok() {
             removed += 1;
         }
     }
@@ -703,6 +709,34 @@ mod tests {
         left.sort();
         assert_eq!(left, ["music.wav", "voiceover-2.wav", "voiceover-x.wav"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_sweep_never_reaches_through_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let later = SystemTime::now() + Duration::from_secs(2 * 3_600);
+        let none = HashSet::new();
+        // A symlinked assets/ folder: the files it points at stay.
+        let dir = tmp("sweep-linkdir");
+        let outside = tmp("sweep-linkdir-outside");
+        std::fs::write(outside.join("voiceover-1.wav"), b"x").unwrap();
+        symlink(&outside, dir.join("assets")).unwrap();
+        assert_eq!(sweep_orphans(&dir.join("assets"), &none, later, ORPHAN_AGE), 0);
+        assert!(outside.join("voiceover-1.wav").exists());
+        // A symlinked take name inside a real assets/: the link is not deleted, nor its target.
+        let dir2 = tmp("sweep-linkfile");
+        let assets = dir2.join("assets");
+        std::fs::create_dir_all(&assets).unwrap();
+        let victim = outside.join("victim.wav");
+        std::fs::write(&victim, b"keep").unwrap();
+        symlink(&victim, assets.join("voiceover-5.wav")).unwrap();
+        assert_eq!(sweep_orphans(&assets, &none, later, ORPHAN_AGE), 0);
+        assert!(std::fs::symlink_metadata(assets.join("voiceover-5.wav")).is_ok());
+        assert!(victim.exists());
+        for d in [&dir, &dir2, &outside] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     /// The track defaults are the editor's `addTrack(voiceover)` defaults.

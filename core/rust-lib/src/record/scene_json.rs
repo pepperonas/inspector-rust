@@ -97,7 +97,10 @@ pub fn has_cursor_data(cursor: Option<&CursorRecording>) -> bool {
 }
 
 /// `<project>/assets/<name>` for a plain file name that exists — `None` for anything with a
-/// separator, `..`, an absolute path, or a missing file.
+/// separator, `..`, an absolute path, or a missing file. A project opened from anywhere may
+/// carry a planted symlink, so `assets/` must be a real directory and the file a real file
+/// (neither is followed): otherwise the asset counts as missing. Every reader (scene, peaks,
+/// previews, presets) goes through here and inherits that.
 pub fn project_asset(project_dir: &Path, name: &str) -> Option<PathBuf> {
     if name.is_empty() || name.contains(['/', '\\', '\0']) || name.starts_with('.') {
         return None;
@@ -106,8 +109,12 @@ pub fn project_asset(project_dir: &Path, name: &str) -> Option<PathBuf> {
     if !matches!((parts.next(), parts.next()), (Some(Component::Normal(_)), None)) {
         return None;
     }
-    let p = project_dir.join(PROJECT_ASSETS_DIR).join(name);
-    p.is_file().then_some(p)
+    let assets = project_dir.join(PROJECT_ASSETS_DIR);
+    if !std::fs::symlink_metadata(&assets).is_ok_and(|m| m.file_type().is_dir()) {
+        return None;
+    }
+    let p = assets.join(name);
+    std::fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_file()).then_some(p)
 }
 
 /// `0.1205f32` as `0.1205`, not `0.12049999833106995` (themes.json's decimals, as written).
@@ -863,6 +870,32 @@ mod tests {
         let unknown = sprites(None, "../../etc");
         assert_eq!(unknown, sprites(None, "default"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_assets_folder_or_asset_counts_as_missing() {
+        use std::os::unix::fs::symlink;
+        let outside = tmp_project("ln-outside");
+        std::fs::write(outside.join("secret.png"), b"png").unwrap();
+        // assets/ itself a link to somewhere else.
+        let dir = tmp_project("ln-dir");
+        std::fs::remove_dir(dir.join(PROJECT_ASSETS_DIR)).unwrap();
+        symlink(&outside, dir.join(PROJECT_ASSETS_DIR)).unwrap();
+        assert_eq!(project_asset(&dir, "secret.png"), None);
+        let default = path_str(&assets().wallpaper(DEFAULT_WALLPAPER).unwrap());
+        let mut d = styled_doc();
+        d.appearance.background = Background::Image { file: "secret.png".into() };
+        d.appearance.background_motion = WallpaperMotion::None;
+        let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert_eq!(v["background"], json!({"kind": "image", "path": default}), "the scene falls back");
+        // A real assets/ with one linked file inside.
+        let dir2 = tmp_project("ln-file");
+        symlink(outside.join("secret.png"), dir2.join(PROJECT_ASSETS_DIR).join("bg.png")).unwrap();
+        assert_eq!(project_asset(&dir2, "bg.png"), None);
+        for d in [&dir, &dir2, &outside] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     #[test]

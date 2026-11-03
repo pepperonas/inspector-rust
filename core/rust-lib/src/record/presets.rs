@@ -560,6 +560,23 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn save_never_copies_through_a_symlinked_project_assets_folder() {
+        let root = tmp("save-ln");
+        let src = tmp("save-ln-src");
+        let outside = tmp("save-ln-outside");
+        std::fs::write(outside.join("bg.png"), b"\x89PNG secret from outside").unwrap();
+        std::os::unix::fs::symlink(&outside, src.join("assets")).unwrap();
+        let mut d = doc();
+        d.appearance.background = Background::Image { file: "bg.png".into() };
+        let entry = save_preset(&root, "Leak", &d, &src).unwrap();
+        let preset = read_preset(&root, &entry.file).unwrap();
+        assert_eq!(preset.appearance.background, Appearance::default().background, "nothing from outside");
+        let copied = presets_dir(&root).join("assets");
+        assert!(!copied.exists() || std::fs::read_dir(&copied).unwrap().count() == 0, "no file copied");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn apply_refuses_a_symlinked_project_assets_folder() {
         let root = tmp("ln-assets");
         let src = tmp("ln-assets-src");

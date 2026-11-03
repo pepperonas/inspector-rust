@@ -505,14 +505,16 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
         let b: [u8; 8] = rand::random();
         b.iter().map(|x| format!("{x:02x}")).collect::<String>()
     };
-    let takes = project.join(TAKES_DIR);
-    sweep_stale_imports(&takes);
-    let stage = takes.join(format!(".import-{id}"));
     let fail = |e: std::io::Error, what: &Path| {
         tracing::warn!(target: "record::editor", "take import: {}: {e}", what.display());
         ERR_TAKE_COPY.to_string()
     };
-    std::fs::create_dir_all(&stage).map_err(|e| fail(e, &stage))?;
+    // A symlinked `takes/` (planted in a project opened from elsewhere) is refused; the
+    // staging folder is created new (`create_dir` fails on anything already there).
+    let takes = record_render_protocol::safe_fs::plain_dir(project, TAKES_DIR).map_err(|e| fail(e, &project.join(TAKES_DIR)))?;
+    sweep_stale_imports(&takes);
+    let stage = takes.join(format!(".import-{id}"));
+    std::fs::create_dir(&stage).map_err(|e| fail(e, &stage))?;
     let copied = (|| {
         for name in [SCREEN_FILE, PROJECT_FILE, MIC_FILE, CURSOR_FILE] {
             let from = src.join(name);
@@ -1564,6 +1566,22 @@ mod tests {
         if screen {
             std::fs::write(dir.join(SCREEN_FILE), b"video").unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_take_refuses_a_symlinked_takes_folder() {
+        let root = tmp("take-linked");
+        let project = root.join("p");
+        take_project(&project, ProjectStatus::Ready, true);
+        let src = root.join("src");
+        take_project(&src, ProjectStatus::Ready, true);
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("takes")).unwrap();
+        assert_eq!(import_take_into(&project, &src).unwrap_err(), ERR_TAKE_COPY);
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0, "nothing copied through the link");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

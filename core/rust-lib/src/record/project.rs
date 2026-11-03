@@ -3,7 +3,6 @@
 
 use super::core::CursorType;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const PROJECT_FILE: &str = "project.json";
@@ -21,6 +20,10 @@ pub const MAX_TITLE_CHARS: usize = 200;
 pub const ERR_TITLE_EMPTY: &str = "record.title_empty";
 pub const ERR_TITLE_TOO_LONG: &str = "record.title_too_long";
 pub const ERR_TITLE_INVALID: &str = "record.title_invalid";
+/// The project's file can't be read (a broken project), so there is nothing to rename.
+pub const ERR_TITLE_UNREADABLE: &str = "record.title_unreadable";
+/// Writing the new title failed (disk, permissions).
+pub const ERR_TITLE_WRITE: &str = "record.title_write_failed";
 pub const PROJECT_SCHEMA: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,17 +165,15 @@ pub struct CursorRecording {
 pub fn write_atomic(dir: &Path, name: &str, value: &impl Serialize) -> std::io::Result<()> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let tmp = dir.join(format!("{name}.tmp"));
-    let res = (|| {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(&bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, dir.join(name))
-    })();
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    res
+    write_bytes_atomic(dir, name, &bytes)
+}
+
+/// Write `bytes` to `<dir>/<name>` atomically without ever following a planted symlink
+/// (unique temp name, `create_new` + O_NOFOLLOW, fsync, rename — `safe_fs::write_atomic`).
+/// Project folders can be opened from anywhere, so a fixed temp name would let a link put
+/// there redirect the write to any file.
+pub fn write_bytes_atomic(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    record_render_protocol::safe_fs::write_atomic(&dir.join(name), bytes)
 }
 
 pub fn read_project(dir: &Path) -> Result<Project, String> {
@@ -207,7 +208,13 @@ impl ProjectSummary {
     }
 }
 
-/// The project's thumbnail as a data URI (none when missing, empty or implausibly big).
+/// Encoded thumbnails by file, keyed by (mtime, length): the panel polls the list every
+/// 1.5 s and must not re-read and re-encode every picture each time.
+type ThumbCache = std::collections::HashMap<PathBuf, (std::time::SystemTime, u64, String)>;
+static THUMB_CACHE: std::sync::Mutex<Option<ThumbCache>> = std::sync::Mutex::new(None);
+
+/// The project's thumbnail as a data URI (none when missing, a link, empty or implausibly big).
+/// Read and encoded once per file version (see [`THUMB_CACHE`]).
 pub fn thumb_data_uri(dir: &Path) -> Option<String> {
     use base64::Engine as _;
     let path = dir.join(THUMB_FILE);
@@ -215,12 +222,33 @@ pub fn thumb_data_uri(dir: &Path) -> Option<String> {
     if !meta.is_file() || meta.len() == 0 || meta.len() > MAX_THUMB_BYTES {
         return None;
     }
+    let mtime = meta.modified().ok()?;
+    let key = (mtime, meta.len());
+    if let Some((m, l, uri)) = THUMB_CACHE.lock().unwrap_or_else(|p| p.into_inner()).as_ref().and_then(|c| c.get(&path)) {
+        if (*m, *l) == key {
+            return Some(uri.clone());
+        }
+    }
     let bytes = std::fs::read(&path).ok()?;
     // JPEG SOI marker: anything else is not ours.
     if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return None;
     }
-    Some(format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    let uri = format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+    THUMB_CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get_or_insert_with(Default::default)
+        .insert(path, (key.0, key.1, uri.clone()));
+    Some(uri)
+}
+
+/// Drops cached thumbnails of projects that are no longer listed (deleted, moved).
+fn prune_thumb_cache(listed: &[ProjectSummary]) {
+    let keep: std::collections::HashSet<PathBuf> = listed.iter().map(|s| s.dir.join(THUMB_FILE)).collect();
+    if let Some(c) = THUMB_CACHE.lock().unwrap_or_else(|p| p.into_inner()).as_mut() {
+        c.retain(|k, _| keep.contains(k));
+    }
 }
 
 /// A user-typed title: trimmed, 1..=200 characters, no control characters.
@@ -242,9 +270,15 @@ pub fn clean_title(title: &str) -> Result<String, &'static str> {
 /// recording, the editor document and both timestamps stay as they are.
 pub fn rename_project(dir: &Path, title: &str) -> Result<Project, String> {
     let title = clean_title(title).map_err(str::to_string)?;
-    let mut p = read_project(dir)?;
+    let mut p = read_project(dir).map_err(|e| {
+        tracing::warn!(target: "record::project", "rename {}: {e}", dir.display());
+        ERR_TITLE_UNREADABLE.to_string()
+    })?;
     p.title = title;
-    write_atomic(dir, PROJECT_FILE, &p).map_err(|e| format!("cannot write project.json: {e}"))?;
+    write_atomic(dir, PROJECT_FILE, &p).map_err(|e| {
+        tracing::warn!(target: "record::project", "rename {}: {e}", dir.display());
+        ERR_TITLE_WRITE.to_string()
+    })?;
     Ok(p)
 }
 
@@ -316,6 +350,7 @@ pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
         });
     }
     out.sort_by(|a, b| b.last_change().cmp(&a.last_change()).then_with(|| a.dir.cmp(&b.dir)));
+    prune_thumb_cache(&out);
     out
 }
 
@@ -471,6 +506,12 @@ mod tests {
         assert_eq!(rename_project(&d, "   ").unwrap_err(), ERR_TITLE_EMPTY);
         assert_eq!(rename_project(&d, &"x".repeat(201)).unwrap_err(), ERR_TITLE_TOO_LONG);
         assert_eq!(rename_project(&d, "a\nb").unwrap_err(), ERR_TITLE_INVALID);
+        // A broken project names the reason as a catalogue key, never raw English.
+        let broken = d.join("broken");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::fs::write(broken.join(PROJECT_FILE), "{ not json").unwrap();
+        assert_eq!(rename_project(&broken, "x").unwrap_err(), ERR_TITLE_UNREADABLE);
+        std::fs::remove_dir_all(&broken).unwrap();
         assert!(rename_project(&d, &"ä".repeat(200)).is_ok(), "the limit counts characters, not bytes");
         assert!(rename_project(&d.join("missing"), "x").is_err());
         let _ = std::fs::remove_dir_all(&d);
@@ -488,6 +529,12 @@ mod tests {
         big.resize(MAX_THUMB_BYTES as usize + 1, 0);
         std::fs::write(d.join(THUMB_FILE), big).unwrap();
         assert_eq!(thumb_data_uri(&d), None, "too big");
+        // Cached per file version: a changed file (new length) is read again, the same one not.
+        std::fs::write(d.join(THUMB_FILE), [0xFF, 0xD8, 0xFF, 1]).unwrap();
+        let first = thumb_data_uri(&d).unwrap();
+        assert_eq!(thumb_data_uri(&d).unwrap(), first);
+        std::fs::write(d.join(THUMB_FILE), [0xFF, 0xD8, 0xFF, 1, 2, 3]).unwrap();
+        assert_ne!(thumb_data_uri(&d).unwrap(), first, "a new thumbnail replaces the cached one");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -515,6 +562,44 @@ mod tests {
         };
         let j = serde_json::to_string(&a).unwrap();
         assert!(j.contains("\"imageDataUrl\"") && j.contains("\"hotspotX\"") && j.contains("\"scaleFactor\""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn planted_symlink_at_a_temp_path_is_never_followed() {
+        let d = tmp("symlink");
+        let victim = d.join("victim.txt");
+        std::fs::write(&victim, b"keep me").unwrap();
+        // Links at every name a temp file could have had before (the old fixed names) and a
+        // link AS the target: none of them is written through.
+        for planted in [format!("{PROJECT_FILE}.tmp"), format!(".{PROJECT_FILE}.tmp"), format!(".{THUMB_FILE}.tmp")] {
+            std::os::unix::fs::symlink(&victim, d.join(planted)).unwrap();
+        }
+        write_atomic(&d, PROJECT_FILE, &serde_json::json!({"x": 1})).unwrap();
+        write_bytes_atomic(&d, THUMB_FILE, &[0xFF, 0xD8, 0xFF]).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+        // A symlink as the target is replaced, not followed.
+        let p2 = d.join("p2");
+        std::fs::create_dir_all(&p2).unwrap();
+        std::os::unix::fs::symlink(&victim, p2.join(PROJECT_FILE)).unwrap();
+        write_atomic(&p2, PROJECT_FILE, &serde_json::json!({"y": 2})).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+        assert!(!std::fs::symlink_metadata(p2.join(PROJECT_FILE)).unwrap().file_type().is_symlink());
+        // The temp opener refuses a link at its exact path, whether the link's target exists
+        // or dangles (a dangling link would otherwise CREATE the file it points to).
+        use record_render_protocol::safe_fs::open_new_nofollow;
+        let link = d.join(format!("{PROJECT_FILE}.tmp"));
+        assert!(open_new_nofollow(&link).is_err());
+        let fresh = d.join("not-yet-there.txt");
+        std::os::unix::fs::symlink(&fresh, d.join("dangling")).unwrap();
+        assert!(open_new_nofollow(&d.join("dangling")).is_err());
+        assert!(!fresh.exists(), "a dangling link is not followed to create its target");
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+        // Temp files have unique names and none are left behind.
+        let left: Vec<_> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".tmp") && !n.starts_with(PROJECT_FILE) && n != &format!(".{PROJECT_FILE}.tmp") && n != &format!(".{THUMB_FILE}.tmp")).collect();
+        assert!(left.is_empty(), "{left:?}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

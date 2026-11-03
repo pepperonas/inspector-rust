@@ -90,6 +90,10 @@ impl Peaks {
 
 /// The peaks of a cache file, if it holds whole pairs.
 pub fn read_cache(cache: &Path) -> Option<Vec<f32>> {
+    // A planted link in a foreign project folder is not a cache.
+    if !std::fs::symlink_metadata(cache).ok()?.file_type().is_file() {
+        return None;
+    }
     decode_peaks(&std::fs::read(cache).ok()?)
 }
 
@@ -106,9 +110,8 @@ pub fn wav_peaks(path: &Path, cache: &Path) -> std::io::Result<Peaks> {
     let mut b = PeakBuilder::new(duration_sec, info.sample_rate);
     wav::read_mono(path, |v| b.push(v))?;
     let data = b.finish();
-    let tmp = cache.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&tmp, encode_peaks(&data))?;
-    std::fs::rename(&tmp, cache)?;
+    // The cache lives in the project folder: never written through a planted link.
+    record_render_protocol::safe_fs::write_atomic(cache, &encode_peaks(&data))?;
     Ok(Peaks { data, duration_ms })
 }
 

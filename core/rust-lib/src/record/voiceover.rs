@@ -133,13 +133,15 @@ pub fn voiceover_track(id: String, file: &str, clip: usize, source_ms: u64, span
 
 /// `voiceover-<ts>.wav`, or `voiceover-<ts>-<n>.wav` when that name is taken in `assets`.
 pub fn free_file_name(assets: &Path, ts_ms: u64) -> String {
+    // `taken`, not `!exists()`: a dangling planted link "doesn't exist" but is not free.
+    use record_render_protocol::safe_fs::taken;
     let first = format!("voiceover-{ts_ms}.wav");
-    if !assets.join(&first).exists() {
+    if !taken(&assets.join(&first)) {
         return first;
     }
     (2..)
         .map(|n| format!("voiceover-{ts_ms}-{n}.wav"))
-        .find(|name| !assets.join(name).exists())
+        .find(|name| !taken(&assets.join(name)))
         .unwrap_or(first)
 }
 
@@ -325,8 +327,9 @@ impl Take {
     /// Creates the WAV for `plan` in `<project_dir>/assets/` (the take records nothing before
     /// it is armed).
     pub fn create(session_id: u64, project_dir: &Path, plan: Plan, ts_ms: u64) -> Result<Self, String> {
-        let assets = project_dir.join(PROJECT_ASSETS_DIR);
-        std::fs::create_dir_all(&assets).map_err(|e| format!("{ERR_FAILED}:{e}"))?;
+        // A symlinked `assets/` is refused; the WAV itself is created new (WavSink, O_NOFOLLOW).
+        let assets = record_render_protocol::safe_fs::plain_dir(project_dir, PROJECT_ASSETS_DIR)
+            .map_err(|e| format!("{ERR_FAILED}:{e}"))?;
         let file = free_file_name(&assets, ts_ms);
         let path = assets.join(&file);
         let mut sink = WavSink::create(&path, OUT_RATE).map_err(|e| format!("{ERR_FAILED}:{e}"))?;
@@ -588,6 +591,32 @@ mod tests {
         assert_eq!(take.chunks(), 1);
         take.discard();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn planted_links_are_never_written_through() {
+        let dir = tmp("links");
+        let outside = tmp("links-outside");
+        let victim = outside.join("victim.wav");
+        std::fs::write(&victim, b"keep me").unwrap();
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        // A dangling link at the name the take would pick, and a live one at the next name.
+        std::os::unix::fs::symlink(outside.join("would-be-created.wav"), dir.join("assets/voiceover-7.wav")).unwrap();
+        std::os::unix::fs::symlink(&victim, dir.join("assets/voiceover-7-2.wav")).unwrap();
+        let take = Take::create(1, &dir, plan_of(4_000), 7).unwrap();
+        assert_eq!(take.path(), dir.join("assets/voiceover-7-3.wav"), "taken names are skipped, dangling ones too");
+        take.discard();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+        assert!(!outside.join("would-be-created.wav").exists());
+        // A symlinked assets/ is refused outright.
+        let linked = tmp("links-dir");
+        std::os::unix::fs::symlink(&outside, linked.join("assets")).unwrap();
+        assert!(Take::create(1, &linked, plan_of(4_000), 8).is_err());
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 1, "nothing written outside");
+        for d in [dir, outside, linked] {
+            let _ = std::fs::remove_dir_all(d);
+        }
     }
 
     #[test]

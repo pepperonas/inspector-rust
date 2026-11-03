@@ -210,6 +210,24 @@ describe("RecordPanel", () => {
     expect(screen.queryByLabelText("Rename")).toBeNull();
   });
 
+  it("a broken (failed) project offers no rename, and F2 does nothing on it", async () => {
+    m.items = [item({ dir: "/p/x", title: "kaputt", status: "failed", failure: "invalid project.json" })];
+    m.rename.mockClear();
+    await mount();
+    expect(screen.queryByText("Rename")).toBeNull();
+    await act(async () => { fireEvent.keyDown(window, { key: "F2" }); });
+    expect(screen.queryByLabelText("Rename")).toBeNull();
+  });
+
+  it("an unreadable project's rename error is shown in words", async () => {
+    m.items = [item({ dir: "/p/a", title: "Demo" })];
+    m.rename.mockImplementationOnce(async () => { throw "record.title_unreadable"; });
+    await mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "F2" }); });
+    await act(async () => { fireEvent.keyDown(screen.getByLabelText("Rename"), { key: "Enter" }); });
+    expect(screen.getByText("This project's file cannot be read, so it cannot be renamed.")).toBeTruthy();
+  });
+
   it("a refused rename keeps the field and says why", async () => {
     m.items = [item({ dir: "/p/a", title: "Demo" })];
     m.rename.mockImplementationOnce(async () => { throw "record.title_empty"; });

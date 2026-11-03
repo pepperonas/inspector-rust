@@ -29,6 +29,7 @@ use serde_json::Value;
 use std::io::{self, Read, Write};
 
 pub mod peaks;
+pub mod safe_fs;
 
 pub const TAG_COMMAND: u8 = 0x01;
 pub const TAG_EVENT: u8 = 0x02;

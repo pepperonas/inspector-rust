@@ -160,20 +160,10 @@ fn name_taken(root: &Path, name: &str, except: Option<&str>) -> bool {
 }
 
 /// `bytes` to `dir/name` through a temporary file and a rename (never a half-written preset).
+/// Never through a planted link (`safe_fs`): this also writes into a project's `assets/`.
 fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
     std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{name}.tmp"));
-    let res = (|| {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
-        std::fs::rename(&tmp, dir.join(name))
-    })();
-    if res.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    res
+    record_render_protocol::safe_fs::write_atomic(&dir.join(name), bytes)
 }
 
 /// The file's text: 2-space JSON and a trailing newline.
@@ -203,12 +193,12 @@ pub fn write_new_preset(root: &Path, file: &str, p: &Preset) -> Result<(), Strin
         ERR_WRITE.to_string()
     };
     std::fs::create_dir_all(&dir).map_err(fail)?;
-    let tmp = dir.join(format!(".{file}.{}.new", std::process::id()));
+    let (tmp, mut f) = record_render_protocol::safe_fs::create_temp(&dir.join(file)).map_err(fail)?;
     let written = (|| {
-        let mut f = std::fs::File::create(&tmp)?;
         f.write_all(to_text(p).as_bytes())?;
         f.sync_all()
     })();
+    drop(f);
     let linked = written.and_then(|_| std::fs::hard_link(&tmp, dir.join(file)));
     let _ = std::fs::remove_file(&tmp);
     match linked {
@@ -227,7 +217,8 @@ fn copy_hashed(src: &Path, dest_assets: &Path) -> std::io::Result<String> {
     let hash: String = Sha256::digest(&bytes).iter().take(16).map(|b| format!("{b:02x}")).collect();
     let name = format!("{hash}.{ext}");
     let dest = dest_assets.join(&name);
-    if !dest.is_file() {
+    // `plain_file`: a link planted under that name is replaced, never trusted.
+    if !plain_file(&dest) {
         std::fs::create_dir_all(dest_assets)?;
         write_atomic(dest_assets, &name, &bytes)?;
     }
@@ -238,9 +229,15 @@ fn copy_hashed(src: &Path, dest_assets: &Path) -> std::io::Result<String> {
 /// (content-hashed names). A file that is missing (or cannot be copied) gives the standard
 /// background / no own pointer.
 fn relocate_files(appearance: &Appearance, cursor: &CursorStyle, from_dir: &Path, to_dir: &Path) -> (Appearance, CursorStyle) {
-    let to_assets = to_dir.join(PROJECT_ASSETS_DIR);
+    // A symlinked `assets/` (planted in a project opened from elsewhere) is refused: nothing
+    // is copied and the standard look applies.
     let mv = |file: &str| -> Option<String> {
         let src = project_asset(from_dir, file).filter(|p| plain_file(p))?;
+        // Only now (something to copy): the folder is made, or refused when it is a link.
+        let to_assets = std::fs::create_dir_all(to_dir)
+            .and_then(|_| record_render_protocol::safe_fs::plain_dir(to_dir, PROJECT_ASSETS_DIR))
+            .map_err(|e| tracing::warn!(target: "record::presets", "{}: {e}", to_dir.display()))
+            .ok()?;
         copy_hashed(&src, &to_assets)
             .map_err(|e| tracing::warn!(target: "record::presets", "{}: {e}", src.display()))
             .ok()
@@ -513,11 +510,30 @@ mod tests {
         let nfd = "Cafe\u{301}";
         let _ = save_preset(&root, nfd, &doc(), &tmp("exclusive-q"));
         assert_eq!(std::fs::read(presets_dir(&root).join(&first.file)).unwrap(), before);
-        assert!(std::fs::read_dir(presets_dir(&root)).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".new")));
+        assert!(std::fs::read_dir(presets_dir(&root)).unwrap().flatten().all(|e| { let n = e.file_name().to_string_lossy().into_owned(); !n.ends_with(".new") && !n.ends_with(".tmp") }));
     }
 
     #[cfg(unix)]
     #[test]
+    fn apply_refuses_a_symlinked_project_assets_folder() {
+        let root = tmp("ln-assets");
+        let src = tmp("ln-assets-src");
+        std::fs::create_dir_all(src.join("assets")).unwrap();
+        std::fs::write(src.join("assets/bg.png"), b"\x89PNG background").unwrap();
+        let mut d = doc();
+        d.appearance.background = Background::Image { file: "bg.png".into() };
+        let entry = save_preset(&root, "Own", &d, &src).unwrap();
+        let preset = read_preset(&root, &entry.file).unwrap();
+        let dest = tmp("ln-assets-dest");
+        let outside = tmp("ln-assets-outside");
+        std::os::unix::fs::symlink(&outside, dest.join("assets")).unwrap();
+        let applied = apply_preset(&doc(), &preset, &root, &dest);
+        assert_eq!(applied.appearance.background, Appearance::default().background, "standard look instead");
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+    }
+
+    #[test]
+    #[cfg(unix)]
     fn symlinks_in_the_presets_folder_are_not_followed() {
         let root = tmp("links");
         let elsewhere = tmp("links-out");

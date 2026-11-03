@@ -139,7 +139,8 @@ export function RecordPanel({
 
   const startRename = useCallback(
     (p: RecordProjectItem) => {
-      if (p.active) return;
+      // A project whose file can't be read can't take a new title either.
+      if (p.active || p.status === "failed") return;
       setArmed(null);
       setError(null);
       if (!focused) onRequestFocus();
@@ -205,7 +206,7 @@ export function RecordPanel({
         else if (item) {
           if (editable(item)) openEditor(item.dir);
         } else if (supported && !running) newRecording();
-      } else if (e.key === "F2" && item && !item.active) {
+      } else if (e.key === "F2" && item && !item.active && item.status !== "failed") {
         e.preventDefault();
         startRename(item);
       } else if ((e.key === "Backspace" || e.key === "Delete") && item && !item.active) {
@@ -364,7 +365,7 @@ export function RecordPanel({
                           {t("rec2.panel.edit")}
                         </button>
                       )}
-                      {!p.active && (
+                      {!p.active && p.status !== "failed" && (
                         <button type="button" className={chip} onClick={() => startRename(p)}>
                           {t("rec4.projects.rename")}
                         </button>

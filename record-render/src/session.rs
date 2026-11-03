@@ -755,9 +755,9 @@ fn peaks_into_cache(path: &str, cache: &Path) -> Result<(u32, u64)> {
         }
     }
     let (peaks, duration_ms) = peaks_of(path)?;
-    let tmp = cache.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&tmp, encode_peaks(&peaks)).with_context(|| format!("writing {}", tmp.display()))?;
-    std::fs::rename(&tmp, cache).with_context(|| format!("renaming into {}", cache.display()))?;
+    // The cache lives in the project folder: never written through a planted link.
+    record_render_protocol::safe_fs::write_atomic(cache, &encode_peaks(&peaks))
+        .with_context(|| format!("writing {}", cache.display()))?;
     Ok(((peaks.len() / 2) as u32, duration_ms))
 }
 

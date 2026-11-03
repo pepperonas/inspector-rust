@@ -4484,7 +4484,7 @@
   "rec3.insp.theme.star-sprout": "Star Sprout",
   "rec3.insp.theme.glass-lens": "Glass Lens",
   "record.editor.not_project": "This folder is not a recording project (it has no project.json).",
-  "rec4.projects.title": "Open project",
+  "rec4.projects.title": "Projects",
   "rec4.projects.open": "Open project…",
   "rec4.projects.open_hint": "Open any project folder — also one outside the recordings folder",
   "rec4.projects.open_title": "Choose a recording project folder",
@@ -4495,5 +4495,7 @@
   "rec4.projects.created": "Created {date}",
   "rec4.projects.title_empty": "The name must not be empty.",
   "rec4.projects.title_too_long": "The name is too long (200 characters at most).",
-  "rec4.projects.title_invalid": "The name must not contain line breaks or control characters."
+  "rec4.projects.title_invalid": "The name must not contain line breaks or control characters.",
+  "rec4.projects.title_unreadable": "This project's file cannot be read, so it cannot be renamed.",
+  "rec4.projects.title_write_failed": "The new name could not be saved."
 }

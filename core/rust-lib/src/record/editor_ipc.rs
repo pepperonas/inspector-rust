@@ -287,16 +287,24 @@ pub fn import_asset_into(project_dir: &Path, src: &Path, kind: AssetKind) -> Res
     if !content_ok {
         return Err(wrong());
     }
-    let dir = project_dir.join(super::scene_json::PROJECT_ASSETS_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        tracing::warn!(target: "record::editor", "import: {}: {e}", dir.display());
+    // A symlinked `assets/` (planted in a project opened from elsewhere) is refused, and the
+    // copy goes into a NEW file (create_new + O_NOFOLLOW) — never through a link.
+    let dir = record_render_protocol::safe_fs::plain_dir(project_dir, super::scene_json::PROJECT_ASSETS_DIR).map_err(|e| {
+        tracing::warn!(target: "record::editor", "import: {}: {e}", project_dir.display());
         ERR_IMPORT_FAILED.to_string()
     })?;
     let name = format!("{}.{ext}", random_id());
-    std::fs::copy(src, dir.join(&name)).map_err(|e| {
+    let dest = dir.join(&name);
+    let copied = (|| -> std::io::Result<()> {
+        let mut out = record_render_protocol::safe_fs::open_new_nofollow(&dest)?;
+        std::io::copy(&mut std::fs::File::open(src)?, &mut out)?;
+        out.sync_all()
+    })();
+    if let Err(e) = copied {
+        let _ = std::fs::remove_file(&dest);
         tracing::warn!(target: "record::editor", "import: {}: {e}", src.display());
-        ERR_IMPORT_FAILED.to_string()
-    })?;
+        return Err(ERR_IMPORT_FAILED.to_string());
+    }
     Ok(name)
 }
 
@@ -1281,21 +1289,20 @@ pub fn retitle_open(dir: &Path, title: &str) -> Option<Result<String, String>> {
     }
     s.project.title = title.to_string();
     Some(
-        project::write_atomic(&s.dir, PROJECT_FILE, &s.project)
-            .map(|_| s.project.title.clone())
-            .map_err(|e| format!("cannot write project.json: {e}")),
+        project::write_atomic(&s.dir, PROJECT_FILE, &s.project).map(|_| s.project.title.clone()).map_err(|e| {
+            tracing::warn!(target: "record::editor", "rename {}: {e}", s.dir.display());
+            project::ERR_TITLE_WRITE.to_string()
+        }),
     )
 }
 
-/// Writes the first filmstrip frame as the project's thumbnail (atomic; best effort).
+/// Writes the first filmstrip frame as the project's thumbnail (atomic, unique temp name that
+/// never follows a planted link — `project::write_bytes_atomic`; best effort).
 fn store_thumb(dir: &Path, jpeg: &[u8]) {
     if jpeg.is_empty() || jpeg.len() as u64 > project::MAX_THUMB_BYTES {
         return;
     }
-    let tmp = dir.join(format!(".{}.tmp", project::THUMB_FILE));
-    let res = std::fs::write(&tmp, jpeg).and_then(|_| std::fs::rename(&tmp, dir.join(project::THUMB_FILE)));
-    if let Err(e) = res {
-        let _ = std::fs::remove_file(&tmp);
+    if let Err(e) = project::write_bytes_atomic(dir, project::THUMB_FILE, jpeg) {
         tracing::debug!(target: "record::editor", "thumbnail not written: {e}");
     }
 }
@@ -2345,6 +2352,8 @@ mod tests {
         // A file that changes is a new version: the old entry is dropped, the new one asked for.
         let mic_key = jobs[0].key.clone();
         std::thread::sleep(std::time::Duration::from_millis(20));
+        // WavSink only creates new files (never overwrites or follows a link).
+        std::fs::remove_file(dir.join(MIC_FILE)).unwrap();
         let mut sink = crate::record::wav::WavSink::create(&dir.join(MIC_FILE), 48_000).unwrap();
         sink.set_origin(0);
         sink.push(0, &vec![0.25f32; 24_000]).unwrap();
@@ -2679,6 +2688,51 @@ mod tests {
         let guard = open.find("open_target(&dir)").expect("open_editor validates the folder");
         assert!(guard < open.find("read_project").unwrap());
         let _ = std::fs::remove_dir_all(elsewhere.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn asset_import_never_writes_through_a_link() {
+        let d = open_tmp("asset-link");
+        let outside = open_tmp("asset-link-outside");
+        let png = d.join("in.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+        let project = d.join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        std::os::unix::fs::symlink(&outside, project.join(super::super::scene_json::PROJECT_ASSETS_DIR)).unwrap();
+        assert_eq!(import_asset_into(&project, &png, AssetKind::Image), Err(ERR_IMPORT_FAILED.to_string()));
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0, "nothing landed outside the project");
+        // A real assets/ works.
+        let ok = d.join("q");
+        std::fs::create_dir_all(&ok).unwrap();
+        let name = import_asset_into(&ok, &png, AssetKind::Image).unwrap();
+        assert!(ok.join("assets").join(name).is_file());
+        // The thumbnail and peaks caches replace a link at their path instead of following it.
+        let victim = outside.join("victim");
+        std::fs::write(&victim, b"keep me").unwrap();
+        std::os::unix::fs::symlink(&victim, ok.join(project::THUMB_FILE)).unwrap();
+        store_thumb(&ok, &[0xFF, 0xD8, 0xFF, 1]);
+        let cache = ok.join("peaks-0123456789abcdef-0123456789abcdef.f32");
+        std::os::unix::fs::symlink(&victim, &cache).unwrap();
+        assert_eq!(peaks::read_cache(&cache), None, "a linked cache is not read");
+        // ... even when what it points at is a perfectly valid cache.
+        let real = outside.join("real.f32");
+        std::fs::write(&real, record_render_protocol::peaks::encode_peaks(&[0.1, 0.2, -0.1, 0.3])).unwrap();
+        assert!(peaks::read_cache(&real).is_some());
+        let linked = ok.join("peaks-linked.f32");
+        std::os::unix::fs::symlink(&real, &linked).unwrap();
+        assert_eq!(peaks::read_cache(&linked), None);
+        let wav = ok.join(MIC_FILE);
+        let mut sink = crate::record::wav::WavSink::create(&wav, 48_000).unwrap();
+        sink.set_origin(0);
+        sink.push(0, &vec![0.25f32; 4_800]).unwrap();
+        sink.finish().unwrap();
+        peaks::wav_peaks(&wav, &cache).unwrap();
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep me");
+        assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
+        assert!(!std::fs::symlink_metadata(ok.join(project::THUMB_FILE)).unwrap().file_type().is_symlink());
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]

@@ -11,3 +11,8 @@ description = "Wire protocol between Inspector Rust and its `ir-record-render` h
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# O_NOFOLLOW for the project-folder writes (`safe_fs`); libc is already in the workspace
+# (the app links it on macOS and Linux).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

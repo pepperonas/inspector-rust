@@ -4484,7 +4484,7 @@
   "rec3.insp.theme.star-sprout": "Star Sprout",
   "rec3.insp.theme.glass-lens": "Glass Lens",
   "record.editor.not_project": "Dieser Ordner ist kein Aufnahmeprojekt (es fehlt die project.json).",
-  "rec4.projects.title": "Projekt öffnen",
+  "rec4.projects.title": "Projekte",
   "rec4.projects.open": "Projekt öffnen…",
   "rec4.projects.open_hint": "Einen beliebigen Projektordner öffnen — auch außerhalb des Aufnahmeordners",
   "rec4.projects.open_title": "Aufnahmeprojekt-Ordner wählen",
@@ -4495,5 +4495,7 @@
   "rec4.projects.created": "Erstellt {date}",
   "rec4.projects.title_empty": "Der Name darf nicht leer sein.",
   "rec4.projects.title_too_long": "Der Name ist zu lang (höchstens 200 Zeichen).",
-  "rec4.projects.title_invalid": "Der Name darf keine Zeilenumbrüche oder Steuerzeichen enthalten."
+  "rec4.projects.title_invalid": "Der Name darf keine Zeilenumbrüche oder Steuerzeichen enthalten.",
+  "rec4.projects.title_unreadable": "Die Projektdatei ist nicht lesbar, daher kann das Projekt nicht umbenannt werden.",
+  "rec4.projects.title_write_failed": "Der neue Name konnte nicht gespeichert werden."
 }

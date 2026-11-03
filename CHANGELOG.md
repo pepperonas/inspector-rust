@@ -17,6 +17,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **`record` — reopening projects.** The `record` panel lists every project (it scrolls), most recently edited first, with a thumbnail from the editor's filmstrip. Text after `record` searches names and dates, **F2** renames a project in place (Enter saves, Esc cancels; the folder keeps its name), and Open project... opens any project folder, also one outside the recordings folder (a folder without a `project.json` is refused). In the editor, **⌘O** shows the same list and switches after saving.
 
 ### Changed
+- **Writes into a project folder never follow a symbolic link.** Because projects can now be opened from any folder, saving the project, its thumbnail and waveform caches, imported files, a voiceover and an inserted recording all use new, uniquely named files and refuse a linked `assets` or `takes` folder, so a link placed in a foreign project cannot redirect a write elsewhere.
 - **Export loudness follows the voice.** The export now levels the voice (microphone and voiceover) to −16 LUFS and leaves the system audio at its recorded level, adjusted only by the new system audio level. Recordings without a microphone are levelled as before. The limiter ceiling is −2 dBTP.
 
 ## [0.230.0] — 2026-11-02

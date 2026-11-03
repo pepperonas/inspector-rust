@@ -70,8 +70,11 @@ pub struct WavSink {
 }
 
 impl WavSink {
+    /// A NEW file only (`create_new` + O_NOFOLLOW): the recorder writes into a fresh project
+    /// folder and the voiceover into one that may be foreign, so an existing name — a planted
+    /// symlink included — is an error, never overwritten or followed.
     pub fn create(path: &Path, sample_rate: u32) -> io::Result<Self> {
-        let mut w = BufWriter::new(File::create(path)?);
+        let mut w = BufWriter::new(record_render_protocol::safe_fs::open_new_nofollow(path)?);
         w.write_all(&wav_header(OUT_RATE, 1, 0))?;
         Ok(Self {
             w,

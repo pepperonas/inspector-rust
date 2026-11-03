@@ -44,7 +44,7 @@
   - 🎚️ **System-wide audio EQ — `boom`** (macOS · Windows via [Equalizer APO](https://sourceforge.net/projects/equalizerapo/)) — a **10-band graphic equaliser + volume boost + 20 presets** applied to *all* system audio, plus **5 enhancement effects** (Bass · Clarity · Fidelity · Ambience stereo-widen · Night compressor for low-volume listening), with live input/output level meters and a **perceptual system-volume taper** (the stock virtual-driver curve made everything below 40 % near-inaudible; boom now applies a proper power taper, so the volume slider feels like real hardware). Installs a small virtual audio driver from the panel (one click), matches your device's sample rate, and **follows your output device live** (incl. Bluetooth). **Battery-aware:** after 60 s of silence the audio bridge suspends itself so your Mac can sleep normally, and resumes within milliseconds when anything starts playing.
   - 🪟 **Window management** (macOS, opt-in) — drag a window to a screen edge to **snap** it (left/right halves · top to maximize, Magnet-style), or hover its green zoom button for a **Moom-style palette**: preset layouts (⌥ for quarters) + a drag-over **honeycomb grid** (16×10 default, up to 24 — rounded hexagons with magnetic hover, gradient-lit selection, and a live size readout) to drop the window into any region of the screen, with a live on-screen outline preview.
   - 📸 **Screenshots — CleanShot-X-style**: region (`Ctrl+Shift+S`) · full-screen · active-window · self-timer · repeat-last; floating preview HUD; **annotation editor** (arrow / line / text / rect / ellipse / highlight / blur / redact / numbered step badges); **pin to screen**. Filenames include the source app.
-  - 🎥 **Screen recording** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ on Apple Silicon) — pick a display or a window via ScreenCaptureKit, system audio + a separate microphone track, countdown, **pause/resume**, notes window → an **editable project** in `~/Movies/Inspector Rust/` (screen video, mic track, pointer telemetry). The app's own windows never show up in the recording. Since v0.229.0 the take opens in an **editor** (Apple Silicon): live preview, cut/trim clips, speed 0.25–16×, crop presets, mic level, undo — and **export to MP4** (H.264/HEVC, up to source resolution, 24/30/60 fps) **or GIF** into `~/Downloads`, rendered by the vendored OpenScreen compositor in its own helper process. Since v0.230.0 the editor also styles the scene (wallpapers, gradients, own image, padding, shadow, device frames), restyles the recorded pointer (themes, own PNG, click sound) and adds **zooms** — by hand on a zoom track or **automatically on every click**.
+  - 🎥 **Screen recording** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ on Apple Silicon) — pick a display or a window via ScreenCaptureKit, system audio + a separate microphone track, countdown, **pause/resume**, notes window → an **editable project** in `~/Movies/Inspector Rust/` (screen video, mic track, pointer telemetry). The app's own windows never show up in the recording. Since v0.229.0 the take opens in an **editor** (Apple Silicon): live preview, cut/trim clips, speed 0.25–16×, crop presets, mic level, undo — and **export to MP4** (H.264/HEVC, up to source resolution, 24/30/60 fps) **or GIF** into `~/Downloads`, rendered by the vendored OpenScreen compositor in its own helper process. Since v0.230.0 the editor also styles the scene (wallpapers, gradients, own image, padding, shadow, device frames), restyles the recorded pointer (themes, own PNG, click sound) and adds **zooms** — by hand on a zoom track or **automatically on every click**. Since v0.231.0 it adds **annotations** (text in five bundled fonts with animations, images, arrows, blur or mosaic in any shape), **music and a voiceover** with waveforms, clip reordering and duplication, other recordings as clips, copy/paste of regions, **style presets** and freely bindable keys; the `record` list shows every project with a thumbnail, searches by name or date, renames in place and opens projects from any folder.
   - 🔍 **Screen-region OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade text recognition into the clipboard.
   - 🎬 **Media tools** — **download** YouTube / Instagram / TikTok / Facebook (video or audio — just paste a URL; Tab toggles on YouTube), with an optional **trim-and-download section** under the buttons: QuickTime-style yellow handles, scrub the range by ear on a small audio proxy, and the download fetches **only the cut** (frame-accurate — 20 s out of an 83-minute set arrive as ~1.2 MiB instead of hundreds of MB); **audio swap** (`Ctrl+Shift+Alt+M`) to replace or mix a video's audio with a local file or a YouTube track; **trim** local audio/video (`trim`) lossless-fast or frame-accurate. Need ffmpeg / yt-dlp.
   - ⏱️ **Time tracking / Timesheet** (`track on/off`; `track` or **`Ctrl+Shift+T`**; macOS) — opt-in, event-based app-usage tracking by window focus with retroactive idle auto-pause; an editable **Timesheet tab** with day/week views, inline-SVG charts (timeline · app donut · categories · projects), **manual Pause/Resume**, CSV + self-contained HTML export following the visible scope (day or Mon–Sun week), **week-wide cleanup**, and a global **toggle-tracking hotkey** (`Ctrl+Shift+Alt+T`, rebindable); detects **Claude Code** usage per project (time + tokens); an optional **browser extension** (loopback socket only). Window titles + URLs encrypted at rest.
@@ -86,7 +86,7 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **6471 unit tests (2512 Rust + 3959 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **6480 unit tests (2519 Rust + 3961 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
@@ -94,8 +94,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~277k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 2512 Rust + 3959 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-6471%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 2519 Rust + 3961 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-6480%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -117,7 +117,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](.github/badges/maintained-yes-brightgreen-f6453ee2.svg)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-6471%20(2512%20Rust%20%2B%203959%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-6480%20(2519%20Rust%20%2B%203961%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](.github/badges/prs-welcome-brightgreen-bf350bde.svg)](./CONTRIBUTING.md)
   [![Code Style](.github/badges/code-style-clippy-eslint-orange-216d70a2.svg)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-78-4f46e5?style=flat-square)](#commands)
@@ -203,8 +203,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](.github/badges/eslint-flat-config-4b32c3-cc02ea79.svg)](https://eslint.org)
   [![Vitest](.github/badges/vitest-3-6e9f18-d14e6138.svg)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-2512%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-3959%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-2519%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-3961%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](.github/badges/cargo-clippy-d-warnings-success-0e95b602.svg)](#)
   [![tsc strict](.github/badges/tsc-strict-3178c6-8998462e.svg)](#)
   [![Prettier](.github/badges/code-style-prettier-f7b93e-52e0150f.svg)](https://prettier.io)
@@ -335,7 +335,7 @@
   [![exe size](.github/badges/exe-14-mb-blue-2fcaaf46.svg)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-6471%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-6480%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-550-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-78-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-69-blueviolet?style=flat-square)](#)
@@ -858,6 +858,7 @@ Each banner:
 - **Screen recording** (`record` / `Ctrl+Shift+Alt+S`, macOS 14+ on Apple Silicon) — ScreenCaptureKit records a display or a single window with system audio; the microphone goes to its own WAV track and the pointer (position, clicks, pointer shape) to a `cursor.json` sidecar, all on one timeline that pauses cleanly. Each take is an editable project in `~/Movies/Inspector Rust/`; the app's own HUD, bar and notes window are excluded from the capture. Stage 1 of an OpenScreen-style recorder.
 - **Editor + export** *(v0.229.0, Apple Silicon)* — after a take (or Enter / **Edit** on a project in the `record` panel) an editor window shows a live preview rendered by the vendored **OpenScreen compositor** (Metal + VideoToolbox), a timeline with a filmstrip, split (S) / delete (⌫) / trim clips, speed regions 0.25–16×, crop (C) with free/16:9/9:16/1:1/4:3/3:4/21:9 presets, a mic level −60…+12 dB and undo/redo; edits save into the project. **Export** to MP4 (720p/1080p/source, 24/30/60 fps, H.264 or HEVC) or GIF (15–30 fps, 480–1080 px, loop) into `~/Downloads`, with progress and cancel. Preview and export run through the same compositor in the separate `ir-record-render` helper, which links an **LGPL** build of FFmpeg 8.1.2 (dynamic, in `Contents/Frameworks/`; licence texts in `Contents/Resources/THIRD-PARTY/`). The tray app itself links neither FFmpeg nor the compositor; a helper crash never takes the app down.
 - **Look, pointer and zoom** *(v0.230.0, Apple Silicon)* — a settings column beside the preview sets the background (8 bundled wallpapers, 16 gradients, 16 colours or an own image, with motion and blur), padding, corner radius, shadow, motion blur, a window/laptop/phone/monitor frame and the output shape; with pointer data the recorded pointer gets one of 7 themes or an own PNG, size, smoothing, click bounce/impact and a **click sound** (mixed into the export, audible in the preview). A **zoom track** under the clips: **Z** adds a zoom at the playhead, drag to move or trim, depth 1.25×–5× or an own scale, focus that follows the pointer or a fixed point set by clicking into the preview. **Auto-zoom** (OpenScreen's planner) zooms in on every click — once automatically the first time a new take opens, on demand by button; your own zooms always stay.
+- **Annotations, audio, presets and reopening** *(v0.231.0, Apple Silicon)* — an annotation lane with text (Inter, Lora, Oswald, Caveat, IBM Plex Mono; size, colour, plate, seven animations), images, arrows and blur/mosaic (rectangle, oval or a free shape drawn exactly); an audio lane with waveforms for the mic, the system audio and added **music** (loop, fades, level) or a **voiceover** recorded at the playhead with the native microphone; the export levels the voice to −16 LUFS and limits at −2 dBTP. Clips can be reordered and duplicated, another recording inserted as a clip, regions copied and pasted at the playhead with snapping; every editor key is rebindable (`?`), looks are saved as shareable `.irpreset` files. The `record` list shows every project, most recently edited first, with a thumbnail; `record <text>` searches, **F2** renames, **Open project…** opens a project from any folder, and **⌘O** switches projects inside the editor.
 
 ### Media tools — download · trim · swap (v0.81.0 → v0.84.x, ffmpeg)
 - **Replace / overlay audio** (`Ctrl+Shift+Alt+M`, macOS) — select a video in Finder → an overlay to **replace** the audio track or **mix** a new one over it, at a chosen start position with optional trim and per-track volume. The new audio is a local file or a **yt-dlp'd YouTube track**. Video is stream-copied (fast/lossless), output is a sibling `-audioswap.mp4`.
@@ -1035,8 +1036,8 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 Inspector Rust keeps its **pure logic** — parsers, math, state machines, arg-builders, formatters — as free functions and unit-tests them exhaustively (behaviour, edge cases, error paths), while the impure OS/FFI edge (CoreAudio/Vision/CGEvent FFI, Tauri windows, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio) is left to manual/integration testing because it needs a live machine. So the code that *can* carry a deterministic test is well-covered — **frontend `src/lib` ≈ 83 % stmt / 95 % branch** (measured 2026-07-19), and the pure Rust cores that sit next to their 0 %-covered FFI shells (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — even though the headline workspace average looks modest.
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 3959 tests
-cargo test --workspace  # Rust unit tests — 2512 tests
+pnpm test               # frontend unit tests (vitest + happy-dom) — 3961 tests
+cargo test --workspace  # Rust unit tests — 2519 tests
 ```
 
 Iterate on one module:

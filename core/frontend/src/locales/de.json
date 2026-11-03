@@ -4121,6 +4121,7 @@
   "rec5.camera_unavailable": "Aufnahme ohne Kamera: {reason}",
   "rec5.camera_lost": "Die Kamera wurde getrennt — die Aufnahme läuft ohne sie weiter.",
   "rec5.camera_denied_short": "keine Kamera-Freigabe",
+  "rec5.camera_no_picture": "die Kamera lieferte kein Bild",
   "rec5.camera_no_device": "keine Kamera gefunden",
   "rec5.camera_start_failed": "die Kamera startete nicht ({reason})",
   "rec2.bar.pause": "Pause",

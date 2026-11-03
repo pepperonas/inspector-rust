@@ -4121,6 +4121,7 @@
   "rec5.camera_unavailable": "Recording without the camera: {reason}",
   "rec5.camera_lost": "The camera disconnected — the recording continues without it.",
   "rec5.camera_denied_short": "no camera permission",
+  "rec5.camera_no_picture": "the camera delivered no picture",
   "rec5.camera_no_device": "no camera found",
   "rec5.camera_start_failed": "the camera did not start ({reason})",
   "rec2.bar.pause": "Pause",

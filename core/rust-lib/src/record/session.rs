@@ -578,8 +578,8 @@ pub fn import_take_into(project: &Path, src: &Path) -> Result<(String, crate::re
 pub trait CameraSink: Send {
     /// Timeline ns of the screen's first frame.
     fn set_origin(&self, origin_ns: i64);
-    /// The camera dropped out mid-take (sticky).
-    fn is_lost(&self) -> bool;
+    /// How the camera is doing (sticky once not Ok).
+    fn health(&self) -> super::camera::CameraHealth;
     /// Stop and close the file at the screen's end (timeline ns).
     fn finish(self: Box<Self>, end_ns: i64) -> super::camera::CameraOutcome;
 }
@@ -589,8 +589,8 @@ impl CameraSink for super::camera::CameraCapture {
     fn set_origin(&self, origin_ns: i64) {
         super::camera::CameraCapture::set_origin(self, origin_ns.max(0) as u64)
     }
-    fn is_lost(&self) -> bool {
-        super::camera::CameraCapture::is_lost(self)
+    fn health(&self) -> super::camera::CameraHealth {
+        super::camera::CameraCapture::health(self)
     }
     fn finish(self: Box<Self>, end_ns: i64) -> super::camera::CameraOutcome {
         super::camera::CameraCapture::finish(*self, end_ns.max(0) as u64)
@@ -632,13 +632,23 @@ impl CameraSlot {
         }
     }
 
-    /// `true` exactly once, when the camera has just been found lost (sets the warning).
+    /// `true` exactly once, when the camera has just been found lost or never delivered a
+    /// frame (sets the matching warning).
     pub fn poll_lost(&mut self) -> bool {
-        if self.lost_reported || !self.sink.as_ref().is_some_and(|s| s.is_lost()) {
+        use super::camera::CameraHealth;
+        if self.lost_reported {
             return false;
         }
+        let health = self.sink.as_ref().map_or(CameraHealth::Ok, |s| s.health());
+        self.warning = match health {
+            CameraHealth::Ok => return false,
+            CameraHealth::Lost => Some(crate::i18n::t("rec5.camera_lost")),
+            CameraHealth::NeverStarted => Some(crate::i18n::tf(
+                "rec5.camera_unavailable",
+                &[("reason", &crate::i18n::t("rec5.camera_no_picture"))],
+            )),
+        };
         self.lost_reported = true;
-        self.warning = Some(crate::i18n::t("rec5.camera_lost"));
         true
     }
 
@@ -821,7 +831,10 @@ mod mac {
             bytes += OUT_RATE as u64 * 2 * 60;
         }
         if opts.camera {
-            let (cw, ch) = opts.camera_quality.ideal_size();
+            // The size the camera will really record at (format chosen without opening the
+            // device); the quality's ideal size when the device isn't there.
+            let (cw, ch) = crate::record::camera::planned_size(&opts.camera_device, opts.camera_quality)
+                .unwrap_or_else(|| opts.camera_quality.ideal_size());
             bytes += crate::record::camera::camera_bitrate(cw, ch) as u64 * 60 / 8;
         }
         bytes
@@ -1367,6 +1380,7 @@ mod mac {
             let _ = camera.finish(0);
             discard_dir(&prep.dir);
             clear_dir(&st, my_gen);
+            st.inner.lock().camera_warning = None;
             emit_status(app);
             return Err(ERR_CANCELLED.into());
         }
@@ -1381,6 +1395,7 @@ mod mac {
                     if g.gen == my_gen {
                         g.phase = next_phase(g.phase, Action::Fail).unwrap_or(Phase::Idle);
                         g.dir = None;
+                        g.camera_warning = None;
                     }
                 }
                 let _ = app.emit(
@@ -1824,6 +1839,7 @@ mod tests {
     /// A camera recorder attrappe: lost or not, records what `finish` got.
     struct FakeCam {
         lost: bool,
+        never: bool,
         origin: std::sync::Arc<std::sync::atomic::AtomicI64>,
         finished_at: std::sync::Arc<std::sync::atomic::AtomicI64>,
     }
@@ -1832,8 +1848,12 @@ mod tests {
         fn set_origin(&self, origin_ns: i64) {
             self.origin.store(origin_ns, std::sync::atomic::Ordering::SeqCst);
         }
-        fn is_lost(&self) -> bool {
-            self.lost
+        fn health(&self) -> super::super::camera::CameraHealth {
+            match (self.lost, self.never) {
+                (_, true) => super::super::camera::CameraHealth::NeverStarted,
+                (true, _) => super::super::camera::CameraHealth::Lost,
+                _ => super::super::camera::CameraHealth::Ok,
+            }
         }
         fn finish(self: Box<Self>, end_ns: i64) -> super::super::camera::CameraOutcome {
             self.finished_at.store(end_ns, std::sync::atomic::Ordering::SeqCst);
@@ -1849,7 +1869,7 @@ mod tests {
 
     fn fake(lost: bool) -> (Box<dyn CameraSink>, std::sync::Arc<std::sync::atomic::AtomicI64>) {
         let at = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1));
-        let cam = FakeCam { lost, origin: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)), finished_at: at.clone() };
+        let cam = FakeCam { lost, never: false, origin: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)), finished_at: at.clone() };
         (Box::new(cam), at)
     }
 
@@ -1924,6 +1944,19 @@ mod tests {
         assert_eq!(failure, None);
         let cam = p.recording.camera.expect("the camera file up to the loss is kept");
         assert_eq!(cam.ended_early_ms, Some(2_500));
+
+        // A camera that never delivers: reported once, as "no picture", no camera file.
+        let never = FakeCam {
+            lost: false,
+            never: true,
+            origin: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+            finished_at: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1)),
+        };
+        let mut slot = CameraSlot::open(true, || Ok(Box::new(never) as Box<dyn CameraSink>));
+        assert!(slot.poll_lost());
+        assert!(!slot.poll_lost());
+        let w = slot.warning().unwrap().to_string();
+        assert_ne!(w, crate::i18n::t("rec5.camera_lost"), "a camera that never started is not 'disconnected'");
 
         // A camera that stays: no loss, no warning, no `endedEarlyMs`.
         let (cam, _) = fake(false);

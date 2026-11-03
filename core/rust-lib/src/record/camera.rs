@@ -21,8 +21,12 @@ use serde::{Deserialize, Serialize};
 
 /// Frame rate the camera is asked for (OpenScreen: `WEBCAM_TARGET_FRAME_RATE`).
 pub const CAMERA_FPS: u32 = 30;
-/// No frame delivered for this long (while the session should run) = the camera is gone.
+/// After the first frame: no frame for this long = the camera is gone.
 pub const CAMERA_STALL_NS: i64 = 2_000_000_000;
+/// Before the first frame: a camera may take this long after the screen's first frame to
+/// deliver (Continuity Camera and some UVC cameras need several seconds to wake). Past it
+/// without a single frame the camera counts as never started.
+pub const CAMERA_FIRST_FRAME_GRACE_NS: i64 = 8_000_000_000;
 /// A sample time further than this before its arrival is not on the host clock.
 const HOST_CLOCK_SLACK_BEHIND_NS: i64 = 1_000_000_000;
 /// …or more than this after its arrival.
@@ -94,10 +98,44 @@ pub fn camera_output_size(delivered: (u32, u32), ideal: (u32, u32)) -> (u32, u32
     super::core::capture_output_size(delivered.0 as f64, delivered.1 as f64, 1.0, ideal.0, ideal.1)
 }
 
-/// The camera is gone: unplugged, its session stopped, or no frame for [`CAMERA_STALL_NS`]
-/// (frames keep arriving during a pause — they are only dropped — so a pause never counts).
-pub fn camera_lost(connected: bool, running: bool, last_arrival_ns: i64, now_ns: i64) -> bool {
-    !connected || !running || now_ns - last_arrival_ns > CAMERA_STALL_NS
+/// How a running camera is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CameraHealth {
+    Ok,
+    /// It delivered and then dropped out (unplugged, stopped, frames stopped).
+    Lost,
+    /// It never delivered a single frame (in the first-frame grace, or gone before).
+    NeverStarted,
+}
+
+/// The health rule. `first_arrival_ns`/`last_arrival_ns` = host ns of the first/last
+/// delivered frame (frames keep arriving during a pause — they are only dropped — so a pause
+/// never counts); `origin_at_ns` = host ns when the screen's first frame was known. The
+/// 2-s stall rule only applies once a frame came; before that the camera gets
+/// [`CAMERA_FIRST_FRAME_GRACE_NS`] from the origin.
+pub fn camera_health(
+    connected: bool,
+    running: bool,
+    first_arrival_ns: Option<i64>,
+    last_arrival_ns: i64,
+    origin_at_ns: i64,
+    now_ns: i64,
+) -> CameraHealth {
+    match first_arrival_ns {
+        None if !connected || !running || now_ns - origin_at_ns > CAMERA_FIRST_FRAME_GRACE_NS => {
+            CameraHealth::NeverStarted
+        }
+        None => CameraHealth::Ok,
+        Some(_) if !connected || !running || now_ns - last_arrival_ns > CAMERA_STALL_NS => CameraHealth::Lost,
+        Some(_) => CameraHealth::Ok,
+    }
+}
+
+/// After a failed finish (writer error, finishWriting timeout): keep the file only when it
+/// can be read back with a length (`readable_secs` = AVURLAsset duration of the file —
+/// fragmented MP4s are readable up to the last fragment).
+pub fn keep_after_failed_finish(readable_secs: Option<f64>) -> bool {
+    readable_secs.is_some_and(|d| d.is_finite() && d > 0.0)
 }
 
 /// What the camera wrote, for `project.json`. No frame written = no camera at all.
@@ -295,8 +333,8 @@ mod mac {
 #[cfg(target_os = "macos")]
 mod capture {
     use super::{
-        camera_bitrate, camera_lost, camera_meta, camera_output_size, camera_pts, pick_format, sample_host_ns,
-        target_fps, CameraDevice, CameraOutcome, CameraQuality, FormatInfo,
+        camera_bitrate, camera_health, camera_meta, camera_output_size, camera_pts, keep_after_failed_finish,
+        pick_format, sample_host_ns, target_fps, CameraDevice, CameraHealth, CameraOutcome, CameraQuality, FormatInfo,
     };
     use crate::record::capture_macos::{cmtime_ns, key, num, video_settings, writer_error, Sendable};
     use crate::record::core::{GateVerdict, VideoTimestampGate};
@@ -347,6 +385,12 @@ mod capture {
         origin: AtomicI64,
         /// Host ns of the last delivered frame (also during pauses).
         last_arrival: AtomicI64,
+        /// Host ns of the first delivered frame; [`NO_ORIGIN`] until one came.
+        first_arrival: AtomicI64,
+        /// Host ns when `set_origin` was called; [`NO_ORIGIN`] before.
+        origin_at: AtomicI64,
+        /// The health verdict once it stopped being Ok (0 = Ok, 1 = lost, 2 = never started).
+        verdict: std::sync::atomic::AtomicU8,
         /// Once lost, always lost: no frame is written after the camera dropped out.
         lost: AtomicBool,
         st: Mutex<Sendable<CamState>>,
@@ -356,6 +400,7 @@ mod capture {
         fn on_sample(&self, sample: &CMSampleBuffer) {
             let arrival = host_now_ns();
             self.last_arrival.store(arrival, Ordering::Relaxed);
+            let _ = self.first_arrival.compare_exchange(NO_ORIGIN, arrival, Ordering::Relaxed, Ordering::Relaxed);
             let origin = self.origin.load(Ordering::Acquire);
             if origin == NO_ORIGIN || self.lost.load(Ordering::Relaxed) {
                 return;
@@ -514,7 +559,7 @@ mod capture {
         inner: Arc<CamInner>,
         session: Retained<AVCaptureSession>,
         device: Retained<AVCaptureDevice>,
-        _output: Retained<AVCaptureVideoDataOutput>,
+        output: Retained<AVCaptureVideoDataOutput>,
         _delegate: Retained<CameraOutput>,
         path: PathBuf,
         name: String,
@@ -627,6 +672,9 @@ mod capture {
                     clock,
                     origin: AtomicI64::new(NO_ORIGIN),
                     last_arrival: AtomicI64::new(host_now_ns()),
+                    first_arrival: AtomicI64::new(NO_ORIGIN),
+                    origin_at: AtomicI64::new(NO_ORIGIN),
+                    verdict: std::sync::atomic::AtomicU8::new(0),
                     lost: AtomicBool::new(false),
                     st: Mutex::new(Sendable(CamState {
                         writer,
@@ -657,7 +705,7 @@ mod capture {
                     inner,
                     session,
                     device: dev,
-                    _output: output,
+                    output,
                     _delegate: delegate,
                     path: path.to_path_buf(),
                     name,
@@ -670,6 +718,7 @@ mod capture {
 
         /// Timeline ns of the screen's first frame: from here on frames are written.
         pub fn set_origin(&self, origin_ns: u64) {
+            self.inner.origin_at.store(host_now_ns(), Ordering::Relaxed);
             self.inner.origin.store(origin_ns as i64, Ordering::Release);
         }
 
@@ -683,26 +732,41 @@ mod capture {
             self.mirrored
         }
 
-        /// The camera dropped out (unplugged, stopped, no frames). Sticky.
-        pub fn is_lost(&self) -> bool {
-            if self.inner.lost.load(Ordering::Relaxed) {
-                return true;
+        /// How the camera is doing ([`camera_health`]; a writer error counts as lost). Sticky:
+        /// once not Ok it stays so, and no frame is written after it.
+        pub fn health(&self) -> CameraHealth {
+            match self.inner.verdict.load(Ordering::Relaxed) {
+                1 => return CameraHealth::Lost,
+                2 => return CameraHealth::NeverStarted,
+                _ => {}
             }
-            if self.inner.origin.load(Ordering::Acquire) == NO_ORIGIN {
-                return false;
+            let origin_at = self.inner.origin_at.load(Ordering::Relaxed);
+            if origin_at == NO_ORIGIN {
+                return CameraHealth::Ok;
             }
             // SAFETY: thread-safe property reads on live objects.
             let (connected, running) = unsafe { (self.device.isConnected(), self.session.isRunning()) };
             let writer_failed = self.inner.st.lock().0.error.is_some();
-            let lost = writer_failed
-                || camera_lost(connected, running, self.inner.last_arrival.load(Ordering::Relaxed), host_now_ns());
-            if lost {
+            let first = self.inner.first_arrival.load(Ordering::Relaxed);
+            let first = (first != NO_ORIGIN).then_some(first);
+            let h = if writer_failed {
+                CameraHealth::Lost
+            } else {
+                camera_health(connected, running, first, self.inner.last_arrival.load(Ordering::Relaxed), origin_at, host_now_ns())
+            };
+            if h != CameraHealth::Ok {
                 tracing::warn!(
-                    "record camera: lost (connected {connected}, running {running}, writer failed {writer_failed})"
+                    "record camera: {h:?} (connected {connected}, running {running}, writer failed {writer_failed})"
                 );
+                self.inner.verdict.store(if h == CameraHealth::Lost { 1 } else { 2 }, Ordering::Relaxed);
                 self.inner.lost.store(true, Ordering::Relaxed);
             }
-            lost
+            h
+        }
+
+        /// The camera dropped out or never started (see [`Self::health`]).
+        pub fn is_lost(&self) -> bool {
+            self.health() != CameraHealth::Ok
         }
 
         /// Stops the camera and closes the file at the screen's end `end_ns` (timeline ns),
@@ -745,6 +809,15 @@ mod capture {
             }));
             if !matches!(ok, Ok(true)) {
                 tracing::warn!("record camera: finishing camera.mp4 failed: {}", writer_error(&st.writer));
+                // The fragments written so far may still be a readable file: keep it, marked as
+                // ending at the last written frame; otherwise nothing references it — remove it.
+                let readable = readable_secs(&self.path);
+                if keep_after_failed_finish(readable) {
+                    tracing::info!("record camera: keeping the readable part ({readable:?} s)");
+                    let meta = camera_meta(Some(self.size), self.fps, &self.name, Some(last / 1_000_000));
+                    return CameraOutcome { meta, lost: true };
+                }
+                let _ = std::fs::remove_file(&self.path);
                 return CameraOutcome { meta: None, lost };
             }
             tracing::info!(
@@ -793,14 +866,49 @@ mod capture {
 
     impl Drop for CameraCapture {
         fn drop(&mut self) {
-            // SAFETY: as in `finish`; idempotent on a stopped session.
-            unsafe { self.session.stopRunning() };
+            // SAFETY: as in `finish`; idempotent on a stopped session. Clearing the delegate
+            // (nil delegate with a nil queue is the documented way) before the objects are
+            // released means no late callback can reach a freed delegate.
+            unsafe {
+                self.session.stopRunning();
+                self.output.setSampleBufferDelegate_queue(None, None);
+            }
         }
+    }
+
+    /// The AVURLAsset duration of a file in seconds, `None` when unreadable.
+    #[allow(deprecated)] // the synchronous `duration`; this runs once, off the main thread
+    fn readable_secs(path: &Path) -> Option<f64> {
+        use objc2_av_foundation::AVURLAsset;
+        let url = NSURL::from_file_path(path)?;
+        let r = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: a local file URL; `duration` loads synchronously and has no other
+            // preconditions. Exceptions are caught.
+            autoreleasepool(|_| unsafe {
+                let d = AVURLAsset::URLAssetWithURL_options(&url, None).duration();
+                (d.timescale > 0 && d.flags.0 & 1 != 0).then(|| d.value as f64 / d.timescale as f64)
+            })
+        }));
+        r.ok().flatten()
+    }
+
+    /// The file size the camera will record at, without opening it (formats are readable
+    /// without permission). `None` = the device is not there.
+    pub fn planned_size(device_id: &str, quality: CameraQuality) -> Option<(u32, u32)> {
+        let list = super::devices();
+        let dev = super::pick_device(&list, device_id)?;
+        autoreleasepool(|_| {
+            // SAFETY: class lookup with a valid NSString.
+            let d = unsafe { AVCaptureDevice::deviceWithUniqueID(&NSString::from_str(&dev.id)) }?;
+            let infos = format_infos(&d);
+            let i = pick_format(&infos, quality.ideal_size())?;
+            Some(camera_output_size((infos[i].width, infos[i].height), quality.ideal_size()))
+        })
     }
 }
 
 #[cfg(target_os = "macos")]
-pub use capture::CameraCapture;
+pub use capture::{planned_size, CameraCapture};
 
 #[cfg(test)]
 mod tests {
@@ -886,12 +994,44 @@ mod tests {
 
     #[test]
     fn lost_on_unplug_stop_or_stall() {
+        use CameraHealth::*;
         let now = 50_000_000_000;
-        assert!(!camera_lost(true, true, now - 100_000_000, now));
-        assert!(camera_lost(false, true, now, now), "unplugged");
-        assert!(camera_lost(true, false, now, now), "session stopped");
-        assert!(camera_lost(true, true, now - CAMERA_STALL_NS - 1, now), "no frames");
-        assert!(!camera_lost(true, true, now - CAMERA_STALL_NS, now), "exactly the limit still ok");
+        let origin = now - 20_000_000_000;
+        let first = Some(origin);
+        assert_eq!(camera_health(true, true, first, now - 100_000_000, origin, now), Ok);
+        assert_eq!(camera_health(false, true, first, now, origin, now), Lost, "unplugged");
+        assert_eq!(camera_health(true, false, first, now, origin, now), Lost, "session stopped");
+        assert_eq!(camera_health(true, true, first, now - CAMERA_STALL_NS - 1, origin, now), Lost, "frames stopped");
+        assert_eq!(camera_health(true, true, first, now - CAMERA_STALL_NS, origin, now), Ok, "exactly the limit");
+    }
+
+    #[test]
+    fn slow_starting_camera_gets_a_grace_before_its_first_frame() {
+        use CameraHealth::*;
+        let origin = 10_000_000_000;
+        // No frame yet, 3 s after the origin: not lost (the stall rule doesn't apply yet,
+        // even though `last_arrival` still holds the start time far back).
+        let stale_start = origin - 1_000_000_000;
+        assert_eq!(camera_health(true, true, None, stale_start, origin, origin + 3_000_000_000), Ok);
+        assert_eq!(camera_health(true, true, None, stale_start, origin, origin + CAMERA_FIRST_FRAME_GRACE_NS), Ok);
+        // No frame by the end of the grace: never started.
+        assert_eq!(
+            camera_health(true, true, None, stale_start, origin, origin + CAMERA_FIRST_FRAME_GRACE_NS + 1),
+            NeverStarted
+        );
+        assert_eq!(camera_health(false, true, None, stale_start, origin, origin + 1), NeverStarted, "gone before a frame");
+        // A first frame at 6 s, then 2 s silence: lost.
+        let first = origin + 6_000_000_000;
+        assert_eq!(camera_health(true, true, Some(first), first, origin, first + 1_000_000_000), Ok);
+        assert_eq!(camera_health(true, true, Some(first), first, origin, first + CAMERA_STALL_NS + 1), Lost);
+    }
+
+    #[test]
+    fn failed_finish_keeps_only_a_readable_file() {
+        assert!(keep_after_failed_finish(Some(3.2)));
+        assert!(!keep_after_failed_finish(Some(0.0)), "an empty file says nothing");
+        assert!(!keep_after_failed_finish(None), "unreadable");
+        assert!(!keep_after_failed_finish(Some(f64::NAN)));
     }
 
     #[test]

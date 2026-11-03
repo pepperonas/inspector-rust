@@ -1,4 +1,4 @@
-//! Style presets: the look of a recording (background, frame, pointer, aspect) saved as a
+//! Style presets: the look of a recording (background, frame, pointer, camera style, aspect) saved as a
 //! shareable file `<recordings folder>/Presets/<name>.irpreset`.
 //!
 //! A preset is plain JSON (2-space indent, trailing newline, written atomically). Own images
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::editor::{Appearance, Aspect, Background, CursorStyle, EditDoc};
+use super::editor::{Appearance, Aspect, Background, CameraBackground, CameraMask, CameraStyle, CursorStyle, EditDoc, LayoutPreset};
 use super::scene_json::{project_asset, PROJECT_ASSETS_DIR};
 
 pub const PRESET_FORMAT: &str = "inspector-rust-record-preset";
@@ -45,6 +45,54 @@ pub struct Preset {
     pub appearance: Appearance,
     pub cursor: CursorStyle,
     pub aspect: Aspect,
+    /// The camera's style (stage 5). Absent in older presets: applying keeps the document's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<PresetCamera>,
+}
+
+/// The camera style a preset carries: everything of [`CameraStyle`] but where the camera sits
+/// (`anchor`) and how it is framed (`crop`) — those belong to the recording, as upstream
+/// (`stylePresets.ts:65-73`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetCamera {
+    pub preset: LayoutPreset,
+    pub size_pct: f64,
+    pub mask: CameraMask,
+    #[serde(default)]
+    pub roundness: Option<f64>,
+    pub mirror: bool,
+    pub reactive_zoom: bool,
+    pub background: CameraBackground,
+}
+
+impl PresetCamera {
+    pub fn from_style(c: &CameraStyle) -> Self {
+        PresetCamera {
+            preset: c.preset,
+            size_pct: c.size_pct,
+            mask: c.mask,
+            roundness: c.roundness,
+            mirror: c.mirror,
+            reactive_zoom: c.reactive_zoom,
+            background: c.background.clone(),
+        }
+    }
+
+    /// `style` with this preset's look; its anchor and framing stay.
+    pub fn apply_to(&self, style: &CameraStyle) -> CameraStyle {
+        CameraStyle {
+            preset: self.preset,
+            size_pct: self.size_pct,
+            mask: self.mask,
+            roundness: self.roundness,
+            mirror: self.mirror,
+            reactive_zoom: self.reactive_zoom,
+            background: self.background.clone(),
+            anchor: style.anchor,
+            crop: style.crop,
+        }
+    }
 }
 
 /// One file of the presets folder. A broken file is listed (`ok: false`, `error` = reason key)
@@ -253,10 +301,16 @@ fn copy_hashed(src: &Path, dest_assets: &Path) -> std::io::Result<String> {
     Ok(name)
 }
 
-/// Appearance and pointer with their own files moved from `from_dir/assets` to `to_dir/assets`
-/// (content-hashed names). A file that is missing (or cannot be copied) gives the standard
-/// background / no own pointer.
-fn relocate_files(appearance: &Appearance, cursor: &CursorStyle, from_dir: &Path, to_dir: &Path) -> (Appearance, CursorStyle) {
+/// Appearance, pointer and camera background with their own files moved from `from_dir/assets`
+/// to `to_dir/assets` (content-hashed names). A file that is missing (or cannot be copied) gives
+/// the standard background / no own pointer / the camera's standard background.
+fn relocate_files(
+    appearance: &Appearance,
+    cursor: &CursorStyle,
+    camera: Option<&PresetCamera>,
+    from_dir: &Path,
+    to_dir: &Path,
+) -> (Appearance, CursorStyle, Option<PresetCamera>) {
     // A symlinked `assets/` (planted in a project opened from elsewhere) is refused: nothing
     // is copied and the standard look applies.
     let mv = |file: &str| -> Option<String> {
@@ -281,7 +335,17 @@ fn relocate_files(appearance: &Appearance, cursor: &CursorStyle, from_dir: &Path
     if let Some(custom) = &cursor.custom {
         c.custom = mv(&custom.file).map(|file| super::editor::CustomCursor { file, ..custom.clone() });
     }
-    (a, c)
+    let cam = camera.map(|cam| {
+        let mut cam = cam.clone();
+        if let Background::Image { file } = &cam.background.custom {
+            cam.background.custom = match mv(file) {
+                Some(file) => Background::Image { file },
+                None => CameraBackground::default().custom,
+            };
+        }
+        cam
+    });
+    (a, c, cam)
 }
 
 /// Saves the open document's look under `name` (unique, case-insensitive). Own images and
@@ -292,7 +356,8 @@ pub fn save_preset(root: &Path, name: &str, doc: &EditDoc, project_dir: &Path) -
         return Err(ERR_NAME_TAKEN.into());
     }
     let dir = presets_dir(root);
-    let (appearance, cursor) = relocate_files(&doc.appearance, &doc.cursor, project_dir, &dir);
+    let camera = PresetCamera::from_style(&doc.camera);
+    let (appearance, cursor, camera) = relocate_files(&doc.appearance, &doc.cursor, Some(&camera), project_dir, &dir);
     let preset = Preset {
         format: PRESET_FORMAT.into(),
         version: PRESET_VERSION,
@@ -300,6 +365,7 @@ pub fn save_preset(root: &Path, name: &str, doc: &EditDoc, project_dir: &Path) -
         appearance,
         cursor,
         aspect: doc.output.aspect,
+        camera,
     };
     let file = file_for(&name);
     write_new_preset(root, &file, &preset)?;
@@ -308,17 +374,23 @@ pub fn save_preset(root: &Path, name: &str, doc: &EditDoc, project_dir: &Path) -
 
 /// The preset's look with its files copied into `project_dir/assets` (missing → standard).
 pub fn resolve_for_project(preset: &Preset, root: &Path, project_dir: &Path) -> Preset {
-    let (appearance, cursor) = relocate_files(&preset.appearance, &preset.cursor, &presets_dir(root), project_dir);
-    Preset { appearance, cursor, ..preset.clone() }
+    let (appearance, cursor, camera) =
+        relocate_files(&preset.appearance, &preset.cursor, preset.camera.as_ref(), &presets_dir(root), project_dir);
+    Preset { appearance, cursor, camera, ..preset.clone() }
 }
 
-/// `doc` with the preset's look and aspect (files copied into the project first).
+/// `doc` with the preset's look and aspect (files copied into the project first). The camera
+/// style too when the preset has one (its anchor and framing stay); an older preset without it
+/// leaves the document's camera alone.
 pub fn apply_preset(doc: &EditDoc, preset: &Preset, root: &Path, project_dir: &Path) -> EditDoc {
     let r = resolve_for_project(preset, root, project_dir);
     let mut next = doc.clone();
     next.appearance = r.appearance;
     next.cursor = r.cursor;
     next.output.aspect = r.aspect;
+    if let Some(cam) = &r.camera {
+        next.camera = cam.apply_to(&doc.camera);
+    }
     next
 }
 
@@ -627,5 +699,92 @@ mod tests {
     fn read_back(root: &Path) -> Preset {
         let e = save_preset(root, "Base", &styled(), &tmp("rb")).unwrap();
         read_preset(root, &e.file).unwrap()
+    }
+
+    fn camera_styled() -> EditDoc {
+        use crate::record::editor::{CameraAnchor, CameraBgMode, CropRect};
+        let mut d = styled();
+        d.camera = CameraStyle {
+            preset: LayoutPreset::DualFrame,
+            size_pct: 33.0,
+            mask: CameraMask::Rectangle,
+            roundness: Some(0.25),
+            mirror: true,
+            reactive_zoom: false,
+            anchor: CameraAnchor::TopLeft,
+            crop: Some(CropRect { x: 0.1, y: 0.1, w: 0.5, h: 0.5 }),
+            background: CameraBackground { mode: CameraBgMode::Custom, blur: 0.8, custom: Background::Color { color: "#abcdef".into() } },
+        };
+        d
+    }
+
+    #[test]
+    fn preset_roundtrip_keeps_anchor_and_crop() {
+        use crate::record::editor::{CameraAnchor, CropRect};
+        let root = tmp("cam");
+        let project = tmp("cam-proj");
+        let entry = save_preset(&root, "Cam", &camera_styled(), &project).unwrap();
+        let text = std::fs::read_to_string(presets_dir(&root).join(&entry.file)).unwrap();
+        // Where the camera sits and how it is framed belong to the recording, not the look.
+        assert!(text.contains("\"camera\"") && !text.contains("anchor") && !text.contains("crop"), "{text}");
+        let preset = read_preset(&root, &entry.file).unwrap();
+        let mut target = doc();
+        target.camera.anchor = CameraAnchor::Left;
+        target.camera.crop = Some(CropRect { x: 0.0, y: 0.2, w: 0.6, h: 0.6 });
+        let applied = apply_preset(&target, &preset, &root, &project);
+        let want = camera_styled().camera;
+        assert_eq!(applied.camera.preset, want.preset);
+        assert_eq!((applied.camera.size_pct, applied.camera.mask, applied.camera.roundness), (33.0, CameraMask::Rectangle, Some(0.25)));
+        assert_eq!((applied.camera.mirror, applied.camera.reactive_zoom), (true, false));
+        assert_eq!(applied.camera.background, want.background);
+        assert_eq!(applied.camera.anchor, CameraAnchor::Left);
+        assert_eq!(applied.camera.crop, target.camera.crop);
+        // A new project takes the preset's camera look as well (anchor / framing: standard).
+        let meta = RecordingMeta { duration_ms: 10_000, ..Default::default() };
+        let d = default_doc(&meta, Some(&preset));
+        assert_eq!(d.camera.preset, LayoutPreset::DualFrame);
+        assert_eq!((d.camera.anchor, d.camera.crop), (CameraAnchor::BottomRight, None));
+    }
+
+    #[test]
+    fn old_preset_without_camera_applies() {
+        // A stage-4 file: no `camera` key.
+        let root = tmp("oldcam");
+        let mut v = serde_json::to_value(read_back(&root)).unwrap();
+        v.as_object_mut().unwrap().remove("camera");
+        std::fs::write(presets_dir(&root).join("Old.irpreset"), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        let p = read_preset(&root, "Old.irpreset").unwrap();
+        assert_eq!(p.camera, None);
+        let target = camera_styled();
+        let applied = apply_preset(&target, &p, &root, &tmp("oldcam-p"));
+        assert_eq!(applied.camera, target.camera, "the document keeps its camera look");
+        assert_eq!(applied.appearance, styled().appearance);
+        // And a preset without a camera never writes the key at all.
+        let entry = save_preset(&root, "NoCam", &styled(), &tmp("oldcam-q")).unwrap();
+        let text = std::fs::read_to_string(presets_dir(&root).join(&entry.file)).unwrap();
+        assert!(text.contains("\"camera\""), "a v4 document always has a camera look to save: {text}");
+    }
+
+    #[test]
+    fn camera_custom_background_image_is_copied() {
+        use crate::record::editor::CameraBgMode;
+        let root = tmp("cambg");
+        let src = tmp("cambg-src");
+        let dest = tmp("cambg-dest");
+        std::fs::create_dir_all(src.join("assets")).unwrap();
+        std::fs::write(src.join("assets/me-bg.png"), b"\x89PNG camera background").unwrap();
+        let mut d = camera_styled();
+        d.camera.background = CameraBackground { mode: CameraBgMode::Custom, blur: 0.5, custom: Background::Image { file: "me-bg.png".into() } };
+        let entry = save_preset(&root, "CamBg", &d, &src).unwrap();
+        let p = read_preset(&root, &entry.file).unwrap();
+        let Background::Image { file } = &p.camera.as_ref().unwrap().background.custom else { panic!("image") };
+        assert!(presets_dir(&root).join("assets").join(file).is_file());
+        let applied = apply_preset(&doc(), &p, &root, &dest);
+        let Background::Image { file } = &applied.camera.background.custom else { panic!("image") };
+        assert_eq!(std::fs::read(dest.join("assets").join(file)).unwrap(), b"\x89PNG camera background");
+        // Gone → the camera's standard background.
+        std::fs::remove_file(presets_dir(&root).join("assets").join(file)).unwrap();
+        let applied = apply_preset(&doc(), &p, &root, &tmp("cambg-gone"));
+        assert_eq!(applied.camera.background.custom, CameraBackground::default().custom);
     }
 }

@@ -18,8 +18,11 @@ import type {
   RecordAspect,
   RecordBackground,
   RecordCropRect,
+  RecordCameraStyle,
   RecordCursorStyle,
   RecordEditDoc,
+  RecordLayoutPreset,
+  RecordLayoutRegion,
   RecordEditorView,
   RecordTakeMeta,
   RecordZoomRegion,
@@ -90,10 +93,28 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
   const audioTracks = doc.audioTracks.map((t) =>
     t.clip > clip || (t.clip === clip && t.startMs >= at) ? { ...t, clip: t.clip + 1 } : t,
   );
+  const layoutRegions = splitLayoutRegions(doc.layoutRegions ?? [], clip, at);
   const crop = [...doc.crop];
   while (crop.length < doc.clips.length) crop.push(null);
   crop.splice(clip + 1, 0, crop[clip] ?? null);
-  return { ...doc, clips, speed, crop, zooms, annotations, audioTracks };
+  return { ...doc, clips, speed, crop, zooms, annotations, audioTracks, layoutRegions };
+}
+
+/** Layout regions after splitting clip `clip` at source `at`: those from `at` on go to the new
+ *  half; the second half starts with the layout that was in force at the cut (a region there),
+ *  so nothing on screen changes. */
+function splitLayoutRegions(regions: readonly RecordLayoutRegion[], clip: number, at: number): RecordLayoutRegion[] {
+  const out = regions.map((r) =>
+    r.clip > clip || (r.clip === clip && r.startMs >= at) ? { ...r, clip: r.clip + 1 } : r,
+  );
+  const inForce = regions
+    .filter((r) => r.clip === clip && r.startMs < at)
+    .reduce<RecordLayoutRegion | null>((best, r) => (!best || r.startMs >= best.startMs ? r : best), null);
+  const hasOwnAtCut = regions.some((r) => r.clip === clip && r.startMs === at);
+  if (inForce && !hasOwnAtCut) {
+    out.push({ id: crypto.randomUUID(), clip: clip + 1, startMs: at, preset: inForce.preset });
+  }
+  return out;
 }
 
 /** Removes a clip with its regions and crop. The last clip is never removed. */
@@ -111,6 +132,9 @@ export function deleteClip(doc: RecordEditDoc, clip: number): RecordEditDoc {
     audioTracks: doc.audioTracks
       .filter((t) => t.clip !== clip)
       .map((t) => (t.clip > clip ? { ...t, clip: t.clip - 1 } : t)),
+    layoutRegions: (doc.layoutRegions ?? [])
+      .filter((r) => r.clip !== clip)
+      .map((r) => (r.clip > clip ? { ...r, clip: r.clip - 1 } : r)),
   };
 }
 
@@ -187,6 +211,37 @@ export function setAppearance(doc: RecordEditDoc, patch: Partial<RecordAppearanc
 
 export function setCursorStyle(doc: RecordEditDoc, patch: Partial<RecordCursorStyle>): RecordEditDoc {
   return { ...doc, cursor: { ...doc.cursor, ...patch } };
+}
+
+/** Camera style (mirrors record/editor.rs; a test pins the constants). */
+export const CAMERA_SIZE_RANGE = [15, 60] as const;
+export const DEFAULT_CAMERA_SIZE = 40;
+export const CAMERA_ROUNDNESS_SQUARE = 0.7;
+export const CAMERA_ROUNDNESS_RECTANGLE = 0.4;
+export const DEFAULT_CAMERA_BLUR = 0.5;
+export const LAYOUT_TRANSITION_SEC = 0.2;
+
+export function setCamera(doc: RecordEditDoc, patch: Partial<RecordCameraStyle>): RecordEditDoc {
+  return { ...doc, camera: { ...doc.camera, ...patch } };
+}
+
+/** The camera's rounding in use: the stored one or its mask's standard. */
+export function cameraRoundness(camera: Pick<RecordCameraStyle, "roundness" | "mask">): number {
+  return camera.roundness ?? (camera.mask === "square" ? CAMERA_ROUNDNESS_SQUARE : CAMERA_ROUNDNESS_RECTANGLE);
+}
+
+/** "Layout from here": a region on `clip` from `sourceMs` (clamped into the clip). One already
+ *  starting there is replaced. Rust drops a region at or after the clip's end. */
+export function addLayoutRegion(doc: RecordEditDoc, clip: number, sourceMs: number, preset: RecordLayoutPreset): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c) return doc;
+  const startMs = Math.min(c.endMs, Math.max(c.startMs, Math.round(sourceMs)));
+  const kept = (doc.layoutRegions ?? []).filter((r) => !(r.clip === clip && r.startMs === startMs));
+  return { ...doc, layoutRegions: [...kept, { id: crypto.randomUUID(), clip, startMs, preset }] };
+}
+
+export function removeLayoutRegion(doc: RecordEditDoc, id: string): RecordEditDoc {
+  return { ...doc, layoutRegions: (doc.layoutRegions ?? []).filter((r) => r.id !== id) };
 }
 
 export function setMicGain(doc: RecordEditDoc, db: number): RecordEditDoc {

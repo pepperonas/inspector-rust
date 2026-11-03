@@ -3,8 +3,9 @@
 //! Core must not depend on the compositor crate, so this emits JSON whose field names
 //! mirror `vendor/openscreen-compositor/src/scene.rs` (serde camelCase) exactly — the port of
 //! OpenScreen v2.1.2 `buildSceneDescription` (`src/native/sceneDescription.ts`) for one recording
-//! without webcam: effects, background, `layout.screenRect` (+ `layoutByClip`) from
-//! [`layout::composite_layout`] (no camera yet: [`layout::screen_rect`]), zoom regions bounded by [`layout::max_zoom_scale`], the cursor with
+//! with its camera: effects, background, `layout` (+ `layoutByClip`, `layoutRegions`) from
+//! [`layout::composite_layout`] per clip, the camera file per clip and its `webcamEffect`, zoom
+//! regions bounded by [`layout::max_zoom_scale`], the cursor with
 //! its sprite map, and the click sound. Stage-7 fields stay off (`rotation: null`,
 //! `model3d: false`, `depthOfField: false`).
 //!
@@ -17,10 +18,10 @@ use super::assets::{AssetRoot, CURSOR_KINDS, AS_ARROW_DEFAULT};
 use super::click_cues::click_hits_by_source;
 use super::editor::{
     self, take_dir, valid_take_id, zoom_scale, AnnotationBody, Aspect, BlurShape, Background, EditDoc, FocusMode, Frame, FrameTheme, TakeMeta,
-    TakeMetas, WallpaperMotion, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, TAKES_DIR,
+    TakeMetas, WallpaperMotion, CameraBgMode, CameraMask, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, LAYOUT_TRANSITION_SEC, TAKES_DIR,
 };
-use super::layout;
-use super::project::{read_project, CursorProvider, CursorRecording, Project, RecordingMeta, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
+use super::layout::{self, LayoutPreset};
+use super::project::{read_project, CursorProvider, CursorRecording, Project, RecordingMeta, CAMERA_FILE, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
 use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 use std::path::{Component, Path, PathBuf};
@@ -77,19 +78,35 @@ pub fn load_takes(project_dir: &Path) -> TakeSources {
     out
 }
 
-/// One screen box per clip (fractions of `out`) with the clip's source size: the screen's
-/// shape is the clip's recording × its crop. The scene and the editor's focus crosshair both
-/// take it from here.
-pub fn screen_boxes(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, out: (u32, u32)) -> Vec<(layout::Rect, (u32, u32))> {
+/// Clip `clip`'s layout under the camera layout `preset` (resolved for that clip: without a
+/// camera it is `no-webcam`), with the clip's screen source size (`layoutForClip`).
+pub fn clip_layout(
+    meta: &RecordingMeta,
+    takes: &TakeMetas,
+    doc: &EditDoc,
+    out: (u32, u32),
+    clip: usize,
+    preset: LayoutPreset,
+) -> (layout::CompositeLayout, (u32, u32)) {
     let a = &doc.appearance;
     let even_border = doc.output.aspect == Aspect::Auto;
+    let src = editor::clip_source_size(meta, takes, doc, clip);
+    let camera = editor::clip_camera_box(meta, takes, doc, clip);
+    let preset = preset.resolve(camera.is_some());
+    let camera = camera.filter(|_| preset != LayoutPreset::NoWebcam);
+    let look = doc.camera.look(preset);
+    (layout::composite_layout(out, src.0 as f64 / src.1 as f64, camera, &look, a.padding, a.frame, even_border), src)
+}
+
+/// One screen box per clip (fractions of `out`) with the clip's source size: the screen's
+/// shape is the clip's recording × its crop, its place the clip's layout under the global camera
+/// preset (a block layout makes it smaller). The scene (zoom limit) and the editor's focus
+/// crosshair both take it from here.
+pub fn screen_boxes(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, out: (u32, u32)) -> Vec<(layout::Rect, (u32, u32))> {
     (0..doc.clips.len())
         .map(|i| {
-            let src = editor::clip_source_size(meta, takes, doc, i);
-            // No camera in the document yet: every clip resolves to `no-webcam` (stage 5 Task 4
-            // passes the clip's real camera and look here).
-            let look = layout::CameraLook::none();
-            (layout::composite_layout(out, src.0 as f64 / src.1 as f64, None, &look, a.padding, a.frame, even_border).screen, src)
+            let (l, src) = clip_layout(meta, takes, doc, out, i, doc.camera.preset);
+            (l.screen, src)
         })
         .collect()
 }
@@ -141,9 +158,12 @@ fn motion_name(m: WallpaperMotion) -> Option<&'static str> {
 /// `sceneBackground`: wallpaper / own image → `image`, gradient, colour. `motion` only on the
 /// kinds that can move and only when set. A missing wallpaper or image → the default wallpaper.
 fn background(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Value {
-    let a = &doc.appearance;
+    background_json(project_dir, &doc.appearance.background, doc.appearance.background_motion, assets)
+}
+
+fn background_json(project_dir: &Path, background: &Background, motion: WallpaperMotion, assets: &AssetRoot) -> Value {
     let default_image = || assets.wallpaper(DEFAULT_WALLPAPER);
-    let mut bg = match &a.background {
+    let mut bg = match background {
         Background::Color { color } => return json!({"kind": "color", "color": color}),
         Background::Gradient { angle_deg, stops } if !stops.is_empty() => {
             let angle = if angle_deg.is_finite() { *angle_deg } else { 135.0 };
@@ -162,7 +182,7 @@ fn background(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Value {
             None => return json!({"kind": "color", "color": "#000000"}),
         },
     };
-    if let Some(m) = motion_name(a.background_motion) {
+    if let Some(m) = motion_name(motion) {
         bg["motion"] = json!(m);
     }
     bg
@@ -249,6 +269,9 @@ pub fn scene_json_with(
     // (`editor::playable` collapses it in the programme, so the times agree).
     let index = editor::scene_clip_indices(doc, &metas);
     let kept = |clip: usize| index.get(clip).copied().flatten();
+    // Does any clip in the scene have a camera? Without one the layout block stays exactly as
+    // before the camera existed (no-webcam, size 1, rectangle).
+    let any_camera = (0..doc.clips.len()).any(|i| kept(i).is_some() && editor::clip_camera(meta, &metas, doc, i).is_some());
     // A clip's recording: its folder, metadata and telemetry.
     let source_of = |source: Option<&str>| -> (PathBuf, &RecordingMeta, Option<&CursorRecording>) {
         match source.and_then(|id| takes.get(id).map(|t| (id, t))) {
@@ -261,14 +284,17 @@ pub fn scene_json_with(
         .iter()
         .enumerate()
         .filter(|(i, _)| kept(*i).is_some())
-        .map(|(_, c)| {
+        .map(|(i, c)| {
             let (dir, m, _) = source_of(c.source.as_deref());
+            // The same question the layout asks (`clip_camera`), so decoder and layout agree.
+            let camera = editor::clip_camera(meta, &metas, doc, i);
             let mut clip = json!({
                 "screenPath": path_str(&dir.join(SCREEN_FILE)),
-                "webcamPath": "",
+                "webcamPath": camera.map_or(String::new(), |_| path_str(&dir.join(CAMERA_FILE))),
                 "sourceStartSec": ms_to_sec(c.start_ms),
                 "sourceEndSec": ms_to_sec(c.end_ms),
-                "webcamOffsetSec": 0.0,
+                // Camera time = screen time − offset (compositor convention).
+                "webcamOffsetSec": camera.map_or(0.0, |(_, off)| off as f64 / 1000.0),
                 "hasAudio": m.system_audio,
                 "cursorPath": path_str(&dir.join(CURSOR_FILE)),
                 // Patch 14 (ruling R6): with a mic, the mic is the voice (loudness-normalised)
@@ -308,10 +334,16 @@ pub fn scene_json_with(
         })
         .collect();
 
-    let all_rects = screen_boxes(meta, &metas, doc, out);
-    let rects: Vec<_> = all_rects.iter().enumerate().filter(|(i, _)| kept(*i).is_some()).map(|(_, r)| *r).collect();
-    let rect_json = |r: &layout::Rect| json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height});
-    let layout_by_clip: Vec<Value> = rects.iter().map(|(r, _)| json!({"screenRect": rect_json(r)})).collect();
+    let layouts: Vec<(layout::CompositeLayout, (u32, u32))> = (0..doc.clips.len())
+        .filter(|i| kept(*i).is_some())
+        .map(|i| clip_layout(meta, &metas, doc, out, i, doc.camera.preset))
+        .collect();
+    let rects: Vec<(layout::Rect, (u32, u32))> = layouts.iter().map(|(l, src)| (l.screen, *src)).collect();
+    let layout_by_clip: Vec<Value> = if any_camera {
+        layouts.iter().map(|(l, _)| resolved_layout_json(l)).collect()
+    } else {
+        rects.iter().map(|(r, _)| json!({"screenRect": rect_json(r)})).collect()
+    };
 
     let zoom_regions: Vec<Value> = doc
         .zooms
@@ -363,9 +395,10 @@ pub fn scene_json_with(
         cursor_block["clickImpact"] = json!(true);
     }
 
-    let mut scene = json!({
-        "clips": clips,
-        "layout": {
+    let layout_block = if any_camera {
+        camera_layout_json(doc, layouts.first().map(|(l, _)| l), layout_by_clip)
+    } else {
+        json!({
             "preset": "no-webcam",
             "webcamSize": 1.0,
             "webcamShape": "rectangle",
@@ -374,7 +407,11 @@ pub fn scene_json_with(
             "webcamReactiveZoom": false,
             "screenRect": rects.first().map_or(json!({"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}), |(r, _)| rect_json(r)),
             "layoutByClip": layout_by_clip,
-        },
+        })
+    };
+    let mut scene = json!({
+        "clips": clips,
+        "layout": layout_block,
         "effects": effects(doc),
         "background": background(project_dir, doc, assets),
         "zoomRegions": zoom_regions,
@@ -384,6 +421,22 @@ pub fn scene_json_with(
         "output": {"width": out.0, "height": out.1, "fps": fps},
     });
 
+    if any_camera {
+        let regions = layout_regions_json(meta, &metas, doc, out, &kept);
+        if !regions.is_empty() {
+            scene["layoutRegions"] = Value::Array(regions);
+        }
+        let bg = &doc.camera.background;
+        // Omitted at `none`, like upstream. `modelPath` (the segmentation model) is added by the
+        // camera cut-out stage; without it the compositor draws the camera unchanged.
+        if bg.mode != CameraBgMode::None {
+            let mut e = json!({"mode": enum_name(&bg.mode), "blurIntensity": bg.blur});
+            if bg.mode == CameraBgMode::Custom {
+                e["background"] = background_json(project_dir, &bg.custom, WallpaperMotion::None, assets);
+            }
+            scene["webcamEffect"] = e;
+        }
+    }
     // Only when there are any: a document without annotations keeps its scene byte for byte.
     if !annotations.is_empty() {
         scene["annotations"] = Value::Array(annotations);
@@ -408,6 +461,134 @@ pub fn scene_json_with(
         }
     }
     scene
+}
+
+fn rect_json(r: &layout::Rect) -> Value {
+    json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height})
+}
+
+fn mask_name(m: CameraMask) -> &'static str {
+    match m {
+        CameraMask::Square => "square",
+        CameraMask::Rectangle => "rectangle",
+    }
+}
+
+/// `ResolvedClipLayout` (`resolvedLayoutOf`): absent keys for what the layout leaves open.
+fn resolved_layout_json(l: &layout::CompositeLayout) -> Value {
+    let mut v = json!({"screenRect": rect_json(&l.screen), "webcamShape": mask_name(l.mask), "screenCover": l.screen_cover});
+    if let Some(c) = &l.camera {
+        v["webcamRect"] = rect_json(c);
+    }
+    if let Some(r) = l.screen_radius_frac {
+        v["screenRadiusFrac"] = json!(r);
+    }
+    if let Some(r) = l.camera_radius_frac {
+        v["webcamRadiusFrac"] = json!(r);
+    }
+    v
+}
+
+/// `webcamReactiveZoom` gated by the preset: only picture-in-picture shrinks during a zoom.
+fn reactive_zoom(preset: LayoutPreset, on: bool) -> bool {
+    on && preset.supports_reactive_zoom()
+}
+
+/// The scene's `layout` with a camera somewhere in it: the camera style, the first clip's
+/// resolved layout as the scalars (fallback and starting value), and every clip's layout.
+fn camera_layout_json(doc: &EditDoc, first: Option<&layout::CompositeLayout>, layout_by_clip: Vec<Value>) -> Value {
+    let c = &doc.camera;
+    let mut v = json!({
+        // Resolved globally: there is a camera in the scene, so the global preset stands.
+        "preset": enum_name(&c.preset.resolve(true)),
+        // `webcamSizeToFraction`.
+        "webcamSize": c.size_pct.clamp(layout::CAMERA_SIZE_MIN, layout::CAMERA_SIZE_MAX) / 100.0,
+        "webcamShape": mask_name(first.map_or(c.mask, |l| l.mask)),
+        "webcamMirror": c.mirror,
+        "webcamPosition": null,
+        "webcamReactiveZoom": reactive_zoom(c.preset, c.reactive_zoom),
+        "webcamAnchor": enum_name(&c.anchor),
+        "screenRect": first.map_or(json!({"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}), |l| rect_json(&l.screen)),
+        "screenCover": first.is_some_and(|l| l.screen_cover),
+        "layoutByClip": layout_by_clip,
+    });
+    if let Some(k) = &c.crop {
+        v["webcamCrop"] = json!({"x": k.x, "y": k.y, "width": k.w, "height": k.h});
+    }
+    if let Some(l) = first {
+        if let Some(r) = &l.camera {
+            v["webcamRect"] = rect_json(r);
+        }
+        if let Some(r) = l.screen_radius_frac {
+            v["screenRadiusFrac"] = json!(r);
+        }
+        if let Some(r) = l.camera_radius_frac {
+            v["webcamRadiusFrac"] = json!(r);
+        }
+    }
+    v
+}
+
+/// The layout partition in source seconds (`sceneDescription.ts:1350-1420`). Only with layout
+/// regions in the document; then every clip in the scene is partitioned: from its start the
+/// global preset, from each of its regions on that region's preset, until the next or the clip's
+/// end. A part after another morphs from it for `LAYOUT_TRANSITION_SEC` (at most half the part);
+/// `keepScreenClipFromSec` = the end of the last earlier block-layout part (a zoom in flight keeps
+/// its viewport), as upstream.
+fn layout_regions_json(meta: &RecordingMeta, metas: &TakeMetas, doc: &EditDoc, out: (u32, u32), kept: &dyn Fn(usize) -> Option<usize>) -> Vec<Value> {
+    if doc.layout_regions.is_empty() {
+        return Vec::new();
+    }
+    let reactive = doc.camera.reactive_zoom;
+    let mut res = Vec::new();
+    for (i, clip) in doc.clips.iter().enumerate() {
+        let Some(ci) = kept(i) else { continue };
+        let has_camera = editor::clip_camera(meta, metas, doc, i).is_some();
+        // (start, requested preset); a region on the clip's start replaces the global part.
+        let mut starts: Vec<(u64, LayoutPreset)> = vec![(clip.start_ms, doc.camera.preset)];
+        for r in doc.layout_regions.iter().filter(|r| r.clip == i && r.start_ms >= clip.start_ms && r.start_ms < clip.end_ms) {
+            starts.retain(|(s, _)| *s != r.start_ms);
+            starts.push((r.start_ms, r.preset));
+        }
+        starts.sort_by_key(|(s, _)| *s);
+        let parts: Vec<(u64, u64, LayoutPreset)> = starts
+            .iter()
+            .enumerate()
+            .map(|(k, &(s, p))| (s, starts.get(k + 1).map_or(clip.end_ms, |n| n.0), p))
+            .filter(|(s, e, _)| e > s)
+            .collect();
+        let resolve = |p: LayoutPreset| resolved_layout_json(&clip_layout(meta, metas, doc, out, i, p).0);
+        let mut keep: Option<f64> = None;
+        for (k, &(s, e, requested)) in parts.iter().enumerate() {
+            let preset = requested.resolve(has_camera);
+            let (start, end) = (ms_to_sec(s), ms_to_sec(e));
+            let mut v = json!({
+                "clipIndex": ci,
+                "startSec": start,
+                "endSec": end,
+                "preset": enum_name(&preset),
+                "layout": resolve(requested),
+                "webcamReactiveZoom": reactive_zoom(preset, reactive),
+                "transitionStartSec": start,
+                "transitionSec": 0.0,
+            });
+            if let Some(kf) = keep {
+                v["keepScreenClipFromSec"] = json!(kf);
+            }
+            if k > 0 {
+                let prev = parts[k - 1].2;
+                v["fromLayout"] = resolve(prev);
+                v["fromPreset"] = enum_name(&prev.resolve(has_camera));
+                v["fromWebcamReactiveZoom"] = json!(reactive_zoom(prev, reactive));
+                v["transitionSec"] = json!(LAYOUT_TRANSITION_SEC.min((end - start) / 2.0));
+            }
+            if has_camera && requested.is_block() {
+                keep = Some(end);
+            }
+            res.push(v);
+        }
+    }
+    res
 }
 
 /// Reference height a text annotation's font size is given in (OpenScreen `annotationScale.ts`):
@@ -497,9 +678,10 @@ fn annotations_json(project_dir: &Path, doc: &EditDoc, kept: &dyn Fn(usize) -> O
 mod tests {
     use super::*;
     use crate::record::editor::{
-        Appearance, CropRect, CursorStyle, CustomCursor, OutputShape, OutputTarget, ZoomOrigin,
+        Appearance, CropRect, CursorStyle, CustomCursor, EditClip, OutputShape, OutputTarget, ZoomOrigin,
         ZoomRegion, EDITOR_VERSION,
     };
+    use std::collections::HashSet;
     use crate::record::project::{CursorSample, Interaction, MicMeta, ProjectStatus, PROJECT_SCHEMA};
 
     const GOLDEN: &str = include_str!("fixtures/scene-golden.json");
@@ -547,7 +729,7 @@ mod tests {
             "output": {"aspect": "16:9"},
             "micGainDb": -6.0,
         });
-        let d = editor::migrate(v1).expect("v1 migrates");
+        let d = editor::migrate(v1, false).expect("v1 migrates");
         assert_eq!(d.appearance, Appearance::plain());
         assert_eq!(d.cursor, CursorStyle::plain());
         d
@@ -1205,5 +1387,295 @@ mod tests {
         let v = scene_json_with(&dir, &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
         assert!(v.get("audioTracks").is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── camera (stage 5) ─────────────────────────────────────────────────────
+
+    fn cam(w: u32, h: u32, offset_ms: i64) -> crate::record::project::CameraMeta {
+        crate::record::project::CameraMeta { width: w, height: h, fps: 30, offset_ms, device_name: "Cam".into(), ended_early_ms: None }
+    }
+
+    fn cam_project() -> Project {
+        let mut p = project();
+        p.recording.camera = Some(cam(1920, 1080, 0));
+        p
+    }
+
+    /// `doc()` with a look worth laying out (padding) and a camera style.
+    fn cam_doc(preset: editor::LayoutPreset) -> EditDoc {
+        let mut d = doc();
+        d.appearance.padding = 20.0;
+        d.camera = editor::CameraStyle { preset, ..editor::CameraStyle::default_for(true) };
+        d
+    }
+
+    fn rect_of(v: &Value) -> layout::Rect {
+        layout::Rect {
+            x: v["x"].as_f64().unwrap(),
+            y: v["y"].as_f64().unwrap(),
+            width: v["width"].as_f64().unwrap(),
+            height: v["height"].as_f64().unwrap(),
+        }
+    }
+
+    fn close(a: layout::Rect, b: layout::Rect) -> bool {
+        [a.x - b.x, a.y - b.y, a.width - b.width, a.height - b.height].iter().all(|d| d.abs() < 1e-9)
+    }
+
+    /// Two inserted takes: `cam` with a camera (offset 250 ms), `plain` without.
+    fn cam_takes() -> TakeSources {
+        let take = |camera| TakeSource {
+            meta: RecordingMeta { width: 1280, height: 720, duration_ms: 20_000, camera, ..RecordingMeta::default() },
+            cursor: None,
+        };
+        TakeSources::from([("cam".to_string(), take(Some(cam(1280, 720, 250)))), ("plain".to_string(), take(None))])
+    }
+
+    #[test]
+    fn scene_camera_paths_follow_source() {
+        let mut d = cam_doc(editor::LayoutPreset::PictureInPicture);
+        d.clips.push(EditClip { start_ms: 0, end_ms: 2_000, source: Some("cam".into()) });
+        d.clips.push(EditClip { start_ms: 0, end_ms: 2_000, source: Some("plain".into()) });
+        d.crop.resize(4, None);
+        let d = editor::normalize(d, 10_000, &take_metas(&cam_takes()));
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d, (1920, 1080), 30, &assets(), None, &cam_takes());
+        let clips = v["clips"].as_array().unwrap();
+        assert_eq!(clips[0]["webcamPath"], format!("{DIR}/camera.mp4"));
+        assert_eq!(clips[0]["webcamOffsetSec"], 0.0);
+        assert_eq!(clips[2]["webcamPath"], format!("{DIR}/takes/cam/camera.mp4"));
+        assert_eq!(clips[2]["webcamOffsetSec"], 0.25);
+        assert_eq!(clips[3]["webcamPath"], "");
+        assert_eq!(clips[3]["webcamOffsetSec"], 0.0);
+        // The project's own recording without a camera: its clips name none.
+        let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &cam_takes());
+        assert_eq!(v["clips"][0]["webcamPath"], "");
+        assert_eq!(v["clips"][2]["webcamPath"], format!("{DIR}/takes/cam/camera.mp4"));
+    }
+
+    #[test]
+    fn scene_no_camera_clip_is_no_webcam() {
+        let mut d = cam_doc(editor::LayoutPreset::DualFrame);
+        d.clips.push(EditClip { start_ms: 0, end_ms: 2_000, source: Some("plain".into()) });
+        d.crop.resize(3, None);
+        let d = editor::normalize(d, 10_000, &take_metas(&cam_takes()));
+        let out = (1920, 1080);
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d, out, 30, &assets(), None, &cam_takes());
+        let by_clip = v["layout"]["layoutByClip"].as_array().unwrap();
+        // The camera clip: a welded block, the screen covering its slot.
+        assert!(by_clip[0]["webcamRect"].is_object());
+        assert_eq!(by_clip[0]["screenCover"], true);
+        assert_eq!(by_clip[0]["webcamShape"], "rectangle");
+        // The camera-less clip: the screen alone, exactly as without any camera.
+        let plain = &by_clip[2];
+        assert!(plain.get("webcamRect").is_none(), "{plain}");
+        assert_eq!(plain["screenCover"], false);
+        let alone = layout::screen_rect(out, 1280.0 / 720.0, 20.0, Frame::None, false);
+        assert!(close(rect_of(&plain["screenRect"]), alone), "{plain}");
+        // screen_boxes (focus crosshair, zoom limit) read the same per-clip layout.
+        let boxes = screen_boxes(&cam_project().recording, &take_metas(&cam_takes()), &d, out);
+        assert!(close(boxes[0].0, rect_of(&by_clip[0]["screenRect"])));
+        assert!(close(boxes[2].0, alone));
+        let alone0 = layout::screen_rect(out, 3024.0 / 1964.0, 20.0, Frame::None, false);
+        assert!(boxes[0].0.width < alone0.width, "the block screen is narrower than the screen alone");
+        // Scalars = the first clip's layout, the global preset resolved.
+        let l = &v["layout"];
+        assert_eq!(l["preset"], "dual-frame");
+        assert!(close(rect_of(&l["webcamRect"]), rect_of(&by_clip[0]["webcamRect"])));
+        assert!(close(rect_of(&l["screenRect"]), rect_of(&by_clip[0]["screenRect"])));
+        assert_eq!(l["screenCover"], true);
+        assert_eq!(l["webcamReactiveZoom"], false, "only picture-in-picture shrinks during a zoom");
+        assert_eq!(l["webcamPosition"], Value::Null);
+        assert_eq!(l["webcamAnchor"], "bottom-right");
+        assert_eq!(l["webcamSize"], 0.4);
+        assert!(l.get("webcamCrop").is_none());
+        // A camera-less project lays out exactly as before (the goldens pin the bytes).
+        let v = scene_json_with(Path::new(DIR), &project(), &d, out, 30, &assets(), None, &TakeSources::new());
+        assert_eq!(v["layout"]["preset"], "no-webcam");
+        assert_eq!(v["layout"]["webcamSize"], 1.0);
+        assert!(v["layout"].get("webcamRect").is_none());
+        assert!(v.get("layoutRegions").is_none());
+    }
+
+    #[test]
+    fn scene_pip_layout_carries_the_camera_style() {
+        let mut d = cam_doc(editor::LayoutPreset::PictureInPicture);
+        d.camera.mirror = true;
+        d.camera.size_pct = 30.0;
+        d.camera.anchor = editor::CameraAnchor::TopLeft;
+        d.camera.crop = Some(CropRect { x: 0.25, y: 0.0, w: 0.5, h: 1.0 });
+        let out = (1920, 1080);
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d, out, 30, &assets(), None, &TakeSources::new());
+        let l = &v["layout"];
+        assert_eq!(l["preset"], "picture-in-picture");
+        assert_eq!((l["webcamMirror"].clone(), l["webcamReactiveZoom"].clone()), (json!(true), json!(true)));
+        assert_eq!(l["webcamShape"], "square");
+        assert_eq!(l["webcamAnchor"], "top-left");
+        assert_eq!(l["webcamSize"], 0.3);
+        assert_eq!(l["webcamCrop"], json!({"x": 0.25, "y": 0.0, "width": 0.5, "height": 1.0}));
+        assert!((l["webcamRadiusFrac"].as_f64().unwrap() - 0.35).abs() < 0.01, "{l}");
+        let look = d.camera.look(editor::LayoutPreset::PictureInPicture);
+        let want = layout::composite_layout(out, 3024.0 / 1964.0, Some((960, 1080)), &look, 20.0, Frame::None, false);
+        assert!(close(rect_of(&l["webcamRect"]), want.camera.unwrap()), "{l}");
+        assert!(close(rect_of(&l["screenRect"]), want.screen));
+        assert!(l.get("screenRadiusFrac").is_none());
+    }
+
+    #[test]
+    fn scene_layout_regions_have_transitions() {
+        let mut d = cam_doc(editor::LayoutPreset::PictureInPicture);
+        d.layout_regions = vec![
+            editor::LayoutRegion { id: "a".into(), clip: 0, start_ms: 1_000, preset: editor::LayoutPreset::DualFrame },
+            editor::LayoutRegion { id: "b".into(), clip: 0, start_ms: 3_900, preset: editor::LayoutPreset::VerticalStack },
+        ];
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        let regs = v["layoutRegions"].as_array().expect("regions");
+        let parts: Vec<_> = regs
+            .iter()
+            .map(|r| (r["clipIndex"].as_u64().unwrap(), r["startSec"].as_f64().unwrap(), r["endSec"].as_f64().unwrap(), r["preset"].as_str().unwrap()))
+            .collect();
+        // The whole programme is partitioned: before the first region the global preset.
+        assert_eq!(
+            parts,
+            vec![
+                (0, 0.0, 1.0, "picture-in-picture"),
+                (0, 1.0, 3.9, "dual-frame"),
+                (0, 3.9, 4.0, "vertical-stack"),
+                (1, 6.5, 10.0, "picture-in-picture"),
+            ]
+        );
+        // The first part of a clip starts without a morph.
+        assert!(regs[0].get("fromLayout").is_none());
+        assert_eq!(regs[0]["transitionSec"], 0.0);
+        assert_eq!(regs[0]["webcamReactiveZoom"], true);
+        // A change morphs for 0.2 s from the previous region's layout.
+        assert_eq!(regs[1]["fromPreset"], "picture-in-picture");
+        assert_eq!(regs[1]["fromWebcamReactiveZoom"], true);
+        assert_eq!(regs[1]["webcamReactiveZoom"], false);
+        assert_eq!(regs[1]["transitionStartSec"], 1.0);
+        assert!((regs[1]["transitionSec"].as_f64().unwrap() - 0.2).abs() < 1e-12);
+        assert_eq!(regs[1]["fromLayout"], regs[0]["layout"]);
+        assert!(regs[1].get("keepScreenClipFromSec").is_none());
+        // A part shorter than 0.4 s morphs over half its length; a block before it keeps its viewport.
+        assert_eq!(regs[2]["fromPreset"], "dual-frame");
+        assert!((regs[2]["transitionSec"].as_f64().unwrap() - 0.05).abs() < 1e-9, "{}", regs[2]);
+        assert!((regs[2]["keepScreenClipFromSec"].as_f64().unwrap() - 3.9).abs() < 1e-9);
+        assert_eq!(regs[2]["layout"]["screenCover"], true);
+        // The region's layout is the per-clip layout of its preset.
+        assert_eq!(regs[0]["layout"], v["layout"]["layoutByClip"][0]);
+        // A clip without a camera resolves every region to no-webcam.
+        let mut d2 = d.clone();
+        d2.clips[1].source = Some("plain".into());
+        d2.crop[1] = None;
+        d2.layout_regions.push(editor::LayoutRegion { id: "c".into(), clip: 1, start_ms: 8_000, preset: editor::LayoutPreset::DualFrame });
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d2, (1920, 1080), 30, &assets(), None, &cam_takes());
+        let last: Vec<_> = v["layoutRegions"].as_array().unwrap().iter().filter(|r| r["clipIndex"] == 1).map(|r| r["preset"].clone()).collect();
+        assert_eq!(last, vec![json!("no-webcam"), json!("no-webcam")]);
+    }
+
+    #[test]
+    fn scene_effect_absent_when_none() {
+        let mut d = cam_doc(editor::LayoutPreset::PictureInPicture);
+        let scene = |d: &EditDoc, p: &Project| scene_json_with(Path::new(DIR), p, d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        assert!(scene(&d, &cam_project()).get("webcamEffect").is_none());
+        d.camera.background.mode = editor::CameraBgMode::Blur;
+        d.camera.background.blur = 0.8;
+        let e = scene(&d, &cam_project())["webcamEffect"].clone();
+        assert_eq!(e, json!({"mode": "blur", "blurIntensity": 0.8}), "no model path until the segmentation ships");
+        d.camera.background.mode = editor::CameraBgMode::Custom;
+        d.camera.background.custom = Background::Color { color: "#102030".into() };
+        let e = scene(&d, &cam_project())["webcamEffect"].clone();
+        assert_eq!(e["mode"], "custom");
+        assert_eq!(e["background"], json!({"kind": "color", "color": "#102030"}));
+        d.camera.background.mode = editor::CameraBgMode::Transparent;
+        assert_eq!(scene(&d, &cam_project())["webcamEffect"]["mode"], "transparent");
+        // Without any camera there is nothing to cut out.
+        assert!(scene(&d, &project()).get("webcamEffect").is_none());
+    }
+
+    /// Every key the camera emission writes is a field of the compositor's types
+    /// (`vendor/openscreen-compositor/src/scene.rs`, read from disk — core must not link the
+    /// compositor), and every field it requires is there.
+    #[test]
+    fn camera_scene_keys_match_the_compositor() {
+        const SCENE_RS: &str = include_str!("../../../../vendor/openscreen-compositor/src/scene.rs");
+        fn camel(s: &str) -> String {
+            let mut out = String::new();
+            let mut up = false;
+            for c in s.chars() {
+                if c == '_' {
+                    up = true;
+                } else if up {
+                    out.extend(c.to_uppercase());
+                    up = false;
+                } else {
+                    out.push(c);
+                }
+            }
+            out
+        }
+        // (all fields, required fields) of `pub struct name`.
+        let fields = |name: &str| -> (HashSet<String>, HashSet<String>) {
+            let start = SCENE_RS.find(&format!("pub struct {name} {{")).unwrap_or_else(|| panic!("{name} in scene.rs"));
+            let body = &SCENE_RS[start..];
+            let body = &body[..body.find("\n}").unwrap()];
+            let (mut all, mut req) = (HashSet::new(), HashSet::new());
+            let mut defaulted = false;
+            for line in body.lines().skip(1).map(str::trim) {
+                if line.starts_with("#[serde(") && (line.contains("default") || line.contains("skip")) {
+                    defaulted = true;
+                } else if let Some(rest) = line.strip_prefix("pub ") {
+                    let rest = rest.strip_prefix("(crate) ").unwrap_or(rest);
+                    let Some((field, ty)) = rest.split_once(':') else { continue };
+                    let key = camel(field.trim());
+                    if !defaulted && !ty.trim().starts_with("Option<") {
+                        req.insert(key.clone());
+                    }
+                    all.insert(key);
+                    defaulted = false;
+                } else if !line.starts_with("///") && !line.starts_with("#[") && !line.is_empty() {
+                    defaulted = false;
+                }
+            }
+            (all, req)
+        };
+        let check = |v: &Value, ty: &str| {
+            let (all, req) = fields(ty);
+            let obj = v.as_object().unwrap_or_else(|| panic!("{ty}: {v}"));
+            for k in obj.keys() {
+                assert!(all.contains(k), "{ty} has no field `{k}` ({v})");
+            }
+            for k in &req {
+                assert!(obj.contains_key(k), "{ty} requires `{k}` ({v})");
+            }
+        };
+        let mut d = cam_doc(editor::LayoutPreset::DualFrame);
+        d.camera.crop = Some(CropRect { x: 0.0, y: 0.0, w: 0.5, h: 0.5 });
+        d.camera.background.mode = editor::CameraBgMode::Custom;
+        d.layout_regions = vec![editor::LayoutRegion { id: "a".into(), clip: 0, start_ms: 1_000, preset: editor::LayoutPreset::PictureInPicture }];
+        let v = scene_json_with(Path::new(DIR), &cam_project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
+        for c in v["clips"].as_array().unwrap() {
+            check(c, "SceneClip");
+        }
+        check(&v["layout"], "SceneLayout");
+        check(&v["layout"]["webcamCrop"], "SceneCrop");
+        for r in ["webcamRect", "screenRect"] {
+            check(&v["layout"][r], "SceneRect");
+        }
+        for l in v["layout"]["layoutByClip"].as_array().unwrap() {
+            check(l, "ResolvedClipLayout");
+        }
+        let regs = v["layoutRegions"].as_array().unwrap();
+        assert!(regs.iter().any(|r| r.get("fromLayout").is_some() && r.get("keepScreenClipFromSec").is_some()));
+        for r in regs {
+            check(r, "SceneLayoutRegion");
+            check(&r["layout"], "ResolvedClipLayout");
+            if let Some(f) = r.get("fromLayout") {
+                check(f, "ResolvedClipLayout");
+            }
+        }
+        check(&v["webcamEffect"], "SceneWebcamEffect");
+        // The resolved names the compositor matches on.
+        let presets = ["picture-in-picture", "dual-frame", "vertical-stack", "camera-only", "no-webcam"];
+        assert!(regs.iter().all(|r| presets.contains(&r["preset"].as_str().unwrap())));
     }
 }

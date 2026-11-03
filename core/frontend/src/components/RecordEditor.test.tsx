@@ -113,6 +113,18 @@ const doc0: RecordEditDoc = {
   annotations: [],
   audioTracks: [],
   systemGainDb: 0,
+  camera: {
+    preset: "no-webcam",
+    sizePct: 40,
+    mask: "square",
+    roundness: null,
+    mirror: false,
+    reactiveZoom: true,
+    anchor: "bottom-right",
+    crop: null,
+    background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
+  },
+  layoutRegions: [],
 };
 const viewOf = (doc: RecordEditDoc): RecordEditorView => {
   let t = 0;

@@ -391,7 +391,10 @@ pub fn screen_rect(out: (u32, u32), screen_aspect: f64, padding_pct: f64, frame:
 /// `computeCompositeLayout` (`compositeLayout.ts:447-646`) for one clip: where the screen and
 /// the camera sit in an `out`-sized frame. `camera` = the camera's source size, `None` = no
 /// camera on this clip; `look.preset` is used as given (resolve it per clip first).
-/// `even_border` = the output's shape is Auto.
+/// `even_border` = the output's shape is Auto. Degenerate inputs diverge from upstream on
+/// purpose: an empty `out` (0 px) returns the whole frame, an invalid screen aspect is read as
+/// 16:9 (`sane_aspect`) — upstream has no guard there and yields empty or NaN rects, which the
+/// scene cannot carry.
 pub fn composite_layout(out: (u32, u32), screen_aspect: f64, camera: Option<(u32, u32)>, look: &CameraLook, padding_pct: f64, frame: Frame, even_border: bool) -> CompositeLayout {
     let screen_only = |screen: Rect| CompositeLayout { screen, camera: None, screen_radius_frac: None, camera_radius_frac: None, screen_cover: false, mask: look.mask };
     let alone = screen_rect(out, screen_aspect, padding_pct, frame, even_border);
@@ -946,14 +949,10 @@ mod tests {
                 }
             }
         }
-        // "lays a block out exactly as before without a frame": Frame::None is the frameless path
-        // (our API has no separate 'frame absent', so this is the identity check on it).
-        for preset in [LayoutPreset::DualFrame, LayoutPreset::VerticalStack] {
-            for &scene in &SCENES {
-                let a = composite_layout(scene, 16.0 / 9.0, Some(CAM), &look(preset), 50.0, Frame::None, false);
-                assert_eq!(a, composite_layout(scene, 16.0 / 9.0, Some(CAM), &look(preset), 50.0, Frame::None, false));
-            }
-        }
+        // Upstream "lays a block out exactly as before without a frame" compares a layout with
+        // `frame` absent to one with `frame: "none"`. Our API has no "absent" — `Frame::None` IS
+        // the frameless path — so the case does not apply here (comparing a call with itself
+        // would prove nothing).
     }
 
     #[test]

@@ -630,6 +630,18 @@ let edDoc: EdDoc = {
     },
   ],
   systemGainDb: 0,
+  camera: {
+    preset: "no-webcam",
+    sizePct: 40,
+    mask: "square",
+    roundness: null,
+    mirror: false,
+    reactiveZoom: true,
+    anchor: "bottom-right",
+    crop: null,
+    background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
+  },
+  layoutRegions: [],
 };
 /** Invented wallpaper thumbnails and pointer previews (SVG data URLs, nothing real). */
 const ED_WALL_HUES: [number, number][] = [[220, 280], [200, 160], [20, 340], [40, 10], [180, 230], [260, 300], [100, 150], [0, 30]];

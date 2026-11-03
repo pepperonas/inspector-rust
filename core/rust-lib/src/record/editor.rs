@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub const EDITOR_VERSION: u32 = 3;
+pub const EDITOR_VERSION: u32 = 4;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -618,6 +618,118 @@ pub fn fit_fades(fade_in_ms: u64, fade_out_ms: u64, span_ms: u64) -> (u64, u64) 
     (fade_in, (fade_out_ms as f64 * scale).floor() as u64)
 }
 
+// ── camera (stage 5) ─────────────────────────────────────────────────────────
+
+/// Camera bubble size, percent of the frame's short side (`WEBCAM_SIZE_MIN/MAX`, default 40).
+pub const CAMERA_SIZE_RANGE: (f64, f64) = (super::layout::CAMERA_SIZE_MIN, super::layout::CAMERA_SIZE_MAX);
+pub const DEFAULT_CAMERA_SIZE: f64 = 40.0;
+/// `DEFAULT_WEBCAM_ROUNDNESS` per mask (`projectDefaults.ts:144`).
+pub const CAMERA_ROUNDNESS_SQUARE: f64 = 0.7;
+pub const CAMERA_ROUNDNESS_RECTANGLE: f64 = 0.4;
+/// Background blur of a cut-out camera, 0..1 (`webcamBlurIntensity`, default 0.5).
+pub const DEFAULT_CAMERA_BLUR: f64 = 0.5;
+/// Morph between two layouts (`LAYOUT_TRANSITION_SECONDS`, `layoutTypes.ts:2`).
+pub const LAYOUT_TRANSITION_SEC: f64 = 0.2;
+
+pub use super::layout::{CameraAnchor, CameraMask, LayoutPreset};
+
+/// What is drawn behind a cut-out camera (`webcamBackgroundMode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CameraBgMode {
+    #[default]
+    None,
+    Transparent,
+    Blur,
+    Custom,
+}
+
+/// The camera's background removal: the mode, its blur and (custom) one of our backgrounds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CameraBackground {
+    pub mode: CameraBgMode,
+    /// 0..1, used by `blur`.
+    pub blur: f64,
+    /// Used by `custom` (our own backgrounds, never upstream's wallpaper).
+    pub custom: Background,
+}
+
+impl Default for CameraBackground {
+    fn default() -> Self {
+        CameraBackground { mode: CameraBgMode::None, blur: DEFAULT_CAMERA_BLUR, custom: Background::Wallpaper { id: DEFAULT_WALLPAPER.into() } }
+    }
+}
+
+/// The camera's look for the whole video (upstream's webcam settings, `projectDefaults.ts:253-262`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CameraStyle {
+    pub preset: LayoutPreset,
+    /// Percent of the frame's short side, 15..=60.
+    pub size_pct: f64,
+    pub mask: CameraMask,
+    /// 0..1; `None` = the mask's standard (`CAMERA_ROUNDNESS_SQUARE/RECTANGLE`).
+    pub roundness: Option<f64>,
+    pub mirror: bool,
+    /// Shrink while a zoom is on (picture-in-picture only).
+    pub reactive_zoom: bool,
+    pub anchor: CameraAnchor,
+    /// User framing in fractions (0..1) of the camera frame; `None` = the whole frame.
+    pub crop: Option<CropRect>,
+    pub background: CameraBackground,
+}
+
+impl Default for CameraStyle {
+    fn default() -> Self {
+        CameraStyle {
+            preset: LayoutPreset::PictureInPicture,
+            size_pct: DEFAULT_CAMERA_SIZE,
+            mask: CameraMask::Square,
+            roundness: None,
+            mirror: false,
+            reactive_zoom: true,
+            anchor: CameraAnchor::BottomRight,
+            crop: None,
+            background: CameraBackground::default(),
+        }
+    }
+}
+
+impl CameraStyle {
+    /// Upstream's defaults; a project without a camera starts at `no-webcam`.
+    pub fn default_for(has_camera: bool) -> Self {
+        let preset = if has_camera { LayoutPreset::PictureInPicture } else { LayoutPreset::NoWebcam };
+        CameraStyle { preset, ..CameraStyle::default() }
+    }
+
+    /// The rounding in use: the stored one or the mask's standard.
+    pub fn resolved_roundness(&self) -> f64 {
+        self.roundness.unwrap_or(match self.mask {
+            CameraMask::Square => CAMERA_ROUNDNESS_SQUARE,
+            CameraMask::Rectangle => CAMERA_ROUNDNESS_RECTANGLE,
+        })
+    }
+
+    /// What the layout reads, with `preset` instead of the global one (a region / a clip
+    /// resolves it first).
+    pub fn look(&self, preset: LayoutPreset) -> super::layout::CameraLook {
+        super::layout::CameraLook { preset, size_pct: self.size_pct, mask: self.mask, roundness: self.resolved_roundness(), anchor: self.anchor }
+    }
+}
+
+/// From `start_ms` (SOURCE ms of `clip`) until the clip's next region, the camera is laid out
+/// as `preset` instead of the global one (upstream `layoutRegions`). Follows its clip like a zoom.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutRegion {
+    #[serde(default)]
+    pub id: String,
+    pub clip: usize,
+    pub start_ms: u64,
+    pub preset: LayoutPreset,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditDoc {
@@ -649,6 +761,12 @@ pub struct EditDoc {
     /// Level of the recorded system sound, dB.
     #[serde(default)]
     pub system_gain_db: f64,
+    /// The camera's look (v4).
+    #[serde(default)]
+    pub camera: CameraStyle,
+    /// Layout changes within the video (v4), see [`LayoutRegion`].
+    #[serde(default, deserialize_with = "lenient_vec")]
+    pub layout_regions: Vec<LayoutRegion>,
 }
 
 /// One clip on the programme timeline.
@@ -739,13 +857,19 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
         annotations: Vec::new(),
         audio_tracks: Vec::new(),
         system_gain_db: 0.0,
+        camera: {
+            let base = CameraStyle::default_for(meta.camera.is_some());
+            preset.and_then(|p| p.camera.as_ref()).map_or_else(|| base.clone(), |c| c.apply_to(&base))
+        },
+        layout_regions: Vec::new(),
     }
 }
 
-/// Reads a stored editor block: v3 as is, v2 upgraded with no annotations, no tracks and the
+/// Reads a stored editor block: v4 as is, v3 upgraded with the camera look of `has_camera`
+/// (picture-in-picture, else no-webcam) and no layout regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
 /// (`Appearance::plain`, no pointer, no zooms, aspect as saved). Anything else is `None`.
-pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
+pub fn migrate(value: serde_json::Value, has_camera: bool) -> Option<EditDoc> {
     let mut doc = serde_json::from_value::<EditDoc>(value).ok()?;
     if doc.clips.is_empty() {
         return None;
@@ -767,6 +891,12 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
             c.source = None;
         }
     }
+    if doc.version == 3 {
+        doc.version = 4;
+        // Upstream's standard where there is a camera, else the screen alone (no-webcam).
+        doc.camera = CameraStyle::default_for(has_camera);
+        doc.layout_regions = Vec::new();
+    }
     (doc.version == EDITOR_VERSION).then_some(doc)
 }
 
@@ -779,7 +909,7 @@ pub fn load(project: &Project, takes: &TakeMetas) -> EditDoc {
 /// [`load`]; a project without a readable editor block (a new one) starts with `preset`'s look.
 pub fn load_with(project: &Project, takes: &TakeMetas, preset: Option<&super::presets::Preset>) -> EditDoc {
     let meta = &project.recording;
-    match migrate(project.editor.clone()) {
+    match migrate(project.editor.clone(), project_has_camera(project, takes)) {
         Some(doc) => normalize(doc, meta.duration_ms, takes),
         // A hand-edited preset file is clamped like any stored look.
         None if preset.is_some() => normalize(default_doc(meta, preset), meta.duration_ms, takes),
@@ -787,9 +917,14 @@ pub fn load_with(project: &Project, takes: &TakeMetas, preset: Option<&super::pr
     }
 }
 
+/// The project's own recording or any inserted take has a camera.
+pub fn project_has_camera(project: &Project, takes: &TakeMetas) -> bool {
+    project.recording.camera.is_some() || takes.values().any(|t| t.camera.is_some())
+}
+
 /// No stored editor block can be read: the project opens as new.
 pub fn is_new(project: &Project) -> bool {
-    migrate(project.editor.clone()).is_none()
+    migrate(project.editor.clone(), false).is_none()
 }
 
 pub fn store(project: &mut Project, doc: &EditDoc) {
@@ -897,8 +1032,10 @@ fn remap_clips(doc: &mut EditDoc, map: impl Fn(usize) -> Option<usize>) {
     doc.zooms.retain_mut(|z| map(z.clip).map(|c| z.clip = c).is_some());
     doc.annotations.retain_mut(|a| map(a.clip).map(|c| a.clip = c).is_some());
     doc.audio_tracks.retain_mut(|t| map(t.clip).map(|c| t.clip = c).is_some());
+    doc.layout_regions.retain_mut(|r| map(r.clip).map(|c| r.clip = c).is_some());
     doc.speed.sort_by_key(|r| (r.clip, r.start_ms));
     doc.zooms.sort_by_key(|z| (z.clip, z.start_ms));
+    doc.layout_regions.sort_by_key(|r| (r.clip, r.start_ms));
 }
 
 /// Clip `from` moved to position `to` (the index it has afterwards, `Vec::remove` + `insert`).
@@ -939,7 +1076,7 @@ fn copy_id(id: &str, taken: &mut HashSet<String>) -> String {
 }
 
 /// A copy of clip `index` right behind it, with copies of its speed regions, crop, zooms,
-/// annotations and audio tracks (those under new ids). Out of range: unchanged.
+/// annotations, audio tracks and layout regions (those under new ids). Out of range: unchanged.
 pub fn duplicate_clip(doc: &EditDoc, index: usize) -> EditDoc {
     let n = doc.clips.len();
     if index >= n {
@@ -980,8 +1117,17 @@ pub fn duplicate_clip(doc: &EditDoc, index: usize) -> EditDoc {
         .map(|t| AudioTrack { id: copy_id(&t.id, &mut track_ids), clip: copy, ..t.clone() })
         .collect();
     next.audio_tracks.extend(tracks);
+    let mut layout_ids: HashSet<String> = next.layout_regions.iter().map(|r| r.id.clone()).collect();
+    let layouts: Vec<LayoutRegion> = doc
+        .layout_regions
+        .iter()
+        .filter(|r| r.clip == index)
+        .map(|r| LayoutRegion { id: copy_id(&r.id, &mut layout_ids), clip: copy, ..r.clone() })
+        .collect();
+    next.layout_regions.extend(layouts);
     next.speed.sort_by_key(|r| (r.clip, r.start_ms));
     next.zooms.sort_by_key(|z| (z.clip, z.start_ms));
+    next.layout_regions.sort_by_key(|r| (r.clip, r.start_ms));
     next
 }
 
@@ -1029,6 +1175,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         annotations,
         audio_tracks,
         system_gain_db,
+        camera,
+        layout_regions,
         ..
     } = doc;
     crop.resize(clips.len(), None);
@@ -1105,6 +1253,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
     let zooms = normalize_zooms(zooms, &new_clips, new_index);
     let annotations = normalize_annotations(annotations, &new_clips, new_index);
     let audio_tracks = normalize_tracks(audio_tracks, &new_clips, new_index);
+    let layout_regions = normalize_layout_regions(layout_regions, &new_clips, new_index);
 
     EditDoc {
         version: EDITOR_VERSION,
@@ -1120,6 +1269,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         annotations,
         audio_tracks,
         system_gain_db: clamp_or(system_gain_db, SYSTEM_GAIN_RANGE.0, SYSTEM_GAIN_RANGE.1, 0.0),
+        camera: normalize_camera(camera),
+        layout_regions,
     }
 }
 
@@ -1284,6 +1435,53 @@ fn normalize_appearance(a: Appearance) -> Appearance {
         motion_blur: clamp_or(a.motion_blur, 0.0, 1.0, d.motion_blur),
         ..a
     }
+}
+
+fn normalize_camera(c: CameraStyle) -> CameraStyle {
+    let d = CameraStyle::default();
+    CameraStyle {
+        size_pct: clamp_or(c.size_pct, CAMERA_SIZE_RANGE.0, CAMERA_SIZE_RANGE.1, d.size_pct),
+        roundness: c.roundness.filter(|r| r.is_finite()).map(|r| r.clamp(0.0, 1.0)),
+        // Same edge minimum as the screen crop.
+        crop: c.crop.and_then(normalize_crop),
+        background: CameraBackground { blur: clamp_or(c.background.blur, 0.0, 1.0, DEFAULT_CAMERA_BLUR), ..c.background },
+        ..c
+    }
+}
+
+/// Re-index onto the surviving clips like zooms; a region before its clip's start applies from
+/// the start, one at or after its end has nothing to change and goes. Of two regions on the same
+/// start the later in the list wins (a region holds from its start until the next one); ids made
+/// unique. Sorted by (clip, start).
+fn normalize_layout_regions(
+    regions: Vec<LayoutRegion>,
+    clips: &[EditClip],
+    new_index: impl Fn(usize) -> Option<usize>,
+) -> Vec<LayoutRegion> {
+    // In order of the original start: of several regions clamped onto the clip's start, the one
+    // that began last is the one in force there.
+    let mut placed: Vec<(usize, u64, LayoutRegion)> = Vec::new();
+    for (order, r) in regions.into_iter().enumerate() {
+        let Some(clip) = new_index(r.clip) else { continue };
+        let c = &clips[clip];
+        if r.start_ms >= c.end_ms {
+            continue;
+        }
+        let original = r.start_ms;
+        placed.push((order, original, LayoutRegion { clip, start_ms: r.start_ms.max(c.start_ms), ..r }));
+    }
+    placed.sort_by_key(|(order, original, r)| (r.clip, *original, *order));
+    let mut out: Vec<LayoutRegion> = Vec::new();
+    for (_, _, r) in placed {
+        out.retain(|e| !(e.clip == r.clip && e.start_ms == r.start_ms));
+        out.push(r);
+    }
+    out.sort_by_key(|r| (r.clip, r.start_ms));
+    let mut taken = HashSet::new();
+    for r in &mut out {
+        r.id = unique_id(std::mem::take(&mut r.id), "layout", &mut taken);
+    }
+    out
 }
 
 fn normalize_cursor(c: CursorStyle) -> CursorStyle {
@@ -1560,11 +1758,36 @@ pub fn clip_source_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, 
     (((sw * cw).round() as u32).max(1), ((sh * ch).round() as u32).max(1))
 }
 
+/// Clip `clip`'s camera: its file's size and offset (camera time = screen time − offset), from
+/// its recording (`RecordingMeta::camera` / `TakeMeta::camera`). `None` = no camera on that clip
+/// (or its take is missing). The scene's `webcamPath` and the layout both ask this.
+pub fn clip_camera(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, clip: usize) -> Option<((u32, u32), i64)> {
+    let c = doc.clips.get(clip)?;
+    if take_missing(c, takes) {
+        return None;
+    }
+    match &c.source {
+        None => meta.camera.as_ref().map(|m| ((m.width, m.height), m.offset_ms)),
+        Some(id) => takes.get(id).and_then(|t| t.camera.map(|size| (size, t.camera_offset_ms))),
+    }
+}
+
+/// Clip `clip`'s camera box source: its camera × the framing crop (`webcamBoxSourceSize`).
+pub fn clip_camera_box(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, clip: usize) -> Option<(u32, u32)> {
+    let ((w, h), _) = clip_camera(meta, takes, doc, clip)?;
+    // Unknown size (0): upstream's stand-in camera, 960×720.
+    let (w, h) = if w > 0 && h > 0 { (w as f64, h as f64) } else { (960.0, 720.0) };
+    let (cw, ch) = doc.camera.crop.map_or((1.0, 1.0), |c| (c.w, c.h));
+    Some((((w * cw).round() as u32).max(1), ((h * ch).round() as u32).max(1)))
+}
+
 /// The Auto shape (width / height): `layout::auto_aspect` over the first clip's screen
-/// (crop included), the padding and the frame (OpenScreen `autoAspectRatioValue`).
+/// (crop included), the padding, the frame and the camera layout resolved for that clip (a
+/// block layout adds its camera; OpenScreen `autoAspectRatioValue`).
 pub fn auto_ratio(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc) -> f64 {
     let (w, h) = clip_source_size(meta, takes, doc, 0);
-    super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame, super::layout::LayoutPreset::NoWebcam)
+    let preset = doc.camera.preset.resolve(clip_camera(meta, takes, doc, 0).is_some());
+    super::layout::auto_aspect(w as f64 / h as f64, doc.appearance.padding, doc.appearance.frame, preset)
 }
 
 /// Export frame size of `doc` for `target`. `Aspect::Auto` takes `auto_ratio`; its LONG side
@@ -1669,6 +1892,8 @@ pub(crate) mod tests {
             annotations: Vec::new(),
             audio_tracks: Vec::new(),
             system_gain_db: 0.0,
+            camera: CameraStyle::default_for(false),
+            layout_regions: Vec::new(),
         }
     }
 
@@ -1712,7 +1937,7 @@ pub(crate) mod tests {
             serde_json::json!(null),
             serde_json::json!("garbage"),
             serde_json::json!({"version": 1, "clips": "nope"}),
-            serde_json::json!({"version": 4, "clips": [{"startMs": 0, "endMs": 5000}]}),
+            serde_json::json!({"version": 5, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 0, "clips": [{"startMs": 0, "endMs": 5000}]}),
             serde_json::json!({"version": 1, "clips": []}),
         ] {
@@ -1999,7 +2224,7 @@ pub(crate) mod tests {
     #[test]
     fn unknown_version_falls_back_to_default() {
         let json = serde_json::json!({"version": 99, "clips": [{"startMs": 0, "endMs": 5000}]});
-        assert!(migrate(json.clone()).is_none());
+        assert!(migrate(json.clone(), false).is_none());
         assert_eq!(load(&project_with(json), &NO_TAKES), default_doc(&meta(10_000), None));
     }
 
@@ -2155,13 +2380,16 @@ pub(crate) mod tests {
     #[test]
     fn v2_doc_migrates_without_change() {
         let v2: EditDoc = serde_json::from_value(v2_json()).unwrap();
-        let d = migrate(v2_json()).unwrap();
-        assert_eq!(d.version, 3);
+        let d = migrate(v2_json(), false).unwrap();
+        assert_eq!(d.version, EDITOR_VERSION);
         assert!(d.annotations.is_empty() && d.audio_tracks.is_empty());
         assert_eq!(d.system_gain_db, 0.0);
         assert!(d.clips.iter().all(|c| c.source.is_none()));
+        // A project without a camera lays out as `no-webcam`; no layout regions.
+        assert_eq!(d.camera, CameraStyle::default_for(false));
+        assert!(d.layout_regions.is_empty());
         // Everything a v2 document carried comes through untouched.
-        assert_eq!(EditDoc { version: 2, ..d.clone() }, v2);
+        assert_eq!(EditDoc { version: 2, camera: v2.camera.clone(), ..d.clone() }, v2);
         assert_eq!(load(&project_with(v2_json()), &NO_TAKES), normalize(d, 10_000, &NO_TAKES));
     }
 
@@ -2427,8 +2655,17 @@ pub(crate) mod tests {
         ];
         d.audio_tracks = vec![AudioTrack { kind: TrackKind::Voiceover, span_ms: Some(900), ..track(0, 100, 1_000) }];
         d.system_gain_db = -3.0;
+        d.camera = CameraStyle { anchor: CameraAnchor::TopRight, roundness: Some(0.2), ..CameraStyle::default() };
+        d.camera.background.mode = CameraBgMode::Transparent;
+        d.layout_regions = vec![LayoutRegion { id: "l".into(), clip: 0, start_ms: 500, preset: LayoutPreset::VerticalStack }];
         let j = serde_json::to_value(&d).unwrap();
-        assert_eq!(j["version"], 3);
+        assert_eq!(j["version"], EDITOR_VERSION);
+        assert_eq!(j["camera"]["preset"], "picture-in-picture");
+        assert_eq!(j["camera"]["sizePct"], 40.0);
+        assert_eq!(j["camera"]["anchor"], "top-right");
+        assert_eq!(j["camera"]["reactiveZoom"], true);
+        assert_eq!(j["camera"]["background"]["mode"], "transparent");
+        assert_eq!(j["layoutRegions"][0], serde_json::json!({"id": "l", "clip": 0, "startMs": 500, "preset": "vertical-stack"}));
         assert_eq!(j["clips"][0]["source"], "take-2");
         assert_eq!(j["annotations"][0]["body"]["kind"], "text");
         assert_eq!(j["annotations"][0]["body"]["fontFamily"], "Inter");
@@ -2600,5 +2837,170 @@ pub(crate) mod tests {
             assert_eq!(take_dir(p, Some(bad)), PathBuf::from("/p/takes/.invalid"), "{bad:?}");
         }
         assert!(!valid_take_id(&"x".repeat(65)));
+    }
+
+    // ── camera (v4) ──────────────────────────────────────────────────────────
+
+    fn v3_json() -> serde_json::Value {
+        serde_json::json!({
+            "version": 3,
+            "clips": [{"startMs": 0, "endMs": 4000}],
+            "appearance": {"padding": 20.0},
+            "autoZoomDone": true
+        })
+    }
+
+    fn camera_meta() -> crate::record::project::CameraMeta {
+        crate::record::project::CameraMeta { width: 1920, height: 1080, fps: 30, offset_ms: 0, device_name: "Cam".into(), ended_early_ms: None }
+    }
+
+    fn lr(id: &str, clip: usize, start_ms: u64, preset: LayoutPreset) -> LayoutRegion {
+        LayoutRegion { id: id.into(), clip, start_ms, preset }
+    }
+
+    #[test]
+    fn v3_doc_migrates_with_camera_default() {
+        let with = migrate(v3_json(), true).expect("v3 migrates");
+        assert_eq!(with.version, EDITOR_VERSION);
+        assert_eq!(with.camera.preset, LayoutPreset::PictureInPicture);
+        assert_eq!(with.camera.size_pct, 40.0);
+        assert_eq!(with.camera.anchor, CameraAnchor::BottomRight);
+        assert_eq!(with.camera.mask, CameraMask::Square);
+        assert_eq!(with.camera.resolved_roundness(), 0.7);
+        assert!(with.camera.reactive_zoom && !with.camera.mirror);
+        assert_eq!(with.camera.background, CameraBackground { mode: CameraBgMode::None, blur: 0.5, custom: Background::Wallpaper { id: DEFAULT_WALLPAPER.into() } });
+        assert!(with.layout_regions.is_empty());
+        let without = migrate(v3_json(), false).expect("v3 migrates");
+        assert_eq!(without.camera.preset, LayoutPreset::NoWebcam);
+        // Everything else of the v3 document comes through untouched.
+        assert_eq!(EditDoc { camera: with.camera.clone(), ..without.clone() }, with);
+        // Through load: the project's own camera decides, so does an inserted take's.
+        let mut p = project_with(v3_json());
+        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::NoWebcam);
+        let takes = TakeMetas::from([("t".to_string(), TakeMeta { camera: Some((1280, 720)), ..TakeMeta::default() })]);
+        assert_eq!(load(&p, &takes).camera.preset, LayoutPreset::PictureInPicture);
+        p.recording.camera = Some(camera_meta());
+        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::PictureInPicture);
+        // A stored v4 document keeps its own camera look.
+        let mut v4 = with.clone();
+        v4.camera.preset = LayoutPreset::DualFrame;
+        store(&mut p, &v4);
+        assert_eq!(load(&p, &NO_TAKES).camera.preset, LayoutPreset::DualFrame);
+        // A new project: the camera decides the default too.
+        assert_eq!(default_doc(&meta(1_000), None).camera.preset, LayoutPreset::NoWebcam);
+        let m = RecordingMeta { camera: Some(camera_meta()), ..meta(1_000) };
+        assert_eq!(default_doc(&m, None).camera, CameraStyle::default_for(true));
+    }
+
+    #[test]
+    fn camera_style_is_clamped() {
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.camera = CameraStyle {
+            size_pct: 90.0,
+            roundness: Some(2.0),
+            crop: Some(CropRect { x: 0.98, y: -1.0, w: 0.0, h: 3.0 }),
+            background: CameraBackground { blur: f64::NAN, ..CameraBackground::default() },
+            ..CameraStyle::default()
+        };
+        let n = normalize(d.clone(), 10_000, &NO_TAKES);
+        assert_eq!(n.camera.size_pct, 60.0);
+        assert_eq!(n.camera.roundness, Some(1.0));
+        assert_eq!(n.camera.background.blur, DEFAULT_CAMERA_BLUR);
+        assert_eq!(n.camera.crop, Some(CropRect { x: 0.95, y: 0.0, w: 0.05, h: 1.0 }));
+        d.camera.size_pct = 3.0;
+        d.camera.roundness = Some(f64::NAN);
+        d.camera.background.blur = -2.0;
+        let n = normalize(d, 10_000, &NO_TAKES);
+        assert_eq!((n.camera.size_pct, n.camera.roundness, n.camera.background.blur), (15.0, None, 0.0));
+        // A NaN size goes back to the standard; the standard roundness follows the mask.
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.camera.size_pct = f64::NAN;
+        d.camera.mask = CameraMask::Rectangle;
+        let n = normalize(d, 10_000, &NO_TAKES);
+        assert_eq!((n.camera.size_pct, n.camera.resolved_roundness()), (40.0, 0.4));
+    }
+
+    #[test]
+    fn layout_region_follows_split_and_reorder() {
+        // What the TS split leaves behind: clip 0 cut at 3 s, the 5 s region moved to clip 1,
+        // a region at the cut carries the preset that was active there.
+        let mut d = doc(vec![clip(0, 3_000), clip(3_000, 10_000), clip(10_000, 12_000)], vec![]);
+        d.crop = vec![None; 3];
+        d.layout_regions = vec![
+            lr("a", 0, 1_000, LayoutPreset::DualFrame),
+            lr("cut", 1, 3_000, LayoutPreset::DualFrame),
+            lr("b", 1, 5_000, LayoutPreset::VerticalStack),
+            // Before its clip's start: clamped to the start; beyond its end: dropped.
+            lr("early", 2, 9_000, LayoutPreset::CameraOnly),
+            lr("late", 2, 12_000, LayoutPreset::NoWebcam),
+        ];
+        let n = normalize(d, 20_000, &NO_TAKES);
+        let regs = |n: &EditDoc| n.layout_regions.iter().map(|r| (r.id.clone(), r.clip, r.start_ms, r.preset)).collect::<Vec<_>>();
+        assert_eq!(
+            regs(&n),
+            vec![
+                ("a".into(), 0, 1_000, LayoutPreset::DualFrame),
+                ("cut".into(), 1, 3_000, LayoutPreset::DualFrame),
+                ("b".into(), 1, 5_000, LayoutPreset::VerticalStack),
+                ("early".into(), 2, 10_000, LayoutPreset::CameraOnly),
+            ]
+        );
+        // Reorder: clip 0 to the end; the regions follow their clip.
+        let m = move_clip(&n, 0, 2);
+        assert_eq!(m.layout_regions.iter().map(|r| (r.id.as_str(), r.clip)).collect::<Vec<_>>(), vec![("cut", 0), ("b", 0), ("early", 1), ("a", 2)]);
+        // Duplicate: the copy gets copies of its clip's regions under new ids.
+        let dup = duplicate_clip(&n, 1);
+        let ids: Vec<_> = dup.layout_regions.iter().filter(|r| r.clip == 2).map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["cut-copy", "b-copy"]);
+        assert_eq!(dup.layout_regions.iter().find(|r| r.id == "early").unwrap().clip, 3);
+        // A deleted clip (a sliver) takes its regions along; a repeated start keeps the later one.
+        let mut d = doc(vec![clip(0, 50), clip(2_000, 9_000)], vec![]);
+        d.layout_regions = vec![lr("x", 0, 0, LayoutPreset::DualFrame), lr("y", 1, 4_000, LayoutPreset::DualFrame), lr("y", 1, 4_000, LayoutPreset::CameraOnly)];
+        let n = normalize(d, 10_000, &NO_TAKES);
+        assert_eq!(n.layout_regions.len(), 1);
+        assert_eq!((n.layout_regions[0].clip, n.layout_regions[0].start_ms, n.layout_regions[0].preset), (0, 4_000, LayoutPreset::CameraOnly));
+        assert!(!n.layout_regions[0].id.is_empty());
+    }
+
+    #[test]
+    fn layout_regions_get_unique_ids() {
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.layout_regions = vec![lr("", 0, 1_000, LayoutPreset::DualFrame), lr("same", 0, 2_000, LayoutPreset::DualFrame), lr("same", 0, 3_000, LayoutPreset::CameraOnly)];
+        let n = normalize(d, 10_000, &NO_TAKES);
+        let ids: HashSet<_> = n.layout_regions.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains("same"));
+    }
+
+    #[test]
+    fn auto_ratio_follows_the_camera_layout() {
+        let m = RecordingMeta { camera: Some(camera_meta()), ..meta(10_000) };
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.appearance.padding = 20.0;
+        let ratio = |d: &EditDoc, m: &RecordingMeta| auto_ratio(m, &NO_TAKES, d);
+        d.camera.preset = LayoutPreset::DualFrame;
+        let screen_only = super::super::layout::auto_aspect(3024.0 / 1964.0, 20.0, Frame::None, LayoutPreset::NoWebcam);
+        let dual = super::super::layout::auto_aspect(3024.0 / 1964.0, 20.0, Frame::None, LayoutPreset::DualFrame);
+        assert!((dual - screen_only).abs() > 0.1, "{dual} vs {screen_only}");
+        assert_eq!(ratio(&d, &m), dual);
+        // Without a camera on the first clip the preset resolves to no-webcam.
+        assert_eq!(ratio(&d, &meta(10_000)), screen_only);
+        // PiP floats over the screen and does not change the shape.
+        d.camera.preset = LayoutPreset::PictureInPicture;
+        assert_eq!(ratio(&d, &m), screen_only);
+    }
+
+    #[test]
+    fn clip_camera_follows_source() {
+        let m = RecordingMeta { camera: Some(camera_meta()), ..meta(10_000) };
+        let mut d = doc(vec![clip(0, 4_000), EditClip { start_ms: 0, end_ms: 2_000, source: Some("t".into()) }], vec![]);
+        let takes = TakeMetas::from([("t".to_string(), TakeMeta { duration_ms: 5_000, camera: Some((1280, 720)), camera_offset_ms: 40, ..TakeMeta::default() })]);
+        assert_eq!(clip_camera(&m, &takes, &d, 0), Some(((1920, 1080), 0)));
+        assert_eq!(clip_camera(&m, &takes, &d, 1), Some(((1280, 720), 40)));
+        assert_eq!(clip_camera(&meta(10_000), &takes, &d, 0), None);
+        // The framing crop shapes the camera's box (upstream `webcamBoxSourceSize`).
+        d.camera.crop = Some(CropRect { x: 0.0, y: 0.0, w: 0.5, h: 1.0 });
+        assert_eq!(clip_camera_box(&m, &takes, &d, 0), Some((960, 1080)));
+        assert_eq!(clip_camera_box(&m, &NO_TAKES, &d, 1), None, "a missing take has no camera");
     }
 }

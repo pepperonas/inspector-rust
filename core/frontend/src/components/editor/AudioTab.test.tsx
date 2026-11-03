@@ -39,6 +39,8 @@ const doc = (audioTracks: RecordAudioTrack[] = [], systemGainDb = 0): RecordEdit
     annotations: [],
     audioTracks,
     systemGainDb,
+    camera: {} as RecordEditDoc["camera"],
+    layoutRegions: [],
   }) as RecordEditDoc;
 
 function mount(d: RecordEditDoc, selected: string | null = null, over: Partial<AudioTabProps> = {}) {

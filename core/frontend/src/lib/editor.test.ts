@@ -16,7 +16,17 @@ import {
   TEXT_FONTS,
   TRACK_GAIN_RANGE,
   addAnnotation,
+  addLayoutRegion,
   addTrack,
+  CAMERA_ROUNDNESS_RECTANGLE,
+  CAMERA_ROUNDNESS_SQUARE,
+  CAMERA_SIZE_RANGE,
+  cameraRoundness,
+  DEFAULT_CAMERA_BLUR,
+  DEFAULT_CAMERA_SIZE,
+  LAYOUT_TRANSITION_SEC,
+  removeLayoutRegion,
+  setCamera,
   removeAnnotation,
   removeTrack,
   setSystemGain,
@@ -82,6 +92,18 @@ const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
   annotations: [],
   audioTracks: [],
   systemGainDb: 0,
+  camera: {
+    preset: "no-webcam",
+    sizePct: 40,
+    mask: "square",
+    roundness: null,
+    mirror: false,
+    reactiveZoom: true,
+    anchor: "bottom-right",
+    crop: null,
+    background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
+  },
+  layoutRegions: [],
   ...over,
 });
 
@@ -557,5 +579,85 @@ describe("annotation editing helpers (stage 4, Task 6)", () => {
     expect(annotationShownAt(view, "b", 2_000)).toBe(false);
     expect(annotationShownAt(view, "a", 1_500)).toBe(false);
     expect(annotationShownAt({ ...view, annotationSpans: undefined }, "b", 1_500)).toBe(false);
+  });
+});
+
+describe("camera style + layout regions", () => {
+  it("setCamera patches the camera only", () => {
+    const doc = base();
+    const out = setCamera(doc, { preset: "dual-frame", mirror: true });
+    expect(out.camera.preset).toBe("dual-frame");
+    expect(out.camera.mirror).toBe(true);
+    expect(out.camera.anchor).toBe(doc.camera.anchor);
+    expect(out.clips).toBe(doc.clips);
+    expect(doc.camera.preset).toBe("no-webcam");
+  });
+
+  it("the standard roundness follows the mask", () => {
+    expect(cameraRoundness({ roundness: null, mask: "square" })).toBe(0.7);
+    expect(cameraRoundness({ roundness: null, mask: "rectangle" })).toBe(0.4);
+    expect(cameraRoundness({ roundness: 0.1, mask: "square" })).toBe(0.1);
+  });
+
+  it("adds a layout region clamped into the clip, replacing one on the same start", () => {
+    const doc = base({ clips: [{ startMs: 1000, endMs: 5000 }], crop: [null] });
+    const a = addLayoutRegion(doc, 0, 500, "dual-frame");
+    expect(a.layoutRegions.map((r) => [r.clip, r.startMs, r.preset])).toEqual([[0, 1000, "dual-frame"]]);
+    const b = addLayoutRegion(a, 0, 1000, "camera-only");
+    expect(b.layoutRegions.map((r) => [r.startMs, r.preset])).toEqual([[1000, "camera-only"]]);
+    const c = addLayoutRegion(b, 0, 3000.4, "vertical-stack");
+    expect(c.layoutRegions.map((r) => r.startMs)).toEqual([1000, 3000]);
+    expect(new Set(c.layoutRegions.map((r) => r.id)).size).toBe(2);
+    expect(addLayoutRegion(c, 7, 1000, "dual-frame")).toBe(c);
+    expect(removeLayoutRegion(c, c.layoutRegions[0].id).layoutRegions.map((r) => r.startMs)).toEqual([3000]);
+  });
+
+  it("a split carries the layout in force at the cut into the second half", () => {
+    const doc = base({
+      clips: [{ startMs: 0, endMs: 10_000 }, { startMs: 0, endMs: 2_000 }],
+      crop: [null, null],
+      layoutRegions: [
+        { id: "a", clip: 0, startMs: 1000, preset: "dual-frame" },
+        { id: "b", clip: 0, startMs: 6000, preset: "camera-only" },
+        { id: "c", clip: 1, startMs: 500, preset: "vertical-stack" },
+      ],
+    });
+    const out = splitAt(doc, 0, 4000);
+    const regs = out.layoutRegions.map((r) => [r.clip, r.startMs, r.preset]);
+    expect(regs).toEqual([
+      [0, 1000, "dual-frame"],
+      [1, 6000, "camera-only"],
+      [2, 500, "vertical-stack"],
+      [1, 4000, "dual-frame"],
+    ]);
+    // Before any region: nothing to carry (the global preset holds on both halves).
+    const plain = splitAt(base({ layoutRegions: [{ id: "x", clip: 0, startMs: 6000, preset: "dual-frame" }] }), 0, 4000);
+    expect(plain.layoutRegions.map((r) => [r.clip, r.startMs])).toEqual([[1, 6000]]);
+    // A region exactly at the cut moves along; no copy is added.
+    const atCut = splitAt(base({ layoutRegions: [{ id: "y", clip: 0, startMs: 4000, preset: "dual-frame" }] }), 0, 4000);
+    expect(atCut.layoutRegions.map((r) => [r.id, r.clip, r.startMs])).toEqual([["y", 1, 4000]]);
+    // Deleting a clip takes its regions along, later ones move down.
+    const del = deleteClip(out, 0);
+    expect(del.layoutRegions.map((r) => [r.clip, r.startMs])).toEqual([[0, 6000], [1, 500], [0, 4000]]);
+  });
+
+  it("the camera constants mirror record/editor.rs", () => {
+    const num = (name: string) => {
+      const m = new RegExp(`pub const ${name}: [^=]+= ([^;]+);`).exec(EDITOR_RS);
+      expect(m, name).not.toBeNull();
+      return Number(m![1]);
+    };
+    expect(num("DEFAULT_CAMERA_SIZE")).toBe(DEFAULT_CAMERA_SIZE);
+    expect(num("CAMERA_ROUNDNESS_SQUARE")).toBe(CAMERA_ROUNDNESS_SQUARE);
+    expect(num("CAMERA_ROUNDNESS_RECTANGLE")).toBe(CAMERA_ROUNDNESS_RECTANGLE);
+    expect(num("DEFAULT_CAMERA_BLUR")).toBe(DEFAULT_CAMERA_BLUR);
+    expect(num("LAYOUT_TRANSITION_SEC")).toBe(LAYOUT_TRANSITION_SEC);
+    // The size range reads the layout module's limits.
+    expect(EDITOR_RS).toMatch(/pub const CAMERA_SIZE_RANGE: \(f64, f64\) = \(super::layout::CAMERA_SIZE_MIN, super::layout::CAMERA_SIZE_MAX\);/);
+    const LAYOUT_RS = import.meta.glob("../../../rust-lib/src/record/layout.rs", { query: "?raw", import: "default", eager: true });
+    const layout = Object.values(LAYOUT_RS)[0] as string;
+    expect(layout).toBeTruthy();
+    const lim = (n: string) => Number(new RegExp(`pub const ${n}: f64 = ([\\d.]+);`).exec(layout)![1]);
+    expect([lim("CAMERA_SIZE_MIN"), lim("CAMERA_SIZE_MAX")]).toEqual([...CAMERA_SIZE_RANGE]);
   });
 });

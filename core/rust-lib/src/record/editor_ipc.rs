@@ -2265,6 +2265,8 @@ mod tests {
             annotations: Vec::new(),
             audio_tracks: Vec::new(),
             system_gain_db: 0.0,
+            camera: crate::record::editor::CameraStyle::default_for(false),
+            layout_regions: Vec::new(),
         }
     }
 
@@ -2496,6 +2498,7 @@ mod tests {
             appearance: editor::Appearance { padding: 7.0, ..editor::Appearance::default() },
             cursor: editor::CursorStyle { size: 5.5, ..editor::CursorStyle::default() },
             aspect: editor::Aspect::W1H1,
+            camera: None,
         };
         assert!(editor::is_new(&p));
         let (doc, changed) = doc_for_open(&p, None, false, &TakeMetas::new(), Some(&preset));

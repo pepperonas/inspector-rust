@@ -19,11 +19,19 @@
     },
     {
       "name": "dual-frame without a camera falls back to the screen",
-      "source": "upstream: computeCompositeLayout > falls back to the screen alone in dual-frame when the clip has no camera (screen, camera) + masks the screen with its box for the two block presets only (dual-frame without a camera -> screenCover false)",
+      "source": "upstream: computeCompositeLayout > falls back to the screen alone in dual-frame when the clip has no camera",
       "out": [1920, 1080], "screen": [1920, 1080], "camera": null,
       "look": {"preset": "dual-frame", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
       "padding_pct": 50, "frame": "none", "even_border": false,
-      "expect": {"screen": [192, 108, 1536, 864], "camera": null, "screen_cover": false}
+      "expect": {"screen": [192, 108, 1536, 864], "camera": null}
+    },
+    {
+      "name": "dual-frame without a camera does not cover the screen",
+      "source": "upstream: computeCompositeLayout > masks the screen with its box for the two block presets only (cover('dual-frame', null) -> false; maxContentSize = canvas)",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": null,
+      "look": {"preset": "dual-frame", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen_cover": false}
     },
     {
       "name": "vertical-stack without a camera falls back to the screen",
@@ -71,7 +79,16 @@
       "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
       "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0, "anchor": "bottom-right"},
       "padding_pct": 0, "frame": "none", "even_border": false,
-      "expect": {"camera_radius_frac": 0.0, "screen_radius_frac": null, "screen_cover": false}
+      "expect": {"camera_radius_frac": 0.0}
+    },
+    {
+      "name": "picture-in-picture leaves the screen unrounded and uncovered",
+      "source": "derived",
+      "math": "compositeLayout.ts:447-646, picture-in-picture branch: screenRect = centerScreen(...) without screenBorderRadius (undefined -> radiusFractionOf = null) and screenCover unset (false); the camera's roundness does not reach the screen",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [1280, 720],
+      "look": {"preset": "picture-in-picture", "size_pct": 40, "mask": "rectangle", "roundness": 0, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"screen_radius_frac": null, "screen_cover": false}
     },
     {
       "name": "picture-in-picture does not cover the screen",
@@ -87,7 +104,16 @@
       "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
       "look": {"preset": "no-webcam", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
       "padding_pct": 0, "frame": "none", "even_border": false,
-      "expect": {"screen_cover": false, "camera": null, "screen": [0, 0, 1920, 1080]}
+      "expect": {"screen_cover": false}
+    },
+    {
+      "name": "no-webcam lays out the screen alone",
+      "source": "derived",
+      "math": "compositeLayout.ts: no-webcam -> webcamRect null; screenRect = centerRect(canvas 1920x1080, screen 1920x1080, maxContent = canvas at padding 0) = the whole canvas [0, 0, 1920, 1080]",
+      "out": [1920, 1080], "screen": [1920, 1080], "camera": [960, 720],
+      "look": {"preset": "no-webcam", "size_pct": 40, "mask": "rectangle", "roundness": 0.4, "anchor": "bottom-right"},
+      "padding_pct": 0, "frame": "none", "even_border": false,
+      "expect": {"camera": null, "screen": [0, 0, 1920, 1080]}
     },
     {
       "name": "dual-frame, 16:9 in 16:9, no padding",

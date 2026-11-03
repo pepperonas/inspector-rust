@@ -5393,6 +5393,42 @@ export interface RecordAudioTrack {
   muted: boolean;
   label: string;
 }
+/** Camera layout presets (upstream names, `layout::LayoutPreset`). */
+export type RecordLayoutPreset = "picture-in-picture" | "dual-frame" | "vertical-stack" | "camera-only" | "no-webcam";
+export type RecordCameraAnchor =
+  | "top-left" | "top" | "top-right" | "left" | "right" | "bottom-left" | "bottom" | "bottom-right";
+export type RecordCameraMask = "square" | "rectangle";
+export type RecordCameraBgMode = "none" | "transparent" | "blur" | "custom";
+export interface RecordCameraBackground {
+  mode: RecordCameraBgMode;
+  /** 0…1, used by `blur`. */
+  blur: number;
+  /** Used by `custom`. */
+  custom: RecordBackground;
+}
+/** The camera's look for the whole video (`editor::CameraStyle`). */
+export interface RecordCameraStyle {
+  preset: RecordLayoutPreset;
+  /** Percent of the frame's short side, 15…60. */
+  sizePct: number;
+  mask: RecordCameraMask;
+  /** 0…1; `null` = the mask's standard (square 0.7, rectangle 0.4). */
+  roundness: number | null;
+  mirror: boolean;
+  /** Shrink during a zoom (picture-in-picture only). */
+  reactiveZoom: boolean;
+  anchor: RecordCameraAnchor;
+  /** Framing in fractions of the camera frame; `null` = the whole frame. */
+  crop: RecordCropRect | null;
+  background: RecordCameraBackground;
+}
+/** From `startMs` (SOURCE ms of `clip`) until the clip's next region, the camera uses `preset`. */
+export interface RecordLayoutRegion {
+  id: string;
+  clip: number;
+  startMs: number;
+  preset: RecordLayoutPreset;
+}
 export interface RecordEditDoc {
   version: number;
   clips: RecordEditClip[];
@@ -5408,6 +5444,8 @@ export interface RecordEditDoc {
   audioTracks: RecordAudioTrack[];
   /** Level of the recorded system sound, dB. */
   systemGainDb: number;
+  camera: RecordCameraStyle;
+  layoutRegions: RecordLayoutRegion[];
 }
 export interface RecordEditorView {
   doc: RecordEditDoc;

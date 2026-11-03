@@ -52,6 +52,18 @@ const doc0 = (zooms: RecordZoomRegion[] = []): RecordEditDoc =>
     annotations: [],
     audioTracks: [],
     systemGainDb: 0,
+    camera: {
+      preset: "no-webcam",
+      sizePct: 40,
+      mask: "square",
+      roundness: null,
+      mirror: false,
+      reactiveZoom: true,
+      anchor: "bottom-right",
+      crop: null,
+      background: { mode: "none", blur: 0.5, custom: { kind: "wallpaper", id: "01" } },
+    },
+    layoutRegions: [],
   }) as RecordEditDoc;
 
 /** Programme spans: clip 0 = 0–5 s, clip 1 = 5–10 s (source 6–11 s). */

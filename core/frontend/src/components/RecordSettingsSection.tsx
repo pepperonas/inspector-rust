@@ -2,33 +2,45 @@ import { useEffect, useState } from "react";
 import { Video } from "lucide-react";
 import {
   getRecordConfig,
-  recordCameraDevices,
   setRecordConfig,
-  type CameraDevice,
   type CameraQuality,
   type RecordConfig,
 } from "../lib/ipc";
 import { t, useT } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
 import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
+import { CameraDeniedHint, useRecordCamera } from "./useRecordCamera";
 
 /** Settings → Recording: project folder + the defaults the HUD starts with. */
 export function RecordSettingsSection() {
   useT();
   const [cfg, setCfg] = useState<RecordConfig | null>(null);
+  /** Bumped by the camera switch; the effect below stores the config it produced. */
+  const [cameraEdits, setCameraEdits] = useState(0);
   const [bindings, saveBindings] = useEditorShortcuts();
   const [keysOpen, setKeysOpen] = useState(false);
-  const [cams, setCams] = useState<CameraDevice[]>([]);
+  const cam = useRecordCamera();
 
   useEffect(() => {
     void getRecordConfig().then(setCfg).catch(() => {});
-    void recordCameraDevices().then(setCams).catch(() => {});
   }, []);
 
   const save = (next: RecordConfig) => {
     setCfg(next);
     void setRecordConfig(next).then(setCfg).catch(() => {});
   };
+
+  /** Same flow as the HUD: asks once when undecided; refused stays off (hint below). */
+  // Functional update after the await, so a change made while the dialog was open survives.
+  const setCamera = async (on: boolean) => {
+    if (on && !(await cam.turnOn())) return;
+    setCfg((prev) => (prev ? { ...prev, camera: on } : prev));
+    setCameraEdits((n) => n + 1);
+  };
+  useEffect(() => {
+    if (cameraEdits > 0 && cfg) void setRecordConfig(cfg).then(setCfg).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraEdits]);
 
   const pickFolder = async () => {
     if (!cfg) return;
@@ -39,7 +51,7 @@ export function RecordSettingsSection() {
 
   if (!cfg) return null;
   const box = (
-    key: "countdown" | "systemAudio" | "mic" | "openEditor" | "autoZoom" | "camera",
+    key: "countdown" | "systemAudio" | "mic" | "openEditor" | "autoZoom",
     label: string,
     help?: string,
   ) => (
@@ -91,16 +103,24 @@ export function RecordSettingsSection() {
       </Row>
       {box("systemAudio", t("rec2.hud.system_audio"))}
       {box("mic", t("rec2.hud.mic"))}
-      {box("camera", t("rec5.hud.camera"), t("rec5.set.camera_help"))}
+      <Row label={t("rec5.hud.camera")} help={t("rec5.set.camera_help")}>
+        <input
+          type="checkbox"
+          data-testid="set-record-camera"
+          checked={cam.isOn(cfg.camera)}
+          onChange={(e) => void setCamera(e.target.checked)}
+        />
+      </Row>
+      {cam.showHint(cfg.camera) && <CameraDeniedHint />}
       <Row label={t("rec5.set.camera_device")}>
         <select
           data-testid="set-record-camera-device"
           className="rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-          value={cams.some((c) => c.id === cfg.cameraDevice) ? cfg.cameraDevice : ""}
+          value={cam.devices.some((c) => c.id === cfg.cameraDevice) ? cfg.cameraDevice : ""}
           onChange={(e) => save({ ...cfg, cameraDevice: e.target.value })}
         >
           <option value="">{t("rec5.set.camera_device_default")}</option>
-          {cams.map((c) => (
+          {cam.devices.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>

@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
 const setRecordConfig = vi.fn(async (c: unknown) => c);
+const recordCameraRequest = vi.fn(async () => "authorized");
+let cameraAuth = "authorized";
 vi.mock("../lib/ipc", () => ({
   getRecordConfig: async () => ({
     projectDir: "/Users/ana/Movies/Inspector Rust",
@@ -17,6 +19,9 @@ vi.mock("../lib/ipc", () => ({
     cameraQuality: "1080p",
   }),
   setRecordConfig: (c: unknown) => setRecordConfig(c),
+  recordCameraAuth: async () => cameraAuth,
+  recordCameraRequest: () => recordCameraRequest(),
+  recordOpenCameraSettings: async () => undefined,
   recordCameraDevices: async () => [
     { id: "mac", name: "FaceTime HD Camera", builtin: true },
     { id: "usb", name: "USB Cam", builtin: false },
@@ -32,6 +37,7 @@ import { RecordSettingsSection } from "./RecordSettingsSection";
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  cameraAuth = "authorized";
 });
 
 describe("Settings → Recording → camera", () => {
@@ -39,8 +45,8 @@ describe("Settings → Recording → camera", () => {
     const r = render(<RecordSettingsSection />);
     await act(async () => {});
     fireEvent.click(r.getByTestId("set-record-camera"));
-    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ camera: true }));
     await act(async () => {});
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ camera: true }));
     const dev = r.getByTestId("set-record-camera-device") as HTMLSelectElement;
     expect(Array.from(dev.options).map((o) => o.value)).toEqual(["", "mac", "usb"]);
     fireEvent.change(dev, { target: { value: "usb" } });
@@ -50,6 +56,28 @@ describe("Settings → Recording → camera", () => {
     expect(Array.from(q.options).map((o) => o.value)).toEqual(["1080p", "1440p", "2160p"]);
     fireEvent.change(q, { target: { value: "2160p" } });
     expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ cameraQuality: "2160p", cameraDevice: "usb" }));
+  });
+
+  it("goes through the permission flow: asks once when undecided, refused stays off with the hint", async () => {
+    cameraAuth = "not-determined";
+    const r = render(<RecordSettingsSection />);
+    await act(async () => {});
+    fireEvent.click(r.getByTestId("set-record-camera"));
+    await act(async () => {});
+    expect(recordCameraRequest).toHaveBeenCalledTimes(1);
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ camera: true }));
+    cleanup();
+    setRecordConfig.mockClear();
+
+    cameraAuth = "denied";
+    const d = render(<RecordSettingsSection />);
+    await act(async () => {});
+    const box = d.getByTestId("set-record-camera") as HTMLInputElement;
+    fireEvent.click(box);
+    await act(async () => {});
+    expect(box.checked).toBe(false);
+    expect(d.getByTestId("rec-camera-denied")).toBeTruthy();
+    expect(setRecordConfig).not.toHaveBeenCalled();
   });
 });
 

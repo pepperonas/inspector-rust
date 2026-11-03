@@ -6,6 +6,9 @@ const setRecordConfig = vi.fn(async (c: unknown) => c);
 const recordCameraRequest = vi.fn(async () => "authorized");
 const recordOpenCameraSettings = vi.fn(async () => undefined);
 let cameraAuth = "authorized";
+/** Set to keep the permission read pending (still loading). */
+let authPending = false;
+let storedCamera = false;
 let cameraDevices = [{ id: "mac", name: "FaceTime HD Camera", builtin: true }];
 vi.mock("../lib/ipc", () => ({
   recordStatus: async () => ({ supported: true, reason: null, phase: "idle", elapsedMs: 0, projectDir: null, source: "Display", lowDiskMinutes: null }),
@@ -15,7 +18,7 @@ vi.mock("../lib/ipc", () => ({
     cursorMode: "editable-overlay",
     systemAudio: true,
     mic: false,
-    camera: false,
+    camera: storedCamera,
     cameraDevice: "",
     cameraQuality: "1080p",
   }),
@@ -23,7 +26,7 @@ vi.mock("../lib/ipc", () => ({
   recordStart: (o: unknown) => recordStart(o),
   recordPickSource: async () => undefined,
   recordOpenNotes: async () => undefined,
-  recordCameraAuth: async () => cameraAuth,
+  recordCameraAuth: () => (authPending ? new Promise(() => undefined) : Promise.resolve(cameraAuth)),
   recordCameraDevices: async () => cameraDevices,
   recordCameraRequest: () => recordCameraRequest(),
   recordOpenCameraSettings: () => recordOpenCameraSettings(),
@@ -37,6 +40,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   cameraAuth = "authorized";
+  authPending = false;
+  storedCamera = false;
   cameraDevices = [{ id: "mac", name: "FaceTime HD Camera", builtin: true }];
 });
 
@@ -55,6 +60,49 @@ describe("RecordHud Enter", () => {
 
 describe("RecordHud camera switch", () => {
   const cameraSwitch = async (r: ReturnType<typeof render>) => r.findByRole("switch", { name: /camera/i });
+
+  it("a stored 'on' is off until the permission is granted (undecided or still loading)", async () => {
+    storedCamera = true;
+    for (const setup of [() => (cameraAuth = "not-determined"), () => (authPending = true)]) {
+      setup();
+      const r = render(<RecordHud />);
+      const sw = await cameraSwitch(r);
+      await act(async () => {});
+      expect(sw.getAttribute("aria-checked")).toBe("false");
+      await waitFor(() => expect(document.body.textContent).toContain("Display"));
+      fireEvent.keyDown(document.body, { key: "Enter" });
+      expect(recordStart).toHaveBeenLastCalledWith(expect.objectContaining({ camera: false }));
+      cleanup();
+      recordStart.mockClear();
+    }
+  });
+
+  it("shows no denied hint on open unless the camera was stored on", async () => {
+    cameraAuth = "denied";
+    const r = render(<RecordHud />);
+    await cameraSwitch(r);
+    await act(async () => {});
+    expect(r.queryByTestId("rec-camera-denied")).toBeNull();
+    cleanup();
+    storedCamera = true;
+    const r2 = render(<RecordHud />);
+    await cameraSwitch(r2);
+    await act(async () => {});
+    expect(r2.getByTestId("rec-camera-denied")).toBeTruthy();
+  });
+
+  it("a config change made while the dialog is open survives turning the camera on", async () => {
+    cameraAuth = "not-determined";
+    let answer: (a: string) => void = () => undefined;
+    recordCameraRequest.mockImplementationOnce(() => new Promise<string>((res) => (answer = res)));
+    const r = render(<RecordHud />);
+    const sw = await cameraSwitch(r);
+    await act(async () => {});
+    fireEvent.click(sw);
+    fireEvent.click(r.getByRole("switch", { name: /microphone/i }));
+    await act(async () => answer("authorized"));
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ camera: true, mic: true }));
+  });
 
   it("with the permission denied it shows the hint + settings button and stays off", async () => {
     cameraAuth = "denied";

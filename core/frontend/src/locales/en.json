@@ -4115,7 +4115,7 @@
   "rec5.hud.camera_settings": "Open Settings",
   "rec5.set.camera_help": "Records you as a separate file next to the screen. macOS asks for permission the first time.",
   "rec5.set.camera_device": "Camera device",
-  "rec5.set.camera_device_default": "Default (built-in camera)",
+  "rec5.set.camera_device_default": "Default",
   "rec5.set.camera_quality": "Camera quality",
   "rec5.set.camera_quality_help": "Asked of the camera as the ideal size; it uses the nearest format it has.",
   "rec2.bar.pause": "Pause",

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::camera_macos::CameraQuality;
+use super::camera::CameraQuality;
 use super::project::{CursorMode, ProjectStatus};
 
 // ---------- pure: phases ----------
@@ -1554,7 +1554,7 @@ mod tests {
 
     #[test]
     fn old_config_without_camera_fields_loads() {
-        use super::super::camera_macos::CameraQuality;
+        use super::super::camera::CameraQuality;
         let c: RecordConfig = serde_json::from_str(r#"{"projectDir":"","mic":true}"#).unwrap();
         assert!(!c.camera, "an older payload without `camera` keeps the camera off");
         assert_eq!(c.camera_device, "");

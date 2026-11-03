@@ -1,8 +1,8 @@
-//! `record` stage 5 — the webcam: quality, devices, permission.
+//! `record` stage 5 — the webcam: quality, devices, permission (and, later, its capture).
 //!
-//! The pure part (quality ladder, device choice) compiles on every target because the
-//! record settings (`RecordConfig`, `StartOptions`) carry it; only the AVFoundation edge
-//! below is macOS. Recording itself comes in a later task — nothing here opens a session.
+//! The pure part (quality ladder, device choice, the types the settings carry) compiles on
+//! every target, because `RecordConfig`/`StartOptions` hold it. The AVFoundation edge lives
+//! in the macOS-only `mod mac` below; nothing here opens a capture session yet.
 
 use serde::{Deserialize, Serialize};
 
@@ -96,6 +96,7 @@ pub use mac::{authorization, devices, request_access};
 mod mac {
     use super::{CameraAuth, CameraDevice};
     use block2::RcBlock;
+    use objc2::rc::autoreleasepool;
     use objc2::runtime::Bool;
     use objc2_av_foundation::{
         AVAuthorizationStatus, AVCaptureDevice, AVCaptureDeviceTypeBuiltInWideAngleCamera, AVMediaTypeVideo,
@@ -120,8 +121,9 @@ mod mac {
         // SAFETY: `AVMediaTypeVideo` is a framework-provided static NSString, valid for the
         // process lifetime; with a video/audio media type the class method does not throw.
         let media = unsafe { AVMediaTypeVideo }.expect("AVMediaTypeVideo is always exported");
-        // SAFETY: plain class-method read with a valid media type (see above).
-        map(unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) })
+        // SAFETY: plain class-method read with a valid media type (see above); the pool
+        // drains anything AVFoundation autoreleases on this non-main thread.
+        autoreleasepool(|_| map(unsafe { AVCaptureDevice::authorizationStatusForMediaType(media) }))
     }
 
     /// Asks for camera access when it is not decided yet and waits for the answer; a decided
@@ -140,7 +142,7 @@ mod mac {
         let media = unsafe { AVMediaTypeVideo }.expect("AVMediaTypeVideo is always exported");
         // SAFETY: valid media type; AVFoundation copies the block and calls it once on an
         // arbitrary queue — the closure only sends on a channel (Send + Sync), no UI work.
-        unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &block) };
+        autoreleasepool(|_| unsafe { AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &block) });
         match rx.recv_timeout(REQUEST_WAIT) {
             Ok(true) => CameraAuth::Authorized,
             // A "no" or a dialog left open: report what TCC says now.
@@ -156,17 +158,20 @@ mod mac {
         let builtin_type = unsafe { AVCaptureDeviceTypeBuiltInWideAngleCamera };
         // `devicesWithMediaType:` instead of a discovery session: the external-camera type
         // constant is macOS 14+ and would be a hard link against older systems.
-        #[allow(deprecated)]
-        // SAFETY: class method with a valid media type; returns an autoreleased NSArray we retain.
-        let list = unsafe { AVCaptureDevice::devicesWithMediaType(media) };
-        list.iter()
-            .map(|d| {
-                // SAFETY: `d` is a live AVCaptureDevice from the array; these getters have no
-                // preconditions and return retained NSStrings.
-                let (id, name, kind) = unsafe { (d.uniqueID(), d.localizedName(), d.deviceType()) };
-                CameraDevice { id: id.to_string(), name: name.to_string(), builtin: *kind == *builtin_type }
-            })
-            .collect()
+        autoreleasepool(|_| {
+            #[allow(deprecated)]
+            // SAFETY: class method with a valid media type; returns an NSArray we retain. The
+            // pool drains the autoreleased objects of this (non-main) thread.
+            let list = unsafe { AVCaptureDevice::devicesWithMediaType(media) };
+            list.iter()
+                .map(|d| {
+                    // SAFETY: `d` is a live AVCaptureDevice from the array; these getters have
+                    // no preconditions and return retained NSStrings.
+                    let (id, name, kind) = unsafe { (d.uniqueID(), d.localizedName(), d.deviceType()) };
+                    CameraDevice { id: id.to_string(), name: name.to_string(), builtin: *kind == *builtin_type }
+                })
+                .collect()
+        })
     }
 }
 

@@ -4115,7 +4115,7 @@
   "rec5.hud.camera_settings": "Einstellungen öffnen",
   "rec5.set.camera_help": "Nimmt dich als eigene Datei neben dem Bildschirm auf. macOS fragt beim ersten Mal nach der Erlaubnis.",
   "rec5.set.camera_device": "Kamera-Gerät",
-  "rec5.set.camera_device_default": "Standard (eingebaute Kamera)",
+  "rec5.set.camera_device_default": "Standard",
   "rec5.set.camera_quality": "Kameraqualität",
   "rec5.set.camera_quality_help": "Wird bei der Kamera als ideale Größe angefragt; sie nimmt das nächstliegende Format, das sie hat.",
   "rec2.bar.pause": "Pause",

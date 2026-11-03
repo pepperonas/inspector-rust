@@ -4,22 +4,17 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import {
   getRecordConfig,
-  recordCameraAuth,
-  recordCameraDevices,
-  recordCameraRequest,
-  recordOpenCameraSettings,
   recordOpenNotes,
   recordPickSource,
   recordStart,
   recordStatus,
   setRecordConfig,
-  type CameraAuth,
-  type CameraDevice,
   type RecordConfig,
   type RecordStatus,
 } from "../lib/ipc";
 import { canStart } from "../lib/record";
 import { useT } from "../lib/i18n";
+import { CameraDeniedHint, useRecordCamera } from "./useRecordCamera";
 
 /** Error sentinel `record.x_y` → locale key `rec2.err.x_y`. */
 function errorText(t: ReturnType<typeof useT>, raw: string): string {
@@ -35,18 +30,16 @@ export function RecordHud() {
   const t = useT();
   const [status, setStatus] = useState<RecordStatus | null>(null);
   const [cfg, setCfg] = useState<RecordConfig | null>(null);
+  /** Bumped by every user change; the effect below stores the config it produced. */
+  const [edits, setEdits] = useState(0);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
-  const [camAuth, setCamAuth] = useState<CameraAuth | null>(null);
-  const [cams, setCams] = useState<CameraDevice[]>([]);
-  const [asking, setAsking] = useState(false);
+  const cam = useRecordCamera();
 
   useEffect(() => {
     void recordStatus().then(setStatus).catch(() => undefined);
     void getRecordConfig().then(setCfg).catch(() => undefined);
-    void recordCameraAuth().then(setCamAuth).catch(() => undefined);
-    void recordCameraDevices().then(setCams).catch(() => undefined);
     const offs: Array<() => void> = [];
     let dead = false;
     const add = (p: Promise<() => void>) => void p.then((u) => (dead ? u() : offs.push(u)));
@@ -67,33 +60,27 @@ export function RecordHud() {
 
   const close = useCallback(() => void getCurrentWebviewWindow().close(), []);
 
+  // Functional update: a change applied after an await (the camera dialog) builds on the
+  // latest config instead of the one captured before it.
   const patch = (p: Partial<RecordConfig>) => {
-    if (!cfg) return;
-    const next = { ...cfg, ...p };
-    setCfg(next);
-    void setRecordConfig(next).catch(() => undefined);
+    setCfg((prev) => (prev ? { ...prev, ...p } : prev));
+    setEdits((n) => n + 1);
   };
+  useEffect(() => {
+    if (edits > 0 && cfg) void setRecordConfig(cfg).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edits]);
 
   const pick = (kind: "display" | "window") => {
     setError(null);
     recordPickSource(kind).catch((e) => setError(errorText(t, String(e))));
   };
 
-  /** The camera can only be on with the permission not refused (a stored "on" stays inert). */
-  const camBlocked = camAuth === "denied" || camAuth === "restricted";
-  const cameraOn = !!cfg?.camera && !camBlocked;
+  const cameraOn = cam.isOn(cfg?.camera);
 
   const setCamera = async (on: boolean) => {
     if (!on) return patch({ camera: false });
-    if (asking) return;
-    let auth = camAuth ?? (await recordCameraAuth().catch(() => null));
-    if (auth === "not-determined") {
-      setAsking(true);
-      auth = await recordCameraRequest().catch(() => auth);
-      setAsking(false);
-    }
-    setCamAuth(auth);
-    if (auth === "authorized") patch({ camera: true });
+    if (await cam.turnOn()) patch({ camera: true });
   };
 
   const ready = !!status && !!cfg && canStart(status) && !starting;
@@ -184,32 +171,17 @@ export function RecordHud() {
           {toggle(cfg.countdown, t("rec2.hud.countdown"), null, (v) => patch({ countdown: v }))}
         </div>
       )}
-      {cfg && camBlocked && (
-        <div
-          data-testid="rec-camera-denied"
-          className="flex items-center gap-2 rounded-lg bg-[var(--color-bg)] px-3 py-1.5 text-[12px] text-[var(--color-muted)]"
-        >
-          <span className="flex-1">{t("rec5.hud.camera_denied")}</span>
-          <button
-            type="button"
-            data-testid="rec-camera-settings"
-            onClick={() => void recordOpenCameraSettings().catch(() => undefined)}
-            className="shrink-0 rounded-md border border-[var(--color-border)] px-2 py-1 text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
-          >
-            {t("rec5.hud.camera_settings")}
-          </button>
-        </div>
-      )}
-      {cfg && cameraOn && cams.length > 1 && (
+      {cfg && cam.showHint(cfg.camera) && <CameraDeniedHint />}
+      {cfg && cameraOn && cam.devices.length > 1 && (
         <select
           data-testid="rec-camera-device"
           aria-label={t("rec5.hud.camera_device")}
-          value={cams.some((c) => c.id === cfg.cameraDevice) ? cfg.cameraDevice : ""}
+          value={cam.devices.some((c) => c.id === cfg.cameraDevice) ? cfg.cameraDevice : ""}
           onChange={(e) => patch({ cameraDevice: e.target.value })}
           className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[12px] outline-none"
         >
           <option value="">{t("rec5.set.camera_device_default")}</option>
-          {cams.map((c) => (
+          {cam.devices.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>

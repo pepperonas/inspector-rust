@@ -97,6 +97,7 @@ import { ExportDialog } from "./editor/ExportDialog";
 import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { BindingsContext, useKeyTitle } from "./editor/bindings-context";
 import { matchAction } from "../lib/editor-shortcuts";
+import { KEY_LAYER, onEditorKey } from "../lib/editor-keys";
 import { TakePicker } from "./editor/TakePicker";
 import { ProjectDialog } from "./editor/ProjectDialog";
 import { PresetsMenu } from "./editor/PresetsMenu";
@@ -291,6 +292,15 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     const off = listen<RecordWaveformsEvent>("record-editor-waveforms", (e) => {
       if (e.payload.sessionId !== sessionId.current) return;
       setView((v) => (v ? { ...v, waveforms: e.payload.waveforms } : v));
+    });
+    return () => void off.then((u) => u());
+  }, []);
+
+  // The open project was renamed (record panel or project list): the header follows at once.
+  useEffect(() => {
+    const off = listen<{ sessionId: number; title: string }>("record-editor-retitled", (e) => {
+      if (e.payload.sessionId !== sessionId.current) return;
+      setInit((i) => (i ? { ...i, project: { ...i.project, title: e.payload.title } } : i));
     });
     return () => void off.then((u) => u());
   }, []);
@@ -634,6 +644,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   );
 
   const [presetsOpen, setPresetsOpen] = useState(false);
+  /**
+   * A dialog or popover owns the keyboard (export, shortcuts, presets, projects, insert take):
+   * the editor's and the timeline's keys stand still and the annotation overlay (whose
+   * capture-phase Delete would run before the dialog's) is not mounted. One flag, so the
+   * next dialog cannot miss a gate.
+   */
+  const modalOpen = exportOpen || shortcutsOpen || presetsOpen || projectsOpen || takePicker;
   /** A style preset: Rust copies its files and answers with the doc — one undo step. */
   /** Saving a preset reads Rust's document: queued behind pending edits, like every edit. */
   const savePreset = useCallback((name: string) => {
@@ -688,13 +705,19 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     }
   }, [commit, cur, report, setSelectedTrack, sourceHere, t]);
 
-  /** R12: Rust turns a track edge drag into the file window. */
+  /**
+   * R12: Rust turns a track edge drag into the file window. Edits still on their way land
+   * first (the chain), so Rust resolves the edge on the same document the result is applied to.
+   */
   const resolveTrackEdge = useCallback(
     (index: number, id: string, edge: "start" | "end", programmeMs: number) =>
-      editorTrackEdge(sessionId.current, index, id, edge, programmeMs).catch((e) => {
-        report(e);
-        return null;
-      }),
+      chain.current
+        .catch(() => undefined)
+        .then(() => editorTrackEdge(sessionId.current, index, id, edge, programmeMs))
+        .catch((e) => {
+          report(e);
+          return null;
+        }),
     [report],
   );
 
@@ -810,7 +833,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // The timeline took the key (a region's add/delete/copy), or a dialog owns the keys.
-      if (e.defaultPrevented || exportOpen || shortcutsOpen || presetsOpen || projectsOpen || isTypingTarget(e.target) || !view) return;
+      if (e.defaultPrevented || modalOpen || isTypingTarget(e.target) || !view) return;
       const action = matchAction(e, bindings);
       // A take runs: Esc (fixed) discards it, the play or voiceover key ends it, nothing else
       // edits meanwhile.
@@ -901,15 +924,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           return;
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return onEditorKey(KEY_LAYER.editor, onKey);
   }, [
     view,
     init,
-    exportOpen,
-    shortcutsOpen,
-    presetsOpen,
-    projectsOpen,
+    modalOpen,
     bindings,
     playing,
     cropMode,
@@ -1101,7 +1120,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          voiceover ? null : annSel && !cropMode && !fatal && !shortcutsOpen && !projectsOpen ? (
+          voiceover ? null : annSel && !cropMode && !fatal && !modalOpen ? (
             <AnnotationOverlay
               annotation={annSel}
               screenRect={view.screenRects?.[annSel.clip] ?? null}
@@ -1310,7 +1329,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onWidth={setTrackWidth}
           selectedZoom={zoomSel?.id ?? null}
           onSelectZoom={setSelectedZoom}
-          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen && !presetsOpen && !projectsOpen}
+          keysEnabled={!modalOpen && !cropMode}
           bindings={bindings}
           onMoveClip={moveClip}
           selectedAnnotation={annSel?.id ?? null}

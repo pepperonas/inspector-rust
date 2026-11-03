@@ -747,10 +747,16 @@ fn peaks_of(path: &str) -> Result<(Vec<f32>, u64)> {
 
 /// [`peaks_of`] through the cache file: one of the right size is reused, otherwise the peaks
 /// are written next to it and renamed into place (a half-written cache is never read).
+/// A peaks cache is reused only when it is a plain file (never a planted link — not even to a
+/// file of the right length) holding exactly `blocks` min/max pairs.
+fn cache_reusable(cache: &Path, blocks: u32) -> bool {
+    std::fs::symlink_metadata(cache).is_ok_and(|m| m.file_type().is_file() && m.len() == blocks as u64 * 8)
+}
+
 fn peaks_into_cache(path: &str, cache: &Path) -> Result<(u32, u64)> {
     if let Some(duration) = audio_file_duration_sec(path) {
         let blocks = peak_block_count(duration);
-        if std::fs::metadata(cache).is_ok_and(|m| m.len() == blocks as u64 * 8) {
+        if cache_reusable(cache, blocks) {
             return Ok((blocks, (duration * 1000.0).round() as u64));
         }
     }
@@ -820,6 +826,25 @@ fn expected_frames(scene: &Scene, fps: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_peaks_cache_is_reused_only_as_a_plain_file_of_the_right_size() {
+        let d = std::env::temp_dir().join(format!("ir-render-peaks-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let good = d.join("good.peaks");
+        std::fs::write(&good, vec![0u8; 16]).unwrap();
+        assert!(cache_reusable(&good, 2));
+        assert!(!cache_reusable(&good, 3), "wrong size");
+        assert!(!cache_reusable(&d.join("missing.peaks"), 2));
+        #[cfg(unix)]
+        {
+            let link = d.join("link.peaks");
+            std::os::unix::fs::symlink(&good, &link).unwrap();
+            assert!(!cache_reusable(&link, 2), "a link is never trusted, even to a fitting file");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
     use super::*;
     use openscreen_compositor::frame_geometry::{webcam_shape_code, LiveParams};
 

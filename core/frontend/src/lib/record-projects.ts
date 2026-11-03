@@ -42,3 +42,13 @@ export function filterProjects(items: RecordProjectItem[], query: string, loc: s
     return terms.every((t) => hay.includes(t));
   });
 }
+
+/**
+ * Is `p` the project open in the editor? Rust marks it on canonical paths (`openInEditor`),
+ * which also holds when the recordings folder sits behind a symlink; the plain path compare
+ * is the fallback for a list without the mark.
+ */
+export function isOpenProject(p: RecordProjectItem, currentDir: string): boolean {
+  const trim = (s: string) => s.replace(/\/+$/, "");
+  return p.openInEditor === true || trim(p.dir) === trim(currentDir);
+}

@@ -184,27 +184,55 @@ fn write_preset(root: &Path, file: &str, p: &Preset) -> Result<(), String> {
 /// Writes a NEW preset file: the content goes to a temporary file that is then hard-linked
 /// to `file`, which fails when the name exists in any spelling the disk treats as the same
 /// (case, Unicode normalisation) or appeared meanwhile (a racing save) — `ERR_NAME_TAKEN`,
-/// never an overwrite.
+/// never an overwrite. On a disk without hard links (exFAT/FAT, many network shares) the
+/// file is created directly with O_EXCL + O_NOFOLLOW instead, which still never overwrites.
 pub fn write_new_preset(root: &Path, file: &str, p: &Preset) -> Result<(), String> {
+    write_new_with(root, file, p, |a, b| std::fs::hard_link(a, b))
+}
+
+fn write_new_with(
+    root: &Path,
+    file: &str,
+    p: &Preset,
+    link: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    use record_render_protocol::safe_fs::{create_temp, open_new_nofollow};
     use std::io::Write;
     let dir = presets_dir(root);
     let fail = |e: std::io::Error| {
         tracing::warn!(target: "record::presets", "{file}: {e}");
         ERR_WRITE.to_string()
     };
+    let taken = |e: std::io::Error| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists { ERR_NAME_TAKEN.to_string() } else { fail(e) }
+    };
     std::fs::create_dir_all(&dir).map_err(fail)?;
-    let (tmp, mut f) = record_render_protocol::safe_fs::create_temp(&dir.join(file)).map_err(fail)?;
+    let bytes = to_text(p);
+    let target = dir.join(file);
+    // A unique temp name per call (pid + time + counter), created with O_EXCL + O_NOFOLLOW.
+    let (tmp, mut f) = create_temp(&target).map_err(fail)?;
     let written = (|| {
-        f.write_all(to_text(p).as_bytes())?;
+        f.write_all(bytes.as_bytes())?;
         f.sync_all()
     })();
     drop(f);
-    let linked = written.and_then(|_| std::fs::hard_link(&tmp, dir.join(file)));
+    let linked = written.and_then(|_| link(&tmp, &target));
     let _ = std::fs::remove_file(&tmp);
     match linked {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(ERR_NAME_TAKEN.into()),
-        Err(e) => Err(fail(e)),
+        Err(e) => {
+            // No hard links on this disk: create the final name exclusively and write it.
+            tracing::info!(target: "record::presets", "{file}: hard link unavailable ({e}), writing directly");
+            let mut out = open_new_nofollow(&target).map_err(taken)?;
+            let res = out.write_all(bytes.as_bytes()).and_then(|_| out.sync_all());
+            drop(out);
+            res.map_err(|e| {
+                // Never leave a half-written preset behind under the real name.
+                let _ = std::fs::remove_file(&target);
+                fail(e)
+            })
+        }
     }
 }
 
@@ -511,6 +539,23 @@ mod tests {
         let _ = save_preset(&root, nfd, &doc(), &tmp("exclusive-q"));
         assert_eq!(std::fs::read(presets_dir(&root).join(&first.file)).unwrap(), before);
         assert!(std::fs::read_dir(presets_dir(&root)).unwrap().flatten().all(|e| { let n = e.file_name().to_string_lossy().into_owned(); !n.ends_with(".new") && !n.ends_with(".tmp") }));
+    }
+
+    #[test]
+    fn save_falls_back_when_the_disk_has_no_hard_links() {
+        let root = tmp("nolink");
+        let unsupported = |_: &Path, _: &Path| Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no links"));
+        let p = read_back(&root);
+        write_new_with(&root, "fallback.irpreset", &p, unsupported).unwrap();
+        assert_eq!(read_preset(&root, "fallback.irpreset").unwrap().appearance, p.appearance);
+        // The fallback still never overwrites an existing preset.
+        let before = std::fs::read(presets_dir(&root).join("fallback.irpreset")).unwrap();
+        let mut other = p.clone();
+        other.appearance.padding = 77.0;
+        assert_eq!(write_new_with(&root, "fallback.irpreset", &other, unsupported), Err(ERR_NAME_TAKEN.into()));
+        assert_eq!(std::fs::read(presets_dir(&root).join("fallback.irpreset")).unwrap(), before);
+        // No temp files left behind.
+        assert!(std::fs::read_dir(presets_dir(&root)).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".tmp")));
     }
 
     #[cfg(unix)]

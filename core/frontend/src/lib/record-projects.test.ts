@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterProjects, foldText, lastChange } from "./record-projects";
+import { filterProjects, foldText, isOpenProject, lastChange } from "./record-projects";
 import type { RecordProjectItem } from "./ipc";
 
 const item = (title: string, createdAt: number, updatedAt?: number): RecordProjectItem => ({
@@ -32,5 +32,18 @@ describe("record project list rules", () => {
     expect(filterProjects([p], "marz", "de-DE"), "accent-insensitive month").toHaveLength(1);
     expect(filterProjects([p], "May", "en-US")).toHaveLength(1);
     expect(filterProjects([p], "2025", "en-US")).toHaveLength(0);
+  });
+});
+
+describe("isOpenProject", () => {
+  it("trusts Rust's canonical mark (a recordings folder behind a symlink)", () => {
+    const p = { ...item("A", 1), dir: "/Users/x/Movies/link/A", openInEditor: true };
+    expect(isOpenProject(p, "/Volumes/Real/A")).toBe(true);
+    expect(isOpenProject({ ...p, openInEditor: false }, "/Volumes/Real/A")).toBe(false);
+  });
+  it("falls back to the plain path when the mark is missing", () => {
+    const p = { ...item("A", 1), dir: "/m/A/" };
+    expect(isOpenProject(p, "/m/A")).toBe(true);
+    expect(isOpenProject(p, "/m/B")).toBe(false);
   });
 });

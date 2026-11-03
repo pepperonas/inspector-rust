@@ -5174,6 +5174,8 @@ export interface RecordProjectItem {
   failure: string | null;
   /** The take running right now (its files are not final yet). */
   active: boolean;
+  /** The project open in the editor (Rust compares canonical paths). */
+  openInEditor?: boolean;
   /** `data:image/jpeg;base64,…` from the editor's filmstrip; null → placeholder. */
   thumb?: string | null;
 }

@@ -7157,7 +7157,13 @@ pub async fn record_list_projects(
 ) -> Result<Vec<crate::record::session::ProjectListItem>, String> {
     let root = crate::record::RecordConfig::load(&db).root();
     let active = state.active_dir();
-    tauri::async_runtime::spawn_blocking(move || crate::record::session::list_items(&root, active.as_deref()))
+    #[cfg(target_arch = "aarch64")]
+    let edited = crate::record::editor_ipc::open_dir();
+    #[cfg(not(target_arch = "aarch64"))]
+    let edited: Option<std::path::PathBuf> = None;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::record::session::list_items(&root, active.as_deref(), edited.as_deref())
+    })
         .await
         .map_err(|e| format!("record task: {e}"))
 }

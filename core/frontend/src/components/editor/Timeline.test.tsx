@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAnnotation, RecordAnnotationBody, RecordEditDoc, RecordEditorView, RecordZoomRegion } from "../../lib/ipc";
 import { defaultAnnotationBody } from "../../lib/editor";
+import { KEY_LAYER, onEditorKey } from "../../lib/editor-keys";
 
 const toSource = vi.fn();
 vi.mock("../../lib/ipc", () => ({ editorToSource: (p: number) => toSource(p) }));
@@ -142,6 +143,32 @@ describe("Timeline zoom track", () => {
     window.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(false);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("Delete with a selected zoom never reaches the editor's clip delete, even after the timeline re-registered", () => {
+    // The editor's layer registers first (as on mount); then the timeline's keys are switched
+    // off and on again (crop mode, a cancelled take) — its handler re-registers alone.
+    const editorSaw: boolean[] = [];
+    const off = onEditorKey(KEY_LAYER.editor, (e) => editorSaw.push(e.defaultPrevented));
+    try {
+      const doc = doc0([zoom("a", 0, 1_000, 2_000, "manual")]);
+      const onChange = vi.fn();
+      const props = {
+        view: view0(doc), thumbs: [], positionMs: 0, durationMs: 11_000, selectedClip: null,
+        onSelect: () => undefined, onSeek: () => undefined, getDoc: () => doc, onChange, onError: () => undefined,
+        onSpeedValue: () => undefined, onSpeedRemove: () => undefined, onWidth: () => undefined,
+        selectedZoom: "a", onSelectZoom: () => undefined,
+      };
+      const { rerender } = render(<Timeline {...props} keysEnabled={true} />);
+      rerender(<Timeline {...props} keysEnabled={false} />);
+      rerender(<Timeline {...props} keysEnabled={true} />);
+      const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(editorSaw).toEqual([true]);
+    } finally {
+      off();
+    }
   });
 
   it("marks auto and manual zooms differently", () => {

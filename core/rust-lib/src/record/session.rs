@@ -351,6 +351,9 @@ pub struct ProjectListItem {
     pub summary: super::project::ProjectSummary,
     /// The project currently being recorded (its files are not final yet).
     pub active: bool,
+    /// The project open in the editor — compared on canonical paths, so a recordings folder
+    /// behind a symlink still marks it (the editor holds the resolved path).
+    pub open_in_editor: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -385,17 +388,20 @@ pub fn mark_interrupted(root: &Path) {
 }
 
 /// List projects, marking (and not degrading) the one being recorded now.
-pub fn list_items(root: &Path, active: Option<&Path>) -> Vec<ProjectListItem> {
+pub fn list_items(root: &Path, active: Option<&Path>, open_in_editor: Option<&Path>) -> Vec<ProjectListItem> {
     let active = active.and_then(|a| std::fs::canonicalize(a).ok());
+    let edited = open_in_editor.and_then(|a| std::fs::canonicalize(a).ok());
     super::project::list_projects(root)
         .into_iter()
         .map(|mut summary| {
-            let is_active = active.is_some() && std::fs::canonicalize(&summary.dir).ok() == active;
+            let canon = std::fs::canonicalize(&summary.dir).ok();
+            let is_active = active.is_some() && canon == active;
             if is_active {
                 summary.status = super::project::ProjectStatus::Recording;
                 summary.failure = None;
             }
-            ProjectListItem { summary, active: is_active }
+            let open_in_editor = edited.is_some() && canon == edited;
+            ProjectListItem { summary, active: is_active, open_in_editor }
         })
         .collect()
 }
@@ -1438,7 +1444,10 @@ mod mac {
         // old title back, and a separate read-modify-write could race a save).
         #[cfg(target_arch = "aarch64")]
         if let Some(done) = crate::record::editor_ipc::retitle_open(&dir, &title) {
-            return done;
+            return done.map(|r| {
+                r.announce(app);
+                r.title
+            });
         }
         crate::record::project::rename_project(&dir, &title).map(|p| p.title)
     }
@@ -1648,6 +1657,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    #[cfg(unix)]
     #[test]
     fn import_take_does_not_follow_links_and_sweeps_stale_staging() {
         let root = tmp("take-links");
@@ -1774,7 +1784,7 @@ mod tests {
         };
         let live = mk("live");
         let dead = mk("dead");
-        let items = list_items(&root, Some(&live));
+        let items = list_items(&root, Some(&live), None);
         let get = |d: &Path| items.iter().find(|i| i.summary.dir == d).unwrap();
         assert!(get(&live).active);
         assert_eq!(get(&live).summary.status, ProjectStatus::Recording);
@@ -1785,6 +1795,41 @@ mod tests {
         assert_eq!(p.status, ProjectStatus::Incomplete);
         assert!(p.failure.is_some());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_project_open_in_the_editor_is_marked_through_a_symlinked_root() {
+        use super::super::project::{write_atomic, Project, ProjectStatus, PROJECT_FILE};
+        let base = std::env::temp_dir().join(format!("ir-session-openmark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let linked_root = base.join("linked");
+        std::os::unix::fs::symlink(&real, &linked_root).unwrap();
+        for name in ["a", "b"] {
+            let d = real.join(name);
+            std::fs::create_dir_all(&d).unwrap();
+            let p = Project {
+                schema: 1,
+                id: name.into(),
+                title: name.into(),
+                created_at: 1,
+                updated_at: 1,
+                status: ProjectStatus::Ready,
+                failure: None,
+                recording: Default::default(),
+                editor: serde_json::json!({}),
+            };
+            write_atomic(&d, PROJECT_FILE, &p).unwrap();
+        }
+        // The list walks the configured (linked) root; the editor holds the resolved path.
+        let open = std::fs::canonicalize(real.join("a")).unwrap();
+        let items = list_items(&linked_root, None, Some(&open));
+        let marked: Vec<_> = items.iter().filter(|i| i.open_in_editor).map(|i| i.summary.title.clone()).collect();
+        assert_eq!(marked, vec!["a".to_string()]);
+        assert!(list_items(&linked_root, None, None).iter().all(|i| !i.open_in_editor));
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
 

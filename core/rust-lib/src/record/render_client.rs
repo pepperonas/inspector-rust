@@ -817,10 +817,12 @@ sleep 3"#,
         let pid = client.shared.pid;
         let kind = ExportKind::Gif { w: 2, h: 2, fps: 15, loop_forever: true };
         client.export(serde_json::json!({}), kind.clone(), dir.join("out.gif").to_string_lossy().into()).unwrap();
-        wait_until(|| staging(pid).exists() || client.is_dead());
-        wait_until(|| client.is_dead());
+        // `is_dead()` turns true at the START of `die()` (so new requests fail at once); the
+        // staging file is removed and the notice sent after that. Waiting for the notice — sent
+        // only once the cleanup ran — is what makes the file check deterministic.
+        wait_until(|| seen.lock().unwrap().iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: false, .. })));
+        assert!(client.is_dead());
         assert!(!staging(pid).exists(), "the partial file is gone");
-        assert!(seen.lock().unwrap().iter().any(|n| matches!(n, Notice::ExportFailed { cancelled: false, .. })));
 
         // Editor closed mid-export: an orderly close still cleans up and reports a cancel.
         let busy = script(

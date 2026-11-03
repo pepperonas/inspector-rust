@@ -1,3 +1,4 @@
+import { KEY_LAYER, onEditorKey } from "../../lib/editor-keys";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { editorToSource, type RecordAnnotationKind, type RecordEditDoc, type RecordEditorView } from "../../lib/ipc";
 import {
@@ -198,8 +199,9 @@ export function Timeline({
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
-    // Registered before the editor's own handler (a child's effect runs first): a key this
-    // track uses is `preventDefault`ed and the editor leaves it alone.
+    // The timeline's key layer runs before the editor's (lib/editor-keys, fixed order — not
+    // the order the effects happened to re-register in): a key this track uses is
+    // `preventDefault`ed and the editor leaves it alone.
     const select = (s: Selection) => {
       const cur = live.current;
       if (s?.kind === "zoom") cur.onSelectZoom(s.id);
@@ -300,8 +302,7 @@ export function Timeline({
         }
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return onEditorKey(KEY_LAYER.timeline, onKey);
   }, [keysEnabled, locked]);
 
   const progAt = (clientX: number) => {

@@ -20,6 +20,7 @@ const editorImportTake = vi.fn();
 const editorVoiceoverStart = vi.fn();
 const editorVoiceoverStop = vi.fn();
 const editorVoiceoverCancel = vi.fn();
+const editorTrackEdge = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
 const recordPresetApply = vi.fn();
 const recordPresetSave = vi.fn();
 const openDialog = vi.fn();
@@ -50,7 +51,7 @@ vi.mock("../lib/ipc", () => ({
   editorVoiceoverStart: (id: number, ms: number) => editorVoiceoverStart(id, ms),
   editorVoiceoverStop: (id: number) => editorVoiceoverStop(id),
   editorVoiceoverCancel: (id: number) => editorVoiceoverCancel(id),
-  editorTrackEdge: async () => null,
+  editorTrackEdge: (...a: unknown[]) => editorTrackEdge(...a),
   EV_VOICEOVER_LEVEL: "record-voiceover-level",
   EV_VOICEOVER_FINISHED: "record-voiceover-finished",
   recordListProjects: () => projects(),
@@ -240,8 +241,46 @@ describe("RecordEditor", () => {
     expect(editorCurrent.mock.calls.length).toBe(reads);
   });
 
+  it("a rename of the open project shows in the header at once; another session's is ignored", async () => {
+    const { getByText, queryByText } = await mount();
+    await act(async () => {
+      listeners.get("record-editor-retitled")?.({ payload: { sessionId: 99, title: "Not mine" } });
+    });
+    expect(queryByText("Not mine")).toBeNull();
+    await act(async () => {
+      listeners.get("record-editor-retitled")?.({ payload: { sessionId: 1, title: "Renamed take" } });
+    });
+    expect(getByText("Renamed take")).toBeTruthy();
+  });
+
   it("Space starts playback", async () => {
     await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: " ", code: "Space" });
+    });
+    expect(editorPlay).toHaveBeenCalledWith(true);
+  });
+
+  it("keys stand still while the Insert-take popover is open", async () => {
+    const { getByTestId } = await mount();
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-insert-take"));
+    });
+    expect(getByTestId("ed-insert-take").getAttribute("aria-expanded")).toBe("true");
+    const sentBefore = editorUpdate.mock.calls.length;
+    await act(async () => {
+      fireEvent.keyDown(window, { key: " ", code: "Space" });
+      fireEvent.keyDown(window, { key: "s" });
+      fireEvent.keyDown(window, { key: "Backspace" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorPlay).not.toHaveBeenCalled();
+    expect(editorUpdate.mock.calls.length).toBe(sentBefore);
+    // Esc belongs to the popover: it closes, and the keys work again.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(getByTestId("ed-insert-take").getAttribute("aria-expanded")).toBe("false");
     await act(async () => {
       fireEvent.keyDown(window, { key: " ", code: "Space" });
     });
@@ -771,6 +810,36 @@ describe("RecordEditor", () => {
     expect(sent.annotations).toHaveLength(1);
     expect(sent.annotations[0].body).toMatchObject({ kind: "text", content: "sacz" });
   });
+  it("the annotation overlay is not mounted while a dialog or popover owns the keys", async () => {
+    const note: RecordEditDoc = {
+      ...doc0,
+      annotations: [
+        {
+          id: "t1", clip: 0, startMs: 0, endMs: 3_000, x: 10, y: 10, w: 30, h: 20, zIndex: 1,
+          body: {
+            kind: "text", content: "", color: "#ffffff", background: "transparent", fontSize: 32, fontFamily: "Inter",
+            bold: true, italic: false, underline: false, align: "center", animation: "none",
+          },
+        },
+      ],
+    };
+    editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf(note)));
+    const { getByTestId, queryByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "Tab" });
+    });
+    expect(getByTestId("ed-ann-overlay")).toBeTruthy();
+    for (const opener of ["ed-presets-open", "ed-insert-take"]) {
+      await act(async () => {
+        fireEvent.click(getByTestId(opener));
+      });
+      expect(queryByTestId("ed-ann-overlay"), opener).toBeNull();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+      expect(getByTestId("ed-ann-overlay"), `${opener} closed`).toBeTruthy();
+    }
+  });
   describe("audio", () => {
     const voTrack = {
       id: "vo-1", kind: "voiceover" as const, file: "voiceover-1.wav", clip: 0, startMs: 4000, durationMs: 2000, offsetMs: 0,
@@ -827,6 +896,50 @@ describe("RecordEditor", () => {
         await vi.advanceTimersByTimeAsync(5);
       });
       expect((lastSent() as RecordEditDoc).audioTracks).toEqual([]);
+    });
+
+    it("a track edge is resolved only after the edits on their way reached Rust", async () => {
+      const withVo = { ...doc0, audioTracks: [voTrack] };
+      editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf(withVo)));
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(private cb: (e: { contentRect: { width: number; height: number } }[]) => void) {}
+          observe() {
+            this.cb([{ contentRect: { width: 800, height: 40 } }]);
+          }
+          disconnect() {}
+        },
+      );
+      try {
+        const { getByTestId } = await mount();
+        let release: () => void = () => undefined;
+        editorUpdate.mockImplementationOnce(
+          (d: RecordEditDoc) => new Promise((r) => (release = () => r(viewOf(d)))),
+        );
+        editorTrackEdge.mockClear();
+        await act(async () => {
+          fireEvent.keyDown(window, { key: "s" }); // an edit on its way, not answered yet
+          await vi.advanceTimersByTimeAsync(5);
+        });
+        expect(editorUpdate).toHaveBeenCalled();
+        const edge = getByTestId("ed-audio-end");
+        // Separate events (each its own act): the drag state must land between them.
+        fireEvent.pointerDown(edge, { clientX: 300, pointerId: 1 });
+        fireEvent.pointerMove(edge, { clientX: 260, pointerId: 1 });
+        fireEvent.pointerUp(edge, { clientX: 260, pointerId: 1 });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5);
+        });
+        expect(editorTrackEdge, "waits for the pending edit").not.toHaveBeenCalled();
+        await act(async () => {
+          release();
+          await vi.advanceTimersByTimeAsync(5);
+        });
+        expect(editorTrackEdge).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
 
     it("Esc discards a running take", async () => {

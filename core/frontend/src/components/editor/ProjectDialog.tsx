@@ -3,10 +3,8 @@ import { FolderOpen, X } from "lucide-react";
 import { recordListProjects, recordOpenDialog, type RecordProjectItem } from "../../lib/ipc";
 import { formatTimecode } from "../../lib/editor";
 import { locale, useT } from "../../lib/i18n";
-import { filterProjects, lastChange } from "../../lib/record-projects";
+import { filterProjects, isOpenProject, lastChange } from "../../lib/record-projects";
 import { ProjectThumb } from "../ProjectThumb";
-
-const samePath = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
 
 /** A project the editor can switch to: finished (or incomplete with video), not recording. */
 export const openable = (p: RecordProjectItem) => !p.active && p.status !== "failed";
@@ -52,7 +50,7 @@ export function ProjectDialog({
 
   const choose = (p: RecordProjectItem | undefined) => {
     if (!p || !openable(p)) return;
-    if (samePath(p.dir, currentDir)) onClose();
+    if (isOpenProject(p, currentDir)) onClose();
     else onOpen(p.dir);
   };
   const other = () => {
@@ -128,7 +126,7 @@ export function ProjectDialog({
         ) : (
           <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
             {list.map((p, i) => {
-              const current = samePath(p.dir, currentDir);
+              const current = isOpenProject(p, currentDir);
               return (
                 <li key={p.dir}>
                   <button

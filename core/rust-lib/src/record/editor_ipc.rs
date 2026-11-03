@@ -57,6 +57,9 @@ pub const EV_FATAL: &str = "record-editor-fatal";
 pub const EV_OPENED: &str = "record-editor-opened";
 /// `{ sessionId, waveforms }`: peaks arrived; the waveforms for the document as it is now.
 pub const EV_WAVEFORMS: &str = "record-editor-waveforms";
+/// `{ sessionId, title }` after the open project was renamed (from the record panel or the
+/// editor's project list): the editor header shows the new title at once.
+pub const EV_RETITLED: &str = "record-editor-retitled";
 pub const EV_EXPORT_PROGRESS: &str = "record-export-progress";
 pub const EV_EXPORT_DONE: &str = "record-export-done";
 pub const EV_EXPORT_FAILED: &str = "record-export-failed";
@@ -1281,19 +1284,38 @@ pub fn open_target(dir: &Path) -> Result<PathBuf, &'static str> {
 /// could otherwise put an older editor document back. `s.project` is exactly what was last
 /// saved (the doc only reaches it on save), so this changes the title and nothing else.
 /// `None` when that project is not open (the caller renames the file itself).
-pub fn retitle_open(dir: &Path, title: &str) -> Option<Result<String, String>> {
-    let mut guard = session();
-    let s = guard.as_mut()?;
+pub fn retitle_open(dir: &Path, title: &str) -> Option<Result<Retitled, String>> {
+    retitle_in(&mut session(), dir, title)
+}
+
+fn retitle_in(slot: &mut Option<Session>, dir: &Path, title: &str) -> Option<Result<Retitled, String>> {
+    let s = slot.as_mut()?;
     if std::fs::canonicalize(&s.dir).ok() != std::fs::canonicalize(dir).ok() {
         return None;
     }
     s.project.title = title.to_string();
     Some(
-        project::write_atomic(&s.dir, PROJECT_FILE, &s.project).map(|_| s.project.title.clone()).map_err(|e| {
-            tracing::warn!(target: "record::editor", "rename {}: {e}", s.dir.display());
-            project::ERR_TITLE_WRITE.to_string()
-        }),
+        project::write_atomic(&s.dir, PROJECT_FILE, &s.project)
+            .map(|_| Retitled { session_id: s.id, title: s.project.title.clone() })
+            .map_err(|e| {
+                tracing::warn!(target: "record::editor", "rename {}: {e}", s.dir.display());
+                project::ERR_TITLE_WRITE.to_string()
+            }),
     )
+}
+
+/// The open project's new title, for the [`EV_RETITLED`] announcement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Retitled {
+    pub session_id: u64,
+    pub title: String,
+}
+
+impl Retitled {
+    /// Tells the editor window (after the session lock is released).
+    pub fn announce(&self, app: &AppHandle) {
+        let _ = app.emit(EV_RETITLED, serde_json::json!({ "sessionId": self.session_id, "title": self.title }));
+    }
 }
 
 /// Writes the first filmstrip frame as the project's thumbnail (atomic, unique temp name that
@@ -2568,6 +2590,23 @@ mod tests {
     }
 
     #[test]
+    fn renaming_the_open_project_names_the_session_for_the_editor_header() {
+        let dir = tmp_project("retitle", "Old");
+        let other = tmp_project("retitle-other", "Other");
+        let mut slot = Some(session_for(&dir, 7));
+        assert_eq!(retitle_in(&mut slot, &other, "X"), None, "another project is not the open one");
+        let r = retitle_in(&mut slot, &dir, "New name").unwrap().unwrap();
+        assert_eq!(r, Retitled { session_id: 7, title: "New name".into() });
+        assert_eq!(project::read_project(&dir).unwrap().title, "New name");
+        // The announcement is wired where the rename is answered.
+        let src = include_str!("session.rs");
+        let call = src.split("editor_ipc::retitle_open(").nth(1).unwrap();
+        assert!(call[..300].contains(".announce(app)"), "the rename of the open project is announced");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
     fn an_update_after_a_project_switch_lands_only_in_the_new_project() {
         let a = tmp_project("switch-a", "a");
         let b = tmp_project("switch-b", "b");
@@ -2679,9 +2718,12 @@ mod tests {
         // `..` and a symlink resolve to the same folder.
         let dotted = elsewhere.join("..").join("Mein Projekt");
         assert_eq!(open_target(&dotted).unwrap(), got);
-        let link = elsewhere.parent().unwrap().join("link");
-        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
-        assert_eq!(open_target(&link).unwrap(), got);
+        #[cfg(unix)]
+        {
+            let link = elsewhere.parent().unwrap().join("link");
+            std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+            assert_eq!(open_target(&link).unwrap(), got);
+        }
         // The guard runs first in open_editor, before anything reads the folder.
         let src = include_str!("editor_ipc.rs");
         let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();

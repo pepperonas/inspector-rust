@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { recordListProjects, type RecordProjectItem } from "../../lib/ipc";
 import { formatTimecode } from "../../lib/editor";
 import { locale, useT } from "../../lib/i18n";
+import { isOpenProject } from "../../lib/record-projects";
 
 /** The projects that can be inserted: finished, not the open one, not the one recording. */
 export function insertableTakes(items: RecordProjectItem[], currentDir: string): RecordProjectItem[] {
-  const same = (a: string, b: string) => a.replace(/\/+$/, "") === b.replace(/\/+$/, "");
-  return items.filter((p) => p.status === "ready" && !p.active && !same(p.dir, currentDir) && p.durationMs > 0);
+  return items.filter((p) => p.status === "ready" && !p.active && !isOpenProject(p, currentDir) && p.durationMs > 0);
 }
 
 /**

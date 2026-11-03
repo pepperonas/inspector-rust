@@ -270,6 +270,21 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
      `missing_model_draws_camera_plain` (a `modelPath` to a missing file composes byte for byte
      like no effect, and switches the effect off). The inference tests that upstream skips
      without `ORT_DYLIB_PATH` now always run.
+17. **The export holds the camera's last frame, like the preview (stage 5, Task 5).** Upstream's
+   `walk_timeline` (`src/timeline_walk.rs`) cut each clip at `camera end + offset` and refused
+   a clip whose camera ended before it started ("the camera video ends before this clip
+   starts"), while the preview (`live.rs`) holds the camera's last frame. A camera that stopped
+   early (unplugged mid-take, a shorter take) therefore shortened or failed the export but not
+   the preview — and the audio, stretched over the declared clip length, would have drifted.
+   Now the clip is bounded by the screen only; the camera's clip-start seek may land on its
+   last frame without bound (`hold_tail = ∞` for a real camera, was 0.5 s) and
+   `advance_decoder_to` already holds at EOF. A camera that yields no frame at all is drawn
+   without: `set_has_webcam(false)` and the screen stand-in a camera-less clip uses (warning on
+   stderr) instead of an export error. An unopenable camera file still fails the export
+   (upstream's reasoning against #265 stands). + test `export_holds_last_camera_frame` (4 s
+   screen, 1 s camera: 120 frames with the camera drawn at the end; a clip at 2–4 s exports and
+   draws the held frame), built from dev-`ffmpeg` files, skipped without ffmpeg or Metal.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -285,10 +300,11 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-03 after patch 13: 501 passed, 0 failed, 1 ignored
 # 2026-11-03 after patch 14: 505 passed, 0 failed, 1 ignored
 # 2026-11-03 after patch 15: 506 passed, 0 failed, 1 ignored
+# 2026-11-03 after patches 16+17: 515 passed, 0 failed, 0 ignored
 ```
 
 ## Updating from upstream
 
-Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–16 (`grep -rn
+Copy the new `crates/compositor/src` over `src/`, then re-apply patches 3–17 (`grep -rn
 '\.\./\.\./\.\./\|\.\./\.\./public' src` finds 5/6) and diff `build.rs`/`Cargo.toml` by hand.
 Re-check `scripts/fetch-ffmpeg-macos.mjs` upstream for a new ffmpeg pin and hash.

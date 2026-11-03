@@ -3101,6 +3101,65 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(3));
     }
 
+    /// Stage 5 (Task 5): the app's own camera scenes for the helper's live comparison
+    /// (`record-render/tests/helper_live.rs` `camera_preview_matches_still`). A COPY of a real
+    /// project gets a synthetic 6 s `camera.mp4` (dev `ffmpeg`, `testsrc2`, shorter than the
+    /// screen on purpose — patch 17), then picture-in-picture, side by side, camera only and
+    /// picture-in-picture with a blurred background go through `scene_json_with` +
+    /// `set_model_path` exactly as the editor builds them, one `<style>.json` each, into
+    /// `IR_CAMERA_SCENES`:
+    /// `IR_EDITOR_PROJECT=<project> IR_CAMERA_SCENES=<dir> cargo test -p inspector-rust-core --lib camera_live_scenes -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn camera_live_scenes() {
+        use std::process::Command as Proc;
+        let src = PathBuf::from(std::env::var("IR_EDITOR_PROJECT").expect("IR_EDITOR_PROJECT"));
+        let out = PathBuf::from(std::env::var("IR_CAMERA_SCENES").expect("IR_CAMERA_SCENES"));
+        let dir = out.join("project");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in [PROJECT_FILE, SCREEN_FILE, MIC_FILE, project::CURSOR_FILE] {
+            if src.join(f).is_file() {
+                std::fs::copy(src.join(f), dir.join(f)).unwrap();
+            }
+        }
+        let ok = Proc::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=6",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(dir.join(project::CAMERA_FILE))
+            .status()
+            .expect("dev ffmpeg on PATH");
+        assert!(ok.success(), "synthetic camera");
+        let mut project = project::read_project(&dir).unwrap();
+        project.recording.camera = Some(crate::record::project::CameraMeta {
+            width: 1280, height: 720, fps: 30, offset_ms: 0, device_name: "Synthetic".into(), ended_early_ms: None,
+        });
+        project::write_atomic(&dir, PROJECT_FILE, &project).unwrap();
+        let cursor = read_cursor(&dir);
+        let model = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/selfie-segmentation/selfie_segmentation_landscape.onnx");
+        let styles = [
+            ("pip", editor::LayoutPreset::PictureInPicture, editor::CameraBgMode::None),
+            ("side-by-side", editor::LayoutPreset::DualFrame, editor::CameraBgMode::None),
+            ("camera-only", editor::LayoutPreset::CameraOnly, editor::CameraBgMode::None),
+            ("blur", editor::LayoutPreset::PictureInPicture, editor::CameraBgMode::Blur),
+        ];
+        for (name, preset, bg) in styles {
+            let mut doc = editor::load(&project, &TakeMetas::new());
+            doc.camera.preset = preset;
+            doc.camera.background.mode = bg;
+            // The pointer is measured elsewhere (stage 3); its click animation differs between a
+            // settled preview and a still by a few frames and would dominate the worst block.
+            doc.cursor.show = false;
+            let doc = editor::playable(&doc, &TakeMetas::new());
+            // 960×540 = the still's and the preview's size: a 1080p still scaled down would
+            // differ from a preview drawn at 960 in every glyph, which is not what is measured.
+            let mut scene = scene_json_with(&dir, &project, &doc, (960, 540), 30, &AssetRoot::dev(), cursor.as_ref(), &TakeSources::new());
+            set_model_path(&mut scene, Some(&model));
+            std::fs::write(out.join(format!("{name}.json")), serde_json::to_vec_pretty(&scene).unwrap()).unwrap();
+        }
+        eprintln!("camera scenes in {}", out.display());
+    }
+
     /// Stage-4 end-to-end through Rust (no UI, no keystrokes): a COPY of a real project gets
     /// a Caveat text with `pop`, an arrow, a free-form mosaic, looped music and a generated
     /// voiceover, a style preset is saved and applied, the document runs through `normalize`

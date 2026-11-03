@@ -802,6 +802,56 @@ fn annotations_preview_matches_still() {
     assert!(h.shutdown().success());
 }
 
+/// Stage 5 (Task 5): the camera styles — picture-in-picture, side by side, camera only and a
+/// blurred background (segmentation on the workspace `ort`, patch 16) — look the same in the
+/// preview and in the export's still, and a time past the end of the (6 s) camera holds its
+/// last frame in both (patch 17). Scenes come from the app (`camera_live_scenes` in
+/// `core/rust-lib/src/record/editor_ipc.rs`):
+///
+/// ```sh
+/// IR_EDITOR_PROJECT=<project> IR_CAMERA_SCENES=<dir> cargo test -p inspector-rust-core --lib camera_live_scenes -- --ignored --nocapture
+/// IR_CAMERA_SCENES=<dir> cargo test -p record-render --test helper_live camera_preview_matches_still -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn camera_preview_matches_still() {
+    let Some(scenes) = std::env::var_os("IR_CAMERA_SCENES").map(PathBuf::from) else {
+        eprintln!("skipped: set IR_CAMERA_SCENES=<dir> (see the doc comment)");
+        return;
+    };
+    let out = out_dir("camera");
+    // (scene, source second): 2 s inside the camera, 8 s after its last frame.
+    let cases = [("pip", 2.0), ("side-by-side", 2.0), ("camera-only", 2.0), ("blur", 2.0), ("pip", 8.0), ("blur", 8.0)];
+    let mut h = Helper::start();
+    for (name, at) in cases {
+        let scene: Value = serde_json::from_slice(&std::fs::read(scenes.join(format!("{name}.json"))).unwrap()).unwrap();
+        let frame = (at * 30.0) as u64;
+        let tag = format!("{name}-{at}");
+        let (w, hgt, still) = still(&mut h, &scene, frame, &out, &format!("{tag}-still.jpg"));
+        h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
+        match h.event(Duration::from_secs(30)) {
+            Event::Ready { segmentation_model } => assert!(segmentation_model.is_some(), "the helper reports its model"),
+            other => panic!("expected Ready, got {other:?}"),
+        }
+        h.send(&Command::SetTime { source_sec: at });
+        let f = settled(&mut h, 0, 3.0);
+        assert_eq!((f.w, f.h), (w, hgt), "preview and still share a size");
+        let raw = out.join(format!("{tag}-preview.rgba"));
+        std::fs::write(&raw, &f.rgba).unwrap();
+        let _ = Proc::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{hgt}"), "-i"])
+            .arg(&raw)
+            .arg(out.join(format!("{tag}-preview.png")))
+            .status();
+        let (mae, worst) = diff(&f, &still);
+        println!("camera {tag}: {w}x{hgt}, mean abs diff {mae:.2} / 255, worst 32-px block {worst:.2}");
+        assert!(mae < 3.0, "{tag}: preview differs from the still: mean abs diff {mae:.2}");
+        assert!(worst < 20.0, "{tag}: a part of the preview differs from the still: worst block {worst:.2}");
+    }
+    println!("files in {}", out.display());
+    assert!(h.shutdown().success());
+}
+
 /// A mono 16-bit 48 kHz WAV: `f(t)` per sample.
 fn write_wav(path: &Path, secs: f64, f: impl Fn(f64) -> f64) {
     let rate = 48_000u32;

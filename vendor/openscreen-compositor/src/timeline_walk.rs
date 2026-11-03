@@ -415,21 +415,14 @@ unsafe fn walk_timeline(
                 clip.source_end_sec,
             );
         }
-        // Les bornes de clip sont en temps écran. La disponibilité webcam est donc translatée
-        // par le même offset que le seek (`webcam_time = screen_time - offset`).
-        let webcam_available_screen_end =
-            webcam_available_duration.map(|duration| duration + clip.webcam_offset_sec);
-        if has_camera && webcam_available_screen_end.is_some_and(|end| end + CLIP_START_TAIL_TOLERANCE_SEC < clip.source_start_sec) {
-            bail!(
-                "Cannot export clip {}: the camera video ends before this clip starts. Record the camera again or remove its track before exporting.",
-                clip_index + 1,
-            );
-        }
+        // Inspector Rust (patch 17): the clip is bounded by the SCREEN only. Upstream also cut
+        // it at `camera end + offset` and refused a clip whose camera ended before it started,
+        // while the preview (`live.rs`) simply holds the camera's last frame — so a camera that
+        // stopped early shortened or killed the export but not the preview. The camera now
+        // holds its last frame here too (`advance_decoder_to` holds at EOF, and the clip-start
+        // seek below may land on the last frame); a camera with no frame at all is not drawn.
         let mut source_end_sec = clip.source_end_sec;
         if let Some(duration) = screen_available_duration {
-            source_end_sec = source_end_sec.min(duration);
-        }
-        if let Some(duration) = webcam_available_screen_end {
             source_end_sec = source_end_sec.min(duration);
         }
         if source_end_sec + 1e-6 < clip.source_end_sec {
@@ -488,9 +481,26 @@ unsafe fn walk_timeline(
         } else {
             format!("Cannot export clip {}: the screen video has no readable frame at the clip's start.", clip_index + 1)
         };
-        let webcam_hold_tail = if has_camera { CLIP_START_TAIL_TOLERANCE_SEC } else { screen_hold_tail };
+        // Patch 17: a real camera holds its last frame without bound (the preview's rule). Only
+        // a camera that yields no frame at all is left out: the clip draws without it, on the
+        // screen stand-in a camera-less clip uses, rather than failing the export.
+        let webcam_hold_tail = if has_camera { f64::INFINITY } else { screen_hold_tail };
+        let mut wdec = wdec;
+        let mut webcam_offset_sec = clip.webcam_offset_sec;
         if !seek_clip_start(wdec, webcam_start, webcam_hold_tail).with_context(|| webcam_error.clone())? {
-            bail!(webcam_error);
+            if !has_camera {
+                bail!(webcam_error);
+            }
+            eprintln!("[pipeline] warning: clip #{clip_index}: the camera has no frame to show, drawn without it");
+            comp.set_has_webcam(false);
+            if !webcam_decs.contains_key(&clip.screen) {
+                webcam_decs.insert(clip.screen.clone(), Decoder::open_for_export(&clip.screen, gpu)?);
+            }
+            wdec = webcam_decs.get_mut(&clip.screen).unwrap();
+            webcam_offset_sec = 0.0;
+            if !seek_clip_start(wdec, clip.source_start_sec, screen_hold_tail)? {
+                bail!("Cannot export clip {}: the screen video has no readable frame at the clip's start.", clip_index + 1);
+            }
         }
 
         if cursor_enabled {
@@ -532,8 +542,8 @@ unsafe fn walk_timeline(
                     catch_up(sdec, target_source_time, clip.source_start_sec)?;
                     catch_up(
                         wdec,
-                        target_source_time - clip.webcam_offset_sec,
-                        (clip.source_start_sec - clip.webcam_offset_sec).max(0.0),
+                        target_source_time - webcam_offset_sec,
+                        (clip.source_start_sec - webcam_offset_sec).max(0.0),
                     )?;
                 }
                 {
@@ -544,7 +554,7 @@ unsafe fn walk_timeline(
                 }
                 {
                     let _p = crate::export_probe::scope(crate::export_probe::Stage::DecodeWebcam);
-                    if !advance_decoder_to(wdec, target_source_time, clip.webcam_offset_sec)? {
+                    if !advance_decoder_to(wdec, target_source_time, webcam_offset_sec)? {
                         break 'clip_frames;
                     }
                 }
@@ -744,5 +754,128 @@ mod tests {
         assert_eq!(frame(8, 4).to_jpeg(16).expect("jpeg").0, 8, "jamais agrandie");
         let short = RenderedFrame { index: 0, width: 8, height: 4, rgba: vec![0; 10] };
         assert!(short.to_jpeg(16).is_err(), "une relecture incomplète est une erreur");
+    }
+}
+
+/// Inspector Rust (patch 17): a camera shorter than its clip is held, like the preview holds it.
+#[cfg(test)]
+mod camera_hold_tests {
+    use super::render_frames;
+    use crate::compositor::Compositor;
+    use crate::frame_geometry::live_params_from_scene;
+    use crate::pipeline::ClipSource;
+    use crate::scene::Scene;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    const FPS: i32 = 30;
+
+    /// A solid-colour H.264 MP4 from the dev `ffmpeg` (Homebrew, libx264). `None` = no ffmpeg.
+    fn solid(dir: &Path, name: &str, colour: &str, size: &str, secs: f64) -> Option<PathBuf> {
+        let out = dir.join(name);
+        let ok = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg(format!("color=c={colour}:s={size}:r=30:d={secs}"))
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&out)
+            .status()
+            .ok()?
+            .success();
+        ok.then_some(out)
+    }
+
+    fn scene(clips: &[(&Path, &Path, f64, f64)]) -> Scene {
+        let clips: Vec<String> = clips
+            .iter()
+            .map(|(s, w, a, b)| {
+                format!(
+                    r#"{{"screenPath":"{}","webcamPath":"{}","sourceStartSec":{a},"sourceEndSec":{b},"webcamOffsetSec":0,"hasAudio":false}}"#,
+                    s.display(),
+                    w.display()
+                )
+            })
+            .collect();
+        let crop = vec!["null"; clips.len()].join(",");
+        Scene::from_json(&format!(
+            r##"{{"clips":[{}],
+                "layout":{{"preset":"picture-in-picture","webcamSize":1,"webcamShape":"rectangle",
+                           "webcamMirror":false,"webcamPosition":null,"webcamReactiveZoom":false}},
+                "effects":{{"padding":0.18,"blur":false,"shadow":0,"roundnessFrac":0.05,"motionBlur":0}},
+                "background":{{"kind":"color","color":"#0080ff"}},
+                "zoomRegions":[],"speedRegions":[],"annotations":[],
+                "cursor":{{"show":false,"size":1,"smoothing":0,"motionBlur":0,"clickBounce":0,
+                           "clipToBounds":false,"theme":"default"}},
+                "cropByClip":[{crop}],
+                "output":{{"width":320,"height":180,"fps":30}}}}"##,
+            clips.join(",")
+        ))
+        .expect("scene json")
+    }
+
+    /// Pixels in the camera's red: the screen is grey and the background blue.
+    fn red_pixels(rgba: &[u8]) -> usize {
+        rgba.chunks_exact(4).filter(|p| p[0] > 180 && p[1] < 80 && p[2] < 80).count()
+    }
+
+    /// The export walk of `scene` on every output frame up to 6 s (more than any clip here).
+    fn walk(scene: &Scene) -> anyhow::Result<Vec<super::RenderedFrame>> {
+        let gpu = crate::d3d::Gpu::create(false)?;
+        let comp = Compositor::new_sized(&gpu, 320, 180)?;
+        comp.set_live_params(live_params_from_scene(scene));
+        comp.set_scene(Some(scene.clone()));
+        comp.clear_cursor();
+        let mut cfg = crate::config::Cfg::c8();
+        cfg.bg_blur = 0.0;
+        cfg.zoom = false;
+        cfg.layout_anim = false;
+        cfg.cursor = false;
+        cfg.mblur_n = 1;
+        let clips: Vec<ClipSource> = scene
+            .clips
+            .iter()
+            .map(|c| ClipSource {
+                screen: c.screen_path.clone(),
+                webcam: c.webcam_path.clone(),
+                source_start_sec: c.source_start_sec,
+                source_end_sec: c.source_end_sec,
+                webcam_offset_sec: c.webcam_offset_sec,
+                has_audio: false,
+                extra_audio: None,
+                cursor_path: None,
+                audio_levels: Default::default(),
+            })
+            .collect();
+        let wanted: Vec<u64> = (0..6 * FPS as u64).collect();
+        unsafe { render_frames(&clips, &gpu, &comp, &cfg, FPS, &wanted) }
+    }
+
+    /// A 4 s screen with a 1 s camera: the export keeps the clip's full length and holds the
+    /// camera's last frame to the end — also for a clip that starts after the camera ended
+    /// (upstream shortened the first to 1 s and refused the second).
+    #[test]
+    fn export_holds_last_camera_frame() {
+        if crate::d3d::Gpu::create(false).is_err() {
+            eprintln!("no Metal device — skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("ir-camera-hold-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (Some(screen), Some(camera)) = (
+            solid(&dir, "screen.mp4", "gray", "320x180", 4.0),
+            solid(&dir, "camera.mp4", "red", "160x160", 1.0),
+        ) else {
+            eprintln!("no dev ffmpeg with libx264 on PATH — skipped");
+            return;
+        };
+
+        let whole = walk(&scene(&[(&screen, &camera, 0.0, 4.0)])).expect("a long clip exports");
+        assert_eq!(whole.len(), 4 * FPS as usize, "the clip keeps its 4 s, not the camera's 1 s");
+        let last = whole.last().unwrap();
+        assert!(red_pixels(&last.rgba) > 100, "the camera's last frame is still drawn at the end");
+
+        let late = walk(&scene(&[(&screen, &camera, 2.0, 4.0)])).expect("a clip after the camera's end exports");
+        assert_eq!(late.len(), 2 * FPS as usize, "the clip keeps its 2 s");
+        assert!(red_pixels(&late[0].rgba) > 100, "the held camera frame is drawn");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

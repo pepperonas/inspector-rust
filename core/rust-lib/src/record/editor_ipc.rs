@@ -1566,6 +1566,8 @@ pub struct TranscribeProgress {
     pub file_done_ms: u64,
     pub file_total_ms: u64,
     pub skipped: Vec<Option<String>>,
+    /// Set on the final event when a recording failed (the run stopped there).
+    pub error: Option<String>,
     pub finished: bool,
 }
 
@@ -1675,21 +1677,6 @@ pub fn transcribe_plan(dir: &Path, own: &RecordingMeta, takes: &TakeSources, doc
     (jobs, skipped)
 }
 
-/// `doc` with each result's transcript put in (one per source, replacing the old one, whose
-/// corrections carry over).
-pub fn with_transcripts(doc: &EditDoc, results: Vec<(TranscribeJob, Vec<transcribe_protocol::Word>, Option<String>)>) -> EditDoc {
-    let mut next = doc.clone();
-    for (job, words, lang) in results {
-        let old = next.transcripts.iter().position(|t| t.source == job.source);
-        let t = to_transcript(job.source.clone(), words, job.offset_ms, lang, old.map(|i| &next.transcripts[i]));
-        match old {
-            Some(i) => next.transcripts[i] = t,
-            None => next.transcripts.push(t),
-        }
-    }
-    next
-}
-
 /// What one helper event means for the running recording.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WordsStep {
@@ -1711,16 +1698,53 @@ pub fn words_step(ev: &transcribe_protocol::Event) -> Option<WordsStep> {
     }
 }
 
-/// Clears the running flag however the transcription ends.
+/// Holds the running flag; cleared however the transcription ends (also early returns).
 struct TranscribingGuard;
+impl TranscribingGuard {
+    /// Takes the flag; `None` = a transcription already runs here.
+    fn take() -> Option<TranscribingGuard> {
+        (!TRANSCRIBING.swap(true, Ordering::SeqCst)).then_some(TranscribingGuard)
+    }
+}
 impl Drop for TranscribingGuard {
     fn drop(&mut self) {
         TRANSCRIBING.store(false, Ordering::SeqCst);
     }
 }
 
+/// Whether the editor transcribes right now (it holds the helper's file slot: meeting,
+/// dictation and file jobs refuse to start meanwhile).
+pub fn is_transcribing() -> bool {
+    TRANSCRIBING.load(Ordering::SeqCst)
+}
+
+fn cancel_requested() -> bool {
+    TRANSCRIBE_CANCELLED.load(Ordering::SeqCst)
+}
+
+/// How often the wait for the helper looks at the cancel flag.
+const CANCEL_POLL: Duration = Duration::from_millis(250);
+
 /// The helper's words of one recording and the language it heard.
 type HeardWords = (Vec<transcribe_protocol::Word>, Option<String>);
+
+/// What the wait loop does next (pure, see [`wait_step`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum WaitAction {
+    /// Keep waiting; `send_cancel` = deliver `CancelFile` now (once per recording).
+    Wait { send_cancel: bool },
+    /// The helper was silent for too long.
+    Lost,
+}
+
+/// Pure: after `silent` without an answer, with the cancel flag `cancelled` and whether
+/// `CancelFile` was already sent for this recording.
+pub fn wait_step(silent: Duration, cancelled: bool, cancel_sent: bool) -> WaitAction {
+    if silent >= TRANSCRIBE_SILENCE {
+        return WaitAction::Lost;
+    }
+    WaitAction::Wait { send_cancel: cancelled && !cancel_sent }
+}
 
 /// One recording through the helper: `Ok(Some)` = words, `Ok(None)` = cancelled.
 fn transcribe_one(
@@ -1737,27 +1761,79 @@ fn transcribe_one(
         }
     });
     let cmd = transcribe_protocol::Command::TranscribeWords { path: job.file.clone(), lang, model: model.to_string() };
+    let mut cancel_sent = false;
+    let mut last = Instant::now();
     let result = crate::transcribe_client::send(&cmd).and_then(|_| loop {
-        match rx.recv_timeout(TRANSCRIBE_SILENCE) {
-            Ok(WordsStep::Progress { done_ms, total_ms }) => progress(done_ms, total_ms),
-            Ok(WordsStep::Done { words, lang }) => break Ok(Some((words, lang))),
-            Ok(WordsStep::Cancelled) => break Ok(None),
-            Ok(WordsStep::Failed(e)) => break Err(e),
-            Err(_) => {
-                let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
-                break Err(crate::transcribe_client::ERR_HELPER_DIED.to_string());
+        match rx.recv_timeout(CANCEL_POLL) {
+            Ok(step) => {
+                last = Instant::now();
+                match step {
+                    WordsStep::Progress { done_ms, total_ms } => progress(done_ms, total_ms),
+                    WordsStep::Done { words, lang } => break Ok(Some((words, lang))),
+                    WordsStep::Cancelled => break Ok(None),
+                    WordsStep::Failed(e) => break Err(e),
+                }
             }
+            Err(_) => match wait_step(last.elapsed(), cancel_requested(), cancel_sent) {
+                WaitAction::Wait { send_cancel } => {
+                    if send_cancel {
+                        // A cancel that came between `editor_transcribe_cancel` and this send
+                        // (or got lost) is delivered here, once.
+                        cancel_sent = true;
+                        let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+                    }
+                }
+                WaitAction::Lost => {
+                    let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+                    break Err(crate::transcribe_client::ERR_HELPER_DIED.to_string());
+                }
+            },
         }
     });
     crate::transcribe_client::unsubscribe(sub);
     result
 }
 
+/// What `editor_transcribe` hands back: the finished transcripts (corrections carried over
+/// against the document as it was at the start), the recordings without sound, and the
+/// error that stopped the run after at least one recording had finished. The UI merges the
+/// transcripts into its latest document and records one undo step via `editor_update`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscribeResult {
+    pub transcripts: Vec<Transcript>,
+    pub skipped: Vec<Option<String>>,
+    pub error: Option<String>,
+    /// The run was cancelled (the transcripts are those finished before).
+    pub cancelled: bool,
+}
+
+/// Pure: the outcome of the run. Nothing finished → `Err` (the error, or the cancel
+/// sentinel); else the transcripts, with a later error or the cancel reported alongside.
+pub fn transcribe_outcome(
+    doc: &EditDoc,
+    results: Vec<(TranscribeJob, Vec<transcribe_protocol::Word>, Option<String>)>,
+    skipped: Vec<Option<String>>,
+    error: Option<String>,
+    cancelled: bool,
+) -> Result<TranscribeResult, String> {
+    if results.is_empty() {
+        return Err(error.unwrap_or_else(|| crate::transcribe::ERR_FILE_CANCELLED.into()));
+    }
+    let transcripts = results
+        .into_iter()
+        .map(|(job, words, lang)| {
+            let old = doc.transcripts.iter().find(|t| t.source == job.source);
+            to_transcript(job.source.clone(), words, job.offset_ms, lang, old)
+        })
+        .collect();
+    Ok(TranscribeResult { transcripts, skipped, error, cancelled })
+}
+
 /// `editor_transcribe`: transcribes every recording the clips play, one after another, with
-/// the model chosen in the `meeting` settings, and puts the transcripts into the open
-/// document (one undo step in the UI, which records the returned doc). A cancel keeps the
-/// recordings already done; only when none finished does it end with the cancel sentinel.
-pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_protocol::Lang) -> Result<EditorView, String> {
+/// the model chosen in the `meeting` settings. Does NOT touch the session's document (an
+/// edit made meanwhile would otherwise race the result): see [`TranscribeResult`].
+pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_protocol::Lang) -> Result<TranscribeResult, String> {
     if !crate::transcribe_client::supported() {
         return Err(crate::transcribe_client::ERR_UNSUPPORTED.into());
     }
@@ -1766,27 +1842,26 @@ pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_pro
         crate::live_transcribe::is_active(),
         crate::transcribe::status().is_some_and(|j| j.is_active()) || crate::transcribe_client::is_busy(),
     );
-    transcribe_refusal(current_client().is_some_and(|c| c.exporting()), active, TRANSCRIBING.load(Ordering::SeqCst))?;
+    transcribe_refusal(current_client().is_some_and(|c| c.exporting()), active, is_transcribing())?;
+    // Taken before anything slow, so no meeting/dictation/file job slips in between.
+    let _running = TranscribingGuard::take().ok_or(ERR_TRANSCRIBE_BUSY)?;
+    TRANSCRIBE_CANCELLED.store(false, Ordering::SeqCst);
     let model = app
         .try_state::<crate::db::DbHandle>()
         .map(|db| crate::meeting::MeetingConfig::load(&db).model)
         .unwrap_or_else(|| transcribe_protocol::models::DEFAULT_MODEL.into());
     crate::meeting::model_ready(&model)?;
-    let (jobs, skipped) = {
+    let (jobs, skipped, doc) = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
-        transcribe_plan(&s.dir, &s.project.recording, &s.takes, &s.doc)
+        let (jobs, skipped) = transcribe_plan(&s.dir, &s.project.recording, &s.takes, &s.doc);
+        (jobs, skipped, s.doc.clone())
     };
     if jobs.is_empty() {
         return Err(ERR_NO_AUDIO.into());
     }
-    if TRANSCRIBING.swap(true, Ordering::SeqCst) {
-        return Err(ERR_TRANSCRIBE_BUSY.into());
-    }
-    let _running = TranscribingGuard;
-    TRANSCRIBE_CANCELLED.store(false, Ordering::SeqCst);
     let total = jobs.len();
-    let emit = |done: usize, source: Option<String>, file: (u64, u64), finished: bool| {
+    let emit = |done: usize, source: Option<String>, file: (u64, u64), error: Option<String>, finished: bool| {
         let p = TranscribeProgress {
             session_id,
             done,
@@ -1795,6 +1870,7 @@ pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_pro
             file_done_ms: file.0,
             file_total_ms: file.1,
             skipped: skipped.clone(),
+            error,
             finished,
         };
         let _ = app.emit(EV_TRANSCRIBE, p);
@@ -1802,12 +1878,12 @@ pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_pro
     let mut results = Vec::new();
     let mut error = None;
     for (i, job) in jobs.into_iter().enumerate() {
-        if TRANSCRIBE_CANCELLED.load(Ordering::SeqCst) {
+        if cancel_requested() {
             break;
         }
-        emit(i, job.source.clone(), (0, 0), false);
+        emit(i, job.source.clone(), (0, 0), None, false);
         let source = job.source.clone();
-        match transcribe_one(&job, lang, &model, &|d, t| emit(i, source.clone(), (d, t), false)) {
+        match transcribe_one(&job, lang, &model, &|d, t| emit(i, source.clone(), (d, t), None, false)) {
             Ok(Some((words, lang))) => results.push((job, words, lang)),
             Ok(None) => break,
             Err(e) => {
@@ -1816,27 +1892,26 @@ pub fn transcribe_project(app: &AppHandle, session_id: u64, lang: transcribe_pro
                 break;
             }
         }
+        if cancel_requested() {
+            break;
+        }
     }
-    emit(results.len(), None, (0, 0), true);
-    if results.is_empty() {
-        return Err(error.unwrap_or_else(|| crate::transcribe::ERR_FILE_CANCELLED.into()));
-    }
-    let next = {
-        let guard = session();
-        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
-        with_transcripts(&s.doc, results)
-    };
-    update(app, session_id, next)
+    let cancelled = cancel_requested();
+    emit(results.len(), None, (0, 0), error.clone(), true);
+    transcribe_outcome(&doc, results, skipped.clone(), error, cancelled)
 }
 
-/// `editor_transcribe_cancel`: stops the running transcription after the current recording's
-/// helper answer (finished recordings stay). `false` = nothing ran.
+/// `editor_transcribe_cancel`: stops the running transcription (finished recordings stay).
+/// `CancelFile` goes out only while the helper runs the job — no helper is started for it;
+/// the wait loop delivers a cancel set before its send. `false` = nothing ran.
 pub fn transcribe_cancel() -> bool {
-    if !TRANSCRIBING.load(Ordering::SeqCst) {
+    if !is_transcribing() {
         return false;
     }
     TRANSCRIBE_CANCELLED.store(true, Ordering::SeqCst);
-    let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+    if crate::transcribe_client::is_busy() {
+        let _ = crate::transcribe_client::send(&transcribe_protocol::Command::CancelFile);
+    }
     true
 }
 
@@ -3103,18 +3178,86 @@ mod tests {
         assert_eq!(t.lang, "de", "no detected language keeps the old one");
     }
 
+    fn job(source: Option<&str>, offset_ms: i64) -> TranscribeJob {
+        TranscribeJob { source: source.map(String::from), file: PathBuf::from("/x/mic.wav"), offset_ms }
+    }
+
     #[test]
-    fn with_transcripts_replaces_the_sources_transcript() {
+    fn outcome_returns_transcripts_carried_over_against_the_start_doc() {
         let mut doc = doc(&[(0, 1000)]);
-        doc.transcripts = vec![
-            Transcript { source: Some("t1".into()), lang: "en".into(), words: vec![] },
-            Transcript { source: None, lang: "de".into(), words: vec![] },
-        ];
-        let job = TranscribeJob { source: None, file: PathBuf::from("/x/mic.wav"), offset_ms: 0 };
-        let next = with_transcripts(&doc, vec![(job, vec![word("Hallo", 0, 300)], Some("de".into()))]);
-        assert_eq!(next.transcripts.len(), 2);
-        assert_eq!(next.transcripts[1].words.len(), 1, "own take replaced in place");
-        assert_eq!(next.transcripts[0].source.as_deref(), Some("t1"), "other take untouched");
+        doc.transcripts = vec![Transcript {
+            source: None,
+            lang: "de".into(),
+            words: vec![TranscriptWord { id: "w0".into(), start_ms: 0, end_ms: 300, text: "Qwen".into(), original_text: Some("Quinn".into()) }],
+        }];
+        let r = transcribe_outcome(&doc, vec![(job(None, 0), vec![word("Quinn", 0, 300)], None)], vec![Some("t9".into())], None, false).unwrap();
+        assert_eq!(r.transcripts.len(), 1);
+        assert_eq!(r.transcripts[0].words[0].text, "Qwen", "correction carried over");
+        assert_eq!(r.transcripts[0].lang, "de");
+        assert_eq!(r.skipped, vec![Some("t9".to_string())]);
+        assert_eq!((r.error, r.cancelled), (None, false));
+        // The session's document is not touched: the result is all the UI gets.
+        let src = include_str!("editor_ipc.rs");
+        let body = src.split("pub fn transcribe_project(").nth(1).unwrap().split("pub fn transcribe_cancel").next().unwrap();
+        assert!(!body.contains("update(app"), "no apply to the session doc");
+        assert!(body.contains("transcribe_outcome(&doc, results"));
+    }
+
+    #[test]
+    fn a_failure_after_a_finished_recording_is_reported() {
+        let d = doc(&[(0, 1000)]);
+        let r = transcribe_outcome(&d, vec![(job(None, 0), vec![word("a", 0, 1)], None)], vec![], Some("transcribe.helper_died".into()), false).unwrap();
+        assert_eq!(r.transcripts.len(), 1);
+        assert_eq!(r.error.as_deref(), Some("transcribe.helper_died"));
+        let c = transcribe_outcome(&d, vec![(job(None, 0), vec![word("a", 0, 1)], None)], vec![], None, true).unwrap();
+        assert!(c.cancelled);
+        assert_eq!(transcribe_outcome(&d, vec![], vec![], Some("model.missing".into()), false), Err("model.missing".to_string()));
+        assert_eq!(transcribe_outcome(&d, vec![], vec![], None, true), Err(crate::transcribe::ERR_FILE_CANCELLED.to_string()));
+        // The final progress event carries the error too.
+        let src = include_str!("editor_ipc.rs");
+        assert!(src.contains("emit(results.len(), None, (0, 0), error.clone(), true);"));
+    }
+
+    #[test]
+    fn a_cancel_is_redelivered_once_while_waiting() {
+        let s = Duration::from_secs(1);
+        assert_eq!(wait_step(s, false, false), WaitAction::Wait { send_cancel: false });
+        assert_eq!(wait_step(s, true, false), WaitAction::Wait { send_cancel: true });
+        assert_eq!(wait_step(s, true, true), WaitAction::Wait { send_cancel: false }, "only once");
+        assert_eq!(wait_step(TRANSCRIBE_SILENCE, false, false), WaitAction::Lost);
+        assert!(CANCEL_POLL <= Duration::from_millis(250));
+        let src = include_str!("editor_ipc.rs");
+        let run = src.split("pub fn transcribe_project(").nth(1).unwrap().split("pub fn transcribe_cancel").next().unwrap();
+        let lp = run.split("for (i, job) in jobs").nth(1).unwrap();
+        assert_eq!(lp.matches("if cancel_requested()").count(), 2, "before each send and after each recording");
+        let one = src.split("fn transcribe_one(").nth(1).unwrap().split("pub struct TranscribeResult").next().unwrap();
+        assert!(one.contains("rx.recv_timeout(CANCEL_POLL)"));
+        assert!(one.contains("wait_step(last.elapsed(), cancel_requested(), cancel_sent)"));
+        // Cancel never starts a helper just to deliver `CancelFile`.
+        let cancel = src.split("pub fn transcribe_cancel()").nth(1).unwrap().split("\n}\n").next().unwrap();
+        assert!(cancel.contains("if crate::transcribe_client::is_busy() {"));
+        let cmds = include_str!("../commands.rs");
+        assert!(cmds.contains("pub async fn editor_transcribe_cancel() -> Result<bool, String> {"));
+    }
+
+    #[test]
+    fn the_running_flag_is_taken_early_and_released_on_every_return() {
+        {
+            let g = TranscribingGuard::take().expect("free");
+            assert!(is_transcribing());
+            assert!(TranscribingGuard::take().is_none(), "a second run is refused");
+            drop(g);
+        }
+        assert!(!is_transcribing());
+        let src = include_str!("editor_ipc.rs");
+        let run = src.split("pub fn transcribe_project(").nth(1).unwrap().split("pub fn transcribe_cancel").next().unwrap();
+        let take = run.find("TranscribingGuard::take()").unwrap();
+        assert!(take < run.find("model_ready(").unwrap() && take < run.find("transcribe_plan(").unwrap());
+        assert!(take > run.find("transcribe_refusal(").unwrap());
+        // Everything that starts a helper job waits while the editor transcribes.
+        for (file, src) in [("commands.rs", include_str!("../commands.rs")), ("meeting.rs", include_str!("../meeting.rs")), ("live_transcribe.rs", include_str!("../live_transcribe.rs"))] {
+            assert!(src.contains("crate::record::editor_ipc::is_transcribing()"), "{file}");
+        }
     }
 
     #[test]
@@ -3132,7 +3275,7 @@ mod tests {
         let body = src.split("pub fn transcribe_project(").nth(1).unwrap().split("pub fn transcribe_cancel").next().unwrap();
         assert!(body.contains("c.exporting()"));
         assert!(body.contains("crate::transcribe_client::is_busy()"));
-        assert!(body.contains("TRANSCRIBING.load"));
+        assert!(body.contains("is_transcribing()"));
         assert!(body.contains("return Err(ERR_NO_AUDIO.into())"));
         // A file job started while the editor transcribes would steal its answers.
         let cmds = include_str!("../commands.rs");
@@ -3200,6 +3343,7 @@ mod tests {
         assert!(lib.contains("commands::editor_transcribe_cancel,"));
         let ipc = include_str!("../../../frontend/src/lib/ipc.ts");
         assert!(ipc.contains("\"editor_transcribe\", { sessionId, lang }"));
+        assert!(ipc.contains("Promise<RecordTranscribeResult>"));
         assert!(ipc.contains("\"editor_transcribe_cancel\""));
         assert!(ipc.contains(&format!("\"{EV_TRANSCRIBE}\"")));
     }

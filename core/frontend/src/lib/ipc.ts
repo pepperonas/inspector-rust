@@ -5686,7 +5686,7 @@ export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
 }
 /** Progress of `editorTranscribe` (`record-editor-transcribe`): `done` of `total` recordings,
  *  `source` = the one running (`null` = the project's own take), its position in the audio
- *  file, recordings without sound in `skipped`; `finished` on the last event. */
+ *  file, recordings without sound in `skipped`; `finished` (and a stopping `error`) on the last event. */
 export interface RecordTranscribeProgress {
   sessionId: number;
   done: number;
@@ -5695,14 +5695,24 @@ export interface RecordTranscribeProgress {
   fileDoneMs: number;
   fileTotalMs: number;
   skipped: (string | null)[];
+  error: string | null;
   finished: boolean;
 }
 export const EV_RECORD_TRANSCRIBE = "record-editor-transcribe";
-/** Transcribes every recording the clips play (model from the meeting settings) and puts the
- *  transcripts into the document; the caller records the answer as one undo step. Errors:
- *  `record.editor.transcribe_busy`, `record.editor.no_audio`, `model.missing`,
- *  `transcribe.file_cancelled` (cancelled before any recording finished). */
-export function editorTranscribe(sessionId: number, lang: "auto" | "de" | "en"): Promise<RecordEditorView> {
+/** The finished transcripts (corrections already carried over against the document as it was at
+ *  the start), recordings without sound, and the error that stopped the run after at least one
+ *  recording had finished. The caller merges `transcripts` into its LATEST document (replacing the
+ *  one with the same `source`) and records one undo step via `editorUpdate`. */
+export interface RecordTranscribeResult {
+  transcripts: RecordTranscript[];
+  skipped: (string | null)[];
+  error: string | null;
+  cancelled: boolean;
+}
+/** Transcribes every recording the clips play (model from the meeting settings); does not change
+ *  the document itself. Errors (nothing finished): `record.editor.transcribe_busy`,
+ *  `record.editor.no_audio`, `model.missing`, `transcribe.file_cancelled`, helper sentinels. */
+export function editorTranscribe(sessionId: number, lang: "auto" | "de" | "en"): Promise<RecordTranscribeResult> {
   return invoke("editor_transcribe", { sessionId, lang });
 }
 /** Stops the editor's transcription; recordings already done are kept. */

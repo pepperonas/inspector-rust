@@ -472,6 +472,7 @@ pub fn start(db: &DbHandle, sources: Option<Vec<Source>>) -> Result<MeetingState
     }
     if is_running()
         || crate::transcribe_client::is_busy()
+        || crate::record::editor_ipc::is_transcribing()
         || crate::live_transcribe::is_active()
         || crate::transcribe::status().is_some_and(|j| j.is_active())
     {

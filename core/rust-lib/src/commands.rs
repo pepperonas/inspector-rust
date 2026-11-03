@@ -5438,6 +5438,7 @@ pub async fn transcribe_run(
             || crate::meeting::is_running()
             // The editor's word transcription holds the helper's file slot.
             || crate::transcribe_client::is_busy()
+            || crate::record::editor_ipc::is_transcribing()
         {
             return Err(crate::transcribe::ERR_BUSY.to_string());
         }
@@ -7336,23 +7337,25 @@ pub async fn editor_auto_zoom(app: AppHandle, session_id: u64) -> Result<crate::
 }
 
 /// Transcribes every recording the open project's clips play (model from the `meeting`
-/// settings) and puts the word transcripts into the document; the UI records the answer as
-/// one undo step. Progress: `record-editor-transcribe`.
+/// settings) and returns the word transcripts; the UI merges them into its latest document
+/// and records one undo step via `editor_update`. Progress: `record-editor-transcribe`.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_transcribe(
     app: AppHandle,
     session_id: u64,
     lang: transcribe_protocol::Lang,
-) -> Result<crate::record::editor::EditorView, String> {
+) -> Result<crate::record::editor_ipc::TranscribeResult, String> {
     editor_blocking(move || crate::record::editor_ipc::transcribe_project(&app, session_id, lang)).await
 }
 
 /// Stops the editor's transcription; recordings already done are kept.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
-pub fn editor_transcribe_cancel() -> bool {
-    crate::record::editor_ipc::transcribe_cancel()
+pub async fn editor_transcribe_cancel() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(crate::record::editor_ipc::transcribe_cancel)
+        .await
+        .map_err(|e| format!("editor task: {e}"))
 }
 
 /// Moves clip `from` to position `to` with everything on it; the UI records the answer.

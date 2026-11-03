@@ -72,13 +72,28 @@ describe("copy and paste of regions", () => {
     // The copy owns its outline: editing it never moves the original's points.
     expect(made.body).toEqual(d.annotations[0].body);
     if (made.body.kind === "blur" && d.annotations[0].body.kind === "blur") expect(made.body.points).not.toBe(d.annotations[0].body.points);
-    expect(selectionAfterPaste(data!, out)).toEqual({ kind: "annotation", id: made.id });
+    expect(selectionAfterPaste(d, out)).toEqual({ kind: "annotation", id: made.id });
   });
 
-  it("a paste past the clip end is cut at the clip end", () => {
-    const d = doc({ annotations: [ann("a1", 0, 1_000, 3_000)] });
-    const out = pasteRegions(d, 1, 10_000, copyRegions(d, { kind: "annotation", id: "a1" })!);
-    expect(out.annotations[1]).toMatchObject({ clip: 1, startMs: 10_000, endMs: 11_000 });
+  it("a paste near the clip end keeps its length by starting earlier", () => {
+    const d = doc({ annotations: [ann("a1", 0, 1_000, 3_000)], zooms: [zoom("z1", 0, 0, 1_000)] });
+    const a = pasteRegions(d, 1, 10_950, copyRegions(d, { kind: "annotation", id: "a1" })!);
+    expect(a.annotations[1]).toMatchObject({ clip: 1, startMs: 9_000, endMs: 11_000 });
+    const z = pasteRegions(d, 1, 11_000, copyRegions(d, { kind: "zoom", id: "z1" })!);
+    expect(z.zooms[1]).toMatchObject({ clip: 1, startMs: 10_000, endMs: 11_000 });
+  });
+
+  it("only a clip shorter than the region cuts it to the clip", () => {
+    const d = doc({ clips: [{ startMs: 0, endMs: 5_000 }, { startMs: 6_000, endMs: 6_800 }], annotations: [ann("a1", 0, 0, 3_000)] });
+    const out = pasteRegions(d, 1, 6_700, copyRegions(d, { kind: "annotation", id: "a1" })!);
+    expect(out.annotations[1]).toMatchObject({ clip: 1, startMs: 6_000, endMs: 6_800 });
+  });
+
+  it("a zoom that cannot keep its minimum is not pasted: same document, nothing to select", () => {
+    const d = doc({ clips: [{ startMs: 0, endMs: 5_000 }, { startMs: 6_000, endMs: 6_200 }], zooms: [zoom("z1", 0, 0, 1_000)] });
+    const out = pasteRegions(d, 1, 6_100, copyRegions(d, { kind: "zoom", id: "z1" })!);
+    expect(out).toBe(d);
+    expect(selectionAfterPaste(d, out)).toBeNull();
   });
 
   it("a paste position outside the clip clamps into it", () => {

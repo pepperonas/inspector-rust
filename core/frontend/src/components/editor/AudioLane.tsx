@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { editorToSource, type RecordAudioTrack, type RecordEditDoc, type RecordEditorView, type RecordWaveSpan } from "../../lib/ipc";
 import { updateTrack } from "../../lib/editor";
 import { useT } from "../../lib/i18n";
@@ -76,11 +76,18 @@ export function dragTrackBar(
   const d = Number.isFinite(deltaMs) ? deltaMs : 0;
   const raw = at(d);
   if (!snapping) return raw;
-  // A looping bar's end is the programme end Rust refills to: only its start snaps.
-  const edges =
-    mode === "start" ? [raw.progStartMs] : mode === "end" ? [raw.progEndMs] : track.looped ? [raw.progStartMs] : [raw.progStartMs, raw.progEndMs];
-  const { shiftMs } = snapShift(edges, snapping.targets, snapping.pxPerMs);
+  const { shiftMs } = snapShift(trackSnapEdges(raw, track, mode), snapping.targets, snapping.pxPerMs);
   return shiftMs ? at(d + shiftMs) : raw;
+}
+
+/**
+ * The edges a track drag snaps with: an edge drag its own edge; a move both — except a looping
+ * bar, whose end is the programme end Rust refills to, so only its start snaps.
+ */
+export function trackSnapEdges(r: TrackDragResult, track: Pick<RecordAudioTrack, "looped">, mode: TrackDragMode): number[] {
+  if (mode === "start") return [r.progStartMs];
+  if (mode === "end") return [r.progEndMs];
+  return track.looped ? [r.progStartMs] : [r.progStartMs, r.progEndMs];
 }
 
 /** Resolves an edge drag in Rust: the track's new anchor and file window (`null`: nothing to do). */
@@ -184,6 +191,12 @@ export function AudioLane({
 }) {
   const t = useT();
   const [drag, setDrag] = useState<Drag | null>(null);
+  // Unmounted mid-drag: the timeline's guide must not outlive the drag.
+  const guideRef = useRef(onGuide);
+  useEffect(() => {
+    guideRef.current = onGuide;
+  });
+  useEffect(() => () => guideRef.current?.(null), []);
   const bars = trackBars(view);
   const doc = view.doc;
   if (bars.length === 0) return null;
@@ -208,8 +221,7 @@ export function AudioLane({
     const tr = doc.audioTracks[d.index];
     if (!snapping || !bar || !tr || scale <= 0 || Math.abs(d.dx) < CLICK_SLOP_PX) return null;
     const r = dragTrackBar(bar, tr, d.mode, d.dx / scale, total, snapping);
-    const edges = d.mode === "start" ? [r.progStartMs] : d.mode === "end" ? [r.progEndMs] : tr.looped ? [r.progStartMs] : [r.progStartMs, r.progEndMs];
-    return snapGuide(edges, snapping.targets);
+    return snapGuide(trackSnapEdges(r, tr, d.mode), snapping.targets);
   };
 
   const finish = async (d: Drag) => {

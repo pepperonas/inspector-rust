@@ -469,15 +469,27 @@ describe("Timeline annotation lane", () => {
     expect(onSelectAnnotation).toHaveBeenLastCalledWith(made.id);
   });
 
-  it("⌘X is copy + delete in one undo step; the paste is cut at the clip end", async () => {
+  it("⌘X is copy + delete in one undo step; a paste near the clip end keeps its length", async () => {
     const { onChange } = setupAnn([text("a", 0, 1_000, 3_000), text("b", 0, 0, 1_000)], [], { selectedAnnotation: "a", positionMs: 9_500 });
     expect(key("x").defaultPrevented).toBe(true);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect((onChange.mock.calls[0][0] as RecordEditDoc).annotations.map((a) => a.id)).toEqual(["b"]);
     key("v");
     await flush();
-    // Playhead 9.5 s = source 10.5 s in clip 1 (ends at 11 s): 2 s long is cut to 0.5 s.
-    expect((onChange.mock.calls[1][0] as RecordEditDoc).annotations[2]).toMatchObject({ clip: 1, startMs: 10_500, endMs: 11_000 });
+    // Playhead 9.5 s = source 10.5 s in clip 1 (ends at 11 s): the 2-s block starts at 9 s.
+    expect((onChange.mock.calls[1][0] as RecordEditDoc).annotations[2]).toMatchObject({ clip: 1, startMs: 9_000, endMs: 11_000 });
+  });
+
+  it("⌘V at the programme end asks Rust one ms earlier", async () => {
+    toSource.mockImplementation(async (p: number) => (p >= 10_000 ? null : p < 5_000 ? { clip: 0, sourceMs: p } : { clip: 1, sourceMs: p + 1_000 }));
+    const { onChange, onSelectAnnotation } = setupAnn([text("a", 0, 1_000, 2_000)], [], { selectedAnnotation: "a", positionMs: 10_000 });
+    key("c");
+    key("v");
+    await flush();
+    expect(toSource).toHaveBeenCalledWith(9_999);
+    const next = onChange.mock.calls[0][0] as RecordEditDoc;
+    expect(next.annotations[1]).toMatchObject({ clip: 1, startMs: 10_000, endMs: 11_000 });
+    expect(onSelectAnnotation).toHaveBeenLastCalledWith(next.annotations[1].id);
   });
 
   it("⌘C/⌘V in a text field stay the system's; ⌘V with nothing copied is left alone", () => {

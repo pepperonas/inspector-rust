@@ -1,4 +1,4 @@
-import { removeAnnotation, removeTrack, removeZoom } from "./editor";
+import { MIN_ZOOM_MS, removeAnnotation, removeTrack, removeZoom } from "./editor";
 import type { RecordAnnotation, RecordAudioTrack, RecordEditDoc, RecordZoomRegion } from "./ipc";
 
 /**
@@ -57,9 +57,12 @@ export function cutRegions(doc: RecordEditDoc, selection: Selection): { data: Cl
 /**
  * Pastes `data` at `sourceMs` (SOURCE ms — the playhead as Rust mapped it) of `clip`: new ids,
  * the earliest region starts at the paste position and the others keep their offsets; every
- * start is clamped into the clip and a region running past the clip end is cut there. Zooms
- * become the user's (`manual`), annotations go on top. Tracks only move their anchor — their
- * length is the file, which Rust lays across the programme.
+ * start is clamped into the clip. A region that would run past the clip end keeps its length
+ * by starting earlier (like `addAnnotation`); only a clip shorter than the region cuts it to
+ * the clip. A region that would still be too short for Rust to keep (a zoom under
+ * `MIN_ZOOM_MS`) is left out — and when nothing is left, `doc` comes back unchanged.
+ * Zooms become the user's (`manual`), annotations go on top. Tracks only move their anchor —
+ * their length is the file, which Rust lays across the programme.
  */
 export function pasteRegions(doc: RecordEditDoc, clip: number, sourceMs: number, data: ClipboardRegions): RecordEditDoc {
   const c = doc.clips[clip];
@@ -70,13 +73,20 @@ export function pasteRegions(doc: RecordEditDoc, clip: number, sourceMs: number,
   const at = Math.round(sourceMs);
   const place = (startMs: number) => Math.min(c.endMs, Math.max(c.startMs, at + (startMs - base)));
   const span = (r: { startMs: number; endMs: number }) => {
-    const startMs = place(r.startMs);
-    return { startMs, endMs: Math.min(c.endMs, startMs + (r.endMs - r.startMs)) };
+    const len = Math.min(r.endMs - r.startMs, c.endMs - c.startMs);
+    const startMs = Math.max(c.startMs, Math.min(place(r.startMs), c.endMs - len));
+    return { startMs, endMs: startMs + len };
   };
   let z = Math.max(0, ...doc.annotations.map((a) => a.zIndex));
-  const zooms = data.zooms.map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r), origin: "manual" as const }));
-  const annotations = data.annotations.map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r), zIndex: (z += 1) }));
+  const zooms = data.zooms
+    .map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r), origin: "manual" as const }))
+    .filter((r) => r.endMs - r.startMs >= MIN_ZOOM_MS);
+  const annotations = data.annotations
+    .map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r) }))
+    .filter((r) => r.endMs > r.startMs)
+    .map((r) => ({ ...r, zIndex: (z += 1) }));
   const tracks = data.tracks.map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, startMs: place(r.startMs) }));
+  if (!zooms.length && !annotations.length && !tracks.length) return doc;
   return {
     ...doc,
     zooms: zooms.length ? [...doc.zooms, ...zooms] : doc.zooms,
@@ -85,11 +95,16 @@ export function pasteRegions(doc: RecordEditDoc, clip: number, sourceMs: number,
   };
 }
 
-/** What to select after `pasteRegions` appended `data` to `doc`: the (first) pasted region. */
-export function selectionAfterPaste(data: ClipboardRegions, doc: RecordEditDoc): Selection {
-  if (data.zooms.length) return { kind: "zoom", id: doc.zooms[doc.zooms.length - data.zooms.length].id };
-  if (data.annotations.length)
-    return { kind: "annotation", id: doc.annotations[doc.annotations.length - data.annotations.length].id };
-  if (data.tracks.length) return { kind: "track", id: doc.audioTracks[doc.audioTracks.length - data.tracks.length].id };
-  return null;
+/**
+ * What to select after `pasteRegions` turned `before` into `after`: the first pasted region
+ * (`null` when nothing was pasted — never an id Rust would drop).
+ */
+export function selectionAfterPaste(before: RecordEditDoc, after: RecordEditDoc): Selection {
+  const added = <T extends { id: string }>(a: T[], b: T[]) => b.slice(a.length)[0]?.id;
+  const z = added(before.zooms, after.zooms);
+  if (z) return { kind: "zoom", id: z };
+  const a = added(before.annotations, after.annotations);
+  if (a) return { kind: "annotation", id: a };
+  const t = added(before.audioTracks, after.audioTracks);
+  return t ? { kind: "track", id: t } : null;
 }

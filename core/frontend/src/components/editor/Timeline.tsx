@@ -181,9 +181,9 @@ export function Timeline({
 
   // Latest values for the window key handler (registered once per enable flip).
   const annotationSpans = view.annotationSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError });
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total };
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
@@ -224,14 +224,18 @@ export function Timeline({
           e.preventDefault();
           const data = clipboard.current;
           // R12: Rust names the playhead's clip and source position; the paste clamps into it.
-          void editorToSource(cur.positionMs)
+          // At the very programme end Rust may name no clip: ask one ms earlier (like the lane).
+          const end = Math.max(0, cur.total - 1);
+          void editorToSource(Math.min(cur.positionMs, end))
+            .then((at) => at ?? (cur.positionMs >= end ? null : editorToSource(end)))
             .then((at) => {
               if (!at) return;
               const doc = cur.getDoc();
               const next = pasteRegions(doc, at.clip, at.sourceMs, data);
+              // Nothing Rust would keep: no undo step, no selection of a vanished id.
               if (next === doc) return;
               cur.onChange(next);
-              select(selectionAfterPaste(data, next));
+              select(selectionAfterPaste(doc, next));
             })
             .catch(cur.onError);
         }
@@ -344,7 +348,8 @@ export function Timeline({
     const edges = d.mode === "move" ? [g.progStartMs, g.progEndMs] : [d.mode === "start" ? g.progStartMs : g.progEndMs];
     return snapGuide(edges, snapping.targets);
   };
-  const guide = drag?.kind === "zoom" ? zoomGuide(drag) : laneGuide;
+  // A lane guide only counts while the lane has bars (its last track may vanish mid-drag).
+  const guide = drag?.kind === "zoom" ? zoomGuide(drag) : (view.tracks ?? []).length > 0 ? laneGuide : null;
 
   /** Commits a zoom or annotation drag: programme edges → source through Rust, inside its clip. */
   const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {

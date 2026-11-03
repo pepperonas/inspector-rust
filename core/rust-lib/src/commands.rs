@@ -7605,6 +7605,42 @@ pub async fn editor_close(app: AppHandle) -> Result<(), String> {
     .await
 }
 
+/// Video capture devices for the record HUD/settings (AVFoundation can take a moment).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_camera_devices() -> Result<Vec<crate::record::camera_macos::CameraDevice>, String> {
+    tauri::async_runtime::spawn_blocking(crate::record::camera_macos::devices)
+        .await
+        .map_err(|e| format!("record task: {e}"))
+}
+
+/// The camera permission as it stands (never asks).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn record_camera_auth() -> crate::record::camera_macos::CameraAuth {
+    crate::record::camera_macos::authorization()
+}
+
+/// Shows the system camera dialog when the permission is undecided and waits for the answer.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_camera_request() -> Result<crate::record::camera_macos::CameraAuth, String> {
+    tauri::async_runtime::spawn_blocking(crate::record::camera_macos::request_access)
+        .await
+        .map_err(|e| format!("record task: {e}"))
+}
+
+/// System Settings → Privacy & Security → Camera.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn record_open_camera_settings() -> Result<(), String> {
+    std::process::Command::new("/usr/bin/open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
+        .status()
+        .map_err(map_err)?;
+    Ok(())
+}
+
 /// The stored config; an empty project folder comes back resolved.
 #[cfg(target_os = "macos")]
 #[tauri::command]

@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::camera_macos::CameraQuality;
 use super::project::{CursorMode, ProjectStatus};
 
 // ---------- pure: phases ----------
@@ -186,6 +187,11 @@ pub struct RecordConfig {
     pub open_editor: bool,
     /// The first time a take opens in the editor, plan zooms at its clicks once.
     pub auto_zoom: bool,
+    /// Record the webcam as its own file (off by default).
+    pub camera: bool,
+    /// `AVCaptureDevice.uniqueID`; empty = the default device (`pick_device`).
+    pub camera_device: String,
+    pub camera_quality: CameraQuality,
 }
 
 impl Default for RecordConfig {
@@ -198,6 +204,9 @@ impl Default for RecordConfig {
             mic: false,
             open_editor: true,
             auto_zoom: true,
+            camera: false,
+            camera_device: String::new(),
+            camera_quality: CameraQuality::default(),
         }
     }
 }
@@ -209,6 +218,9 @@ const K_COUNTDOWN: &str = "record.countdown";
 const K_CURSOR: &str = "record.cursor_mode";
 const K_SYSTEM_AUDIO: &str = "record.system_audio";
 const K_MIC: &str = "record.mic";
+const K_CAMERA: &str = "record.camera";
+const K_CAMERA_DEVICE: &str = "record.camera_device";
+const K_CAMERA_QUALITY: &str = "record.camera_quality";
 
 fn parse_bool(v: Option<String>, default: bool) -> bool {
     match v.as_deref().map(str::trim) {
@@ -245,6 +257,9 @@ impl RecordConfig {
             mic: parse_bool(get(K_MIC), d.mic),
             open_editor: parse_bool(get(K_OPEN_EDITOR), d.open_editor),
             auto_zoom: parse_bool(get(K_AUTO_ZOOM), d.auto_zoom),
+            camera: parse_bool(get(K_CAMERA), d.camera),
+            camera_device: get(K_CAMERA_DEVICE).unwrap_or_default().trim().to_string(),
+            camera_quality: get(K_CAMERA_QUALITY).map(|s| CameraQuality::parse(&s)).unwrap_or(d.camera_quality),
         }
     }
 
@@ -256,6 +271,9 @@ impl RecordConfig {
         crate::settings::set(db, K_MIC, if self.mic { "true" } else { "false" })?;
         crate::settings::set(db, K_OPEN_EDITOR, if self.open_editor { "true" } else { "false" })?;
         crate::settings::set(db, K_AUTO_ZOOM, if self.auto_zoom { "true" } else { "false" })?;
+        crate::settings::set(db, K_CAMERA, if self.camera { "true" } else { "false" })?;
+        crate::settings::set(db, K_CAMERA_DEVICE, self.camera_device.trim())?;
+        crate::settings::set(db, K_CAMERA_QUALITY, self.camera_quality.as_str())?;
         Ok(())
     }
 
@@ -328,6 +346,13 @@ pub struct StartOptions {
     pub countdown: bool,
     #[serde(default)]
     pub title: String,
+    #[serde(default)]
+    pub camera: bool,
+    /// Empty = the default device.
+    #[serde(default)]
+    pub camera_device: String,
+    #[serde(default)]
+    pub camera_quality: CameraQuality,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -1528,6 +1553,29 @@ mod tests {
     }
 
     #[test]
+    fn old_config_without_camera_fields_loads() {
+        use super::super::camera_macos::CameraQuality;
+        let c: RecordConfig = serde_json::from_str(r#"{"projectDir":"","mic":true}"#).unwrap();
+        assert!(!c.camera, "an older payload without `camera` keeps the camera off");
+        assert_eq!(c.camera_device, "");
+        assert_eq!(c.camera_quality, CameraQuality::P1080);
+        let o: StartOptions = serde_json::from_str(
+            r#"{"systemAudio":true,"mic":false,"cursorMode":"system","countdown":true}"#,
+        )
+        .unwrap();
+        assert!(!o.camera);
+        assert_eq!(o.camera_device, "");
+        assert_eq!(o.camera_quality, CameraQuality::P1080);
+        let o: StartOptions = serde_json::from_str(
+            r#"{"systemAudio":true,"mic":false,"cursorMode":"system","countdown":true,"camera":true,"cameraDevice":"x","cameraQuality":"2160p"}"#,
+        )
+        .unwrap();
+        assert!(o.camera);
+        assert_eq!(o.camera_device, "x");
+        assert_eq!(o.camera_quality, CameraQuality::P2160);
+    }
+
+    #[test]
     fn phase_transitions_are_guarded() {
         assert_eq!(next_phase(Phase::Recording, Action::Start), Err(ERR_BUSY), "already running");
         assert_eq!(next_phase(Phase::Paused, Action::Start), Err(ERR_BUSY));
@@ -1855,6 +1903,9 @@ mod live {
             cursor_mode: CursorMode::EditableOverlay,
             countdown: false,
             title: "live".into(),
+            camera: false,
+            camera_device: String::new(),
+            camera_quality: Default::default(),
         };
         let out = record_headless(&root, picked, opts, 5.0);
         println!("dir {}", out.dir.display());

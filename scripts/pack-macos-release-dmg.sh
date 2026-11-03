@@ -67,7 +67,7 @@ bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${APP}" "${TRIPLE}"
 echo "▸ Sealing ${APP} (ad-hoc deep sign)…"
 
 # Same Info.plist keys install-macos.sh injects — needed for Automation /
-# Microphone TCC prompts. Must happen BEFORE codesign so they're sealed.
+# Microphone / Camera TCC prompts. Must happen BEFORE codesign so they're sealed.
 INFO_PLIST="${APP}/Contents/Info.plist"
 if [[ -f "${INFO_PLIST}" ]]; then
   plutil -replace NSAppleEventsUsageDescription -string \
@@ -75,6 +75,9 @@ if [[ -f "${INFO_PLIST}" ]]; then
     "${INFO_PLIST}"
   plutil -replace NSMicrophoneUsageDescription -string \
     'Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").' \
+    "${INFO_PLIST}"
+  plutil -replace NSCameraUsageDescription -string \
+    'Inspector Rust uses the camera to record you as a separate track in screen recordings ("record") — only when you turn the camera on for a recording.' \
     "${INFO_PLIST}"
 fi
 

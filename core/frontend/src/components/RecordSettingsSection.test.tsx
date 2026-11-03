@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 const setRecordShortcuts = vi.fn(async (s: unknown) => s);
+const setRecordConfig = vi.fn(async (c: unknown) => c);
 vi.mock("../lib/ipc", () => ({
   getRecordConfig: async () => ({
     projectDir: "/Users/ana/Movies/Inspector Rust",
@@ -11,8 +12,15 @@ vi.mock("../lib/ipc", () => ({
     mic: false,
     openEditor: true,
     autoZoom: true,
+    camera: false,
+    cameraDevice: "",
+    cameraQuality: "1080p",
   }),
-  setRecordConfig: async (c: unknown) => c,
+  setRecordConfig: (c: unknown) => setRecordConfig(c),
+  recordCameraDevices: async () => [
+    { id: "mac", name: "FaceTime HD Camera", builtin: true },
+    { id: "usb", name: "USB Cam", builtin: false },
+  ],
   EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
   getRecordShortcuts: async () => ({}),
   setRecordShortcuts: (s: unknown) => setRecordShortcuts(s),
@@ -21,7 +29,29 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined })
 
 import { RecordSettingsSection } from "./RecordSettingsSection";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe("Settings → Recording → camera", () => {
+  it("saves camera on/off, the device and the quality", async () => {
+    const r = render(<RecordSettingsSection />);
+    await act(async () => {});
+    fireEvent.click(r.getByTestId("set-record-camera"));
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ camera: true }));
+    await act(async () => {});
+    const dev = r.getByTestId("set-record-camera-device") as HTMLSelectElement;
+    expect(Array.from(dev.options).map((o) => o.value)).toEqual(["", "mac", "usb"]);
+    fireEvent.change(dev, { target: { value: "usb" } });
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ cameraDevice: "usb" }));
+    await act(async () => {});
+    const q = r.getByTestId("set-record-camera-quality") as HTMLSelectElement;
+    expect(Array.from(q.options).map((o) => o.value)).toEqual(["1080p", "1440p", "2160p"]);
+    fireEvent.change(q, { target: { value: "2160p" } });
+    expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ cameraQuality: "2160p", cameraDevice: "usb" }));
+  });
+});
 
 describe("Settings → Recording → editor shortcuts", () => {
   it("opens the shortcuts dialog, and no key reaches the popup's own handlers while it is open", async () => {

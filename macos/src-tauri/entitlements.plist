@@ -51,5 +51,14 @@
   -->
   <key>com.apple.security.device.audio-input</key>
   <true/>
+  <!--
+    Camera access for the optional webcam track of `record` (stage 5,
+    AVFoundation in the Rust core — never getUserMedia). Under Hardened
+    Runtime this entitlement AND `NSCameraUsageDescription` in Info.plist
+    (injected by both bundle scripts) are required before the TCC camera
+    prompt can appear.
+  -->
+  <key>com.apple.security.device.camera</key>
+  <true/>
 </dict>
 </plist>

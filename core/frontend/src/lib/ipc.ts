@@ -5111,12 +5111,25 @@ export interface RecordStatus {
   source: string | null;
   lowDiskMinutes: number | null;
 }
+/** Webcam quality the device is asked for ("ideal", never forced). */
+export type CameraQuality = "1080p" | "1440p" | "2160p";
+export interface CameraDevice {
+  /** `AVCaptureDevice.uniqueID`. */
+  id: string;
+  name: string;
+  builtin: boolean;
+}
+export type CameraAuth = "authorized" | "denied" | "restricted" | "not-determined";
 export interface RecordStartOptions {
   systemAudio: boolean;
   mic: boolean;
   cursorMode: RecordCursorMode;
   countdown: boolean;
   title: string;
+  camera: boolean;
+  /** Empty = the default device. */
+  cameraDevice: string;
+  cameraQuality: CameraQuality;
 }
 export interface RecordConfig {
   projectDir: string;
@@ -5127,6 +5140,11 @@ export interface RecordConfig {
   openEditor: boolean;
   /** The first time a take opens in the editor, plan zooms at its clicks once (default on). */
   autoZoom: boolean;
+  /** Record the webcam as its own file (default off). */
+  camera: boolean;
+  /** Empty = the default device. */
+  cameraDevice: string;
+  cameraQuality: CameraQuality;
 }
 export interface RecordNotes {
   text: string;
@@ -5196,6 +5214,22 @@ export function recordRevealProject(dir: string): Promise<void> {
 }
 export function recordDeleteProject(dir: string): Promise<void> {
   return invoke("record_delete_project", { dir });
+}
+/** Video capture devices (built-in and external). */
+export function recordCameraDevices(): Promise<CameraDevice[]> {
+  return invoke("record_camera_devices");
+}
+/** The camera permission as it stands (never asks). */
+export function recordCameraAuth(): Promise<CameraAuth> {
+  return invoke("record_camera_auth");
+}
+/** Shows the system camera dialog when undecided; resolves with the answer. */
+export function recordCameraRequest(): Promise<CameraAuth> {
+  return invoke("record_camera_request");
+}
+/** System Settings → Privacy & Security → Camera. */
+export function recordOpenCameraSettings(): Promise<void> {
+  return invoke("record_open_camera_settings");
 }
 export function getRecordConfig(): Promise<RecordConfig> {
   return invoke("get_record_config");

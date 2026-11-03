@@ -4,6 +4,8 @@
 pub mod assets;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod audio_tracks;
+// Pure camera types are cross-platform (the settings carry them); its AVFoundation edge is macOS.
+pub mod camera_macos;
 pub mod click_cues;
 pub mod core;
 #[cfg(target_os = "macos")]

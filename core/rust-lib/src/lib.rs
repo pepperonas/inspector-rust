@@ -1228,6 +1228,14 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::record_open_dialog,
             #[cfg(target_os = "macos")]
+            commands::record_camera_devices,
+            #[cfg(target_os = "macos")]
+            commands::record_camera_auth,
+            #[cfg(target_os = "macos")]
+            commands::record_camera_request,
+            #[cfg(target_os = "macos")]
+            commands::record_open_camera_settings,
+            #[cfg(target_os = "macos")]
             commands::get_record_config,
             #[cfg(target_os = "macos")]
             commands::set_record_config,

@@ -414,10 +414,12 @@ if [[ -f "${INFO_PLIST}" ]]; then
   if [[ "${OS_LANG}" == de* ]]; then
     AE_DESC='Inspector Rust nutzt Apple Events, um deine Finder-Auswahl zu lesen, damit das Popup Aktionen (Größe ändern, OCR, …) auf die ausgewählten Dateien anwenden kann.'
     MIC_DESC='Inspector Rust nutzt das Mikrofon zur Live-BPM-Erkennung („bpm“ im Popup) und, wenn du es wählst, um deine Stimme bei Bildschirmaufnahmen („record“) als eigene Spur aufzunehmen.'
+    CAM_DESC='Inspector Rust nutzt die Kamera, um dich bei Bildschirmaufnahmen („record“) als eigene Spur aufzunehmen — nur wenn du die Kamera für eine Aufnahme einschaltest.'
     BT_DESC='Inspector Rust nutzt Bluetooth für den „btsniff“-Live-Scan — er listet nahe sendende Bluetooth-LE-Geräte zur Inspektion. Aufzeichnungen bleiben auf diesem Mac.'
   else
     AE_DESC='Inspector Rust uses Apple Events to read your Finder selection so the popup can run actions (resize, OCR, …) on the files you have selected.'
     MIC_DESC='Inspector Rust uses the microphone for live BPM detection (type "bpm" in the popup) and, if you choose, to record your voice as a separate track in screen recordings ("record").'
+    CAM_DESC='Inspector Rust uses the camera to record you as a separate track in screen recordings ("record") — only when you turn the camera on for a recording.'
     BT_DESC='Inspector Rust uses Bluetooth for the "btsniff" live scan — it lists nearby advertising Bluetooth LE devices for inspection. Captures stay on this Mac.'
   fi
   # `-replace` works whether or not the key already exists.
@@ -437,6 +439,16 @@ if [[ -f "${INFO_PLIST}" ]]; then
     echo "▸ Injected NSMicrophoneUsageDescription into Info.plist"
   else
     echo "  ⚠ plutil replace of NSMicrophoneUsageDescription failed — Microphone prompt may show generic copy"
+  fi
+
+  # Same trick for NSCameraUsageDescription — required by macOS before
+  # AVFoundation may ask for the camera; without it TCC ends the process
+  # on the first request. Used by `record` for the optional webcam track.
+  if plutil -replace NSCameraUsageDescription -string "${CAM_DESC}" \
+       "${INFO_PLIST}" 2>/dev/null; then
+    echo "▸ Injected NSCameraUsageDescription into Info.plist"
+  else
+    echo "  ⚠ plutil replace of NSCameraUsageDescription failed — Camera prompt may show generic copy"
   fi
 
   # Same trick for NSBluetoothAlwaysUsageDescription — required by macOS

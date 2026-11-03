@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { AppWindow, Mic, Monitor, StickyNote, Volume2, X } from "lucide-react";
+import { AppWindow, Camera, Mic, Monitor, StickyNote, Volume2, X } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import {
   getRecordConfig,
+  recordCameraAuth,
+  recordCameraDevices,
+  recordCameraRequest,
+  recordOpenCameraSettings,
   recordOpenNotes,
   recordPickSource,
   recordStart,
   recordStatus,
   setRecordConfig,
+  type CameraAuth,
+  type CameraDevice,
   type RecordConfig,
   type RecordStatus,
 } from "../lib/ipc";
@@ -32,10 +38,15 @@ export function RecordHud() {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [camAuth, setCamAuth] = useState<CameraAuth | null>(null);
+  const [cams, setCams] = useState<CameraDevice[]>([]);
+  const [asking, setAsking] = useState(false);
 
   useEffect(() => {
     void recordStatus().then(setStatus).catch(() => undefined);
     void getRecordConfig().then(setCfg).catch(() => undefined);
+    void recordCameraAuth().then(setCamAuth).catch(() => undefined);
+    void recordCameraDevices().then(setCams).catch(() => undefined);
     const offs: Array<() => void> = [];
     let dead = false;
     const add = (p: Promise<() => void>) => void p.then((u) => (dead ? u() : offs.push(u)));
@@ -68,6 +79,23 @@ export function RecordHud() {
     recordPickSource(kind).catch((e) => setError(errorText(t, String(e))));
   };
 
+  /** The camera can only be on with the permission not refused (a stored "on" stays inert). */
+  const camBlocked = camAuth === "denied" || camAuth === "restricted";
+  const cameraOn = !!cfg?.camera && !camBlocked;
+
+  const setCamera = async (on: boolean) => {
+    if (!on) return patch({ camera: false });
+    if (asking) return;
+    let auth = camAuth ?? (await recordCameraAuth().catch(() => null));
+    if (auth === "not-determined") {
+      setAsking(true);
+      auth = await recordCameraRequest().catch(() => auth);
+      setAsking(false);
+    }
+    setCamAuth(auth);
+    if (auth === "authorized") patch({ camera: true });
+  };
+
   const ready = !!status && !!cfg && canStart(status) && !starting;
 
   const start = useCallback(() => {
@@ -80,12 +108,15 @@ export function RecordHud() {
       cursorMode: cfg.cursorMode,
       countdown: cfg.countdown,
       title: title.trim(),
+      camera: cameraOn,
+      cameraDevice: cfg.cameraDevice ?? "",
+      cameraQuality: cfg.cameraQuality ?? "1080p",
     }).catch((e) => {
       setStarting(false);
       setError(errorText(t, String(e)));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, cfg, starting, title]);
+  }, [status, cfg, starting, title, cameraOn]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,11 +177,44 @@ export function RecordHud() {
         <div className="flex flex-wrap gap-1.5">
           {toggle(cfg.systemAudio, t("rec2.hud.system_audio"), <Volume2 size={13} />, (v) => patch({ systemAudio: v }))}
           {toggle(cfg.mic, t("rec2.hud.mic"), <Mic size={13} />, (v) => patch({ mic: v }))}
+          {toggle(cameraOn, t("rec5.hud.camera"), <Camera size={13} />, (v) => void setCamera(v))}
           {toggle(cfg.cursorMode === "editable-overlay", t("rec2.hud.cursor"), null, (v) =>
             patch({ cursorMode: v ? "editable-overlay" : "system" }),
           )}
           {toggle(cfg.countdown, t("rec2.hud.countdown"), null, (v) => patch({ countdown: v }))}
         </div>
+      )}
+      {cfg && camBlocked && (
+        <div
+          data-testid="rec-camera-denied"
+          className="flex items-center gap-2 rounded-lg bg-[var(--color-bg)] px-3 py-1.5 text-[12px] text-[var(--color-muted)]"
+        >
+          <span className="flex-1">{t("rec5.hud.camera_denied")}</span>
+          <button
+            type="button"
+            data-testid="rec-camera-settings"
+            onClick={() => void recordOpenCameraSettings().catch(() => undefined)}
+            className="shrink-0 rounded-md border border-[var(--color-border)] px-2 py-1 text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
+          >
+            {t("rec5.hud.camera_settings")}
+          </button>
+        </div>
+      )}
+      {cfg && cameraOn && cams.length > 1 && (
+        <select
+          data-testid="rec-camera-device"
+          aria-label={t("rec5.hud.camera_device")}
+          value={cams.some((c) => c.id === cfg.cameraDevice) ? cfg.cameraDevice : ""}
+          onChange={(e) => patch({ cameraDevice: e.target.value })}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[12px] outline-none"
+        >
+          <option value="">{t("rec5.set.camera_device_default")}</option>
+          {cams.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
       )}
       <input
         value={title}

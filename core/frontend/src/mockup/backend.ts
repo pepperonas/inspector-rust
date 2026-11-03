@@ -746,7 +746,17 @@ function edView(doc: EdDoc) {
       return { index, progStartMs: r.startMs + off, progEndMs: Math.min(clips[r.clip].progEndMs, next + off) };
     });
   const clipCameras = doc.clips.map(() => true);
-  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, layoutSpans, clipCameras, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  // A rough picture-in-picture box (mockup only; Rust lays it out in the app): a 16:9 camera at
+  // `sizePct`, by the free position or the bottom-right corner.
+  const [ow, oh] = edOutputSize(doc);
+  const cam = (doc.camera ?? {}) as { sizePct?: number; mask?: string; position?: { x: number; y: number } | null };
+  const long = (Math.min(ow, oh) * (cam.sizePct ?? 40)) / 100;
+  const [cw, ch] = cam.mask === "rectangle" ? [long, (long * 9) / 16] : [(long * 9) / 16, (long * 9) / 16];
+  const m = Math.min(ow, oh) * 0.02;
+  const cx = cam.position ? Math.min(ow - m - cw, Math.max(m, cam.position.x * ow - cw / 2)) : ow - m - cw;
+  const cy = cam.position ? Math.min(oh - m - ch, Math.max(m, cam.position.y * oh - ch / 2)) : oh - m - ch;
+  const cameraRects = doc.clips.map(() => [cx / ow, cy / oh, cw / ow, ch / oh] as [number, number, number, number]);
+  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;

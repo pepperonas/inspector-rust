@@ -125,6 +125,8 @@ export function CameraTab(p: CameraTabProps) {
   const t = useT();
   const { doc } = p;
   const c = doc.camera;
+  /** Dragged in the preview: no anchor applies until one is chosen again. */
+  const free = c.position != null;
   const hasCamera = hasAnyCamera(p.view);
   const regions = (doc.layoutRegions ?? []).length > 0;
   // A selected region wins over the playhead's (its passage from Rust's span).
@@ -264,11 +266,11 @@ export function CameraTab(p: CameraTabProps) {
                       type="button"
                       aria-label={t(ANCHOR_LABEL[a])}
                       title={t(ANCHOR_LABEL[a])}
-                      aria-pressed={c.anchor === a}
-                      onClick={() => commit({ anchor: a })}
+                      aria-pressed={!free && c.anchor === a}
+                      onClick={() => commit({ anchor: a, position: null })}
                       className={
                         "flex h-8 w-11 items-center justify-center rounded-md border transition-colors duration-(--duration-fast) ease-sharp " +
-                        (c.anchor === a
+                        (!free && c.anchor === a
                           ? "border-[var(--color-accent)] text-[var(--color-accent)]"
                           : "border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-bg)]")
                       }
@@ -280,6 +282,16 @@ export function CameraTab(p: CameraTabProps) {
                   ),
                 )}
               </div>
+              {free ? (
+                <div className="flex flex-wrap items-center gap-2" data-testid="ed-camera-free">
+                  <span className="text-[11px] text-[var(--color-muted)]">{t("rec5.cam.position_free")}</span>
+                  <button type="button" className={chipClass(false)} onClick={() => commit({ position: null })}>
+                    {t("rec5.cam.position_reset")}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-[var(--color-muted)]">{t("rec5.cam.position_hint")}</p>
+              )}
             </Group>
           </>
         )}

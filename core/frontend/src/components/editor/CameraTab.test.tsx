@@ -156,6 +156,24 @@ describe("camera tab", () => {
     expect(lastCommit(p).camera.anchor).toBe("top-left");
   });
 
+  it("a free placement: no corner is lit, a corner or the reset snaps back", () => {
+    const p = mount(doc({ camera: camera({ position: { x: 0.3, y: 0.4 } }) }));
+    const grid = screen.getByRole("group", { name: "Position" });
+    for (const b of within(grid).getAllByRole("button")) expect(b.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("ed-camera-free").textContent).toMatch(/placed freely/i);
+    fireEvent.click(screen.getByRole("button", { name: "Back to corner" }));
+    expect(lastCommit(p).camera.position).toBeNull();
+    fireEvent.click(within(grid).getByRole("button", { name: "Top right" }));
+    expect(lastCommit(p).camera).toMatchObject({ anchor: "top-right", position: null });
+  });
+
+  it("an anchored camera lights its corner and offers the drag hint", () => {
+    mount(doc());
+    const grid = screen.getByRole("group", { name: "Position" });
+    expect(within(grid).getByRole("button", { name: "Bottom right" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByTestId("ed-camera-free")).toBeNull();
+  });
+
   it("segmentation_unavailable_disables_chips", () => {
     mount(doc(), { segmentation: false });
     for (const name of ["Transparent", "Blur", "Own background"]) {

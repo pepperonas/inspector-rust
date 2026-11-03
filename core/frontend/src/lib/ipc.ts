@@ -5428,6 +5428,9 @@ export interface RecordCameraStyle {
   /** Shrink during a zoom (picture-in-picture only). */
   reactiveZoom: boolean;
   anchor: RecordCameraAnchor;
+  /** Placed freely in the preview: the box's centre in fractions (0…1) of the output; absent /
+   *  `null` = placed by `anchor` (choosing an anchor clears it). Picture-in-picture only. */
+  position?: { x: number; y: number } | null;
   /** Framing in fractions of the camera frame; `null` = the whole frame. */
   crop: RecordCropRect | null;
   background: RecordCameraBackground;
@@ -5475,6 +5478,9 @@ export interface RecordEditorView {
   clickHits: RecordClickHit[];
   /** Per clip: the screen's box in the output `[x, y, w, h]` (fractions). */
   screenRects: [number, number, number, number][];
+  /** Per clip: the picture-in-picture camera box `[x, y, w, h]` (fractions of the output; Rust's
+   *  layout), `null` for a clip without a camera. Empty outside an editor session. */
+  cameraRects?: ([number, number, number, number] | null)[];
   /** Rust's 1080p output size `[w, h]` — the preview's shape (never re-derived in TS). */
   outputSize: [number, number];
   /** Inserted takes by id (what a clip's `source` names), for the audio preview. */

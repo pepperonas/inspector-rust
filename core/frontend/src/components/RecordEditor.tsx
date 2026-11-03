@@ -73,6 +73,7 @@ import {
   addTrack,
   addZoom,
   clipAt,
+  setCamera,
   clipMedia,
   cropForPreset,
   deleteClip,
@@ -106,7 +107,8 @@ import { ProjectDialog } from "./editor/ProjectDialog";
 import { PresetsMenu } from "./editor/PresetsMenu";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
-import { hasAnyCamera } from "../lib/camera-layout";
+import { hasAnyCamera, presetAt } from "../lib/camera-layout";
+import { CameraOverlay, type CameraPatch } from "./editor/CameraOverlay";
 import { FocusOverlay } from "./editor/FocusOverlay";
 import { AnnotationOverlay, type AnnotationPatch } from "./editor/AnnotationOverlay";
 import { registerAnnotationFonts } from "./editor/AnnotationTab";
@@ -1047,6 +1049,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const zoomSel = selectedZoom ? (doc.zooms.find((z) => z.id === selectedZoom) ?? null) : null;
   const zoomRect = zoomSel ? (view.screenRects?.[zoomSel.clip] ?? ([0, 0, 1, 1] as [number, number, number, number])) : null;
   const annSel = selectedAnnotation ? (doc.annotations.find((a) => a.id === selectedAnnotation) ?? null) : null;
+  // The picture-in-picture camera under the playhead (Rust's box), draggable in the preview.
+  const pipClip = view.clips.length ? clipAt(view, pos) : -1;
+  const camRect =
+    pipClip >= 0 && view.clipCameras?.[pipClip] && presetAt(view, pos) === "picture-in-picture" ? (view.cameraRects?.[pipClip] ?? null) : null;
+  const camPatch = (p: CameraPatch) => setCamera(cur() ?? doc, p);
   const annPatch = (p: AnnotationPatch) => {
     if (!annSel) return null;
     const { points, ...box } = p;
@@ -1186,6 +1193,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
               rect={zoomRect}
               focus={{ x: zoomSel.focusX, y: zoomSel.focusY }}
               onPick={(x, y) => commit(updateZoom(cur() ?? doc, zoomSel.id, { focusX: x, focusY: y, origin: "manual" }))}
+            />
+          ) : camRect && !(zoomSel && zoomSel.focusMode === "manual") && !cropMode && !fatal && !modalOpen ? (
+            <CameraOverlay
+              rect={camRect}
+              outSize={view.outputSize}
+              sizePct={doc.camera.sizePct}
+              onLive={(p) => inspectorLive(camPatch(p))}
+              onEnd={inspectorLiveEnd}
             />
           ) : null
         }

@@ -675,9 +675,20 @@ pub struct CameraStyle {
     /// Shrink while a zoom is on (picture-in-picture only).
     pub reactive_zoom: bool,
     pub anchor: CameraAnchor,
+    /// Placed freely by dragging it in the preview (picture-in-picture only); `None` = placed by
+    /// `anchor`. Choosing an anchor clears it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<CameraPosition>,
     /// User framing in fractions (0..1) of the camera frame; `None` = the whole frame.
     pub crop: Option<CropRect>,
     pub background: CameraBackground,
+}
+
+/// The camera box's centre in fractions (0..1) of the output canvas.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CameraPosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 impl Default for CameraStyle {
@@ -690,6 +701,7 @@ impl Default for CameraStyle {
             mirror: false,
             reactive_zoom: true,
             anchor: CameraAnchor::BottomRight,
+            position: None,
             crop: None,
             background: CameraBackground::default(),
         }
@@ -713,7 +725,7 @@ impl CameraStyle {
     /// What the layout reads, with `preset` instead of the global one (a region / a clip
     /// resolves it first).
     pub fn look(&self, preset: LayoutPreset) -> super::layout::CameraLook {
-        super::layout::CameraLook { preset, size_pct: self.size_pct, mask: self.mask, roundness: self.resolved_roundness(), anchor: self.anchor }
+        super::layout::CameraLook { preset, size_pct: self.size_pct, mask: self.mask, roundness: self.resolved_roundness(), anchor: self.anchor, center: self.position.map(|p| (p.x, p.y)) }
     }
 }
 
@@ -837,6 +849,11 @@ pub struct EditorView {
     /// Per clip: the screen's box in the output `[x, y, w, h]` in fractions (the focus
     /// crosshair is drawn over it). Filled by the editor session (empty from [`view`]).
     pub screen_rects: Vec<[f64; 4]>,
+    /// Per clip: the picture-in-picture camera box `[x, y, w, h]` in fractions of the output
+    /// (the preview's drag overlay draws it), `None` for a clip without a camera. Laid out as
+    /// picture-in-picture regardless of the preset in force; the UI only shows it there. Filled
+    /// by the editor session (empty from [`view`]).
+    pub camera_rects: Vec<Option<[f64; 4]>>,
     /// The preview scene's output size `[w, h]` (1080p target). Under `Aspect::Auto` its shape
     /// follows padding, frame and crop, so the UI sizes its preview box from this, never from
     /// the aspect alone. Filled by the editor session (`[0, 0]` from [`view`], which has no
@@ -1454,6 +1471,10 @@ fn normalize_camera(c: CameraStyle) -> CameraStyle {
         roundness: c.roundness.filter(|r| r.is_finite()).map(|r| r.clamp(0.0, 1.0)),
         // Same edge minimum as the screen crop.
         crop: c.crop.and_then(normalize_crop),
+        position: c
+            .position
+            .filter(|p| p.x.is_finite() && p.y.is_finite())
+            .map(|p| CameraPosition { x: p.x.clamp(0.0, 1.0), y: p.y.clamp(0.0, 1.0) }),
         background: CameraBackground { blur: clamp_or(c.background.blur, 0.0, 1.0, DEFAULT_CAMERA_BLUR), ..c.background },
         ..c
     }
@@ -1756,6 +1777,7 @@ pub fn view(doc: &EditDoc) -> EditorView {
         clip_cameras: Vec::new(),
         click_hits: Vec::new(),
         screen_rects: Vec::new(),
+        camera_rects: Vec::new(),
         output_size: [0, 0],
         takes: TakeMetas::new(),
         tracks: super::audio_tracks::track_entries(doc),
@@ -2954,6 +2976,27 @@ pub(crate) mod tests {
         d.camera.mask = CameraMask::Rectangle;
         let n = normalize(d, 10_000, &NO_TAKES);
         assert_eq!((n.camera.size_pct, n.camera.resolved_roundness()), (40.0, 0.4));
+    }
+
+    #[test]
+    fn camera_position_is_clamped_optional_and_reaches_the_look() {
+        let mut d = doc(vec![clip(0, 10_000)], vec![]);
+        d.camera.position = Some(CameraPosition { x: -0.5, y: 1.7 });
+        let n = normalize(d.clone(), 10_000, &NO_TAKES);
+        assert_eq!(n.camera.position, Some(CameraPosition { x: 0.0, y: 1.0 }));
+        d.camera.position = Some(CameraPosition { x: f64::NAN, y: 0.5 });
+        assert_eq!(normalize(d.clone(), 10_000, &NO_TAKES).camera.position, None);
+        d.camera.position = Some(CameraPosition { x: 0.25, y: 0.75 });
+        let n = normalize(d, 10_000, &NO_TAKES);
+        assert_eq!(n.camera.look(LayoutPreset::PictureInPicture).center, Some((0.25, 0.75)));
+        assert_eq!(CameraStyle::default().look(LayoutPreset::PictureInPicture).center, None);
+        // Serialised only when set (a document without it keeps its JSON), read back when set.
+        let j = serde_json::to_value(CameraStyle::default()).unwrap();
+        assert!(j.get("position").is_none());
+        let j = serde_json::to_value(&n.camera).unwrap();
+        assert_eq!(j["position"], serde_json::json!({"x": 0.25, "y": 0.75}));
+        let back: CameraStyle = serde_json::from_value(j).unwrap();
+        assert_eq!(back.position, n.camera.position);
     }
 
     #[test]

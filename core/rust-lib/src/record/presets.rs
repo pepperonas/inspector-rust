@@ -51,7 +51,7 @@ pub struct Preset {
 }
 
 /// The camera style a preset carries: everything of [`CameraStyle`] but where the camera sits
-/// (`anchor`) and how it is framed (`crop`) — those belong to the recording, as upstream
+/// (`anchor`, a free `position`) and how it is framed (`crop`) — those belong to the recording, as upstream
 /// (`stylePresets.ts:65-73`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +90,7 @@ impl PresetCamera {
             reactive_zoom: self.reactive_zoom,
             background: self.background.clone(),
             anchor: style.anchor,
+            position: style.position,
             crop: style.crop,
         }
     }
@@ -702,7 +703,7 @@ mod tests {
     }
 
     fn camera_styled() -> EditDoc {
-        use crate::record::editor::{CameraAnchor, CameraBgMode, CropRect};
+        use crate::record::editor::{CameraAnchor, CameraBgMode, CameraPosition, CropRect};
         let mut d = styled();
         d.camera = CameraStyle {
             preset: LayoutPreset::DualFrame,
@@ -712,6 +713,7 @@ mod tests {
             mirror: true,
             reactive_zoom: false,
             anchor: CameraAnchor::TopLeft,
+            position: Some(CameraPosition { x: 0.3, y: 0.6 }),
             crop: Some(CropRect { x: 0.1, y: 0.1, w: 0.5, h: 0.5 }),
             background: CameraBackground { mode: CameraBgMode::Custom, blur: 0.8, custom: Background::Color { color: "#abcdef".into() } },
         };
@@ -720,17 +722,18 @@ mod tests {
 
     #[test]
     fn preset_roundtrip_keeps_anchor_and_crop() {
-        use crate::record::editor::{CameraAnchor, CropRect};
+        use crate::record::editor::{CameraAnchor, CameraPosition, CropRect};
         let root = tmp("cam");
         let project = tmp("cam-proj");
         let entry = save_preset(&root, "Cam", &camera_styled(), &project).unwrap();
         let text = std::fs::read_to_string(presets_dir(&root).join(&entry.file)).unwrap();
         // Where the camera sits and how it is framed belong to the recording, not the look.
-        assert!(text.contains("\"camera\"") && !text.contains("anchor") && !text.contains("crop"), "{text}");
+        assert!(text.contains("\"camera\"") && !text.contains("anchor") && !text.contains("crop") && !text.contains("position"), "{text}");
         let preset = read_preset(&root, &entry.file).unwrap();
         let mut target = doc();
         target.camera.anchor = CameraAnchor::Left;
         target.camera.crop = Some(CropRect { x: 0.0, y: 0.2, w: 0.6, h: 0.6 });
+        target.camera.position = Some(CameraPosition { x: 0.9, y: 0.1 });
         let applied = apply_preset(&target, &preset, &root, &project);
         let want = camera_styled().camera;
         assert_eq!(applied.camera.preset, want.preset);
@@ -739,11 +742,12 @@ mod tests {
         assert_eq!(applied.camera.background, want.background);
         assert_eq!(applied.camera.anchor, CameraAnchor::Left);
         assert_eq!(applied.camera.crop, target.camera.crop);
+        assert_eq!(applied.camera.position, target.camera.position, "a free placement stays with the recording");
         // A new project takes the preset's camera look as well (anchor / framing: standard).
         let meta = RecordingMeta { duration_ms: 10_000, ..Default::default() };
         let d = default_doc(&meta, Some(&preset));
         assert_eq!(d.camera.preset, LayoutPreset::DualFrame);
-        assert_eq!((d.camera.anchor, d.camera.crop), (CameraAnchor::BottomRight, None));
+        assert_eq!((d.camera.anchor, d.camera.crop, d.camera.position), (CameraAnchor::BottomRight, None, None));
     }
 
     #[test]

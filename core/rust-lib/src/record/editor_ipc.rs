@@ -21,7 +21,7 @@ use super::peaks::{self, Peaks, SourcePeaks, WaveSpan};
 use super::project::{self, CursorRecording, Project, ProjectStatus, ProjectSummary, RecordingMeta, MIC_FILE, PROJECT_FILE, SCREEN_FILE};
 use super::render_client::{FrameAnswer, Notice, PeaksError, RenderClient, Sink, PEAKS_TIMEOUT};
 use super::click_cues::click_hits_by_source;
-use super::scene_json::{has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
+use super::scene_json::{clip_layout, has_cursor_data, load_takes, project_asset, read_cursor, scene_json_with, screen_boxes, take_metas, TakeSources};
 use std::collections::{HashMap, HashSet};
 use super::voiceover::{self, Take, VoiceoverState};
 use super::zoom_plan::plan_auto_zooms;
@@ -928,7 +928,10 @@ pub fn session_view(
     let screen_rects = screen_boxes(meta, &take_metas(takes), doc, out).iter().map(|(r, _)| [r.x, r.y, r.width, r.height]).collect();
     let metas = take_metas(takes);
     let clip_cameras = (0..doc.clips.len()).map(|i| editor::clip_camera(meta, &metas, doc, i).is_some()).collect();
-    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, clip_cameras, takes: metas, ..editor::view(doc) }
+    let camera_rects = (0..doc.clips.len())
+        .map(|i| clip_layout(meta, &metas, doc, out, i, editor::LayoutPreset::PictureInPicture).0.camera.map(|r| [r.x, r.y, r.width, r.height]))
+        .collect();
+    EditorView { output_size: [out.0, out.1], click_hits, screen_rects, camera_rects, clip_cameras, takes: metas, ..editor::view(doc) }
 }
 
 /// The document with the planner's zooms appended (`plan_auto_zooms`: new auto regions only,
@@ -2619,10 +2622,20 @@ mod tests {
         let v = session_view(&meta, &d, None, &TakeSources::new(), (1920, 1080));
         // Clip 1 names a take that is not there: no camera (`clip_camera`).
         assert_eq!(v.clip_cameras, vec![true, false]);
-        let plain = RecordingMeta { camera: None, ..meta };
+        let plain = RecordingMeta { camera: None, ..meta.clone() };
         assert_eq!(session_view(&plain, &doc(&[(0, 10_000)]), None, &TakeSources::new(), (1920, 1080)).clip_cameras, vec![false]);
         let j = serde_json::to_value(&v).unwrap();
         assert_eq!(j["clipCameras"], serde_json::json!([true, false]));
+        // The camera box per clip: present where there is a camera, follows a free position.
+        assert!(v.camera_rects[0].is_some() && v.camera_rects[1].is_none());
+        assert_eq!(j["cameraRects"][1], serde_json::Value::Null);
+        let [x, y, w, h] = v.camera_rects[0].unwrap();
+        assert!(x > 0.5 && y > 0.5, "anchored bottom-right by default");
+        let mut moved = d.clone();
+        moved.camera.position = Some(editor::CameraPosition { x: 0.3, y: 0.4 });
+        let [mx, my, mw, mh] = session_view(&meta, &moved, None, &TakeSources::new(), (1920, 1080)).camera_rects[0].unwrap();
+        assert_eq!((mw, mh), (w, h));
+        assert!((mx + mw / 2.0 - 0.3).abs() < 0.002 && (my + mh / 2.0 - 0.4).abs() < 0.002);
     }
 
     #[test]

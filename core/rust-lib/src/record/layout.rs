@@ -119,11 +119,14 @@ pub struct CameraLook {
     /// 0 square corners … 1 fully round (picture-in-picture only).
     pub roundness: f64,
     pub anchor: CameraAnchor,
+    /// Picture-in-picture placed freely: the camera box's centre in fractions (0..1) of the
+    /// output; `None` = placed by `anchor`. Clamped so the box keeps the margin from the border.
+    pub center: Option<(f64, f64)>,
 }
 
 impl Default for CameraLook {
     fn default() -> Self {
-        CameraLook { preset: LayoutPreset::PictureInPicture, size_pct: 40.0, mask: CameraMask::Square, roundness: 0.7, anchor: CameraAnchor::BottomRight }
+        CameraLook { preset: LayoutPreset::PictureInPicture, size_pct: 40.0, mask: CameraMask::Square, roundness: 0.7, anchor: CameraAnchor::BottomRight, center: None }
     }
 }
 
@@ -388,6 +391,14 @@ pub fn screen_rect(out: (u32, u32), screen_aspect: f64, padding_pct: f64, frame:
     Rect { x: x / canvas.0, y: y / canvas.1, width: w / canvas.0, height: h / canvas.1 }
 }
 
+/// One axis of a freely placed camera: centre `c` (fraction of `extent`) → the box's start,
+/// kept `margin` from both borders (a box larger than the room sits at the margin, never below 0).
+fn free_pos(c: f64, extent: f64, size: f64, margin: f64) -> f64 {
+    let lo = margin;
+    let hi = (extent - margin - size).max(lo);
+    (c * extent - size / 2.0).round().clamp(lo, hi).max(0.0)
+}
+
 /// `computeCompositeLayout` (`compositeLayout.ts:447-646`) for one clip: where the screen and
 /// the camera sit in an `out`-sized frame. `camera` = the camera's source size, `None` = no
 /// camera on this clip; `look.preset` is used as given (resolve it per clip first).
@@ -485,9 +496,16 @@ pub fn composite_layout(out: (u32, u32), screen_aspect: f64, camera: Option<(u32
                 let side = w.min(h);
                 (w, h) = (side, side);
             }
-            let (fx, fy) = look.anchor.fractions();
-            let x = (margin + fx * (canvas.0 - 2.0 * margin - w)).round().max(0.0);
-            let y = (margin + fy * (canvas.1 - 2.0 * margin - h)).round().max(0.0);
+            let (x, y) = match look.center.filter(|(cx, cy)| cx.is_finite() && cy.is_finite()) {
+                Some((cx, cy)) => (free_pos(cx, canvas.0, w, margin), free_pos(cy, canvas.1, h, margin)),
+                None => {
+                    let (fx, fy) = look.anchor.fractions();
+                    (
+                        (margin + fx * (canvas.0 - 2.0 * margin - w)).round().max(0.0),
+                        (margin + fy * (canvas.1 - 2.0 * margin - h)).round().max(0.0),
+                    )
+                }
+            };
             let roundness = if look.roundness.is_finite() { look.roundness.clamp(0.0, 1.0) } else { 0.0 };
             let cam = (x, y, w, h);
             CompositeLayout {
@@ -626,7 +644,7 @@ mod tests {
     }
 
     fn look(preset: LayoutPreset) -> CameraLook {
-        CameraLook { preset, size_pct: 40.0, mask: CameraMask::Rectangle, roundness: 0.4, anchor: CameraAnchor::BottomRight }
+        CameraLook { preset, size_pct: 40.0, mask: CameraMask::Rectangle, roundness: 0.4, anchor: CameraAnchor::BottomRight, center: None }
     }
 
     fn lay(out: (u32, u32), screen: (u32, u32), camera: Option<(u32, u32)>, l: &CameraLook, padding: f64, frame: Frame, even: bool) -> (CompositeLayout, [f64; 4], Option<[f64; 4]>) {
@@ -686,6 +704,7 @@ mod tests {
                 mask: serde_json::from_value(l["mask"].clone()).unwrap(),
                 roundness: l["roundness"].as_f64().unwrap(),
                 anchor: serde_json::from_value(l["anchor"].clone()).unwrap(),
+                center: None,
             };
             let out = pair(&case["out"]);
             let camera = if case["camera"].is_null() { None } else { Some(pair(&case["camera"])) };
@@ -729,6 +748,61 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pip_free_center_places_the_box_around_it() {
+        let out = (1920, 1080);
+        let base = look(LayoutPreset::PictureInPicture);
+        let anchored = lay(out, (1920, 1080), Some((1280, 720)), &base, 0.0, Frame::None, false).2.unwrap();
+        let l = CameraLook { center: Some((0.5, 0.5)), ..base };
+        let [x, y, w, h] = lay(out, (1920, 1080), Some((1280, 720)), &l, 0.0, Frame::None, false).2.unwrap();
+        // Same size as anchored; only the position moves.
+        assert_eq!((w, h), (anchored[2], anchored[3]));
+        assert!((x + w / 2.0 - 960.0).abs() <= 1.0 && (y + h / 2.0 - 540.0).abs() <= 1.0, "centred");
+        let l = CameraLook { center: Some((0.3, 0.4)), ..base };
+        let [x, y, w, h] = lay(out, (1920, 1080), Some((1280, 720)), &l, 0.0, Frame::None, false).2.unwrap();
+        assert!((x + w / 2.0 - 576.0).abs() <= 1.0 && (y + h / 2.0 - 432.0).abs() <= 1.0);
+    }
+
+    #[test]
+    fn pip_free_center_is_clamped_at_every_edge() {
+        let out = (1920, 1080);
+        let margin = (1080.0_f64 * PIP_MARGIN_FRACTION).round();
+        for (cx, cy) in [(0.0, 0.5), (1.0, 0.5), (0.5, 0.0), (0.5, 1.0), (-3.0, -3.0), (9.0, 9.0)] {
+            let l = CameraLook { center: Some((cx, cy)), ..look(LayoutPreset::PictureInPicture) };
+            let [x, y, w, h] = lay(out, (1920, 1080), Some((1280, 720)), &l, 0.0, Frame::None, false).2.unwrap();
+            assert!(x >= margin - 0.5 && x + w <= 1920.0 - margin + 0.5, "x at ({cx},{cy}): {x}+{w}");
+            assert!(y >= margin - 0.5 && y + h <= 1080.0 - margin + 0.5, "y at ({cx},{cy}): {y}+{h}");
+            if cx <= 0.0 {
+                assert_eq!(x, margin);
+            }
+            if cx >= 1.0 {
+                assert_eq!(x, 1920.0 - margin - w);
+            }
+            if cy <= 0.0 {
+                assert_eq!(y, margin);
+            }
+            if cy >= 1.0 {
+                assert_eq!(y, 1080.0 - margin - h);
+            }
+        }
+    }
+
+    #[test]
+    fn pip_without_center_and_non_finite_center_use_the_anchor() {
+        let out = (1920, 1080);
+        let base = look(LayoutPreset::PictureInPicture);
+        let anchored = lay(out, (1920, 1080), Some((1280, 720)), &base, 0.0, Frame::None, false).2.unwrap();
+        let l = CameraLook { center: Some((f64::NAN, 0.5)), ..base };
+        assert_eq!(lay(out, (1920, 1080), Some((1280, 720)), &l, 0.0, Frame::None, false).2.unwrap(), anchored);
+        // Block layouts ignore it.
+        let block = CameraLook { center: Some((0.1, 0.1)), ..look(LayoutPreset::DualFrame) };
+        let plain = look(LayoutPreset::DualFrame);
+        assert_eq!(
+            lay(out, (1920, 1080), Some((1280, 720)), &block, 0.0, Frame::None, false),
+            lay(out, (1920, 1080), Some((1280, 720)), &plain, 0.0, Frame::None, false)
+        );
     }
 
     #[test]

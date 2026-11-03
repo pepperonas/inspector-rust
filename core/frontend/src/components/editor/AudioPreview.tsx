@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { EditorSourcePos, RecordClickHit, RecordTrackSpan } from "../../lib/ipc";
 import { clickVolume, dueClickHits } from "../../lib/editor";
 import { dbToGain, entryAt, fileMsAt, gainAt, limiterCurve } from "../../lib/audio-mix";
@@ -54,10 +54,14 @@ class Mix {
     }
   }
 
-  /** Routes `el` into the mix (once) and sets its level; false: it plays on its own. */
+  /**
+   * Sets `el`'s level through the mix; false: it plays on its own (use its volume). An element
+   * is routed only while the context runs — routed into a suspended context it would be silent.
+   */
   set(el: HTMLMediaElement, gain: number): boolean {
     let g = this.nodes.get(el);
     if (!g) {
+      if (this.ctx.state !== "running") return false;
       try {
         const src = this.ctx.createMediaElementSource(el);
         g = this.ctx.createGain();
@@ -127,26 +131,54 @@ export function AudioPreview({
   const last = useRef<{ clip: number; speed: number } | null>(null);
   const mix = useRef<Mix | null>(null);
   useEffect(() => () => mix.current?.close(), []);
+  /** Bumped when the context starts running: the levels are set again (now through the mix). */
+  const [mixRunning, setMixRunning] = useState(0);
+  /**
+   * Sources whose CORS-mode load failed: reloaded without `crossOrigin`, kept out of the mix
+   * (a cross-origin element routed into WebAudio is silent) and played through their volume.
+   */
+  const [unmixed, setUnmixed] = useState<ReadonlySet<string>>(() => new Set());
+  const unmixedRef = useRef(unmixed);
+  useEffect(() => {
+    unmixedRef.current = unmixed;
+  });
 
   /** Sets one element's level through the mix (or its volume, capped at 1). */
   const level = useCallback((el: HTMLMediaElement | null, gain: number) => {
     if (!el) return;
     const g = Math.max(0, gain);
-    if (!mix.current?.set(el, g)) el.volume = Math.min(1, g);
+    const own = unmixedRef.current.has(el.getAttribute("src") ?? "");
+    if (own || !mix.current?.set(el, g)) el.volume = Math.min(1, g);
   }, []);
+
+  /** A failed load in CORS mode: once more without it, outside the mix — never silent. */
+  const onMediaError = useCallback((e: SyntheticEvent<HTMLAudioElement>) => {
+    const el = e.currentTarget;
+    const src = el.getAttribute("src");
+    if (!src || !el.hasAttribute("crossorigin") || unmixedRef.current.has(src)) return;
+    const next = new Set(unmixedRef.current).add(src);
+    unmixedRef.current = next;
+    setUnmixed(next);
+    el.removeAttribute("crossorigin");
+    el.load();
+  }, []);
+  const corsFor = (src: string) => (unmixed.has(src) ? undefined : "anonymous");
 
   // The mix starts with the first play (a user gesture), never before.
   useEffect(() => {
     if (!playing) return;
     mix.current ??= Mix.create();
-    void mix.current?.ctx.resume?.().catch(() => undefined);
+    const ctx = mix.current?.ctx;
+    if (!ctx) return;
+    if (ctx.state === "running") setMixRunning((n) => n + 1);
+    else void ctx.resume?.().then(() => setMixRunning((n) => n + 1)).catch(() => undefined);
   }, [playing]);
 
   const duck = dbToGain(Math.min(0, duckDb));
   useEffect(() => {
     level(sys.current, dbToGain(systemGainDb) * duck);
     level(mic.current, dbToGain(micGainDb) * duck);
-  }, [systemGainDb, micGainDb, duck, playing, level, screenSrc, micSrc]);
+  }, [systemGainDb, micGainDb, duck, playing, level, screenSrc, micSrc, mixRunning, unmixed]);
 
   // Tracks: each file follows its entry under the playhead (seek on a new entry or drift).
   const trackLast = useRef(new Map<number, string>());
@@ -172,7 +204,7 @@ export function AudioPreview({
       el.playbackRate = 1;
       if (el.paused) void el.play?.()?.catch(() => undefined);
     }
-  }, [playing, positionMs, spans, duck, level, tracks]);
+  }, [playing, positionMs, spans, duck, level, tracks, mixRunning, unmixed]);
 
   useEffect(() => {
     const els: [HTMLAudioElement | null, number][] = [
@@ -200,7 +232,7 @@ export function AudioPreview({
       el.playbackRate = cue.speed;
       if (el.paused) void el.play?.()?.catch(() => undefined);
     }
-  }, [playing, source, speed, micOffsetMs]);
+  }, [playing, source, speed, micOffsetMs, screenSrc, micSrc]);
 
   // Click sound: the hits ahead of the playhead are scheduled on timers (the playhead only
   // arrives every ~66 ms), each played once; a seek or a pause drops what is pending.
@@ -248,8 +280,11 @@ export function AudioPreview({
 
   return (
     <>
-      {screenSrc && <audio ref={sys} src={screenSrc} preload="auto" crossOrigin="anonymous" data-testid="ed-audio-system" />}
-      {micSrc && <audio ref={mic} src={micSrc} preload="auto" crossOrigin="anonymous" data-testid="ed-audio-mic" />}
+      {/* Keyed by file: an element already routed into the mix is never reused for another. */}
+      {screenSrc && (
+        <audio key={screenSrc} ref={sys} src={screenSrc} preload="auto" crossOrigin={corsFor(screenSrc)} onError={onMediaError} data-testid="ed-audio-system" />
+      )}
+      {micSrc && <audio key={micSrc} ref={mic} src={micSrc} preload="auto" crossOrigin={corsFor(micSrc)} onError={onMediaError} data-testid="ed-audio-mic" />}
       {tracks.map((tr) => (
         <audio
           key={`${tr.index}:${tr.src}`}
@@ -259,7 +294,8 @@ export function AudioPreview({
           }}
           src={tr.src}
           preload="auto"
-          crossOrigin="anonymous"
+          crossOrigin={corsFor(tr.src)}
+          onError={onMediaError}
           data-testid="ed-audio-track"
         />
       ))}

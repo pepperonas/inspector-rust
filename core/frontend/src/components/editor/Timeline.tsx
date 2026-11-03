@@ -27,7 +27,7 @@ import {
   zoomSourceAt,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
-import { AudioLane, WaveLayer } from "./AudioLane";
+import { AudioLane, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -105,6 +105,7 @@ export function Timeline({
   onSelectAnnotation = () => undefined,
   selectedTrack = null,
   onSelectTrack = () => undefined,
+  resolveTrackEdge,
   locked = false,
 }: {
   view: RecordEditorView;
@@ -135,6 +136,8 @@ export function Timeline({
   /** The music/voiceover track (`id`) the inspector edits. */
   selectedTrack?: string | null;
   onSelectTrack?: (id: string | null) => void;
+  /** Rust's resolution of a track edge drag (`editor_track_edge`). */
+  resolveTrackEdge?: ResolveTrackEdge;
   /** A voiceover take runs: no seeking, no drags, no edits. */
   locked?: boolean;
 }) {
@@ -671,7 +674,7 @@ export function Timeline({
           onError={onError}
           selected={selectedTrack}
           onSelect={onSelectTrack}
-          locked={locked}
+          resolveEdge={resolveTrackEdge}
         />
 
         {/* Playhead */}

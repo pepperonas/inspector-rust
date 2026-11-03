@@ -38,54 +38,47 @@ export function trackBars(view: RecordEditorView): TrackBar[] {
 
 export type TrackDragMode = "move" | "start" | "end";
 
-/** Where a drag puts a track: its programme start (Rust maps it to an anchor) and its file window. */
+/** What a drag shows on the programme (the file window is Rust's: `editor_track_edge`). */
 export interface TrackDragResult {
   progStartMs: number;
-  /** Where the bar then ends (what the drag shows). */
   progEndMs: number;
-  offsetMs: number;
-  spanMs: number | null;
 }
 
 /**
- * A drag of `deltaMs` on a bar, clamped to the programme (start ≥ 0, end ≤ `programmeMs`):
- * moving keeps the length; the start edge eats into the file (`offsetMs`, never below 0); the
- * end edge sets the played length (`spanMs`, up to the file's end unless the track loops).
- * Tracks play at 1×, so programme ms and file ms move together.
+ * A drag of `deltaMs` on a bar, in programme ms and clamped to the programme: moving keeps
+ * the length (a loop may move later, Rust refills it to the end); an edge moves alone and
+ * leaves at least 100 ms. Only positions — what an edge does to the file (cuts, the file's
+ * ends) Rust resolves (R12).
  */
 export function dragTrackBar(
   bar: Pick<TrackBar, "progStartMs" | "progEndMs">,
-  track: Pick<RecordAudioTrack, "offsetMs" | "spanMs" | "durationMs" | "looped">,
+  track: Pick<RecordAudioTrack, "looped">,
   mode: TrackDragMode,
   deltaMs: number,
   programmeMs: number,
 ): TrackDragResult {
   const len = bar.progEndMs - bar.progStartMs;
   const d = Number.isFinite(deltaMs) ? deltaMs : 0;
-  const same = { progStartMs: bar.progStartMs, progEndMs: bar.progEndMs, offsetMs: track.offsetMs, spanMs: track.spanMs };
   if (mode === "move") {
-    const hi = Math.max(0, programmeMs - len);
+    const hi = Math.max(0, track.looped ? programmeMs - MIN_TRACK_MS : programmeMs - len);
     const start = Math.round(Math.min(hi, Math.max(0, bar.progStartMs + d)));
-    return { ...same, progStartMs: start, progEndMs: start + len };
+    return { progStartMs: start, progEndMs: Math.min(track.looped ? programmeMs : Infinity, start + len) };
   }
   if (mode === "start") {
-    const lo = Math.max(0, bar.progStartMs - track.offsetMs);
-    const hi = Math.max(lo, bar.progEndMs - MIN_TRACK_MS);
-    const start = Math.round(Math.min(hi, Math.max(lo, bar.progStartMs + d)));
-    const moved = start - bar.progStartMs;
-    return {
-      ...same,
-      progStartMs: start,
-      offsetMs: Math.max(0, track.offsetMs + moved),
-      spanMs: track.spanMs == null ? null : Math.max(MIN_TRACK_MS, track.spanMs - moved),
-    };
+    const start = Math.round(Math.min(bar.progEndMs - MIN_TRACK_MS, Math.max(0, bar.progStartMs + d)));
+    return { progStartMs: start, progEndMs: bar.progEndMs };
   }
-  const fileLeft = track.durationMs > 0 && !track.looped ? track.durationMs - track.offsetMs : Infinity;
-  const maxEnd = Math.min(programmeMs, bar.progStartMs + fileLeft);
-  const end = Math.round(Math.min(maxEnd, Math.max(bar.progStartMs + MIN_TRACK_MS, bar.progEndMs + d)));
-  const current = track.spanMs ?? (track.looped || !(track.durationMs > 0) ? len : track.durationMs - track.offsetMs);
-  return { ...same, progEndMs: end, spanMs: Math.max(MIN_TRACK_MS, current + (end - bar.progEndMs)) };
+  const end = Math.round(Math.min(programmeMs, Math.max(bar.progStartMs + MIN_TRACK_MS, bar.progEndMs + d)));
+  return { progStartMs: bar.progStartMs, progEndMs: end };
 }
+
+/** Resolves an edge drag in Rust: the track's new anchor and file window (`null`: nothing to do). */
+export type ResolveTrackEdge = (
+  index: number,
+  id: string,
+  edge: "start" | "end",
+  programmeMs: number,
+) => Promise<Pick<RecordAudioTrack, "clip" | "startMs" | "offsetMs" | "spanMs"> | null>;
 
 /** A track's name: its label, else its file name without the extension. */
 export function trackName(t: RecordAudioTrack): string {
@@ -147,8 +140,9 @@ type Drag = { index: number; id: string; mode: TrackDragMode; x0: number; dx: nu
 /**
  * The audio lane under the clips: one bar per music/voiceover track, from Rust's programme
  * entries, with its waveform and the loop repeats marked. Dragging the bar moves the track
- * (Rust maps the new programme start to an anchor), its edges trim the file's start
- * (`offsetMs`) and the played length; every drag is clamped to the programme and is one step.
+ * (Rust maps the new programme start to an anchor); its edges trim the start and the length,
+ * resolved in Rust (`resolveEdge`) because a voiceover's file skips what a cut removed.
+ * Every drag is clamped to the programme and is one step.
  */
 export function AudioLane({
   view,
@@ -158,7 +152,7 @@ export function AudioLane({
   onError,
   selected,
   onSelect,
-  locked = false,
+  resolveEdge,
 }: {
   view: RecordEditorView;
   /** px per programme ms. */
@@ -168,8 +162,8 @@ export function AudioLane({
   onError: (e: unknown) => void;
   selected: string | null;
   onSelect: (id: string | null) => void;
-  /** A voiceover take runs: nothing can be dragged. */
-  locked?: boolean;
+  /** Rust's resolution of an edge drag (R12). Without it the edges are not offered. */
+  resolveEdge?: ResolveTrackEdge;
 }) {
   const t = useT();
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -183,7 +177,6 @@ export function AudioLane({
     const tr = doc.audioTracks[b.index];
     if (!tr) return;
     onSelect(tr.id);
-    if (locked) return;
     try {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     } catch {
@@ -194,20 +187,21 @@ export function AudioLane({
 
   const finish = async (d: Drag) => {
     const bar = bars.find((b) => b.index === d.index);
-    const cur = getDoc();
-    const tr = cur.audioTracks.find((x) => x.id === d.id);
+    const tr = getDoc().audioTracks.find((x) => x.id === d.id);
     if (!bar || !tr || scale <= 0) return;
     const r = dragTrackBar(bar, tr, d.mode, d.dx / scale, total);
-    const patch: Partial<RecordAudioTrack> = { offsetMs: r.offsetMs, spanMs: r.spanMs };
-    if (r.progStartMs !== bar.progStartMs) {
+    if (d.mode === "move") {
+      if (r.progStartMs === bar.progStartMs) return;
       // R12: Rust maps the programme start to the anchor (clip + source ms).
       const at = await editorToSource(Math.min(r.progStartMs, Math.max(0, total - 1)));
       if (!at) return;
-      patch.clip = at.clip;
-      patch.startMs = Math.round(at.sourceMs);
+      onChange(updateTrack(getDoc(), d.id, { clip: at.clip, startMs: Math.round(at.sourceMs) }));
+      return;
     }
-    if (patch.offsetMs === tr.offsetMs && patch.spanMs === tr.spanMs && patch.clip === undefined) return;
-    onChange(updateTrack(getDoc(), d.id, patch));
+    const target = d.mode === "start" ? r.progStartMs : r.progEndMs;
+    if (target === (d.mode === "start" ? bar.progStartMs : bar.progEndMs) || !resolveEdge) return;
+    const patch = await resolveEdge(d.index, d.id, d.mode, target);
+    if (patch) onChange(updateTrack(getDoc(), d.id, patch));
   };
 
   return (
@@ -245,25 +239,25 @@ export function AudioLane({
             onPointerDown={begin(b, "move")}
             className={
               "absolute flex items-center overflow-hidden rounded-sm border px-1.5 text-[10px] font-medium " +
-              (locked ? "cursor-default " : "cursor-grab ") +
-              (music ? "border-teal-500 bg-teal-700/80 text-white " : "border-rose-500 bg-rose-700/80 text-white ") +
+              "cursor-grab " +
+              (music ? "border-emerald-400 bg-emerald-500/70 text-white " : "border-orange-400 bg-orange-500/70 text-white ") +
               (tr.muted ? "opacity-45 " : "") +
               (sel ? "ring-2 ring-[var(--color-accent)]" : "")
             }
             style={{ left: start * scale, top: LANE_ROW_PX * row, height: LANE_ROW_PX - 4, width: Math.max(10, (end - start) * scale) }}
           >
-            <WaveLayer waves={waves} startMs={b.progStartMs} endMs={b.progEndMs} className={music ? "text-teal-200/60" : "text-rose-200/60"} />
+            <WaveLayer waves={waves} startMs={b.progStartMs} endMs={b.progEndMs} className="text-white/60" />
             {b.repeats.map((ms) => (
               <span
                 key={ms}
                 data-testid="ed-audio-repeat"
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 w-px border-l border-dashed border-white/70"
+                className="pointer-events-none absolute inset-y-0 w-px bg-white/60"
                 style={{ left: (ms - b.progStartMs) * scale }}
               />
             ))}
             <span className="relative truncate">{trackName(tr)}</span>
-            {!locked &&
+            {resolveEdge &&
               (["start", "end"] as const).map((edge) => (
                 <span
                   key={edge}

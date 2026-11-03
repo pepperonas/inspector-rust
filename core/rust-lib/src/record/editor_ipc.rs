@@ -1447,6 +1447,24 @@ pub fn to_source(programme_ms: u64) -> Result<Option<SourcePos>, String> {
     Ok(locate(&s.play, programme_ms))
 }
 
+/// `editor_track_edge`: an edge drag of track `id` (at `index`) to programme `programme_ms`,
+/// resolved on the playing document (`audio_tracks::track_edge`). `None` when the session's
+/// document no longer has that track there (an edit is still on its way).
+pub fn track_edge(
+    session_id: u64,
+    index: usize,
+    id: &str,
+    edge: super::audio_tracks::TrackEdge,
+    programme_ms: f64,
+) -> Result<Option<super::audio_tracks::EdgeResult>, String> {
+    let guard = session();
+    let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    if s.play.audio_tracks.get(index).map(|t| t.id.as_str()) != Some(id) {
+        return Ok(None);
+    }
+    Ok(super::audio_tracks::track_edge(&s.play, index, edge, programme_ms))
+}
+
 /// Source → programme on the open document, without moving the playhead.
 pub fn to_programme(clip: usize, source_ms: u64) -> Result<u64, String> {
     let guard = session();
@@ -1704,8 +1722,8 @@ pub fn import_with_duration(
     }
     let path = project_dir.join(super::scene_json::PROJECT_ASSETS_DIR).join(&file);
     let cache = peaks::cache_name_for(&path).map(|n| project_dir.join(n));
-    let duration = match cache {
-        Some(cache) => probe(&path, &cache),
+    let duration = match &cache {
+        Some(cache) => probe(&path, cache),
         None => Err("no metadata".into()),
     };
     match duration {
@@ -1715,6 +1733,10 @@ pub fn import_with_duration(
                 tracing::warn!(target: "record::editor", "import: {} unreadable: {e}", src.display());
             }
             let _ = std::fs::remove_file(&path);
+            // A waveform cache the helper may have written for it goes too.
+            if let Some(cache) = cache {
+                let _ = std::fs::remove_file(cache);
+            }
             Err(ERR_IMPORT_AUDIO_UNREADABLE.into())
         }
     }
@@ -2068,9 +2090,15 @@ mod tests {
         let failed = import_with_duration(&project, &src, AssetKind::Audio, |_, _| Err("no audio stream".into()));
         assert_eq!(failed.unwrap_err(), ERR_IMPORT_AUDIO_UNREADABLE);
         assert_eq!(std::fs::read_dir(&assets).unwrap().count(), 0, "the copy is gone");
-        // A length of 0 is no length either.
-        assert_eq!(import_with_duration(&project, &src, AssetKind::Audio, |_, _| Ok(0)).unwrap_err(), ERR_IMPORT_AUDIO_UNREADABLE);
+        // A length of 0 is no length either; a cache the probe wrote is removed with the copy.
+        let failed = import_with_duration(&project, &src, AssetKind::Audio, |_, cache| {
+            std::fs::write(cache, b"peaks").unwrap();
+            Ok(0)
+        });
+        assert_eq!(failed.unwrap_err(), ERR_IMPORT_AUDIO_UNREADABLE);
         assert_eq!(std::fs::read_dir(&assets).unwrap().count(), 0);
+        let left: Vec<_> = std::fs::read_dir(&project).unwrap().filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
+        assert_eq!(left, vec![std::ffi::OsString::from(crate::record::scene_json::PROJECT_ASSETS_DIR)], "{left:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

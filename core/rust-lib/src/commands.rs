@@ -7311,6 +7311,20 @@ pub async fn editor_to_source(programme_ms: u64) -> Result<Option<crate::record:
     editor_blocking(move || crate::record::editor_ipc::to_source(programme_ms)).await
 }
 
+/// A track edge dragged to `programme_ms`: its new anchor, file offset and span, as Rust
+/// plays it (no side effects; the UI records the patch as one undo step).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_track_edge(
+    session_id: u64,
+    index: usize,
+    id: String,
+    edge: crate::record::audio_tracks::TrackEdge,
+    programme_ms: f64,
+) -> Result<Option<crate::record::audio_tracks::EdgeResult>, String> {
+    editor_blocking(move || crate::record::editor_ipc::track_edge(session_id, index, &id, edge, programme_ms)).await
+}
+
 /// Source → programme on the open document (no side effects).
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]

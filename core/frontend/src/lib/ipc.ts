@@ -5536,6 +5536,24 @@ export function editorVoiceoverStop(sessionId: number): Promise<RecordEditorView
 export function editorVoiceoverCancel(sessionId: number): Promise<void> {
   return invoke("editor_voiceover_cancel", { sessionId });
 }
+/** Where a track edge drag puts the track (`null`: Rust's document no longer has it there). */
+export interface EditorTrackEdge {
+  clip: number;
+  startMs: number;
+  offsetMs: number;
+  spanMs: number | null;
+}
+/** Resolves an edge drag of track `id` (at `index`) to programme `programmeMs` in Rust: the
+ * file window as the mix plays it (a voiceover skips what a cut removed). No side effects. */
+export function editorTrackEdge(
+  sessionId: number,
+  index: number,
+  id: string,
+  edge: "start" | "end",
+  programmeMs: number,
+): Promise<EditorTrackEdge | null> {
+  return invoke("editor_track_edge", { sessionId, index, id, edge, programmeMs });
+}
 /** Source → programme on the open document; does not move the playhead. */
 export function editorToProgramme(clip: number, sourceMs: number): Promise<number> {
   return invoke("editor_to_programme", { clip, sourceMs: ms(sourceMs) });

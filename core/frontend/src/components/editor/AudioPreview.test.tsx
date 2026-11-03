@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import type { RecordTrackSpan } from "../../lib/ipc";
 import { AudioPreview, type ClickPreview } from "./AudioPreview";
 
@@ -97,9 +97,16 @@ class FakeParam {
     this.value = v;
   }
 }
-const mixLog: { gains: { gain: FakeParam; el: HTMLMediaElement }[]; curve: Float32Array | null; ctx: number } = { gains: [], curve: null, ctx: 0 };
+const mixLog: { routed: HTMLMediaElement[]; curve: Float32Array | null; ctx: number; state: string; gate: Promise<void> | null } = {
+  routed: [],
+  curve: null,
+  ctx: 0,
+  state: "running",
+  gate: null,
+};
 class FakeCtx {
   currentTime = 0;
+  state = mixLog.state;
   destination = {};
   constructor() {
     mixLog.ctx += 1;
@@ -114,6 +121,7 @@ class FakeCtx {
     };
   }
   createMediaElementSource(el: HTMLMediaElement) {
+    mixLog.routed.push(el);
     return { connect: () => undefined, el };
   }
   createGain() {
@@ -121,7 +129,9 @@ class FakeCtx {
     return g;
   }
   resume() {
-    return Promise.resolve();
+    return (mixLog.gate ?? Promise.resolve()).then(() => {
+      this.state = "running";
+    });
   }
   close() {
     return Promise.resolve();
@@ -163,9 +173,11 @@ function mixEl(over: Partial<Parameters<typeof AudioPreview>[0]> = {}) {
 
 describe("AudioPreview mix", () => {
   beforeEach(() => {
-    mixLog.gains = [];
+    mixLog.routed = [];
     mixLog.curve = null;
     mixLog.ctx = 0;
+    mixLog.state = "running";
+    mixLog.gate = null;
     vi.useRealTimers();
     // Element playback is a no-op in the test DOM.
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
@@ -211,5 +223,49 @@ describe("AudioPreview mix", () => {
     const sys = container.querySelector('[data-testid="ed-audio-system"]') as HTMLAudioElement;
     expect(el.volume).toBeCloseTo(10 ** (-12 / 20), 6);
     expect(sys.volume).toBeCloseTo(10 ** (-12 / 20), 6);
+  });
+  it("routes nothing until the context runs (a suspended context would be silent)", async () => {
+    mixLog.state = "suspended";
+    let start = () => undefined as void;
+    mixLog.gate = new Promise<void>((r) => (start = r));
+    vi.stubGlobal("AudioContext", FakeCtx);
+    const { container } = render(mixEl({ spans: [trackSpan({ gainDb: -6 })] }));
+    const el = container.querySelector('[data-testid="ed-audio-track"]') as HTMLAudioElement;
+    expect(mixLog.routed).toHaveLength(0);
+    expect(el.volume).toBeCloseTo(10 ** (-6 / 20), 6);
+    // Once resume() answers, the elements go through the mix.
+    await act(async () => {
+      start();
+      await mixLog.gate;
+    });
+    expect(mixLog.routed).toContain(el);
+  });
+
+  it("a failed CORS-mode load is retried without it, outside the mix, through the volume", async () => {
+    vi.stubGlobal("AudioContext", FakeCtx);
+    const corsAtLoad: boolean[] = [];
+    const load = vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(function (this: HTMLMediaElement) {
+      corsAtLoad.push(this.hasAttribute("crossorigin"));
+    });
+    const { container, rerender } = render(mixEl({ playing: false, spans: [trackSpan({ gainDb: -6 })] }));
+    const el = container.querySelector('[data-testid="ed-audio-track"]') as HTMLAudioElement;
+    expect(el.getAttribute("crossorigin")).toBe("anonymous");
+    await act(async () => {
+      el.dispatchEvent(new Event("error"));
+    });
+    expect(el.hasAttribute("crossorigin")).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(corsAtLoad, "the reload itself runs without CORS").toEqual([false]);
+    rerender(mixEl({ spans: [trackSpan({ gainDb: -6 })] }));
+    expect(el.hasAttribute("crossorigin"), "a re-render does not put it back").toBe(false);
+    expect(mixLog.routed).not.toContain(el);
+    expect(el.volume).toBeCloseTo(10 ** (-6 / 20), 6);
+    // The system element still goes through the mix.
+    expect(mixLog.routed).toContain(container.querySelector('[data-testid="ed-audio-system"]'));
+    // A second failure does not loop.
+    await act(async () => {
+      el.dispatchEvent(new Event("error"));
+    });
+    expect(load).toHaveBeenCalledTimes(1);
   });
 });

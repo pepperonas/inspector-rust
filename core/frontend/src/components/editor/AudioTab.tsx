@@ -47,6 +47,8 @@ export interface AudioTabProps {
   onLiveEnd: () => void;
   /** Picks a music file and lays it under the playhead (M). */
   onAddMusic: () => void;
+  /** A music import runs: the button waits. */
+  musicBusy?: boolean;
   /** Starts a voiceover take at the playhead (V). */
   onVoiceover: () => void;
   /** The newest document (for slider gestures that started on an older one). */
@@ -95,11 +97,12 @@ export function AudioTab(p: AudioTabProps) {
         <button
           type="button"
           onClick={p.onAddMusic}
+          disabled={p.musicBusy}
           title={`${t("rec4.audio.add_music_hint")} (M)`}
-          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
+          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40"
           data-testid="ed-add-music"
         >
-          <Music size={13} /> {t("rec4.audio.add_music")}
+          <Music size={13} /> {p.musicBusy ? t("rec4.audio.importing") : t("rec4.audio.add_music")}
         </button>
         <button
           type="button"
@@ -228,7 +231,7 @@ export function VoiceoverPanel({
   const t = useT();
   const busy = take.phase !== "recording";
   const meter = (
-    <span className="relative block h-1.5 w-full min-w-16 overflow-hidden rounded-full bg-[var(--color-bg)]" aria-hidden>
+    <span className="relative block h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg)]" aria-hidden>
       <span
         className="anim-keep absolute inset-y-0 left-0 w-full origin-left rounded-full bg-red-500 transition-transform duration-(--duration-fast) ease-sharp"
         style={{ transform: `scaleX(${voiceoverMeter(take.rms)})` }}

@@ -23,9 +23,9 @@
 //!
 //! R12: this is the only place a track's programme position is computed.
 
-use super::editor::{programme_duration_ms, source_to_programme, track_span_ms, AudioTrack, EditDoc, TrackKind};
+use super::editor::{programme_duration_ms, programme_to_source, source_to_programme, track_span_ms, AudioTrack, EditDoc, TrackKind};
 use super::scene_json::project_asset;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Most entries one looping track becomes (`sceneDescription.ts:1033`).
@@ -267,6 +267,134 @@ pub fn project_tracks(doc: &EditDoc, project: &Path) -> Vec<SceneTrack> {
         .collect()
 }
 
+// ── edge drags (the timeline's trim handles) ───────────────────────────────
+
+/// Which edge of a track the timeline drags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackEdge {
+    Start,
+    End,
+}
+
+/// Where an edge drag puts a track: its anchor and its file window (`editor_track_edge`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgeResult {
+    pub clip: usize,
+    pub start_ms: u64,
+    pub offset_ms: u64,
+    pub span_ms: Option<u64>,
+}
+
+/// Shortest track an edge drag leaves, programme ms.
+pub const MIN_EDGE_MS: f64 = 100.0;
+
+/// A raw length longer than any walk the document can need.
+fn far(doc: &EditDoc) -> f64 {
+    programme_duration_ms(doc) as f64 + doc.clips.iter().map(|c| c.end_ms as f64).sum::<f64>() + 1.0
+}
+
+/// The raw position (ms from the head) at which a track anchored at `(clip, start_ms)` plays
+/// programme `p` — what its file has advanced by there (cuts included, as `entries_of` plays it).
+fn raw_at(doc: &EditDoc, clip: usize, start_ms: u64, p: f64) -> Option<f64> {
+    let pieces = walk(doc, clip, start_ms, far(doc))?;
+    let mut out = 0.0;
+    for pc in pieces.iter().filter(|x| x.play) {
+        if pc.prog_ms > p {
+            break;
+        }
+        out = pc.raw_start + (p - pc.prog_ms).min(pc.raw_end - pc.raw_start);
+    }
+    Some(out)
+}
+
+/// The raw length a music track (one continuous entry, cuts removed) needs to play `len` ms of
+/// programme from its anchor.
+fn raw_for_played(doc: &EditDoc, clip: usize, start_ms: u64, len: f64) -> Option<f64> {
+    let played = |raw: f64| walk(doc, clip, start_ms, raw).map(|p| raw - removed_ms(&p));
+    let (mut lo, mut hi) = (len.max(0.0), far(doc));
+    if played(lo)? >= len {
+        return Some(lo);
+    }
+    for _ in 0..64 {
+        let mid = (lo + hi) / 2.0;
+        if played(mid)? >= len {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    Some(hi)
+}
+
+/// Resolves an edge drag of track `index` to programme `prog_ms` on the playing document: the
+/// new anchor, file offset and span, with the file advancing exactly as the mix plays it
+/// (a voiceover skips the time a cut removed, music runs on continuously). The edge is clamped
+/// to the programme, to the file (never before its first sample, never past its end unless it
+/// loops) and to a 100-ms track. R12: the only place an edge drag becomes file time.
+pub fn track_edge(doc: &EditDoc, index: usize, edge: TrackEdge, prog_ms: f64) -> Option<EdgeResult> {
+    let t = doc.audio_tracks.get(index)?;
+    let entries: Vec<TrackSpan> = track_entries(doc).into_iter().filter(|e| e.index == index).collect();
+    let head = entries.iter().map(|e| e.prog_start_ms).fold(f64::INFINITY, f64::min);
+    let end = entries.iter().map(|e| e.prog_end_ms).fold(0.0, f64::max);
+    if !head.is_finite() || !prog_ms.is_finite() {
+        return None;
+    }
+    let programme = programme_duration_ms(doc) as f64;
+    let split = t.kind == TrackKind::Voiceover && !t.looped;
+    let offset = t.offset_ms as f64;
+    match edge {
+        TrackEdge::Start => {
+            let mut p = prog_ms.clamp(0.0, (end - MIN_EDGE_MS).max(0.0)).round();
+            let anchor = |q: f64| programme_to_source(doc, q as u64);
+            let delta_at = |q: f64| -> Option<f64> {
+                if !split {
+                    return Some(q - head);
+                }
+                if q >= head {
+                    raw_at(doc, t.clip, t.start_ms, q)
+                } else {
+                    let (c, s) = anchor(q)?;
+                    raw_at(doc, c, s, head).map(|r| -r)
+                }
+            };
+            if delta_at(p)? < -offset {
+                // Never before the file's first sample: the earliest start whose raw distance
+                // to the head fits in the offset.
+                let (mut bad, mut good) = (p, head.round());
+                while good - bad > 1.0 {
+                    let mid = ((bad + good) / 2.0).floor();
+                    if delta_at(mid)? < -offset {
+                        bad = mid;
+                    } else {
+                        good = mid;
+                    }
+                }
+                p = good;
+            }
+            let delta = delta_at(p)?;
+            let (clip, start_ms) = anchor(p)?;
+            let offset_ms = (offset + delta).round().max(0.0) as u64;
+            let span_ms = match t.span_ms {
+                None => None,
+                Some(s) if split => Some((s as f64 - delta).round().max(MIN_EDGE_MS) as u64),
+                // Music with a set length keeps its end where it was.
+                Some(_) => Some(raw_for_played(doc, clip, start_ms, (end - p).max(MIN_EDGE_MS))?.round() as u64),
+            };
+            Some(EdgeResult { clip, start_ms, offset_ms, span_ms })
+        }
+        TrackEdge::End => {
+            let p = prog_ms.clamp(head + MIN_EDGE_MS, programme.max(head + MIN_EDGE_MS));
+            let mut span = if split { raw_at(doc, t.clip, t.start_ms, p)? } else { raw_for_played(doc, t.clip, t.start_ms, p - head)? };
+            if !t.looped && t.duration_ms > 0 {
+                span = span.min((t.duration_ms as f64 - offset).max(MIN_EDGE_MS));
+            }
+            Some(EdgeResult { clip: t.clip, start_ms: t.start_ms, offset_ms: t.offset_ms, span_ms: Some(span.round().max(MIN_EDGE_MS) as u64) })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,5 +591,92 @@ mod tests {
         let e = track_entries(&play);
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].index, 1);
+    }
+
+    /// Clips 0–5 s and 8–12 s of one recording: a 3-s cut at programme 5 s.
+    fn cut_doc() -> EditDoc {
+        doc(&[(0, 5_000), (8_000, 12_000)])
+    }
+
+    /// File ms an entry of track `i` plays at programme `p`.
+    fn file_at(d: &EditDoc, i: usize, p: f64) -> f64 {
+        let e = track_entries(d).into_iter().find(|e| e.index == i && p >= e.prog_start_ms && p < e.prog_end_ms).unwrap();
+        e.file_start_ms + (p - e.prog_start_ms)
+    }
+
+    fn apply(d: &mut EditDoc, r: &EdgeResult) {
+        let t = &mut d.audio_tracks[0];
+        (t.clip, t.start_ms, t.offset_ms, t.span_ms) = (r.clip, r.start_ms, r.offset_ms, r.span_ms);
+    }
+
+    #[test]
+    fn voiceover_start_trim_across_a_cut_keeps_the_words_on_their_video() {
+        let mut d = cut_doc();
+        let mut t = track(TrackKind::Voiceover, 0, 4_000, 6_000);
+        t.fade_in_ms = 0;
+        t.fade_out_ms = 0;
+        d.audio_tracks = vec![t];
+        let before = file_at(&d, 0, 5_500.0);
+        // Raw: 1 s in clip 0, the 3-s cut, then 2 s in clip 1 → the head moves 4.5 s in the file.
+        let r = track_edge(&d, 0, TrackEdge::Start, 5_500.0).unwrap();
+        assert_eq!(r, EdgeResult { clip: 1, start_ms: 8_500, offset_ms: 4_500, span_ms: Some(1_500) });
+        apply(&mut d, &r);
+        assert_eq!(file_at(&d, 0, 5_500.0), before);
+        assert_eq!(file_at(&d, 0, 6_000.0), 5_000.0);
+    }
+
+    #[test]
+    fn voiceover_start_extends_back_over_a_cut_only_as_far_as_the_file_reaches() {
+        let mut d = cut_doc();
+        let mut t = track(TrackKind::Voiceover, 1, 8_000, 6_000);
+        t.offset_ms = 4_000;
+        t.span_ms = Some(2_000);
+        d.audio_tracks = vec![t.clone()];
+        let before = file_at(&d, 0, 5_500.0);
+        // Back to 4.5 s: 0.5 s of clip 0 plus the 3-s cut = 3.5 s of file, which the offset has.
+        let r = track_edge(&d, 0, TrackEdge::Start, 4_500.0).unwrap();
+        assert_eq!((r.clip, r.start_ms, r.offset_ms, r.span_ms), (0, 4_500, 500, Some(5_500)));
+        apply(&mut d, &r);
+        assert_eq!(file_at(&d, 0, 5_500.0), before);
+        // With only 2 s of file before the head the start cannot cross the cut.
+        t.offset_ms = 2_000;
+        d.audio_tracks = vec![t];
+        let r = track_edge(&d, 0, TrackEdge::Start, 4_500.0).unwrap();
+        assert_eq!((r.clip, r.start_ms, r.offset_ms), (1, 8_000, 2_000));
+    }
+
+    #[test]
+    fn music_end_trim_across_a_cut_ends_where_dragged() {
+        let mut d = cut_doc();
+        d.audio_tracks = vec![track(TrackKind::Music, 0, 0, 20_000)];
+        let r = track_edge(&d, 0, TrackEdge::End, 7_000.0).unwrap();
+        // Music runs on through the cut: 7 s of programme needs 10 s of raw clock.
+        assert_eq!(r.span_ms, Some(10_000));
+        apply(&mut d, &r);
+        let e = track_entries(&d);
+        assert_eq!((e[0].prog_start_ms, e[0].prog_end_ms), (0.0, 7_000.0));
+        // Music start moves 1:1 with the file.
+        let r = track_edge(&d, 0, TrackEdge::Start, 1_000.0).unwrap();
+        assert_eq!((r.clip, r.start_ms, r.offset_ms), (0, 1_000, 1_000));
+        apply(&mut d, &r);
+        let e = track_entries(&d);
+        assert_eq!((e[0].prog_start_ms, e[0].prog_end_ms), (1_000.0, 7_000.0), "its end stays put");
+    }
+
+    #[test]
+    fn edges_are_clamped_to_the_file_and_the_programme() {
+        let mut d = cut_doc();
+        d.audio_tracks = vec![track(TrackKind::Music, 0, 1_000, 3_000)];
+        // Not past the file's end (3 s), not before its first sample, not shorter than 100 ms.
+        assert_eq!(track_edge(&d, 0, TrackEdge::End, 9_000.0).unwrap().span_ms, Some(3_000));
+        let r = track_edge(&d, 0, TrackEdge::Start, 0.0).unwrap();
+        assert_eq!((r.start_ms, r.offset_ms), (1_000, 0));
+        assert_eq!(track_edge(&d, 0, TrackEdge::End, 0.0).unwrap().span_ms, Some(100));
+        // A loop may reach the programme's end, not past it.
+        d.audio_tracks[0].looped = true;
+        let r = track_edge(&d, 0, TrackEdge::End, 99_000.0).unwrap();
+        apply(&mut d, &r);
+        assert_eq!(track_entries(&d).last().unwrap().prog_end_ms, 9_000.0);
+        assert!(track_edge(&d, 5, TrackEdge::End, 1_000.0).is_none());
     }
 }

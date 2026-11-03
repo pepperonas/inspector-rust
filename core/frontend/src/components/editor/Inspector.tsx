@@ -64,6 +64,8 @@ export interface InspectorProps {
   onSelectTrack?: (id: string | null) => void;
   /** Picks a music file and lays it under the playhead. */
   onAddMusic?: () => void;
+  /** A music import runs. */
+  musicBusy?: boolean;
   /** Starts a voiceover take at the playhead. */
   onVoiceover?: () => void;
   /** A running voiceover take: the column shows only it (editing is off meanwhile). */
@@ -198,6 +200,7 @@ export function Inspector(props: InspectorProps) {
             onLive={props.onLive}
             onLiveEnd={props.onLiveEnd}
             onAddMusic={props.onAddMusic ?? (() => undefined)}
+            musicBusy={props.musicBusy}
             onVoiceover={props.onVoiceover ?? (() => undefined)}
             getDoc={props.getDoc}
           />

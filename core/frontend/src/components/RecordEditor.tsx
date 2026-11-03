@@ -39,6 +39,7 @@ import {
   editorVoiceoverCancel,
   editorVoiceoverStart,
   editorVoiceoverStop,
+  editorTrackEdge,
   EV_VOICEOVER_FINISHED,
   EV_VOICEOVER_LEVEL,
   type EditorVoiceoverLevel,
@@ -91,7 +92,7 @@ import { Inspector } from "./editor/Inspector";
 import { FocusOverlay } from "./editor/FocusOverlay";
 import { AnnotationOverlay, type AnnotationPatch } from "./editor/AnnotationOverlay";
 import { registerAnnotationFonts } from "./editor/AnnotationTab";
-import { VoiceoverPanel, type VoiceoverView } from "./editor/AudioTab";
+import { GAIN_STEP_DB, VoiceoverPanel, snap, type VoiceoverView } from "./editor/AudioTab";
 import { VOICEOVER_DUCK_DB } from "../lib/audio-mix";
 
 const POSITION_POLL_MS = 66;
@@ -115,6 +116,8 @@ function readInspectorOpen(): boolean {
 /** Music the editor imports (Rust checks extension and content again). */
 export const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "wav", "flac"] as const;
 /** A track's default name: the picked file's name without folder and extension. */
+/** A document file name the preview may load: a plain name under `assets/` (as Rust's scene builder requires). */
+export const isPlainAssetName = (f: string) => !!f && !/[\\/]/.test(f) && !f.startsWith(".");
 export const fileStem = (path: string) =>
   (path.split(/[\\/]/).pop() ?? "").replace(/\.[^.]+$/, "").trim().slice(0, 80);
 
@@ -601,9 +604,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     [rustEdit],
   );
 
+  /** A music file is being imported (copied and decoded for its length). */
+  const [importingMusic, setImportingMusic] = useState(false);
+  const importingRef = useRef(false);
   /** M: picks a music file, copies it into the project and lays it at the playhead. */
   const addMusic = useCallback(async () => {
-    if (voRef.current) return;
+    if (voRef.current || importingRef.current) return;
+    importingRef.current = true;
     try {
       const picked = await openDialog({
         multiple: false,
@@ -611,6 +618,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         filters: [{ name: t("rec4.audio.filter_audio"), extensions: [...AUDIO_EXTENSIONS] }],
       });
       if (typeof picked !== "string") return;
+      setImportingMusic(true);
       const imported = await editorImportAsset(sessionId.current, picked, "audio");
       const at = await sourceHere();
       const doc = cur();
@@ -622,8 +630,21 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       setSelectedTrack(made.id);
     } catch (e) {
       report(e);
+    } finally {
+      importingRef.current = false;
+      setImportingMusic(false);
     }
   }, [commit, cur, report, setSelectedTrack, sourceHere, t]);
+
+  /** R12: Rust turns a track edge drag into the file window. */
+  const resolveTrackEdge = useCallback(
+    (index: number, id: string, edge: "start" | "end", programmeMs: number) =>
+      editorTrackEdge(sessionId.current, index, id, edge, programmeMs).catch((e) => {
+        report(e);
+        return null;
+      }),
+    [report],
+  );
 
   /** Re-reads the transport (a take started or ended playback in Rust). */
   const syncPlayback = useCallback(() => {
@@ -827,7 +848,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const previewTracks = useMemo(
     () =>
       (audioTracksDoc ?? []).flatMap((tr, index) =>
-        tr.file ? [{ index, src: convertFileSrc(`${projectDir}/assets/${tr.file}`) }] : [],
+        isPlainAssetName(tr.file) ? [{ index, src: convertFileSrc(`${projectDir}/assets/${tr.file}`) }] : [],
       ),
     [audioTracksDoc, projectDir],
   );
@@ -912,6 +933,11 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <span className="text-[11px] text-[var(--color-muted)]" data-testid="ed-save">
           {saving ? t("rec2.ed.saving") : t("rec2.ed.saved")}
         </span>
+        {importingMusic && (
+          <span className="min-w-0 truncate text-[11px] text-[var(--color-muted)]" role="status" data-testid="ed-music-busy">
+            {t("rec4.audio.importing")}
+          </span>
+        )}
         {info && (
           <span className="min-w-0 truncate text-[11px] text-[var(--color-muted)]" role="status" data-testid="ed-info">
             {info}
@@ -1043,6 +1069,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             selectedTrack={selectedTrack}
             onSelectTrack={setSelectedTrack}
             onAddMusic={() => void addMusic()}
+            musicBusy={importingMusic}
             onVoiceover={() => void startVoiceover()}
             voiceover={voiceover}
             onVoiceoverStop={finishVoiceover}
@@ -1123,16 +1150,16 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
               type="range"
               min={MIN_MIC_DB}
               max={MAX_MIC_DB}
-              step={1}
-              value={Math.round(doc.micGainDb)}
-              onChange={(e) => micLive(Number(e.target.value))}
+              step={GAIN_STEP_DB}
+              value={doc.micGainDb}
+              onChange={(e) => micLive(snap(Number(e.target.value), GAIN_STEP_DB, MIN_MIC_DB, MAX_MIC_DB))}
               onPointerUp={micDone}
               onKeyUp={micDone}
               onBlur={micDone}
               className="w-28"
               aria-label={t("rec2.ed.mic")}
             />
-            <span className="w-12 tabular-nums">{Math.round(doc.micGainDb)} dB</span>
+            <span className="w-14 tabular-nums">{doc.micGainDb.toFixed(1)} dB</span>
           </label>
         )}
         </div>
@@ -1161,6 +1188,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onSelectAnnotation={setSelectedAnnotation}
           selectedTrack={selectedTrack}
           onSelectTrack={setSelectedTrack}
+          resolveTrackEdge={resolveTrackEdge}
           locked={!!voiceover}
         />
       </div>

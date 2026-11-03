@@ -4284,6 +4284,7 @@
   "rec4.audio.system_hint": "Pegel des Tons, den der Mac während der Aufnahme abgespielt hat.",
   "rec4.audio.add_music": "Musik hinzufügen…",
   "rec4.audio.add_music_hint": "Eine MP3-, M4A-, AAC-, WAV- oder FLAC-Datei wählen; sie beginnt am Abspielkopf",
+  "rec4.audio.importing": "Musik wird importiert…",
   "rec4.audio.voiceover": "Voiceover aufnehmen",
   "rec4.audio.voiceover_hint": "Nimmt das Mikrofon ab dem Abspielkopf auf, während die Vorschau läuft",
   "rec4.audio.tracks": "Spuren",

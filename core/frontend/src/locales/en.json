@@ -4284,6 +4284,7 @@
   "rec4.audio.system_hint": "Level of the sound the Mac played while recording.",
   "rec4.audio.add_music": "Add music…",
   "rec4.audio.add_music_hint": "Choose an MP3, M4A, AAC, WAV or FLAC file; it starts at the playhead",
+  "rec4.audio.importing": "Importing music…",
   "rec4.audio.voiceover": "Record voiceover",
   "rec4.audio.voiceover_hint": "Records the microphone from the playhead while the preview plays",
   "rec4.audio.tracks": "Tracks",

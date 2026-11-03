@@ -44,6 +44,7 @@ vi.mock("../lib/ipc", () => ({
   editorVoiceoverStart: (id: number, ms: number) => editorVoiceoverStart(id, ms),
   editorVoiceoverStop: (id: number) => editorVoiceoverStop(id),
   editorVoiceoverCancel: (id: number) => editorVoiceoverCancel(id),
+  editorTrackEdge: async () => null,
   EV_VOICEOVER_LEVEL: "record-voiceover-level",
   EV_VOICEOVER_FINISHED: "record-voiceover-finished",
   recordListProjects: async () => [],
@@ -733,6 +734,49 @@ describe("RecordEditor", () => {
       expect(editorVoiceoverCancel).toHaveBeenCalledWith(1);
       expect(editorVoiceoverStop).not.toHaveBeenCalled();
       expect(queryByTestId("ed-vo-panel")).toBeNull();
+    });
+
+    it("a music import runs once at a time and says so", async () => {
+      openDialog.mockResolvedValue("/Users/ana/Music/Long.flac");
+      let finish = (_v: { file: string; durationMs: number }) => undefined as void;
+      editorImportAsset.mockImplementation(() => new Promise((r) => (finish = r)));
+      const { getByTestId, queryByTestId } = await mount();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "m" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(getByTestId("ed-music-busy")).toBeTruthy();
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "m" });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(openDialog).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        finish({ file: "f00d.flac", durationMs: 90_000 });
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(queryByTestId("ed-music-busy")).toBeNull();
+      expect((lastSent() as RecordEditDoc).audioTracks).toHaveLength(1);
+    });
+
+    it("the preview loads only plain file names under assets/", async () => {
+      const bad = { ...voTrack, id: "x", file: "../../etc/x.wav" };
+      editorCurrent.mockResolvedValue(init(null, 1, "Take", viewOf({ ...doc0, audioTracks: [voTrack, bad] })));
+      const { container } = await mount();
+      const srcs = [...container.querySelectorAll('[data-testid="ed-audio-track"]')].map((e) => e.getAttribute("src"));
+      expect(srcs).toEqual(["asset:///m/take/assets/voiceover-1.wav"]);
+    });
+
+    it("the transport mic slider moves in 0.5 dB like the Audio tab", async () => {
+      const { getAllByLabelText } = await mount();
+      const s = getAllByLabelText("Mic").find((e) => (e as HTMLInputElement).type === "range") as HTMLInputElement;
+      expect(s.step).toBe("0.5");
+      await act(async () => {
+        fireEvent.change(s, { target: { value: "-2.5" } });
+        fireEvent.pointerUp(s);
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect((lastSent() as RecordEditDoc).micGainDb).toBe(-2.5);
     });
 
     for (const signal of ["ended", "finished"] as const) {

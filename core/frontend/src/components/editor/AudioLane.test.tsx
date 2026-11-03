@@ -84,10 +84,14 @@ const view = (d: RecordEditDoc, tracks: RecordTrackSpan[], waveforms: RecordWave
 });
 
 /** 1 px = 10 ms. */
-function mount(d: RecordEditDoc, tracks: RecordTrackSpan[], over: { locked?: boolean; waveforms?: RecordWaveSpan[] } = {}) {
+function mount(d: RecordEditDoc, tracks: RecordTrackSpan[], over: { noEdges?: boolean; waveforms?: RecordWaveSpan[] } = {}) {
   const onChange = vi.fn();
   const onSelect = vi.fn();
   const onError = vi.fn();
+  // Stands in for Rust's `editor_track_edge` (the file window is Rust's to work out).
+  const resolveEdge = vi.fn(async (_i: number, _id: string, edge: "start" | "end", p: number) =>
+    edge === "start" ? { clip: 1, startMs: p + 1_000, offsetMs: 4_500, spanMs: 1_500 } : { clip: 0, startMs: 1_000, offsetMs: 0, spanMs: p },
+  );
   render(
     <AudioLane
       view={view(d, tracks, over.waveforms)}
@@ -97,10 +101,10 @@ function mount(d: RecordEditDoc, tracks: RecordTrackSpan[], over: { locked?: boo
       onError={onError}
       selected={null}
       onSelect={onSelect}
-      locked={over.locked}
+      resolveEdge={over.noEdges ? undefined : resolveEdge}
     />,
   );
-  return { onChange, onSelect, onError };
+  return { onChange, onSelect, onError, resolveEdge };
 }
 
 async function dragBy(el: Element, dx: number) {
@@ -131,24 +135,21 @@ describe("trackBars", () => {
 describe("dragTrackBar", () => {
   const bar = { progStartMs: 2_000, progEndMs: 5_000 };
   it("moving keeps the length and is clamped to the programme", () => {
-    expect(dragTrackBar(bar, track(), "move", 1_500, 10_000)).toMatchObject({ progStartMs: 3_500, progEndMs: 6_500 });
-    expect(dragTrackBar(bar, track(), "move", -9_000, 10_000)).toMatchObject({ progStartMs: 0, progEndMs: 3_000 });
-    expect(dragTrackBar(bar, track(), "move", 9_000, 10_000)).toMatchObject({ progStartMs: 7_000, progEndMs: 10_000 });
+    expect(dragTrackBar(bar, track(), "move", 1_500, 10_000)).toEqual({ progStartMs: 3_500, progEndMs: 6_500 });
+    expect(dragTrackBar(bar, track(), "move", -9_000, 10_000)).toEqual({ progStartMs: 0, progEndMs: 3_000 });
+    expect(dragTrackBar(bar, track(), "move", 9_000, 10_000)).toEqual({ progStartMs: 7_000, progEndMs: 10_000 });
   });
-  it("the start edge eats into the file and never before its first sample", () => {
-    expect(dragTrackBar(bar, track(), "start", 500, 10_000)).toMatchObject({ progStartMs: 2_500, offsetMs: 500, spanMs: null });
-    expect(dragTrackBar(bar, track({ offsetMs: 400 }), "start", -1_000, 10_000)).toMatchObject({ progStartMs: 1_600, offsetMs: 0 });
-    // A recorded span shrinks with it; the start never passes the end.
-    expect(dragTrackBar(bar, track({ spanMs: 3_000 }), "start", 9_000, 10_000)).toMatchObject({
-      progStartMs: 5_000 - MIN_TRACK_MS,
-      spanMs: MIN_TRACK_MS,
-    });
+  it("a loop filling to the end can still move later (Rust refills it)", () => {
+    const loop = { progStartMs: 2_000, progEndMs: 10_000 };
+    expect(dragTrackBar(loop, track({ looped: true }), "move", 3_000, 10_000)).toEqual({ progStartMs: 5_000, progEndMs: 10_000 });
+    expect(dragTrackBar(loop, track({ looped: true }), "move", 99_000, 10_000).progStartMs).toBe(10_000 - MIN_TRACK_MS);
   });
-  it("the end edge sets the played length, up to the file's end (or the programme's, looping)", () => {
-    expect(dragTrackBar(bar, track(), "end", -1_000, 10_000)).toMatchObject({ progEndMs: 4_000, spanMs: 2_000 });
-    expect(dragTrackBar(bar, track(), "end", 5_000, 10_000)).toMatchObject({ progEndMs: 5_000, spanMs: 3_000 });
-    expect(dragTrackBar(bar, track({ looped: true }), "end", 9_000, 10_000)).toMatchObject({ progEndMs: 10_000, spanMs: 8_000 });
-    expect(dragTrackBar(bar, track(), "end", -9_000, 10_000)).toMatchObject({ progEndMs: 2_000 + MIN_TRACK_MS });
+  it("an edge moves alone, inside the programme, leaving 100 ms", () => {
+    expect(dragTrackBar(bar, track(), "start", 500, 10_000)).toEqual({ progStartMs: 2_500, progEndMs: 5_000 });
+    expect(dragTrackBar(bar, track(), "start", -9_000, 10_000)).toEqual({ progStartMs: 0, progEndMs: 5_000 });
+    expect(dragTrackBar(bar, track(), "start", 9_000, 10_000).progStartMs).toBe(5_000 - MIN_TRACK_MS);
+    expect(dragTrackBar(bar, track(), "end", 9_000, 10_000)).toEqual({ progStartMs: 2_000, progEndMs: 10_000 });
+    expect(dragTrackBar(bar, track(), "end", -9_000, 10_000).progEndMs).toBe(2_000 + MIN_TRACK_MS);
   });
 });
 
@@ -176,7 +177,7 @@ describe("AudioLane", () => {
     const { onChange } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })]);
     await dragBy(screen.getByTestId("ed-audio-bar"), 400);
     expect(toSource).toHaveBeenCalledWith(6_000);
-    expect(onChange.mock.calls[0][0].audioTracks[0]).toMatchObject({ clip: 1, startMs: 7_000, offsetMs: 0 });
+    expect(onChange.mock.calls[0][0].audioTracks[0]).toMatchObject({ clip: 1, startMs: 7_000, offsetMs: 0, spanMs: null });
   });
 
   it("a drag past the programme end is clamped there", async () => {
@@ -188,20 +189,33 @@ describe("AudioLane", () => {
     expect(toSource).toHaveBeenLastCalledWith(0);
   });
 
-  it("the start edge trims the file's start; the end edge the length", async () => {
-    const { onChange } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })]);
+  it("edge drags go to Rust as programme positions; its file window is applied as is", async () => {
+    const { onChange, resolveEdge } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })]);
     await dragBy(screen.getByTestId("ed-audio-start"), 50);
-    expect(onChange.mock.calls[0][0].audioTracks[0]).toMatchObject({ offsetMs: 500, clip: 0, startMs: 2_500 });
+    expect(resolveEdge).toHaveBeenLastCalledWith(0, "m1", "start", 2_500);
+    expect(onChange.mock.calls[0][0].audioTracks[0]).toMatchObject({ clip: 1, startMs: 3_500, offsetMs: 4_500, spanMs: 1_500 });
     await dragBy(screen.getByTestId("ed-audio-end"), -100);
-    expect(onChange.mock.calls[1][0].audioTracks[0]).toMatchObject({ spanMs: 2_000, startMs: 1_000 });
+    expect(resolveEdge).toHaveBeenLastCalledWith(0, "m1", "end", 4_000);
+    expect(onChange.mock.calls[1][0].audioTracks[0]).toMatchObject({ spanMs: 4_000, startMs: 1_000 });
+    // No file math in TS: nothing but Rust's answer reaches the document.
+    expect(toSource).not.toHaveBeenCalled();
   });
 
-  it("a click selects without editing; nothing drags while a take runs", async () => {
-    const { onChange, onSelect } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })], { locked: true });
-    await dragBy(screen.getByTestId("ed-audio-bar"), 400);
+  it("a drag Rust has no answer for changes nothing; without a resolver there are no edges", async () => {
+    const { onChange, resolveEdge } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })]);
+    resolveEdge.mockResolvedValueOnce(null as never);
+    await dragBy(screen.getByTestId("ed-audio-end"), -100);
+    expect(onChange).not.toHaveBeenCalled();
+    cleanup();
+    mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })], { noEdges: true });
+    expect(screen.queryByTestId("ed-audio-start")).toBeNull();
+  });
+
+  it("a click selects without editing", async () => {
+    const { onChange, onSelect } = mount(doc([track()]), [entry({ progStartMs: 2_000, progEndMs: 5_000 })]);
+    await dragBy(screen.getByTestId("ed-audio-bar"), 1);
     expect(onSelect).toHaveBeenCalledWith("m1");
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("ed-audio-start")).toBeNull();
   });
 
   it("draws nothing without tracks", () => {

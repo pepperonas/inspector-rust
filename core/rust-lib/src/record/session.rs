@@ -265,6 +265,33 @@ impl RecordConfig {
     }
 }
 
+const K_SHORTCUTS: &str = "record.shortcuts";
+
+/// The editor's key map as stored: only the deviations from the defaults, a JSON object the
+/// frontend owns (`lib/editor-shortcuts.ts`). Anything that is not a JSON object reads as `{}`
+/// (all defaults) — a hand-edited or truncated value never wedges the editor.
+pub fn parse_shortcuts(raw: Option<&str>) -> serde_json::Value {
+    match raw.map(serde_json::from_str::<serde_json::Value>) {
+        Some(Ok(v @ serde_json::Value::Object(_))) => v,
+        _ => serde_json::Value::Object(Default::default()),
+    }
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn load_shortcuts(db: &crate::db::DbHandle) -> serde_json::Value {
+    let raw = crate::settings::get(db, K_SHORTCUTS).ok().flatten();
+    parse_shortcuts(raw.as_deref())
+}
+
+/// Stores the object unchanged; anything else is refused.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn save_shortcuts(db: &crate::db::DbHandle, v: &serde_json::Value) -> anyhow::Result<()> {
+    if !v.is_object() {
+        anyhow::bail!("record.shortcuts must be a JSON object");
+    }
+    crate::settings::set(db, K_SHORTCUTS, &v.to_string())
+}
+
 pub fn resolve_root(setting: &str) -> PathBuf {
     let s = setting.trim();
     if !s.is_empty() {
@@ -1392,6 +1419,38 @@ mod mac {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shortcuts_db() -> crate::db::DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let h = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&h).unwrap();
+        h
+    }
+
+    #[test]
+    fn unreadable_shortcuts_fall_back_to_empty() {
+        let empty = serde_json::json!({});
+        assert_eq!(parse_shortcuts(None), empty);
+        assert_eq!(parse_shortcuts(Some("")), empty);
+        assert_eq!(parse_shortcuts(Some("{not json")), empty);
+        assert_eq!(parse_shortcuts(Some("[1,2]")), empty);
+        assert_eq!(parse_shortcuts(Some("\"split\"")), empty);
+        let db = shortcuts_db();
+        assert_eq!(load_shortcuts(&db), empty, "nothing stored");
+        crate::settings::set(&db, K_SHORTCUTS, "garbage").unwrap();
+        assert_eq!(load_shortcuts(&db), empty);
+    }
+
+    #[test]
+    fn shortcuts_round_trip_unchanged() {
+        let db = shortcuts_db();
+        // Rust does not interpret the bindings: even fields it does not know survive.
+        let v = serde_json::json!({ "split": { "key": "x" }, "paste": { "key": "v", "ctrl": true }, "future": 1 });
+        save_shortcuts(&db, &v).unwrap();
+        assert_eq!(load_shortcuts(&db), v);
+        assert!(save_shortcuts(&db, &serde_json::json!([1])).is_err(), "only an object is stored");
+        assert_eq!(load_shortcuts(&db), v, "a refused write leaves the old value");
+    }
 
     #[test]
     fn after_stop_opens_editor_only_when_ready_and_enabled() {

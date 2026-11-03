@@ -7441,6 +7441,27 @@ pub fn set_record_config(
     Ok(get_record_config(db))
 }
 
+/// The record editor's key map: the stored deviations from the defaults (`{}` = all defaults).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn get_record_shortcuts(db: State<'_, DbHandle>) -> serde_json::Value {
+    crate::record::session::load_shortcuts(&db)
+}
+
+/// Stores the deviations and tells every window (the editor and Settings show the same map).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn set_record_shortcuts(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    shortcuts: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    crate::record::session::save_shortcuts(&db, &shortcuts).map_err(map_err)?;
+    let stored = crate::record::session::load_shortcuts(&db);
+    let _ = app.emit("record-shortcuts-changed", &stored);
+    Ok(stored)
+}
+
 /// Reveal a file in Finder (macOS) / Explorer (Windows) with it selected.
 pub(crate) fn reveal_in_file_manager(path: &std::path::Path) {
     #[cfg(target_os = "macos")]

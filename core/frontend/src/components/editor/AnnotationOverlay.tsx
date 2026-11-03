@@ -12,6 +12,7 @@ import {
   type BoxHandle,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
+import { DEFAULT_BINDINGS, matchAction, type Bindings } from "../../lib/editor-shortcuts";
 
 /** What a gesture on the overlay changes: the box (percent) or the free-form outline. */
 export type AnnotationPatch = Partial<AnnBox> & { points?: [number, number][] };
@@ -53,6 +54,7 @@ export function AnnotationOverlay({
   onLive,
   onEnd,
   onCommit,
+  bindings = DEFAULT_BINDINGS,
 }: {
   annotation: RecordAnnotation;
   /** The clip's screen box in the output `[x, y, w, h]` (fractions); a blur's anchor. */
@@ -67,6 +69,8 @@ export function AnnotationOverlay({
   onLive: (patch: AnnotationPatch) => void;
   onEnd: () => void;
   onCommit: (patch: AnnotationPatch) => void;
+  /** The editor key map: the "delete selection" key removes the selected outline point. */
+  bindings?: Bindings;
 }) {
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
@@ -79,15 +83,15 @@ export function AnnotationOverlay({
 
   // Delete removes the selected outline point. Capture phase: it runs before the editor's and
   // the timeline's window handlers, which would otherwise delete the whole annotation or clip.
-  const live = useRef({ point, freehand, onCommit, visible });
+  const live = useRef({ point, freehand, onCommit, visible, bindings });
   useEffect(() => {
-    live.current = { point, freehand, onCommit, visible };
+    live.current = { point, freehand, onCommit, visible, bindings };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const cur = live.current;
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       if (cur.point == null || !cur.freehand || !cur.visible || isTypingTarget(e.target)) return;
+      if (e.defaultPrevented || matchAction(e, cur.bindings) !== "deleteSelected") return;
       e.preventDefault();
       e.stopPropagation();
       const next = removeFreehandPoint(cur.freehand, cur.point);

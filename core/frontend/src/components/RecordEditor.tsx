@@ -9,6 +9,7 @@ import {
   Download,
   FilePlus2,
   Gauge,
+  Keyboard,
   PanelRightClose,
   PanelRightOpen,
   Pause,
@@ -87,6 +88,9 @@ import { Preview } from "./editor/Preview";
 import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
 import { ExportDialog } from "./editor/ExportDialog";
+import { ShortcutsDialog, useBindingLabel, useEditorShortcuts } from "./editor/ShortcutsDialog";
+import { BindingsContext } from "./editor/bindings-context";
+import { matchAction } from "../lib/editor-shortcuts";
 import { TakePicker } from "./editor/TakePicker";
 import { AudioPreview } from "./editor/AudioPreview";
 import { Inspector } from "./editor/Inspector";
@@ -168,6 +172,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const [cropMode, setCropMode] = useState(false);
   const [cropSourceMs, setCropSourceMs] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [bindings, saveBindings] = useEditorShortcuts();
+  const keyLabel = useBindingLabel();
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [trackWidth, setTrackWidth] = useState(0);
   const [cue, setCue] = useState<{ source: EditorSourcePos | null; speed: number }>({ source: null, speed: 1 });
@@ -755,15 +762,17 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // The timeline took the key (Z, Delete on a selected zoom).
-      if (e.defaultPrevented || exportOpen || isTypingTarget(e.target) || !view) return;
-      // A take runs: Esc discards it, V or Space ends it, nothing else edits meanwhile.
+      // The timeline took the key (a region's add/delete/copy), or a dialog owns the keys.
+      if (e.defaultPrevented || exportOpen || shortcutsOpen || isTypingTarget(e.target) || !view) return;
+      const action = matchAction(e, bindings);
+      // A take runs: Esc (fixed) discards it, the play or voiceover key ends it, nothing else
+      // edits meanwhile.
       if (voRef.current) {
-        if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
-        if (e.key === "Escape") {
+        if (e.repeat) return;
+        if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
           e.preventDefault();
           cancelVoiceover();
-        } else if (e.key.toLowerCase() === "v" || e.key === " ") {
+        } else if (action === "addVoiceover" || action === "playPause") {
           e.preventDefault();
           finishVoiceover();
         }
@@ -775,48 +784,71 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (arrow && target?.tagName === "INPUT") return;
       const mod = e.metaKey || e.ctrlKey;
-      const k = e.key.toLowerCase();
-      if (mod && k === "z") {
+      // Fixed keys (not rebindable): undo/redo, frame/second stepping, Escape leaves crop.
+      if (mod && !e.altKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) redo();
         else undo();
         return;
       }
-      if (mod && k === "d" && !e.shiftKey && !cropMode) {
+      if (arrow && !mod && !e.altKey) {
         e.preventDefault();
-        duplicateClip();
+        const frameMs = 1000 / Math.max(1, init?.meta.fps ?? 30);
+        const step = e.shiftKey ? 1000 : frameMs;
+        void seek(posRef.current + (e.key === "ArrowLeft" ? -step : step));
         return;
       }
-      if (mod || e.altKey) return;
-      const frameMs = 1000 / Math.max(1, init?.meta.fps ?? 30);
       if (e.key === "Escape" && cropMode) {
         e.preventDefault();
         setCropMode(false);
-      } else if (e.key === " ") {
-        // A focused button activates on Space by itself; crop mode has no playback.
-        if (target?.tagName === "BUTTON" || cropMode) return;
-        e.preventDefault();
-        togglePlay();
-      } else if (arrow) {
-        e.preventDefault();
-        const step = e.shiftKey ? 1000 : frameMs;
-        void seek(posRef.current + (e.key === "ArrowLeft" ? -step : step));
-      } else if (k === "s") {
-        e.preventDefault();
-        void split();
-      } else if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault();
-        removeClip();
-      } else if (k === "c") {
-        e.preventDefault();
-        if (cropMode) setCropMode(false);
-        else void enterCrop();
-      } else if (k === "m" && !cropMode) {
-        e.preventDefault();
-        void addMusic();
-      } else if (k === "v" && !cropMode) {
-        e.preventDefault();
-        void startVoiceover();
+        return;
+      }
+      switch (action) {
+        case "duplicate":
+          if (cropMode) return;
+          e.preventDefault();
+          duplicateClip();
+          return;
+        case "playPause":
+          // A focused button activates on Space by itself; crop mode has no playback.
+          if ((e.key === " " && target?.tagName === "BUTTON") || cropMode) return;
+          e.preventDefault();
+          togglePlay();
+          return;
+        case "split":
+          e.preventDefault();
+          void split();
+          return;
+        case "deleteSelected":
+          // No region was selected (the timeline would have taken the key): the clip goes.
+          e.preventDefault();
+          removeClip();
+          return;
+        case "crop":
+          e.preventDefault();
+          if (cropMode) setCropMode(false);
+          else void enterCrop();
+          return;
+        case "addAudio":
+          if (cropMode) return;
+          e.preventDefault();
+          void addMusic();
+          return;
+        case "addVoiceover":
+          if (cropMode) return;
+          e.preventDefault();
+          void startVoiceover();
+          return;
+        case "showShortcuts":
+          e.preventDefault();
+          if (playing) togglePlay();
+          setShortcutsOpen(true);
+          return;
+        case "openProject":
+          // No project picker in the editor yet (Task 11): the key is reserved, nothing happens.
+          return;
+        default:
+          return;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -825,6 +857,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     view,
     init,
     exportOpen,
+    shortcutsOpen,
+    bindings,
+    playing,
     cropMode,
     togglePlay,
     seek,
@@ -924,6 +959,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
 
   return (
+    <BindingsContext.Provider value={bindings}>
     <div className="flex h-screen w-screen flex-col bg-[var(--color-bg)] text-[var(--color-fg)]">
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
@@ -947,6 +983,19 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </span>
         )}
         <div className="flex-1" />
+        <button
+          className={iconBtn}
+          onClick={() => {
+            if (playing) togglePlay();
+            setShortcutsOpen(true);
+          }}
+          disabled={!!voiceover}
+          title={`${t("rec4.keys.title")} (${keyLabel(bindings.showShortcuts)})`}
+          aria-label={t("rec4.keys.title")}
+          data-testid="ed-shortcuts-open"
+        >
+          <Keyboard size={14} />
+        </button>
         <button className={iconBtn} onClick={undo} disabled={!undoable.undo || !!voiceover} title={t("rec2.ed.undo")} aria-label={t("rec2.ed.undo")}>
           <Undo2 size={14} />
         </button>
@@ -972,7 +1021,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          voiceover ? null : annSel && !cropMode && !fatal ? (
+          voiceover ? null : annSel && !cropMode && !fatal && !shortcutsOpen ? (
             <AnnotationOverlay
               annotation={annSel}
               screenRect={view.screenRects?.[annSel.clip] ?? null}
@@ -987,6 +1036,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
                 const next = annPatch(p);
                 if (next) commit(next);
               }}
+              bindings={bindings}
             />
           ) : zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
             <FocusOverlay
@@ -1084,7 +1134,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onClick={togglePlay}
           disabled={!!fatal || !!voiceover}
           aria-label={playing ? t("rec2.ed.pause") : t("rec2.ed.play")}
-          title={`${playing ? t("rec2.ed.pause") : t("rec2.ed.play")} (Space)`}
+          title={`${playing ? t("rec2.ed.pause") : t("rec2.ed.play")} (${keyLabel(bindings.playPause)})`}
         >
           {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
         </button>
@@ -1094,13 +1144,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <div className="mx-2 h-5 w-px bg-[var(--color-border)]" />
         {voiceover && <VoiceoverPanel take={voiceover} onStop={finishVoiceover} onCancel={cancelVoiceover} compact />}
         <div className={"flex min-w-0 flex-1 items-center gap-2 " + (voiceover ? "hidden" : "")} inert={!!voiceover}>
-        <button className={iconBtn} onClick={() => void split()} title={`${t("rec2.ed.split")} (S)`}>
+        <button className={iconBtn} onClick={() => void split()} title={`${t("rec2.ed.split")} (${keyLabel(bindings.split)})`}>
           <Scissors size={14} /> {t("rec2.ed.split")}
         </button>
-        <button className={iconBtn} onClick={removeClip} disabled={doc.clips.length <= 1} title={`${t("rec2.ed.delete")} (⌫)`}>
+        <button className={iconBtn} onClick={removeClip} disabled={doc.clips.length <= 1} title={`${t("rec2.ed.delete")} (${keyLabel(bindings.deleteSelected)})`}>
           <Trash2 size={14} /> {t("rec2.ed.delete")}
         </button>
-        <button className={iconBtn} onClick={duplicateClip} title={`${t("rec4.clip.duplicate")} (⌘D)`} data-testid="ed-duplicate">
+        <button className={iconBtn} onClick={duplicateClip} title={`${t("rec4.clip.duplicate")} (${keyLabel(bindings.duplicate)})`} data-testid="ed-duplicate">
           <Copy size={14} /> {t("rec4.clip.duplicate")}
         </button>
         <div className="relative">
@@ -1118,10 +1168,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <button className={iconBtn} onClick={() => void addSpeedHere()} title={t("rec2.ed.speed_add_hint")}>
           <Gauge size={14} /> {t("rec2.ed.speed_add")}
         </button>
-        <button className={iconBtn} onClick={() => void addZoomHere()} title={t("rec3.zoom.add_hint")}>
+        <button className={iconBtn} onClick={() => void addZoomHere()} title={`${t("rec3.zoom.add_hint")} (${keyLabel(bindings.addZoom)})`}>
           <ZoomIn size={14} /> {t("rec3.zoom.add")}
         </button>
-        <button className={iconBtn} onClick={() => void addAnnotationHere("text")} title={t("rec4.ann.toolbar_hint")} data-testid="ed-add-annotation">
+        <button className={iconBtn} onClick={() => void addAnnotationHere("text")} title={`${t("rec4.ann.toolbar_hint")} (${keyLabel(bindings.addAnnotation)})`} data-testid="ed-add-annotation">
           <Type size={14} /> {t("rec4.ann.toolbar")}
         </button>
         <button
@@ -1136,7 +1186,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         <button
           className={iconBtn + (cropMode ? " border-[var(--color-accent)] text-[var(--color-accent)]" : "")}
           onClick={() => (cropMode ? setCropMode(false) : void enterCrop())}
-          title={`${t("rec2.ed.crop")} (C)`}
+          title={`${t("rec2.ed.crop")} (${keyLabel(bindings.crop)})`}
         >
           <Crop size={14} /> {t("rec2.ed.crop")}
         </button>
@@ -1180,7 +1230,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           onWidth={setTrackWidth}
           selectedZoom={zoomSel?.id ?? null}
           onSelectZoom={setSelectedZoom}
-          keysEnabled={!exportOpen && !cropMode}
+          keysEnabled={!exportOpen && !cropMode && !shortcutsOpen}
+          bindings={bindings}
           onMoveClip={moveClip}
           selectedAnnotation={annSel?.id ?? null}
           onSelectAnnotation={setSelectedAnnotation}
@@ -1213,6 +1264,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         }}
       />
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
+      {shortcutsOpen && <ShortcutsDialog bindings={bindings} onSave={saveBindings} onClose={() => setShortcutsOpen(false)} />}
     </div>
+    </BindingsContext.Provider>
   );
 }

@@ -1227,6 +1227,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_record_config,
             #[cfg(target_os = "macos")]
             commands::set_record_config,
+            #[cfg(target_os = "macos")]
+            commands::get_record_shortcuts,
+            #[cfg(target_os = "macos")]
+            commands::set_record_shortcuts,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_open,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

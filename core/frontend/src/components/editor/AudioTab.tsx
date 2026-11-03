@@ -1,5 +1,6 @@
 import { Mic, Music, Square, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import type { RecordAudioTrack, RecordEditDoc } from "../../lib/ipc";
+import { useActionKey } from "./bindings-context";
 import {
   FADE_MAX_MS,
   MAX_MIC_DB,
@@ -45,11 +46,11 @@ export interface AudioTabProps {
   onCommit: (doc: RecordEditDoc) => void;
   onLive: (doc: RecordEditDoc) => void;
   onLiveEnd: () => void;
-  /** Picks a music file and lays it under the playhead (M). */
+  /** Picks a music file and lays it under the playhead (the music key). */
   onAddMusic: () => void;
   /** A music import runs: the button waits. */
   musicBusy?: boolean;
-  /** Starts a voiceover take at the playhead (V). */
+  /** Starts a voiceover take at the playhead (the voiceover key). */
   onVoiceover: () => void;
   /** The newest document (for slider gestures that started on an older one). */
   getDoc?: () => RecordEditDoc;
@@ -62,6 +63,7 @@ export interface AudioTabProps {
  */
 export function AudioTab(p: AudioTabProps) {
   const t = useT();
+  const actionKey = useActionKey();
   const doc = p.doc;
   const cur = () => p.getDoc?.() ?? doc;
   const sel = p.selected ? (doc.audioTracks.find((x) => x.id === p.selected) ?? null) : null;
@@ -98,7 +100,7 @@ export function AudioTab(p: AudioTabProps) {
           type="button"
           onClick={p.onAddMusic}
           disabled={p.musicBusy}
-          title={`${t("rec4.audio.add_music_hint")} (M)`}
+          title={`${t("rec4.audio.add_music_hint")} (${actionKey("addAudio")})`}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40"
           data-testid="ed-add-music"
         >
@@ -107,7 +109,7 @@ export function AudioTab(p: AudioTabProps) {
         <button
           type="button"
           onClick={p.onVoiceover}
-          title={`${t("rec4.audio.voiceover_hint")} (V)`}
+          title={`${t("rec4.audio.voiceover_hint")} (${actionKey("addVoiceover")})`}
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
           data-testid="ed-voiceover"
         >
@@ -214,7 +216,7 @@ export function AudioTab(p: AudioTabProps) {
 export const voiceoverMeter = (rms: number) => dbfsToLevel(rmsToDbfs(rms), -60, 0);
 
 /**
- * A running voiceover take: microphone level, time, Stop (V) and Discard (Esc). Shown in the
+ * A running voiceover take: microphone level, time, Stop (the voiceover key) and Discard (Esc). Shown in the
  * settings column and the transport bar while a take runs; editing is off meanwhile.
  */
 export function VoiceoverPanel({
@@ -229,6 +231,7 @@ export function VoiceoverPanel({
   compact?: boolean;
 }) {
   const t = useT();
+  const actionKey = useActionKey();
   const busy = take.phase !== "recording";
   const meter = (
     <span className="relative block h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg)]" aria-hidden>
@@ -252,7 +255,7 @@ export function VoiceoverPanel({
         type="button"
         onClick={onStop}
         disabled={busy}
-        title={`${t("rec4.audio.vo_stop")} (V)`}
+        title={`${t("rec4.audio.vo_stop")} (${actionKey("addVoiceover")})`}
         className="flex items-center gap-1.5 rounded-lg bg-red-500 px-2.5 py-1.5 text-[12px] font-medium text-white disabled:opacity-40"
         data-testid="ed-vo-stop"
       >

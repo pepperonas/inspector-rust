@@ -21,6 +21,8 @@ const editorVoiceoverStart = vi.fn();
 const editorVoiceoverStop = vi.fn();
 const editorVoiceoverCancel = vi.fn();
 const openDialog = vi.fn();
+const getRecordShortcuts = vi.fn(async (): Promise<unknown> => ({}));
+const setRecordShortcuts = vi.fn(async (s: unknown) => s);
 const listeners = new Map<string, (e: { payload: unknown }) => void>();
 
 vi.mock("../lib/ipc", () => ({
@@ -50,6 +52,9 @@ vi.mock("../lib/ipc", () => ({
   recordListProjects: async () => [],
   editorExport: vi.fn(),
   editorCancelExport: vi.fn(),
+  EV_RECORD_SHORTCUTS: "record-shortcuts-changed",
+  getRecordShortcuts: () => getRecordShortcuts(),
+  setRecordShortcuts: (s: unknown) => setRecordShortcuts(s),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
@@ -814,5 +819,81 @@ describe("RecordEditor", () => {
       });
       expect(queryAllByTestId("ed-wave")).toHaveLength(1);
     });
+  });
+});
+
+describe("RecordEditor shortcuts", () => {
+  it("a rebound split: S does nothing any more, X splits", async () => {
+    getRecordShortcuts.mockResolvedValueOnce({ split: { key: "x" } });
+    await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "x" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toHaveLength(2);
+  });
+
+  it("a map saved in another window applies at once", async () => {
+    await mount();
+    await act(async () => {
+      listeners.get("record-shortcuts-changed")?.({ payload: { addZoom: { key: "q" }, split: { key: "z" } } });
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const sent = lastSent() as RecordEditDoc;
+    expect(sent.clips).toHaveLength(2);
+    expect(sent.zooms).toHaveLength(0);
+  });
+
+  it("? opens the shortcuts dialog; while it is open no editor key acts; a change is saved as deviations", async () => {
+    const { getByTestId, queryByTestId } = await mount();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "?", shiftKey: true });
+    });
+    expect(getByTestId("ed-shortcuts")).toBeTruthy();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(getByTestId("ed-key-split"));
+    });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "x" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(setRecordShortcuts).toHaveBeenCalledWith({ split: { key: "x" } });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    expect(queryByTestId("ed-shortcuts")).toBeNull();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "x" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toHaveLength(2);
+  });
+
+  it("empty lanes name the key that fills them, in the current map", async () => {
+    getRecordShortcuts.mockResolvedValueOnce({ addZoom: { key: "q" } });
+    const { getAllByTestId } = await mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const hints = getAllByTestId("ed-lane-hint").map((e) => e.textContent);
+    expect(hints).toContain("Q: add zoom");
+    expect(hints).toContain("A: add annotation");
+    expect(hints).toContain("M: music · V: voiceover");
   });
 });

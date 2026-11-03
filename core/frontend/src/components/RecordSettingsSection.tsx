@@ -3,11 +3,14 @@ import { Video } from "lucide-react";
 import { getRecordConfig, setRecordConfig, type RecordConfig } from "../lib/ipc";
 import { t, useT } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
+import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 
 /** Settings → Recording: project folder + the defaults the HUD starts with. */
 export function RecordSettingsSection() {
   useT();
   const [cfg, setCfg] = useState<RecordConfig | null>(null);
+  const [bindings, saveBindings] = useEditorShortcuts();
+  const [keysOpen, setKeysOpen] = useState(false);
 
   useEffect(() => {
     void getRecordConfig().then(setCfg).catch(() => {});
@@ -76,6 +79,17 @@ export function RecordSettingsSection() {
       {box("mic", t("rec2.hud.mic"))}
       {box("openEditor", t("rec2.set.open_editor"), t("rec2.set.open_editor_help"))}
       {box("autoZoom", t("rec3.set.auto_zoom"), t("rec3.set.auto_zoom_help"))}
+      <Row label={t("rec4.keys.settings_label")} help={t("rec4.keys.settings_help")}>
+        <button
+          type="button"
+          className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+          onClick={() => setKeysOpen(true)}
+          data-testid="set-record-shortcuts"
+        >
+          {t("rec4.keys.settings_open")}
+        </button>
+      </Row>
+      {keysOpen && <ShortcutsDialog bindings={bindings} onSave={saveBindings} onClose={() => setKeysOpen(false)} />}
     </Section>
   );
 }

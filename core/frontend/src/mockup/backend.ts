@@ -5,6 +5,8 @@ import { emit } from "@tauri-apps/api/event";
 import type { ClipEntry, Note, Snippet } from "../lib/types";
 
 const misses = new Set<string>();
+/** The editor key map's stored deviations (record.shortcuts). */
+let mockShortcuts: object = {};
 const NOW = Date.now();
 const min = 60_000;
 
@@ -1023,6 +1025,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "speedtest_run": return SPEED_RUNS[0];
     case "speedtest_history": return SPEED_RUNS;
     case "speedtest_clear_history": return null;
+    case "get_record_shortcuts": return mockShortcuts;
+    case "set_record_shortcuts": mockShortcuts = (args.shortcuts as object) ?? {}; return mockShortcuts;
     case "editor_current": return {
         sessionId: 1,
         project: { dir: "/Users/ana/Movies/Inspector Rust/2026-11-02 Demo", title: "Onboarding walkthrough", createdAt: 0, durationMs: 24_000, status: "ready", failure: null },

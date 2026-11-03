@@ -5188,6 +5188,15 @@ export function getRecordConfig(): Promise<RecordConfig> {
 export function setRecordConfig(config: RecordConfig): Promise<RecordConfig> {
   return invoke("set_record_config", { config });
 }
+/** Emitted with the stored map whenever a window saves the editor shortcuts. */
+export const EV_RECORD_SHORTCUTS = "record-shortcuts-changed";
+/** The editor key map's stored deviations (`{}` = all defaults; see lib/editor-shortcuts.ts). */
+export function getRecordShortcuts(): Promise<unknown> {
+  return invoke("get_record_shortcuts");
+}
+export function setRecordShortcuts(shortcuts: object): Promise<unknown> {
+  return invoke("set_record_shortcuts", { shortcuts });
+}
 export function recordOpenNotes(): Promise<void> {
   return invoke("record_open_notes");
 }

@@ -30,6 +30,7 @@ import { useT, type MessageKey } from "../../lib/i18n";
 import { copyRegions, cutRegions, pasteRegions, selectionAfterPaste, type ClipboardRegions, type Selection } from "../../lib/clipboard-regions";
 import { snapGuide, snapTargets, type Snapping } from "../../lib/timeline-snap";
 import { AudioLane, WaveLayer, type ResolveTrackEdge } from "./AudioLane";
+import { DEFAULT_BINDINGS, formatBinding, matchAction, type Bindings } from "../../lib/editor-shortcuts";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -44,6 +45,15 @@ const ANN_LABEL: Record<RecordAnnotationKind, MessageKey> = {
   arrow: "rec4.ann.kind_arrow",
   blur: "rec4.ann.kind_blur",
 };
+
+/** An empty lane names the key that fills it. */
+function LaneHint({ text }: { text: string }) {
+  return (
+    <span className="pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] text-[var(--color-muted)]" data-testid="ed-lane-hint">
+      {text}
+    </span>
+  );
+}
 
 const fmtSpeed = (s: number) => `${Number(s.toFixed(2))}×`;
 /** Upward drag of this many px doubles a region's speed. */
@@ -109,6 +119,7 @@ export function Timeline({
   onSelectTrack = () => undefined,
   resolveTrackEdge,
   locked = false,
+  bindings = DEFAULT_BINDINGS,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -142,8 +153,11 @@ export function Timeline({
   resolveTrackEdge?: ResolveTrackEdge;
   /** A voiceover take runs: no seeking, no drags, no edits. */
   locked?: boolean;
+  /** The editor key map (lib/editor-shortcuts.ts); every key this track uses goes through it. */
+  bindings?: Bindings;
 }) {
   const t = useT();
+  const keyLabel = (b: Bindings[keyof Bindings]) => formatBinding(b, t("rec4.keys.space"));
   const track = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -181,9 +195,9 @@ export function Timeline({
 
   // Latest values for the window key handler (registered once per enable flip).
   const annotationSpans = view.annotationSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total });
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings };
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
@@ -198,53 +212,9 @@ export function Timeline({
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || isTypingTarget(e.target)) return;
       const cur = live.current;
-      // ⌘C / ⌘X / ⌘V copy, cut and paste the selected region (Task 9 moves these into the
-      // configurable map). Text selected on the page keeps the system's copy.
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
-        const k = e.key.toLowerCase();
-        if ((k === "c" || k === "x") && !window.getSelection()?.toString()) {
-          const doc = cur.getDoc();
-          if (k === "c") {
-            const data = copyRegions(doc, cur.selection);
-            if (!data) return;
-            e.preventDefault();
-            clipboard.current = data;
-            return;
-          }
-          const cut = cutRegions(doc, cur.selection);
-          if (!cut) return;
-          e.preventDefault();
-          clipboard.current = cut.data;
-          // Copy + delete is one document: one undo step.
-          cur.onChange(cut.doc);
-          cur.onSelectZoom(null);
-          cur.onSelectAnnotation(null);
-          cur.onSelectTrack(null);
-        } else if (k === "v" && clipboard.current) {
-          e.preventDefault();
-          const data = clipboard.current;
-          // R12: Rust names the playhead's clip and source position; the paste clamps into it.
-          // At the very programme end Rust may name no clip: ask one ms earlier (like the lane).
-          const end = Math.max(0, cur.total - 1);
-          void editorToSource(Math.min(cur.positionMs, end))
-            .then((at) => at ?? (cur.positionMs >= end ? null : editorToSource(end)))
-            .then((at) => {
-              if (!at) return;
-              const doc = cur.getDoc();
-              const next = pasteRegions(doc, at.clip, at.sourceMs, data);
-              // Nothing Rust would keep: no undo step, no selection of a vanished id.
-              if (next === doc) return;
-              cur.onChange(next);
-              select(selectionAfterPaste(doc, next));
-            })
-            .catch(cur.onError);
-        }
-        return;
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Tab") {
-        // Tab between buttons and sliders keeps moving the focus; elsewhere it walks the
-        // annotations by programme start (Rust's spans).
+      // Fixed (not rebindable): Tab walks the annotations by programme start (Rust's spans).
+      // Between buttons and sliders it keeps moving the focus.
+      if (e.key === "Tab" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         if (e.target instanceof Element && e.target.closest("button, input, select, textarea, a[href], [tabindex]")) return;
         const id = nextAnnotationId(cur.getDoc(), cur.annotationSpans, cur.selectedAnnotation, e.shiftKey);
         if (!id) return;
@@ -252,7 +222,45 @@ export function Timeline({
         cur.onSelectAnnotation(id);
         return;
       }
-      if (e.key.toLowerCase() === "a" && !e.shiftKey) {
+      const action = matchAction(e, cur.bindings);
+      // Copy/cut: text selected on the page keeps the system's copy.
+      if ((action === "copy" || action === "cut") && !window.getSelection()?.toString()) {
+        const doc = cur.getDoc();
+        if (action === "copy") {
+          const data = copyRegions(doc, cur.selection);
+          if (!data) return;
+          e.preventDefault();
+          clipboard.current = data;
+          return;
+        }
+        const cut = cutRegions(doc, cur.selection);
+        if (!cut) return;
+        e.preventDefault();
+        clipboard.current = cut.data;
+        // Copy + delete is one document: one undo step.
+        cur.onChange(cut.doc);
+        cur.onSelectZoom(null);
+        cur.onSelectAnnotation(null);
+        cur.onSelectTrack(null);
+      } else if (action === "paste" && clipboard.current) {
+        e.preventDefault();
+        const data = clipboard.current;
+        // R12: Rust names the playhead's clip and source position; the paste clamps into it.
+        // At the very programme end Rust may name no clip: ask one ms earlier (like the lane).
+        const end = Math.max(0, cur.total - 1);
+        void editorToSource(Math.min(cur.positionMs, end))
+          .then((at) => at ?? (cur.positionMs >= end ? null : editorToSource(end)))
+          .then((at) => {
+            if (!at) return;
+            const doc = cur.getDoc();
+            const next = pasteRegions(doc, at.clip, at.sourceMs, data);
+            // Nothing Rust would keep: no undo step, no selection of a vanished id.
+            if (next === doc) return;
+            cur.onChange(next);
+            select(selectionAfterPaste(doc, next));
+          })
+          .catch(cur.onError);
+      } else if (action === "addAnnotation") {
         e.preventDefault();
         void editorToSource(cur.positionMs)
           .then((at) => {
@@ -265,15 +273,7 @@ export function Timeline({
             cur.onSelectAnnotation(made.id);
           })
           .catch(() => undefined);
-      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedTrack) {
-        e.preventDefault();
-        cur.onChange(removeTrack(cur.getDoc(), cur.selectedTrack));
-        cur.onSelectTrack(null);
-      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedAnnotation) {
-        e.preventDefault();
-        cur.onChange(removeAnnotation(cur.getDoc(), cur.selectedAnnotation));
-        cur.onSelectAnnotation(null);
-      } else if (e.key.toLowerCase() === "z") {
+      } else if (action === "addZoom") {
         e.preventDefault();
         void editorToSource(cur.positionMs)
           .then((at) => {
@@ -286,10 +286,21 @@ export function Timeline({
             cur.onSelectZoom(made.id);
           })
           .catch(() => undefined);
-      } else if ((e.key === "Delete" || e.key === "Backspace") && cur.selectedZoom) {
-        e.preventDefault();
-        cur.onChange(removeZoom(cur.getDoc(), cur.selectedZoom));
-        cur.onSelectZoom(null);
+      } else if (action === "deleteSelected") {
+        // The selected region; with none the editor deletes the clip.
+        if (cur.selectedTrack) {
+          e.preventDefault();
+          cur.onChange(removeTrack(cur.getDoc(), cur.selectedTrack));
+          cur.onSelectTrack(null);
+        } else if (cur.selectedAnnotation) {
+          e.preventDefault();
+          cur.onChange(removeAnnotation(cur.getDoc(), cur.selectedAnnotation));
+          cur.onSelectAnnotation(null);
+        } else if (cur.selectedZoom) {
+          e.preventDefault();
+          cur.onChange(removeZoom(cur.getDoc(), cur.selectedZoom));
+          cur.onSelectZoom(null);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -633,6 +644,11 @@ export function Timeline({
         </div>
 
         {/* Annotation lane (above the zoom track): blocks from Rust's programme spans */}
+        {annotationSpans.length === 0 && (
+          <div className="relative mt-1 h-5" data-testid="ed-ann-track-empty">
+            <LaneHint text={t("rec4.keys.hint_annotation", { key: keyLabel(bindings.addAnnotation) })} />
+          </div>
+        )}
         {annotationSpans.length > 0 && (
           <div
             className="relative mt-1"
@@ -694,6 +710,7 @@ export function Timeline({
 
         {/* Zoom track */}
         <div className="relative mt-1 h-5" data-testid="ed-zoom-track">
+          {view.zooms.length === 0 && <LaneHint text={t("rec4.keys.hint_zoom", { key: keyLabel(bindings.addZoom) })} />}
           {view.zooms.map((span) => {
             const z = doc.zooms[span.index];
             const clipSpan = z ? view.clips[z.clip] : undefined;
@@ -754,6 +771,7 @@ export function Timeline({
           resolveEdge={resolveTrackEdge}
           snapping={snapping}
           onGuide={setLaneGuide}
+          emptyHint={t("rec4.keys.hint_audio", { music: keyLabel(bindings.addAudio), voice: keyLabel(bindings.addVoiceover) })}
         />
 
         {/* Snap guide: while a drag sits on a target */}

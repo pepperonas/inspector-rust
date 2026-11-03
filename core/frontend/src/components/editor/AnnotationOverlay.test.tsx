@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAnnotation, RecordAnnotationBody } from "../../lib/ipc";
 import { defaultAnnotationBody } from "../../lib/editor";
 import { AnnotationOverlay, type AnnotationPatch } from "./AnnotationOverlay";
+import { DEFAULT_BINDINGS, type Bindings } from "../../lib/editor-shortcuts";
 
 /** The picture box measures 1000 × 500 px: 1 % of the frame = 10 px across, 5 px down. */
 beforeEach(() => {
@@ -26,7 +27,10 @@ const ann = (body: RecordAnnotationBody, box = { x: 50, y: 50, w: 30, h: 20 }): 
   body,
 });
 
-function mount(a: RecordAnnotation, over: { screenRect?: [number, number, number, number] | null; zoomActive?: boolean; visible?: boolean } = {}) {
+function mount(
+  a: RecordAnnotation,
+  over: { screenRect?: [number, number, number, number] | null; zoomActive?: boolean; visible?: boolean; bindings?: Bindings } = {},
+) {
   const onLive = vi.fn<(p: AnnotationPatch) => void>();
   const onEnd = vi.fn();
   const onCommit = vi.fn<(p: AnnotationPatch) => void>();
@@ -39,6 +43,7 @@ function mount(a: RecordAnnotation, over: { screenRect?: [number, number, number
       onLive={onLive}
       onEnd={onEnd}
       onCommit={onCommit}
+      bindings={over.bindings}
     />,
   );
   return { onLive, onEnd, onCommit };
@@ -181,6 +186,21 @@ describe("AnnotationOverlay", () => {
       } finally {
         window.removeEventListener("keydown", earlier);
       }
+    });
+
+    it("the point goes with the rebound delete key only", () => {
+      const { onCommit } = mount(freehand(square), { bindings: { ...DEFAULT_BINDINGS, deleteSelected: { key: "x" } } });
+      const p = screen.getAllByTestId("ed-ann-point")[1];
+      fireEvent.pointerDown(p, { clientX: 1_000, clientY: 0, pointerId: 1 });
+      fireEvent.pointerUp(p, { clientX: 1_000, clientY: 0, pointerId: 1 });
+      for (const key of ["Delete", "Backspace", "s"]) {
+        const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(ev);
+        expect(ev.defaultPrevented, key).toBe(false);
+      }
+      expect(onCommit).not.toHaveBeenCalled();
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true, cancelable: true }));
+      expect(onCommit).toHaveBeenCalledWith({ points: [[0, 0], [100, 100], [0, 100]] });
     });
 
     it("Delete without a selected point is left to the editor", () => {

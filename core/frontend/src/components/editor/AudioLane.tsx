@@ -173,6 +173,7 @@ export function AudioLane({
   resolveEdge,
   snapping,
   onGuide,
+  emptyHint,
 }: {
   view: RecordEditorView;
   /** px per programme ms. */
@@ -188,6 +189,8 @@ export function AudioLane({
   snapping?: Snapping;
   /** The target a drag sits on (`null`: none) — the timeline draws its guide line. */
   onGuide?: (ms: number | null) => void;
+  /** Without tracks: a one-row note naming the keys that add one (none: the lane is hidden). */
+  emptyHint?: string;
 }) {
   const t = useT();
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -199,7 +202,16 @@ export function AudioLane({
   useEffect(() => () => guideRef.current?.(null), []);
   const bars = trackBars(view);
   const doc = view.doc;
-  if (bars.length === 0) return null;
+  if (bars.length === 0) {
+    if (!emptyHint) return null;
+    return (
+      <div className="relative mt-1 h-5" data-testid="ed-audio-lane-empty">
+        <span className="pointer-events-none absolute inset-y-0 left-1 flex items-center text-[10px] text-[var(--color-muted)]" data-testid="ed-lane-hint">
+          {emptyHint}
+        </span>
+      </div>
+    );
+  }
   const total = Math.max(1, view.programmeMs);
 
   const begin = (b: TrackBar, mode: TrackDragMode) => (e: ReactPointerEvent) => {

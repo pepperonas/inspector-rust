@@ -9,6 +9,8 @@ pub const PROJECT_FILE: &str = "project.json";
 pub const CURSOR_FILE: &str = "cursor.json";
 pub const SCREEN_FILE: &str = "screen.mp4";
 pub const MIC_FILE: &str = "mic.wav";
+/// The webcam recording (stage 5): H.264, its own size, on the screen's programme clock.
+pub const CAMERA_FILE: &str = "camera.mp4";
 /// Small preview picture of a project, written by the editor from its filmstrip render
 /// (`editor_ipc::thumbs`). The project list shows it; without it a placeholder.
 pub const THUMB_FILE: &str = "thumb.jpg";
@@ -58,6 +60,23 @@ pub struct MicMeta {
     pub sample_rate: u32,
 }
 
+/// The camera file of a take (`camera.mp4`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CameraMeta {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    /// Camera time = screen time − offset. Always 0 from our recorder (it starts the camera
+    /// file at the screen's first frame); kept for OpenScreen's `webcamOffsetSec`.
+    pub offset_ms: i64,
+    pub device_name: String,
+    /// Programme time (ms) at which the camera dropped out mid-take; the file still covers
+    /// the whole take, holding its last frame from here on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_early_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RecordingMeta {
@@ -71,6 +90,8 @@ pub struct RecordingMeta {
     pub mic: Option<MicMeta>,
     pub cursor_mode: CursorMode,
     pub pauses: Vec<(u64, u64)>,
+    /// The webcam file (`camera.mp4`), when one was recorded.
+    pub camera: Option<CameraMeta>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -377,6 +398,25 @@ mod tests {
             recording: RecordingMeta::default(),
             editor: serde_json::json!({}),
         }
+    }
+
+    #[test]
+    fn recording_meta_without_camera_field_loads() {
+        // A project.json from before stage 5 has no `camera` key.
+        let old = r#"{"schema":1,"id":"a","status":"ready","recording":{"source":"display","width":1920,"height":1080,"fps":60,"durationMs":5000,"systemAudio":true,"mic":null,"cursorMode":"editable-overlay","pauses":[]}}"#;
+        let p: Project = serde_json::from_str(old).unwrap();
+        assert_eq!(p.recording.camera, None);
+        assert_eq!(p.recording.duration_ms, 5000);
+        // And a camera survives the round trip, `endedEarlyMs` only when set.
+        let mut q = p.clone();
+        q.recording.camera = Some(CameraMeta { width: 1280, height: 720, fps: 30, offset_ms: 0, device_name: "Cam".into(), ended_early_ms: None });
+        let json = serde_json::to_string(&q).unwrap();
+        assert!(json.contains(r#""camera":{"width":1280,"height":720,"fps":30,"offsetMs":0,"deviceName":"Cam"}"#), "{json}");
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, q);
+        q.recording.camera.as_mut().unwrap().ended_early_ms = Some(1500);
+        let back: Project = serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
+        assert_eq!(back.recording.camera.unwrap().ended_early_ms, Some(1500));
     }
 
     #[test]

@@ -161,7 +161,7 @@ pub struct CaptureResult {
     pub stream_error: Option<String>,
 }
 
-struct Sendable<T>(T);
+pub(crate) struct Sendable<T>(pub(crate) T);
 unsafe impl<T> Send for Sendable<T> {}
 unsafe impl<T> Sync for Sendable<T> {}
 
@@ -186,7 +186,7 @@ struct Inner {
     stream_error: Mutex<Option<String>>,
 }
 
-fn writer_error(w: &AVAssetWriter) -> String {
+pub(crate) fn writer_error(w: &AVAssetWriter) -> String {
     unsafe {
         w.error()
             .map(|e| e.localizedDescription().to_string())
@@ -415,20 +415,26 @@ fn queue() -> &'static DispatchQueue {
     &Q.get_or_init(|| Sendable(DispatchQueue::new("io.celox.inspector-rust.record-capture", None))).0
 }
 
-fn any<T: Message>(r: Retained<T>) -> Retained<AnyObject> {
+pub(crate) fn any<T: Message>(r: Retained<T>) -> Retained<AnyObject> {
     // SAFETY: every Objective-C object is an AnyObject.
     unsafe { Retained::cast_unchecked(r) }
 }
 
-fn num(v: i64) -> Retained<AnyObject> {
+pub(crate) fn num(v: i64) -> Retained<AnyObject> {
     any(NSNumber::new_i64(v))
 }
 
-fn key(k: Option<&'static NSString>) -> Result<&'static NSString, String> {
+pub(crate) fn key(k: Option<&'static NSString>) -> Result<&'static NSString, String> {
     k.ok_or_else(|| crate::i18n::tf("rec2.capture_writer_failed", &[("reason", "AVFoundation constant missing")]))
 }
 
-fn video_settings(w: u32, h: u32, fps: u32) -> Result<Retained<NSDictionary<NSString, AnyObject>>, String> {
+/// H.264 writer settings (BT.709, no reordering, a keyframe every second) at `bitrate`.
+pub(crate) fn video_settings(
+    w: u32,
+    h: u32,
+    fps: u32,
+    bitrate: u32,
+) -> Result<Retained<NSDictionary<NSString, AnyObject>>, String> {
     unsafe {
         let color = NSDictionary::<NSString, AnyObject>::from_retained_objects(
             &[key(AVVideoColorPrimariesKey)?, key(AVVideoTransferFunctionKey)?, key(AVVideoYCbCrMatrixKey)?],
@@ -447,7 +453,7 @@ fn video_settings(w: u32, h: u32, fps: u32) -> Result<Retained<NSDictionary<NSSt
                 key(AVVideoMaxKeyFrameIntervalDurationKey)?,
             ],
             &[
-                num(default_video_bitrate(w, h, fps) as i64),
+                num(bitrate as i64),
                 num(fps as i64),
                 any(NSNumber::new_bool(false)),
                 num(key_frame_interval(fps) as i64),
@@ -695,7 +701,7 @@ impl Capture {
                 .map_err(|e| writer_fail(e.localizedDescription().to_string()))?;
             // A readable file even if we die before finishWriting.
             writer.setMovieFragmentInterval(CMTime::new(1, 1));
-            let settings = video_settings(width, height, fps)?;
+            let settings = video_settings(width, height, fps, default_video_bitrate(width, height, fps))?;
             let video = AVAssetWriterInput::initWithMediaType_outputSettings(
                 AVAssetWriterInput::alloc(),
                 key(AVMediaTypeVideo)?,

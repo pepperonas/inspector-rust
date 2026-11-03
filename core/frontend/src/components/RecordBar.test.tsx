@@ -40,6 +40,20 @@ afterEach(() => {
 });
 
 describe("RecordBar", () => {
+  it("shows the camera warning from the status (once the camera dropped out)", async () => {
+    const { queryByTestId } = render(<RecordBar />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(queryByTestId("rec-camera-warning")).toBeNull();
+    await act(async () => {
+      statusCb?.({ payload: { ...st("recording", 3000), cameraWarning: "Camera disconnected" } });
+    });
+    const w = queryByTestId("rec-camera-warning");
+    expect(w).not.toBeNull();
+    expect(w?.getAttribute("title")).toBe("Camera disconnected");
+  });
+
   it("pause calls recordPause, then shows Resume and freezes the clock", async () => {
     recordPause.mockResolvedValue(st("paused", 5000));
     const { getByText, getByTestId } = render(<RecordBar />);

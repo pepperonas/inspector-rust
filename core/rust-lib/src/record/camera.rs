@@ -1,10 +1,124 @@
-//! `record` stage 5 — the webcam: quality, devices, permission (and, later, its capture).
+//! `record` stage 5 — the webcam: quality, devices, permission and its capture into
+//! `camera.mp4` on the shared pause clock.
 //!
-//! The pure part (quality ladder, device choice, the types the settings carry) compiles on
-//! every target, because `RecordConfig`/`StartOptions` hold it. The AVFoundation edge lives
-//! in the macOS-only `mod mac` below; nothing here opens a capture session yet.
+//! The pure part (quality ladder, device choice, timestamps, format choice, loss rule, the
+//! types the settings carry) compiles on every target, because `RecordConfig`/`StartOptions`
+//! hold it. The AVFoundation edge (permission, devices, [`CameraCapture`]) lives in the
+//! macOS-only `mod mac` below.
+//!
+//! Timing: a camera frame's capture time goes through the same rule as a screen frame —
+//! [`PauseShared::offset_at`] drops it inside a pause and otherwise shifts it back by the
+//! pauses that ended before it — and is then expressed relative to the screen's first frame
+//! (`origin_ns`). So the camera file starts where the screen file starts (offset 0) and the
+//! pauses are cut out of both identically. Frames before the origin are dropped; the first
+//! admitted one is written at 0 (held), so the file never starts later than the screen.
+//! The writer session ends at the screen's end, so the file covers the screen's length even
+//! when the camera dropped out (the export truncates a clip to its camera's length).
 
+use super::core::PauseShared;
+use super::project::CameraMeta;
 use serde::{Deserialize, Serialize};
+
+/// Frame rate the camera is asked for (OpenScreen: `WEBCAM_TARGET_FRAME_RATE`).
+pub const CAMERA_FPS: u32 = 30;
+/// No frame delivered for this long (while the session should run) = the camera is gone.
+pub const CAMERA_STALL_NS: i64 = 2_000_000_000;
+/// A sample time further than this before its arrival is not on the host clock.
+const HOST_CLOCK_SLACK_BEHIND_NS: i64 = 1_000_000_000;
+/// …or more than this after its arrival.
+const HOST_CLOCK_SLACK_AHEAD_NS: i64 = 50_000_000;
+
+/// Programme time (ns from the screen's first frame) of a camera frame captured at host
+/// time `sample_ns`, or `None` = drop it: captured inside a pause, or before the origin.
+/// The same rule as the screen frames ([`PauseShared::offset_at`]).
+pub fn camera_pts(sample_ns: u64, origin_ns: u64, clock: &PauseShared) -> Option<u64> {
+    let off = clock.offset_at(sample_ns as i64)?;
+    let t = sample_ns as i64 - off;
+    let origin = origin_ns as i64;
+    (t >= origin).then(|| (t - origin) as u64)
+}
+
+/// The host time of a frame. AVCapture stamps frames with the session's clock, which on
+/// macOS is the host clock; a stamp that does not fit the arrival time (another clock) is
+/// replaced by the arrival time, so a foreign clock can never misplace the camera.
+pub fn sample_host_ns(pts_ns: Option<i64>, arrival_ns: i64) -> i64 {
+    match pts_ns {
+        Some(p) if p >= arrival_ns - HOST_CLOCK_SLACK_BEHIND_NS && p <= arrival_ns + HOST_CLOCK_SLACK_AHEAD_NS => p,
+        _ => arrival_ns,
+    }
+}
+
+/// One capture format of a device: its size and the highest frame rate it offers.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FormatInfo {
+    pub width: u32,
+    pub height: u32,
+    pub max_fps: f64,
+}
+
+/// The format nearest to `ideal` ("ideal, never exact"): formats that reach [`CAMERA_FPS`]
+/// first, then ones with the ideal's aspect (a 16:9 wish must not get the FaceTime camera's
+/// 1552×1552 just because its pixel count is closer), then the smallest difference in pixel
+/// count; a tie goes to the larger format. Portrait formats are skipped when a landscape one
+/// exists.
+pub fn pick_format(formats: &[FormatInfo], ideal: (u32, u32)) -> Option<usize> {
+    let landscape = formats.iter().any(|f| f.width >= f.height);
+    let area = |w: u32, h: u32| w as i64 * h as i64;
+    let want = area(ideal.0, ideal.1);
+    let ratio = |w: u32, h: u32| (w as f64 / h.max(1) as f64).ln();
+    let want_ratio = ratio(ideal.0, ideal.1);
+    formats
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.width > 0 && f.height > 0 && (!landscape || f.width >= f.height))
+        .min_by_key(|(_, f)| {
+            let slow = f.max_fps + 0.5 < CAMERA_FPS as f64;
+            let other_aspect = (ratio(f.width, f.height) - want_ratio).abs() > 0.05;
+            let a = area(f.width, f.height);
+            (slow, other_aspect, (a - want).abs(), -a)
+        })
+        .map(|(i, _)| i)
+}
+
+/// The frame rate asked of a format that offers at most `max_fps`.
+pub fn target_fps(max_fps: f64) -> u32 {
+    if !max_fps.is_finite() || max_fps < 1.0 {
+        return CAMERA_FPS;
+    }
+    (max_fps.round() as u32).clamp(1, CAMERA_FPS)
+}
+
+/// The file's frame size: the delivered size, scaled down (aspect kept) to fit the quality's
+/// ideal size, even, at least 2.
+pub fn camera_output_size(delivered: (u32, u32), ideal: (u32, u32)) -> (u32, u32) {
+    super::core::capture_output_size(delivered.0 as f64, delivered.1 as f64, 1.0, ideal.0, ideal.1)
+}
+
+/// The camera is gone: unplugged, its session stopped, or no frame for [`CAMERA_STALL_NS`]
+/// (frames keep arriving during a pause — they are only dropped — so a pause never counts).
+pub fn camera_lost(connected: bool, running: bool, last_arrival_ns: i64, now_ns: i64) -> bool {
+    !connected || !running || now_ns - last_arrival_ns > CAMERA_STALL_NS
+}
+
+/// What the camera wrote, for `project.json`. No frame written = no camera at all.
+pub fn camera_meta(
+    written: Option<(u32, u32)>,
+    fps: u32,
+    device_name: &str,
+    lost_at_ms: Option<u64>,
+) -> Option<CameraMeta> {
+    let (width, height) = written?;
+    Some(CameraMeta { width, height, fps, offset_ms: 0, device_name: device_name.to_string(), ended_early_ms: lost_at_ms })
+}
+
+/// The end of a camera recording.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CameraOutcome {
+    /// `None` = no usable camera file (nothing written; the file was removed).
+    pub meta: Option<CameraMeta>,
+    /// The camera dropped out mid-take.
+    pub lost: bool,
+}
 
 /// The camera quality the user asks for. "Ideal", never forced: the device picks the
 /// nearest format it has.
@@ -175,12 +289,618 @@ mod mac {
     }
 }
 
+/// The macOS camera recorder: `AVCaptureSession` → `AVCaptureVideoDataOutput` (420v, scaled
+/// to the file size, not mirrored, late frames discarded) → own `AVAssetWriter` (H.264,
+/// [`camera_bitrate`]). Timestamps per [`camera_pts`] + `VideoTimestampGate`.
+#[cfg(target_os = "macos")]
+mod capture {
+    use super::{
+        camera_bitrate, camera_lost, camera_meta, camera_output_size, camera_pts, pick_format, sample_host_ns,
+        target_fps, CameraDevice, CameraOutcome, CameraQuality, FormatInfo,
+    };
+    use crate::record::capture_macos::{cmtime_ns, key, num, video_settings, writer_error, Sendable};
+    use crate::record::core::{GateVerdict, VideoTimestampGate};
+    use crate::record::{host_now_ns, PauseShared};
+    use block2::RcBlock;
+    use dispatch2::{DispatchQueue, DispatchRetained};
+    use objc2::rc::{autoreleasepool, Retained};
+    use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
+    use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+    use objc2_av_foundation::{
+        AVAssetWriter, AVAssetWriterInput, AVAssetWriterStatus, AVCaptureConnection, AVCaptureDevice,
+        AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession, AVCaptureVideoDataOutput,
+        AVCaptureVideoDataOutputSampleBufferDelegate, AVFileTypeMPEG4, AVMediaTypeVideo,
+    };
+    use objc2_core_foundation::{CFRetained, CFString};
+    use objc2_core_media::{
+        CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime, CMTimeFlags, CMVideoFormatDescriptionGetDimensions,
+    };
+    use objc2_core_video::{kCVPixelBufferHeightKey, kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey};
+    use objc2_foundation::{NSDictionary, NSString, NSURL};
+    use parking_lot::Mutex;
+    use std::path::{Path, PathBuf};
+    use std::ptr::NonNull;
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    const NS_PER_S: i64 = 1_000_000_000;
+    /// `kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange` ('420v'), what the H.264 encoder takes.
+    const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
+    const NO_ORIGIN: i64 = i64::MIN;
+
+    struct CamState {
+        writer: Retained<AVAssetWriter>,
+        input: Retained<AVAssetWriterInput>,
+        started: bool,
+        stopping: bool,
+        gate: VideoTimestampGate,
+        written: u64,
+        last_pts: Option<u64>,
+        not_ready: u32,
+        error: Option<String>,
+    }
+
+    struct CamInner {
+        clock: Arc<PauseShared>,
+        /// Timeline ns of the screen's first frame; [`NO_ORIGIN`] until the session knows it.
+        origin: AtomicI64,
+        /// Host ns of the last delivered frame (also during pauses).
+        last_arrival: AtomicI64,
+        /// Once lost, always lost: no frame is written after the camera dropped out.
+        lost: AtomicBool,
+        st: Mutex<Sendable<CamState>>,
+    }
+
+    impl CamInner {
+        fn on_sample(&self, sample: &CMSampleBuffer) {
+            let arrival = host_now_ns();
+            self.last_arrival.store(arrival, Ordering::Relaxed);
+            let origin = self.origin.load(Ordering::Acquire);
+            if origin == NO_ORIGIN || self.lost.load(Ordering::Relaxed) {
+                return;
+            }
+            // SAFETY: `sample` is a live CMSampleBuffer handed to the delegate for this call.
+            if !unsafe { sample.data_is_ready() } {
+                return;
+            }
+            // SAFETY: as above; plain timing read.
+            let raw = unsafe { sample.presentation_time_stamp() };
+            let host = sample_host_ns(cmtime_ns(raw.value, raw.timescale, raw.flags.0), arrival);
+            if host < 0 {
+                return;
+            }
+            let Some(mut pts) = camera_pts(host as u64, origin as u64, &self.clock) else { return };
+            let mut guard = self.st.lock();
+            let st = &mut guard.0;
+            if st.stopping || st.error.is_some() {
+                return;
+            }
+            if !st.started {
+                // SAFETY: the writer was set up with one video input and not started yet.
+                if !unsafe { st.writer.startWriting() } {
+                    st.error = Some(format!("start: {}", writer_error(&st.writer)));
+                    return;
+                }
+                // SAFETY: called once, right after startWriting, before any append.
+                unsafe { st.writer.startSessionAtSourceTime(CMTime::new(0, NS_PER_S as i32)) };
+                st.started = true;
+                // The first frame stands at 0 (held) so the camera never starts later than
+                // the screen; the next ones keep their own time.
+                pts = 0;
+            }
+            if st.gate.check(Some(pts as i64)) != GateVerdict::Admit {
+                return;
+            }
+            let Some(buf) = with_pts(sample, pts as i64) else { return };
+            // SAFETY: status read on our own writer under the state lock.
+            if unsafe { st.writer.status() } == AVAssetWriterStatus::Failed {
+                st.error = Some(format!("writer status: {}", writer_error(&st.writer)));
+                return;
+            }
+            // SAFETY: the input belongs to the started writer; `buf` is a valid, retimed copy.
+            if unsafe { st.input.isReadyForMoreMediaData() } {
+                if unsafe { st.input.appendSampleBuffer(&buf) } {
+                    st.gate.record(pts as i64);
+                    st.last_pts = Some(pts);
+                    st.written += 1;
+                } else {
+                    st.error = Some(format!("append: {}", writer_error(&st.writer)));
+                    tracing::warn!("record camera: {}", st.error.as_deref().unwrap_or_default());
+                }
+            } else {
+                st.not_ready += 1;
+            }
+        }
+    }
+
+    /// A copy of `sample` presented at `pts_ns` (programme time). `None` = CoreMedia refused.
+    fn with_pts(sample: &CMSampleBuffer, pts_ns: i64) -> Option<CFRetained<CMSampleBuffer>> {
+        let invalid = CMTime { value: 0, timescale: 0, flags: CMTimeFlags(0), epoch: 0 };
+        // SAFETY: CMTimeMake has no preconditions (a positive timescale).
+        let pts = unsafe { CMTime::new(pts_ns, NS_PER_S as i32) };
+        let timing = [CMSampleTimingInfo {
+            duration: invalid,
+            presentationTimeStamp: pts,
+            decodeTimeStamp: invalid,
+        }];
+        let mut out: *mut CMSampleBuffer = std::ptr::null_mut();
+        // SAFETY: `sample` is valid for the call; one timing entry for the one video frame;
+        // `out` is a valid out-pointer that receives a +1 buffer on success.
+        let st = unsafe {
+            CMSampleBuffer::create_copy_with_new_timing(None, sample, 1, timing.as_ptr(), NonNull::from(&mut out))
+        };
+        if st != 0 {
+            return None;
+        }
+        // SAFETY: on success `out` is a retained CMSampleBuffer we now own.
+        NonNull::new(out).map(|p| unsafe { CFRetained::from_raw(p) })
+    }
+
+    pub struct CamIvars {
+        inner: Arc<CamInner>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "IRRecordCameraOutput"]
+        #[ivars = CamIvars]
+        struct CameraOutput;
+
+        unsafe impl NSObjectProtocol for CameraOutput {}
+
+        unsafe impl AVCaptureVideoDataOutputSampleBufferDelegate for CameraOutput {
+            #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
+            fn did_output(&self, _output: &AVCaptureOutput, sample: &CMSampleBuffer, _conn: &AVCaptureConnection) {
+                let inner = &self.ivars().inner;
+                // An Objective-C exception from AVAssetWriter must not unwind through the
+                // dispatch queue (that aborts the app).
+                let res = objc2::exception::catch(std::panic::AssertUnwindSafe(|| inner.on_sample(sample)));
+                if let Err(e) = res {
+                    let msg = e.map(|e| format!("{e:?}")).unwrap_or_else(|| "exception".into());
+                    tracing::warn!("record camera: exception while writing a frame: {msg}");
+                    let mut g = inner.st.lock();
+                    if g.0.error.is_none() {
+                        g.0.error = Some(msg);
+                    }
+                }
+            }
+        }
+    );
+
+    impl CameraOutput {
+        fn create(inner: Arc<CamInner>) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(CamIvars { inner });
+            // SAFETY: NSObject's designated initialiser on a freshly allocated instance.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    fn queue() -> &'static DispatchQueue {
+        static Q: std::sync::OnceLock<Sendable<DispatchRetained<DispatchQueue>>> = std::sync::OnceLock::new();
+        &Q.get_or_init(|| Sendable(DispatchQueue::new("io.celox.inspector-rust.record-camera", None))).0
+    }
+
+    /// A CoreVideo key constant as an NSString (CFString and NSString are toll-free bridged).
+    fn cv_key(k: &'static CFString) -> &'static NSString {
+        // SAFETY: CFStringRef and NSString* are toll-free bridged; the constant lives for the
+        // process lifetime.
+        unsafe { &*(k as *const CFString as *const NSString) }
+    }
+
+    /// The device's formats as [`FormatInfo`], in `device.formats()` order.
+    fn format_infos(device: &AVCaptureDevice) -> Vec<FormatInfo> {
+        // SAFETY: plain property reads on a live device.
+        let formats = unsafe { device.formats() };
+        formats
+            .iter()
+            .map(|f| {
+                // SAFETY: a live AVCaptureDeviceFormat; its description is a video format
+                // description for a video device.
+                let desc: Retained<CMFormatDescription> = unsafe { f.formatDescription() };
+                let dims = unsafe { CMVideoFormatDescriptionGetDimensions(&desc) };
+                // SAFETY: as above.
+                let max_fps = unsafe { f.videoSupportedFrameRateRanges() }
+                    .iter()
+                    .map(|r| unsafe { r.maxFrameRate() })
+                    .fold(0.0_f64, f64::max);
+                FormatInfo { width: dims.width.max(0) as u32, height: dims.height.max(0) as u32, max_fps }
+            })
+            .collect()
+    }
+
+    /// Records a camera into an MP4 on the shared pause clock. See the module docs.
+    pub struct CameraCapture {
+        inner: Arc<CamInner>,
+        session: Retained<AVCaptureSession>,
+        device: Retained<AVCaptureDevice>,
+        _output: Retained<AVCaptureVideoDataOutput>,
+        _delegate: Retained<CameraOutput>,
+        path: PathBuf,
+        name: String,
+        fps: u32,
+        size: (u32, u32),
+        mirrored: bool,
+    }
+
+    // SAFETY: the AVFoundation objects are only touched from `is_lost`/`finish` with methods
+    // AVFoundation allows from any thread (isRunning, isConnected, stopRunning); the writer
+    // state is behind a mutex.
+    unsafe impl Send for CameraCapture {}
+
+    impl CameraCapture {
+        /// Opens `device`, asks it for `quality` at 30 fps and starts it. Frames are dropped
+        /// until [`Self::set_origin`]. Needs camera permission (the caller checks it).
+        pub fn start(device: &CameraDevice, quality: CameraQuality, path: &Path, clock: Arc<PauseShared>) -> Result<CameraCapture, String> {
+            let fail = |r: String| crate::i18n::tf("rec5.camera_start_failed", &[("reason", &r)]);
+            let res = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                autoreleasepool(|_| Self::start_inner(device, quality, path, clock))
+            }));
+            match res {
+                Ok(r) => r.map_err(fail),
+                Err(e) => Err(fail(e.map(|e| format!("{e:?}")).unwrap_or_else(|| "exception".into()))),
+            }
+        }
+
+        fn start_inner(device: &CameraDevice, quality: CameraQuality, path: &Path, clock: Arc<PauseShared>) -> Result<CameraCapture, String> {
+            // SAFETY: class method with a valid NSString; returns a retained device or None.
+            let dev = unsafe { AVCaptureDevice::deviceWithUniqueID(&NSString::from_str(&device.id)) }
+                .ok_or_else(|| crate::i18n::t("rec5.camera_no_device"))?;
+            let infos = format_infos(&dev);
+            let pick = pick_format(&infos, quality.ideal_size());
+            // SAFETY: live device; plain read.
+            let formats = unsafe { dev.formats() };
+            let (delivered, fps) = match pick {
+                Some(i) => ((infos[i].width, infos[i].height), target_fps(infos[i].max_fps)),
+                None => (quality.ideal_size(), super::CAMERA_FPS),
+            };
+            let size = camera_output_size(delivered, quality.ideal_size());
+
+            // SAFETY: AVFoundation objects created and configured on this thread before the
+            // session runs; every call has its documented preconditions met (input/output
+            // checked with canAdd*, configuration bracketed, device locked for format changes).
+            unsafe {
+                let session = AVCaptureSession::new();
+                let input = AVCaptureDeviceInput::deviceInputWithDevice_error(&dev)
+                    .map_err(|e| e.localizedDescription().to_string())?;
+                let output = AVCaptureVideoDataOutput::new();
+                output.setAlwaysDiscardsLateVideoFrames(true);
+                let vs = NSDictionary::<NSString, AnyObject>::from_retained_objects(
+                    &[cv_key(kCVPixelBufferPixelFormatTypeKey), cv_key(kCVPixelBufferWidthKey), cv_key(kCVPixelBufferHeightKey)],
+                    &[num(PIXEL_420V as i64), num(size.0 as i64), num(size.1 as i64)],
+                );
+                output.setVideoSettings(Some(&vs));
+                session.beginConfiguration();
+                if !session.canAddInput(&input) || !session.canAddOutput(&output) {
+                    session.commitConfiguration();
+                    return Err("session refused the camera".into());
+                }
+                session.addInput(&input);
+                session.addOutput(&output);
+                session.commitConfiguration();
+
+                if let Some(i) = pick {
+                    if dev.lockForConfiguration().is_ok() {
+                        let fmt = formats.objectAtIndex(i);
+                        dev.setActiveFormat(&fmt);
+                        if infos[i].max_fps + 0.5 >= super::CAMERA_FPS as f64 {
+                            // Take what comes when the format refuses 30 fps; the gate keeps
+                            // the timestamps in order either way.
+                            let d = CMTime::new(1, fps as i32);
+                            let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                                dev.setActiveVideoMinFrameDuration(d);
+                                dev.setActiveVideoMaxFrameDuration(d);
+                            }));
+                        }
+                        dev.unlockForConfiguration();
+                    }
+                }
+
+                let media = AVMediaTypeVideo.expect("AVMediaTypeVideo is always exported");
+                let mut mirrored = false;
+                if let Some(conn) = output.connectionWithMediaType(media) {
+                    if conn.isVideoMirroringSupported() {
+                        conn.setAutomaticallyAdjustsVideoMirroring(false);
+                        conn.setVideoMirrored(false);
+                    }
+                    mirrored = conn.isVideoMirrored();
+                }
+
+                let _ = std::fs::remove_file(path);
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                let url = NSURL::from_file_path(path).ok_or_else(|| "bad path".to_string())?;
+                let writer = AVAssetWriter::initWithURL_fileType_error(AVAssetWriter::alloc(), &url, key(AVFileTypeMPEG4)?)
+                    .map_err(|e| e.localizedDescription().to_string())?;
+                writer.setMovieFragmentInterval(CMTime::new(1, 1));
+                let settings = video_settings(size.0, size.1, fps, camera_bitrate(size.0, size.1))?;
+                let winput =
+                    AVAssetWriterInput::initWithMediaType_outputSettings(AVAssetWriterInput::alloc(), media, Some(&settings));
+                winput.setExpectsMediaDataInRealTime(true);
+                if !writer.canAddInput(&winput) {
+                    return Err("H.264 input".into());
+                }
+                writer.addInput(&winput);
+
+                let inner = Arc::new(CamInner {
+                    clock,
+                    origin: AtomicI64::new(NO_ORIGIN),
+                    last_arrival: AtomicI64::new(host_now_ns()),
+                    lost: AtomicBool::new(false),
+                    st: Mutex::new(Sendable(CamState {
+                        writer,
+                        input: winput,
+                        started: false,
+                        stopping: false,
+                        gate: VideoTimestampGate::new(),
+                        written: 0,
+                        last_pts: None,
+                        not_ready: 0,
+                        error: None,
+                    })),
+                });
+                let delegate = CameraOutput::create(inner.clone());
+                let proto: &ProtocolObject<dyn AVCaptureVideoDataOutputSampleBufferDelegate> = ProtocolObject::from_ref(&*delegate);
+                output.setSampleBufferDelegate_queue(Some(proto), Some(queue()));
+                session.startRunning();
+                if !session.isRunning() {
+                    let _ = std::fs::remove_file(path);
+                    return Err("the camera did not start (in use by another app?)".into());
+                }
+                // SAFETY: plain read on a live device.
+                let name = dev.localizedName().to_string();
+                tracing::info!(
+                    "record camera: {name} started, format {delivered:?} → {size:?} @ {fps} fps, mirrored {mirrored}"
+                );
+                Ok(CameraCapture {
+                    inner,
+                    session,
+                    device: dev,
+                    _output: output,
+                    _delegate: delegate,
+                    path: path.to_path_buf(),
+                    name,
+                    fps,
+                    size,
+                    mirrored,
+                })
+            }
+        }
+
+        /// Timeline ns of the screen's first frame: from here on frames are written.
+        pub fn set_origin(&self, origin_ns: u64) {
+            self.inner.origin.store(origin_ns as i64, Ordering::Release);
+        }
+
+        /// The file's frame size.
+        pub fn size(&self) -> (u32, u32) {
+            self.size
+        }
+
+        /// The connection delivers unmirrored frames (read back after configuring).
+        pub fn mirrored(&self) -> bool {
+            self.mirrored
+        }
+
+        /// The camera dropped out (unplugged, stopped, no frames). Sticky.
+        pub fn is_lost(&self) -> bool {
+            if self.inner.lost.load(Ordering::Relaxed) {
+                return true;
+            }
+            if self.inner.origin.load(Ordering::Acquire) == NO_ORIGIN {
+                return false;
+            }
+            // SAFETY: thread-safe property reads on live objects.
+            let (connected, running) = unsafe { (self.device.isConnected(), self.session.isRunning()) };
+            let writer_failed = self.inner.st.lock().0.error.is_some();
+            let lost = writer_failed
+                || camera_lost(connected, running, self.inner.last_arrival.load(Ordering::Relaxed), host_now_ns());
+            if lost {
+                tracing::warn!(
+                    "record camera: lost (connected {connected}, running {running}, writer failed {writer_failed})"
+                );
+                self.inner.lost.store(true, Ordering::Relaxed);
+            }
+            lost
+        }
+
+        /// Stops the camera and closes the file at the screen's end `end_ns` (timeline ns),
+        /// so it covers the screen's whole length. Nothing written = the file is removed.
+        pub fn finish(self, end_ns: u64) -> CameraOutcome {
+            let lost = self.is_lost();
+            // SAFETY: stopRunning is allowed from any thread; it blocks until stopped, after
+            // which no more delegate calls arrive.
+            unsafe { self.session.stopRunning() };
+            let origin = self.inner.origin.load(Ordering::Acquire);
+            let mut guard = self.inner.st.lock();
+            let st = &mut guard.0;
+            st.stopping = true;
+            if !st.started || st.written == 0 {
+                // SAFETY: cancel on our own writer (started or not).
+                unsafe { st.writer.cancelWriting() };
+                let _ = std::fs::remove_file(&self.path);
+                tracing::info!("record camera: no frame written — no camera file");
+                return CameraOutcome { meta: None, lost };
+            }
+            let last = st.last_pts.unwrap_or(0);
+            let end_prog = if origin == NO_ORIGIN { last } else { (end_ns as i64 - origin).max(last as i64) as u64 };
+            let ok = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                // SAFETY: the writer is writing (started, no failure checked below); the
+                // session end lies at or after every appended frame.
+                unsafe {
+                    if st.writer.status() != AVAssetWriterStatus::Writing {
+                        return false;
+                    }
+                    st.writer.endSessionAtSourceTime(CMTime::new(end_prog as i64, NS_PER_S as i32));
+                    st.input.markAsFinished();
+                    let (tx, rx) = mpsc::channel::<()>();
+                    let block = RcBlock::new(move || {
+                        let _ = tx.send(());
+                    });
+                    st.writer.finishWritingWithCompletionHandler(&block);
+                    rx.recv_timeout(Duration::from_secs(20)).is_ok()
+                        && st.writer.status() == AVAssetWriterStatus::Completed
+                }
+            }));
+            if !matches!(ok, Ok(true)) {
+                tracing::warn!("record camera: finishing camera.mp4 failed: {}", writer_error(&st.writer));
+                return CameraOutcome { meta: None, lost };
+            }
+            tracing::info!(
+                "record camera: {} frames, {} refused, {} encoder busy, end {} ms",
+                st.written,
+                st.gate.rejected,
+                st.not_ready,
+                end_prog / 1_000_000
+            );
+            let lost_at = lost.then_some(last / 1_000_000);
+            CameraOutcome { meta: camera_meta(Some(self.size), self.fps, &self.name, lost_at), lost }
+        }
+    }
+
+    /// Live, no permission needed (formats are readable without opening the device): the
+    /// built-in camera's formats and which one each quality picks.
+    #[cfg(test)]
+    #[test]
+    #[ignore]
+    fn camera_formats_live() {
+        let list = super::devices();
+        let Some(d) = super::pick_device(&list, "") else {
+            println!("no camera");
+            return;
+        };
+        // SAFETY: class lookup with a valid NSString; formats are plain reads.
+        let dev = unsafe { AVCaptureDevice::deviceWithUniqueID(&NSString::from_str(&d.id)) }.expect("device");
+        let infos = format_infos(&dev);
+        println!("{}: {} formats", d.name, infos.len());
+        for f in &infos {
+            println!("  {}x{} up to {:.0} fps", f.width, f.height, f.max_fps);
+        }
+        for q in [CameraQuality::P1080, CameraQuality::P1440, CameraQuality::P2160] {
+            let i = pick_format(&infos, q.ideal_size()).expect("a format");
+            let f = infos[i];
+            println!(
+                "{} → {}x{} @ {} fps, file {:?}",
+                q.as_str(),
+                f.width,
+                f.height,
+                target_fps(f.max_fps),
+                camera_output_size((f.width, f.height), q.ideal_size())
+            );
+        }
+    }
+
+    impl Drop for CameraCapture {
+        fn drop(&mut self) {
+            // SAFETY: as in `finish`; idempotent on a stopped session.
+            unsafe { self.session.stopRunning() };
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub use capture::CameraCapture;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn dev(id: &str, builtin: bool) -> CameraDevice {
         CameraDevice { id: id.into(), name: format!("cam {id}"), builtin }
+    }
+
+    fn ns(s: f64) -> u64 {
+        (s * 1e9) as u64
+    }
+
+    #[test]
+    fn camera_pts_drops_before_origin() {
+        let clock = PauseShared::new();
+        let origin = ns(10.0);
+        assert_eq!(camera_pts(ns(9.99), origin, &clock), None, "before the first screen frame");
+        assert_eq!(camera_pts(origin, origin, &clock), Some(0), "at the origin = 0");
+        assert_eq!(camera_pts(ns(10.5), origin, &clock), Some(ns(0.5)));
+    }
+
+    #[test]
+    fn camera_follows_pause_clock() {
+        let clock = PauseShared::new();
+        let origin = ns(10.0);
+        clock.pause(ns(12.0) as i64);
+        // Captured during the (still open) pause → dropped.
+        assert_eq!(camera_pts(ns(12.5), origin, &clock), None);
+        clock.resume(ns(14.0) as i64);
+        assert_eq!(camera_pts(ns(13.9), origin, &clock), None, "inside the closed pause");
+        // Before the pause: unshifted, even when delivered late.
+        assert_eq!(camera_pts(ns(11.9), origin, &clock), Some(ns(1.9)));
+        // After a 2-s pause: 2 s earlier on the programme clock.
+        assert_eq!(camera_pts(ns(15.0), origin, &clock), Some(ns(3.0)));
+        // The same rule the screen uses (timeline_of).
+        assert_eq!(clock.timeline_of(ns(15.0) as i64).map(|t| (t - origin as i64) as u64), Some(ns(3.0)));
+    }
+
+    #[test]
+    fn foreign_clock_stamps_fall_back_to_arrival() {
+        let now = 100_000_000_000;
+        assert_eq!(sample_host_ns(Some(now - 30_000_000), now), now - 30_000_000, "a host stamp is kept");
+        assert_eq!(sample_host_ns(Some(5), now), now, "another clock → arrival");
+        assert_eq!(sample_host_ns(Some(now + 1_000_000_000), now), now, "from the future → arrival");
+        assert_eq!(sample_host_ns(None, now), now);
+    }
+
+    #[test]
+    fn format_choice_prefers_30fps_then_nearest_size() {
+        let f = |w, h, fps| FormatInfo { width: w, height: h, max_fps: fps };
+        let list = [f(640, 480, 30.0), f(1280, 720, 30.0), f(1920, 1080, 30.0), f(3840, 2160, 15.0)];
+        assert_eq!(pick_format(&list, (1920, 1080)), Some(2));
+        assert_eq!(pick_format(&list, (3840, 2160)), Some(2), "4K only at 15 fps loses to 1080p30");
+        assert_eq!(pick_format(&list, (2560, 1440)), Some(2));
+        let only_slow = [f(1920, 1080, 15.0), f(1280, 720, 15.0)];
+        assert_eq!(pick_format(&only_slow, (1920, 1080)), Some(0), "else the nearest size");
+        // The FaceTime HD camera's real list: 4K/1440p wishes get 1080p, not the square.
+        let facetime = [
+            f(1920, 1080, 30.0), f(1280, 720, 30.0), f(1080, 1920, 30.0), f(1760, 1328, 30.0),
+            f(640, 480, 30.0), f(1328, 1760, 30.0), f(1552, 1552, 30.0),
+        ];
+        for q in [(1920, 1080), (2560, 1440), (3840, 2160)] {
+            assert_eq!(pick_format(&facetime, q), Some(0), "{q:?}");
+        }
+        let only_4_3 = [f(640, 480, 30.0), f(1760, 1328, 30.0)];
+        assert_eq!(pick_format(&only_4_3, (1920, 1080)), Some(1), "no 16:9 → the nearest size");
+        let with_portrait = [f(1080, 1920, 30.0), f(1280, 720, 30.0)];
+        assert_eq!(pick_format(&with_portrait, (1920, 1080)), Some(1), "portrait skipped");
+        assert_eq!(pick_format(&[], (1920, 1080)), None);
+        assert_eq!(target_fps(60.0), 30);
+        assert_eq!(target_fps(15.0), 15);
+        assert_eq!(target_fps(f64::NAN), 30);
+    }
+
+    #[test]
+    fn output_size_caps_at_the_quality() {
+        assert_eq!(camera_output_size((1920, 1080), (1920, 1080)), (1920, 1080));
+        assert_eq!(camera_output_size((3840, 2160), (1920, 1080)), (1920, 1080));
+        assert_eq!(camera_output_size((1280, 720), (1920, 1080)), (1280, 720), "never scaled up");
+        assert_eq!(camera_output_size((1552, 1552), (1920, 1080)), (1080, 1080), "aspect kept");
+    }
+
+    #[test]
+    fn lost_on_unplug_stop_or_stall() {
+        let now = 50_000_000_000;
+        assert!(!camera_lost(true, true, now - 100_000_000, now));
+        assert!(camera_lost(false, true, now, now), "unplugged");
+        assert!(camera_lost(true, false, now, now), "session stopped");
+        assert!(camera_lost(true, true, now - CAMERA_STALL_NS - 1, now), "no frames");
+        assert!(!camera_lost(true, true, now - CAMERA_STALL_NS, now), "exactly the limit still ok");
+    }
+
+    #[test]
+    fn meta_only_when_something_was_written() {
+        assert_eq!(camera_meta(None, 30, "FaceTime", None), None);
+        let m = camera_meta(Some((1920, 1080)), 30, "FaceTime", Some(4200)).unwrap();
+        assert_eq!((m.width, m.height, m.fps, m.offset_ms), (1920, 1080, 30, 0));
+        assert_eq!(m.device_name, "FaceTime");
+        assert_eq!(m.ended_early_ms, Some(4200));
     }
 
     #[test]

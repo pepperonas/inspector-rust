@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Pause, Play, Square } from "lucide-react";
+import { CameraOff, ChevronDown, Pause, Play, Square } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
@@ -15,10 +15,11 @@ const NUB_H = 30;
 /** Control bar of a running take (window `record-bar`): time, pause, stop, collapse. */
 export function RecordBar() {
   const t = useT();
-  const [status, setStatus] = useState<Pick<RecordStatus, "phase" | "elapsedMs" | "lowDiskMinutes">>({
+  const [status, setStatus] = useState<Pick<RecordStatus, "phase" | "elapsedMs" | "lowDiskMinutes" | "cameraWarning">>({
     phase: "recording",
     elapsedMs: 0,
     lowDiskMinutes: null,
+    cameraWarning: null,
   });
   const [receivedAt, setReceivedAt] = useState(() => Date.now());
   const [now, setNow] = useState(() => Date.now());
@@ -31,7 +32,7 @@ export function RecordBar() {
     const n = Date.now();
     setReceivedAt(n);
     setNow(n);
-    setStatus({ phase: s.phase, elapsedMs: s.elapsedMs, lowDiskMinutes: s.lowDiskMinutes });
+    setStatus({ phase: s.phase, elapsedMs: s.elapsedMs, lowDiskMinutes: s.lowDiskMinutes, cameraWarning: s.cameraWarning ?? null });
   };
 
   useEffect(() => {
@@ -130,6 +131,19 @@ export function RecordBar() {
         {status.lowDiskMinutes != null && (
           <span className="text-[10px] text-amber-500" title={t("rec2.bar.low_disk", { minutes: status.lowDiskMinutes })}>
             {status.lowDiskMinutes}′
+          </span>
+        )}
+        {status.cameraWarning && (
+          // The backend re-sends the status when the camera drops out (`record-camera-lost`),
+          // so this hint appears once, at that moment, and stays for the rest of the take.
+          <span
+            data-testid="rec-camera-warning"
+            role="status"
+            className="pop-enter flex items-center text-amber-500"
+            title={status.cameraWarning}
+            aria-label={status.cameraWarning}
+          >
+            <CameraOff size={14} />
           </span>
         )}
       </div>

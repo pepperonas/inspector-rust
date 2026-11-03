@@ -5110,6 +5110,8 @@ export interface RecordStatus {
   projectDir: string | null;
   source: string | null;
   lowDiskMinutes: number | null;
+  /** The take runs without (or lost) its camera: why. */
+  cameraWarning?: string | null;
 }
 /** Webcam quality the device is asked for ("ideal", never forced). */
 export type CameraQuality = "1080p" | "1440p" | "2160p";
@@ -5469,6 +5471,9 @@ export interface RecordTakeMeta {
   hasMic: boolean;
   micOffsetMs: number;
   hasCursor: boolean;
+  /** Camera file size `[w, h]` (`camera.mp4`), null without a camera. */
+  camera?: [number, number] | null;
+  cameraOffsetMs?: number;
 }
 export interface RecordClickHit {
   progMs: number;
@@ -5487,6 +5492,17 @@ export interface RecordingMeta {
   mic: { offsetMs: number; sampleRate: number } | null;
   cursorMode: RecordCursorMode;
   pauses: [number, number][];
+  /** The webcam file (`camera.mp4`), when one was recorded. */
+  camera?: RecordCameraMeta | null;
+}
+export interface RecordCameraMeta {
+  width: number;
+  height: number;
+  fps: number;
+  offsetMs: number;
+  deviceName: string;
+  /** Programme time (ms) the camera dropped out at. */
+  endedEarlyMs?: number;
 }
 export interface EditorInit {
   /** The session this view belongs to; `editorUpdate` names it (a foreign one is refused). */

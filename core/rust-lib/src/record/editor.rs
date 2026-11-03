@@ -814,6 +814,12 @@ pub struct TakeMeta {
     /// The take's mic position against its video (`MicMeta::offset_ms`; 0 without a mic).
     pub mic_offset_ms: i64,
     pub has_cursor: bool,
+    /// The take's camera file size (`camera.mp4`), `None` without a camera.
+    #[serde(default)]
+    pub camera: Option<(u32, u32)>,
+    /// Camera time = screen time − this (`CameraMeta::offset_ms`; 0 without a camera).
+    #[serde(default)]
+    pub camera_offset_ms: i64,
 }
 
 impl TakeMeta {
@@ -826,6 +832,8 @@ impl TakeMeta {
             has_mic: meta.mic.is_some(),
             mic_offset_ms: meta.mic.as_ref().map_or(0, |m| m.offset_ms),
             has_cursor,
+            camera: meta.camera.as_ref().map(|c| (c.width, c.height)),
+            camera_offset_ms: meta.camera.as_ref().map_or(0, |c| c.offset_ms),
         }
     }
 }

@@ -233,6 +233,17 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    - The master `SceneAudio.gainDb` stays 0: Inspector Rust's "system sound level" is the screen
      audio's alone, not the whole mix's.
 
+15. **Annotation images reload when their file changes (stage 4, Task 6 fix).** Upstream's
+   `ann_img_cache` (`src/compositor_macos.rs`) reused a texture per annotation id as long as
+   the source string had the same LENGTH. Inspector Rust imports images as `<uuid>.<ext>`, so
+   every imported path has the same length and a new picture on the same annotation kept the
+   old texture in the preview. The entry now keeps the full source string and is reused only
+   for an equal string (`String ==` compares the length first, so data-URLs of another size
+   stay cheap); `set_scene` also drops entries of annotations no longer in the scene (a
+   deleted image kept its texture for the session). macOS backend only (the Windows/Linux
+   backends carry the same guard but are not built in Inspector Rust). + test
+   `swapped_image_of_equal_path_length_is_reloaded`.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 
@@ -247,6 +258,7 @@ MAC_FFMPEG_DIR=$PWD/third_party/ffmpeg/8.1.2 CARGO_INCREMENTAL=0 cargo test -p o
 # 2026-11-02 after patch 12: 494 passed, 0 failed, 3 ignored
 # 2026-11-03 after patch 13: 501 passed, 0 failed, 1 ignored
 # 2026-11-03 after patch 14: 505 passed, 0 failed, 1 ignored
+# 2026-11-03 after patch 15: 506 passed, 0 failed, 1 ignored
 ```
 
 ## Updating from upstream

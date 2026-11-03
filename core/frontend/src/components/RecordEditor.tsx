@@ -67,6 +67,7 @@ import {
   updateAnnotation,
   updateZoom,
   zoomActiveAt,
+  annotationShownAt,
   type ClipMedia,
   type CropPreset,
 } from "../lib/editor";
@@ -736,6 +737,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
               annotation={annSel}
               screenRect={view.screenRects?.[annSel.clip] ?? null}
               zoomActive={zoomActiveAt(view, annSel.clip, pos)}
+              visible={annotationShownAt(view, annSel.id, pos)}
               onLive={(p) => {
                 const next = annPatch(p);
                 if (next) inspectorLive(next);
@@ -820,6 +822,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             selectedAnnotation={annSel?.id ?? null}
             onSelectAnnotation={setSelectedAnnotation}
             onAddAnnotation={(k) => void addAnnotationHere(k)}
+            getDoc={() => cur() ?? doc}
           />
         )}
       </aside>

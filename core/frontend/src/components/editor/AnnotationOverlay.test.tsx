@@ -26,7 +26,7 @@ const ann = (body: RecordAnnotationBody, box = { x: 50, y: 50, w: 30, h: 20 }): 
   body,
 });
 
-function mount(a: RecordAnnotation, over: { screenRect?: [number, number, number, number] | null; zoomActive?: boolean } = {}) {
+function mount(a: RecordAnnotation, over: { screenRect?: [number, number, number, number] | null; zoomActive?: boolean; visible?: boolean } = {}) {
   const onLive = vi.fn<(p: AnnotationPatch) => void>();
   const onEnd = vi.fn();
   const onCommit = vi.fn<(p: AnnotationPatch) => void>();
@@ -35,6 +35,7 @@ function mount(a: RecordAnnotation, over: { screenRect?: [number, number, number
       annotation={a}
       screenRect={over.screenRect ?? null}
       zoomActive={over.zoomActive ?? false}
+      visible={over.visible}
       onLive={onLive}
       onEnd={onEnd}
       onCommit={onCommit}
@@ -101,6 +102,19 @@ describe("AnnotationOverlay", () => {
     expect(screen.queryByTestId("ed-ann-box")).toBeNull();
     expect(screen.queryByTestId("ed-ann-handle-se")).toBeNull();
     expect(screen.getByTestId("ed-ann-zoom-note").textContent).toMatch(/zoom/i);
+  });
+
+  it("outside its time span the frame shows dimmed, with no handles and a note", () => {
+    const { onLive } = mount(ann(defaultAnnotationBody("text")), { visible: false });
+    expect(screen.queryByTestId("ed-ann-box")).toBeNull();
+    expect(screen.queryByTestId("ed-ann-handle-se")).toBeNull();
+    const hidden = screen.getByTestId("ed-ann-box-hidden");
+    expect(parseFloat(hidden.style.left)).toBeCloseTo(50);
+    expect(hidden.textContent).toBe("Not shown at the playhead");
+    fireEvent.pointerDown(hidden, { clientX: 600, clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(hidden, { clientX: 900, clientY: 400, pointerId: 1 });
+    fireEvent.pointerUp(hidden, { clientX: 900, clientY: 400, pointerId: 1 });
+    expect(onLive).not.toHaveBeenCalled();
   });
 
   it("an active zoom does not hide the handles of a text (it stays in the frame)", () => {

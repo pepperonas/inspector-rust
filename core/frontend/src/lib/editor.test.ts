@@ -547,13 +547,15 @@ describe("annotation editing helpers (stage 4, Task 6)", () => {
     expect(laneRows([s(0, 0, 9), s(1, 0, 9), s(2, 0, 9), s(3, 0, 9)], 3).get(3)).toBe(2);
   });
 
-  it("replaceAnnotationImage swaps file and id of an image only", async () => {
-    const { replaceAnnotationImage, addAnnotation } = await import("./editor");
-    const start = addAnnotation(addAnnotation(base(), "image", 0, 0), "text", 0, 0);
-    const [img, txt] = start.annotations;
-    const next = replaceAnnotationImage(start, img.id, "new.png", "fresh");
-    expect(next.annotations[0]).toMatchObject({ id: "fresh", body: { kind: "image", file: "new.png" }, x: img.x, zIndex: img.zIndex });
-    expect(next.annotations[1]).toBe(txt);
-    expect(replaceAnnotationImage(start, txt.id, "x.png", "z")).toBe(start);
+  it("annotationShownAt reads Rust's annotation spans, end exclusive", async () => {
+    const { annotationShownAt } = await import("./editor");
+    const view = {
+      doc: { annotations: [{ id: "a" }, { id: "b" }] },
+      annotationSpans: [{ index: 1, progStartMs: 1_000, progEndMs: 2_000 }],
+    } as unknown as Pick<RecordEditorView, "doc" | "annotationSpans">;
+    expect(annotationShownAt(view, "b", 1_000)).toBe(true);
+    expect(annotationShownAt(view, "b", 2_000)).toBe(false);
+    expect(annotationShownAt(view, "a", 1_500)).toBe(false);
+    expect(annotationShownAt({ ...view, annotationSpans: undefined }, "b", 1_500)).toBe(false);
   });
 });

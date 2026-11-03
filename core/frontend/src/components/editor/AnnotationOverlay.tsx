@@ -49,6 +49,7 @@ export function AnnotationOverlay({
   annotation,
   screenRect,
   zoomActive,
+  visible = true,
   onLive,
   onEnd,
   onCommit,
@@ -58,6 +59,11 @@ export function AnnotationOverlay({
   screenRect: readonly [number, number, number, number] | null;
   /** A zoom of the annotation's clip covers the playhead. */
   zoomActive: boolean;
+  /**
+   * The playhead lies inside the annotation's time span (Rust's programme span). Outside it the
+   * compositor draws nothing there, so the frame shows dimmed and cannot be edited.
+   */
+  visible?: boolean;
   onLive: (patch: AnnotationPatch) => void;
   onEnd: () => void;
   onCommit: (patch: AnnotationPatch) => void;
@@ -73,15 +79,15 @@ export function AnnotationOverlay({
 
   // Delete removes the selected outline point. Capture phase: it runs before the editor's and
   // the timeline's window handlers, which would otherwise delete the whole annotation or clip.
-  const live = useRef({ point, freehand, onCommit });
+  const live = useRef({ point, freehand, onCommit, visible });
   useEffect(() => {
-    live.current = { point, freehand, onCommit };
+    live.current = { point, freehand, onCommit, visible };
   });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const cur = live.current;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
-      if (cur.point == null || !cur.freehand || isTypingTarget(e.target)) return;
+      if (cur.point == null || !cur.freehand || !cur.visible || isTypingTarget(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       const next = removeFreehandPoint(cur.freehand, cur.point);
@@ -96,6 +102,23 @@ export function AnnotationOverlay({
     return (
       <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center" data-testid="ed-ann-zoom-note">
         <p className="max-w-[80%] rounded-md bg-black/70 px-2 py-1 text-center text-[11px] text-white">{t("rec4.ann.blur_zoom_note")}</p>
+      </div>
+    );
+  }
+
+  const pct = (v: number) => `${v * 100}%`;
+  if (!visible) {
+    return (
+      <div className="pointer-events-none absolute inset-0" data-testid="ed-ann-overlay">
+        <div
+          className="absolute border-2 border-dashed border-white/50"
+          style={{ left: pct(rx), top: pct(ry), width: pct(rw), height: pct(rh) }}
+          data-testid="ed-ann-box-hidden"
+        >
+          <span className="absolute left-0 top-full mt-1 whitespace-nowrap rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white">
+            {t("rec4.ann.not_at_playhead")}
+          </span>
+        </div>
       </div>
     );
   }
@@ -165,7 +188,6 @@ export function AnnotationOverlay({
     }
   };
 
-  const pct = (v: number) => `${v * 100}%`;
   return (
     <div
       ref={root}

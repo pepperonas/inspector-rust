@@ -873,6 +873,11 @@ export function zoomActiveAt(view: Pick<RecordEditorView, "doc" | "zooms">, clip
   return view.zooms.some((s) => view.doc.zooms[s.index]?.clip === clip && s.progStartMs <= progMs && progMs < s.progEndMs);
 }
 
+/** Whether annotation `id` is on screen at programme time `progMs` (Rust's annotation spans). */
+export function annotationShownAt(view: Pick<RecordEditorView, "doc" | "annotationSpans">, id: string, progMs: number): boolean {
+  return (view.annotationSpans ?? []).some((s) => view.doc.annotations[s.index]?.id === id && s.progStartMs <= progMs && progMs < s.progEndMs);
+}
+
 /**
  * Row per span so overlapping annotations stack instead of hiding each other (greedy, by
  * programme start); at most `maxRows` rows — later overlaps share the last row.
@@ -887,18 +892,4 @@ export function laneRows(spans: readonly { index: number; progStartMs: number; p
     rows.set(s.index, r);
   }
   return rows;
-}
-
-/**
- * The annotation `id` showing image `file`, under a FRESH id: the compositor caches an image
- * per annotation id and only reloads when the path's length changes, and every imported file
- * name has the same length — a new picture under the old id would keep the old texture.
- */
-export function replaceAnnotationImage(doc: RecordEditDoc, id: string, file: string, newId: string): RecordEditDoc {
-  const a = doc.annotations.find((x) => x.id === id);
-  if (!a || a.body.kind !== "image") return doc;
-  return {
-    ...doc,
-    annotations: doc.annotations.map((x) => (x.id === id ? { ...x, id: newId, body: { kind: "image", file } } : x)),
-  };
 }

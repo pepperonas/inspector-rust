@@ -54,6 +54,8 @@ export interface InspectorProps {
   onSelectAnnotation?: (id: string | null) => void;
   /** A new annotation of `kind` at the playhead. */
   onAddAnnotation?: (kind: RecordAnnotationKind) => void;
+  /** The newest document (for edits that finish after an await). */
+  getDoc?: () => RecordEditDoc;
 }
 
 type Tab = "background" | "frame" | "cursor" | "zoom" | "annotation";
@@ -146,6 +148,7 @@ export function Inspector(props: InspectorProps) {
             onLiveEnd={props.onLiveEnd}
             onImport={props.onImport}
             projectAssetUrl={props.projectAssetUrl}
+            getDoc={props.getDoc}
           />
         )}
       </div>

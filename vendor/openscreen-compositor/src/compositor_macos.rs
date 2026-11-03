@@ -416,8 +416,11 @@ pub struct Compositor {
     footage_copy: RefCell<Option<metal::Texture>>,
     /// Images d'annotation, indexées par ID d'annotation (pas par data-URL : celle-ci pèse
     /// souvent des mégaoctets et la hacher à chaque frame coûterait plus que le décodage).
-    /// La longueur sert de garde-fou quand l'utilisateur change l'image.
-    ann_img_cache: RefCell<std::collections::HashMap<String, (metal::Texture, u32, u32, usize)>>,
+    /// Inspector Rust, patch 15: the entry keeps the full source string and is reused only when
+    /// it is the same string (upstream compared the length, so a swapped file whose path had
+    /// the same length kept the old texture). `String ==` checks the length first, so a
+    /// data-URL of another size costs nothing; the same data-URL costs one `memcmp` per frame.
+    ann_img_cache: RefCell<std::collections::HashMap<String, (metal::Texture, u32, u32, String)>>,
     /// Textes rastérisés, indexés par ID, avec la `cache_key` du spec pour invalider.
     text_cache: RefCell<std::collections::HashMap<String, (metal::Texture, u64)>>,
     text_raster: Option<crate::text::TextRasterizer>,
@@ -991,6 +994,10 @@ impl Compositor {
         *self.scene.borrow_mut() = s;
         // Inspector Rust, patch 13: free-form outlines of annotations no longer in the scene go.
         self.freehand_cache.borrow_mut().retain(|id, _| {
+            self.scene.borrow().as_ref().is_some_and(|scene| scene.annotations.iter().any(|a| &a.id == id))
+        });
+        // Inspector Rust, patch 15: images too (a deleted image annotation kept its texture).
+        self.ann_img_cache.borrow_mut().retain(|id, _| {
             self.scene.borrow().as_ref().is_some_and(|scene| scene.annotations.iter().any(|a| &a.id == id))
         });
         if let Some(scene) = self.scene.borrow().as_ref() {
@@ -2080,12 +2087,12 @@ impl Compositor {
                     };
                     let cached = {
                         let c = self.ann_img_cache.borrow();
-                        c.get(&a.id).filter(|(_, _, _, len)| *len == src.len()).cloned()
+                        c.get(&a.id).filter(|(_, _, _, path)| path == src).cloned()
                     };
                     let Some((tex, iw, ih, _)) = cached.or_else(|| {
                         match self.load_image_texture(src) {
                             Ok((tex, w, h)) => {
-                                let e = (tex, w, h, src.len());
+                                let e = (tex, w, h, src.clone());
                                 self.ann_img_cache.borrow_mut().insert(a.id.clone(), e.clone());
                                 Some(e)
                             }
@@ -5651,6 +5658,54 @@ mod tests {
         assert_eq!(comp.freehand_cache.borrow().len(), 1, "a re-sent scene keeps the outline");
         comp.set_scene(Some(scene(serde_json::json!([]))));
         assert!(comp.freehand_cache.borrow().is_empty(), "the removed annotation's outline is gone");
+    }
+
+    /// Patch 15: an image annotation whose file is swapped for another of the SAME path length
+    /// shows the new picture (upstream kept the old texture), and a removed image's texture goes.
+    #[test]
+    fn swapped_image_of_equal_path_length_is_reloaded() {
+        let Ok(gpu) = crate::d3d::Gpu::create(false) else {
+            eprintln!("pas de device Metal — test sauté");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("ir-p15-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let red = dir.join("aaaa.png");
+        let blue = dir.join("bbbb.png");
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255])).save(&red).unwrap();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 255, 255])).save(&blue).unwrap();
+        let (red, blue) = (red.to_string_lossy().into_owned(), blue.to_string_lossy().into_owned());
+        assert_eq!(red.len(), blue.len(), "the case under test: paths of equal length");
+        let comp = super::Compositor::new_sized(&gpu, 320, 180).expect("compositeur");
+        let scene = |path: Option<&str>| {
+            let anns = match path {
+                Some(p) => serde_json::json!([{"id": "img", "clipIndex": 0, "startSec": 0.0, "endSec": 10.0,
+                    "kind": "image", "space": "frame", "x": 0.25, "y": 0.25, "w": 0.5, "h": 0.5, "zIndex": 0, "imagePath": p}]),
+                None => serde_json::json!([]),
+            };
+            let mut json = shader_fx_json(serde_json::json!([]), anns);
+            json["effects"]["padding"] = serde_json::json!(0.0);
+            Scene::from_json(&json.to_string()).expect("scène")
+        };
+        let centre = |path: Option<&str>| {
+            let s = scene(path);
+            comp.set_live_params(live_params_from_scene(&s));
+            comp.set_scene(Some(s));
+            let screen = FakeFrame::new(320, 180, |_, _| Y_WHITE);
+            comp.set_timeline_time(Some(2.0));
+            comp.set_programme_time(Some(2.0));
+            unsafe { comp.compose_frame(screen.as_ptr(), screen.as_ptr(), 0.0, &fx_cfg()) }.expect("compose");
+            let (_, _, rgba) = unsafe { comp.readback_direct() }.expect("readback");
+            px(&rgba, 160, 90)
+        };
+        let r = centre(Some(&red));
+        assert!(r[0] > 200 && r[2] < 60, "first image is red: {r:?}");
+        let b = centre(Some(&blue));
+        assert!(b[2] > 200 && b[0] < 60, "the swapped image shows: {b:?}");
+        assert_eq!(comp.ann_img_cache.borrow().len(), 1);
+        centre(None);
+        assert!(comp.ann_img_cache.borrow().is_empty(), "a removed image annotation's texture goes");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Rectangle and oval still mask what they masked before patch 13, checked by behaviour

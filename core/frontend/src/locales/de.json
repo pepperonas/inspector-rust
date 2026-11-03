@@ -4290,6 +4290,7 @@
   "rec4.ann.handle_sw": "Größe an der Ecke unten links ändern",
   "rec4.ann.handle_w": "Größe an der linken Kante ändern",
   "rec4.ann.blur_zoom_note": "Hier ist ein Zoom aktiv: Die Unschärfe bewegt sich mit dem gezoomten Bild und lässt sich an dieser Stelle nicht platzieren. Setze den Abspielkopf außerhalb des Zooms, um sie zu bearbeiten.",
+  "rec4.ann.not_at_playhead": "Am Abspielkopf nicht sichtbar",
   "rec4.ann.trim_start": "Anfang der Annotation",
   "rec4.ann.trim_end": "Ende der Annotation",
   "rec3.insp.title": "Einstellungen",

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { RecordAnnotation, RecordAnnotationBody, RecordAnnotationKind, RecordEditDoc } from "../../lib/ipc";
 import { TEXT_FONTS, defaultAnnotationBody } from "../../lib/editor";
-import { AnnotationTab, annotationFontCss, type AnnotationTabProps } from "./AnnotationTab";
+import { AnnotationTab, annotationFontCss, registerAnnotationFonts, type AnnotationTabProps } from "./AnnotationTab";
 
 afterEach(cleanup);
 
@@ -118,15 +118,47 @@ describe("AnnotationTab", () => {
     expect((screen.getByText("Black") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("image: a picked file lands under a fresh id (the compositor caches by id)", async () => {
-    const p = mount(doc([ann("image")]), "a1", { onImport: vi.fn(async () => "1234.png") });
+  it("image: a picked file keeps the annotation's id and builds on the newest document", async () => {
+    const rendered = doc([ann("image")]);
+    // While the file dialog was open another edit landed (a second annotation).
+    const latest = doc([ann("image"), ann("arrow", "a2")]);
+    const p = mount(rendered, "a1", { onImport: vi.fn(async () => "1234.png"), getDoc: () => latest });
     await act(async () => {
       fireEvent.click(screen.getByTestId("ed-ann-pick-image"));
     });
     const next = (p.onCommit as ReturnType<typeof vi.fn>).mock.calls[0][0] as RecordEditDoc;
+    expect(next.annotations.map((a) => a.id)).toEqual(["a1", "a2"]);
     expect(next.annotations[0].body).toEqual({ kind: "image", file: "1234.png" });
-    expect(next.annotations[0].id).not.toBe("a1");
-    expect(p.onSelect).toHaveBeenCalledWith(next.annotations[0].id);
+    expect(p.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("the picker's fallbacks match each face's kind (Caveat is handwriting)", () => {
+    expect(annotationFontCss("Caveat")).toBe('"IR Caveat", cursive');
+    expect(annotationFontCss("Lora")).toBe('"IR Lora", serif');
+    expect(annotationFontCss("IBM Plex Mono")).toBe('"IR IBM Plex Mono", monospace');
+    expect(annotationFontCss("Oswald")).toBe('"IR Oswald", sans-serif');
+  });
+
+  it("the fonts are registered once per window, however often the editor remounts", () => {
+    const added: string[] = [];
+    class FakeFace {
+      constructor(public family: string, public src: string) {}
+      load() {
+        return Promise.resolve(this);
+      }
+    }
+    vi.stubGlobal("FontFace", FakeFace);
+    const fonts = (document as unknown as { fonts?: unknown }).fonts;
+    Object.defineProperty(document, "fonts", { configurable: true, value: { add: (f: FakeFace) => added.push(f.src) } });
+    try {
+      const list = [{ family: "Inter", regular: "/r/Inter-Regular.ttf", bold: "/r/Inter-Bold.ttf" }];
+      registerAnnotationFonts(list, (p) => `asset://${p}`);
+      registerAnnotationFonts(list, (p) => `asset://${p}`);
+      expect(added).toEqual(['url("asset:///r/Inter-Regular.ttf")', 'url("asset:///r/Inter-Bold.ttf")']);
+    } finally {
+      Object.defineProperty(document, "fonts", { configurable: true, value: fonts });
+      vi.unstubAllGlobals();
+    }
   });
 
   it("delete removes the annotation and clears the selection", () => {

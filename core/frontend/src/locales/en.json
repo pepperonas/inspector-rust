@@ -4290,6 +4290,7 @@
   "rec4.ann.handle_sw": "Resize from the bottom-left corner",
   "rec4.ann.handle_w": "Resize from the left edge",
   "rec4.ann.blur_zoom_note": "A zoom is active here: the blur moves with the zoomed picture, so it can't be placed in this spot. Move the playhead outside the zoom to edit it.",
+  "rec4.ann.not_at_playhead": "Not shown at the playhead",
   "rec4.ann.trim_start": "Annotation start",
   "rec4.ann.trim_end": "Annotation end",
   "rec3.insp.title": "Settings",

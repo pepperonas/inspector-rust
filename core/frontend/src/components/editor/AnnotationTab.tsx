@@ -17,7 +17,6 @@ import {
   FONT_SIZE_RANGE,
   TEXT_FONTS,
   removeAnnotation,
-  replaceAnnotationImage,
   updateAnnotation,
   type AnnotationBodyPatch,
 } from "../../lib/editor";
@@ -28,11 +27,15 @@ import { Chip, Chips, Group, RangeSlider, chipClass } from "./InspectorParts";
 export const annotationFontFamily = (family: string) => `IR ${family}`;
 /** `font-family` value: the bundled face, then a generic fallback of the same kind. */
 export const annotationFontCss = (family: string) =>
-  `"${annotationFontFamily(family)}", ${family === "IBM Plex Mono" ? "monospace" : family === "Lora" || family === "Caveat" ? "serif" : "sans-serif"}`;
+  `"${annotationFontFamily(family)}", ${family === "IBM Plex Mono" ? "monospace" : family === "Caveat" ? "cursive" : family === "Lora" ? "serif" : "sans-serif"}`;
+
+/** Font files already registered in this window (an editor remount must not add them again). */
+const registeredFonts = new Set<string>();
 
 /**
  * Registers the bundled annotation fonts (`EditorAssets.fonts`) as webview font faces, so the
- * picker shows every name in its real face. Missing files only lose the preview face.
+ * picker shows every name in its real face — once per window, however often a project is
+ * opened into it. Missing files only lose the preview face.
  */
 export function registerAnnotationFonts(fonts: readonly { family: string; regular: string; bold: string }[], url: (path: string) => string) {
   if (typeof FontFace === "undefined" || typeof document === "undefined" || !document.fonts) return;
@@ -41,6 +44,9 @@ export function registerAnnotationFonts(fonts: readonly { family: string; regula
       [f.regular, "400"],
       [f.bold, "700"],
     ] as const) {
+      const key = `${f.family}\u0000${weight}\u0000${path}`;
+      if (registeredFonts.has(key)) continue;
+      registeredFonts.add(key);
       const face = new FontFace(annotationFontFamily(f.family), `url("${url(path)}")`, { weight });
       document.fonts.add(face);
       face.load().catch(() => undefined);
@@ -116,6 +122,8 @@ export interface AnnotationTabProps {
   onLiveEnd: () => void;
   onImport: (kind: "image" | "cursor") => Promise<string | null>;
   projectAssetUrl: (file: string) => string;
+  /** The newest document — an edit made after an await (the file dialog) must start from it. */
+  getDoc?: () => RecordEditDoc;
 }
 
 /**
@@ -149,7 +157,7 @@ export function AnnotationTab(props: AnnotationTabProps) {
   );
 }
 
-function AnnotationSettings({ doc, a, onSelect, onCommit, onLive, onLiveEnd, onImport, projectAssetUrl }: AnnotationTabProps & { a: RecordAnnotation }) {
+function AnnotationSettings({ doc, a, onSelect, onCommit, onLive, onLiveEnd, onImport, projectAssetUrl, getDoc }: AnnotationTabProps & { a: RecordAnnotation }) {
   const t = useT();
   const body = (patch: AnnotationBodyPatch) => updateAnnotation(doc, a.id, { body: patch });
   const commit = (patch: AnnotationBodyPatch) => onCommit(body(patch));
@@ -234,9 +242,10 @@ function AnnotationSettings({ doc, a, onSelect, onCommit, onLive, onLiveEnd, onI
     const pick = async () => {
       const file = await onImport("image");
       if (!file) return;
-      const id = crypto.randomUUID();
-      onCommit(replaceAnnotationImage(doc, a.id, file, id));
-      onSelect(id);
+      // The dialog took a while: build on the document as it is now, not as it was rendered.
+      const latest = getDoc?.() ?? doc;
+      if (!latest.annotations.some((x) => x.id === a.id && x.body.kind === "image")) return;
+      onCommit(updateAnnotation(latest, a.id, { body: { file } }));
     };
     settings = (
       <Group label={t("rec4.ann.image")} hint={b.file ? undefined : t("rec4.ann.image_empty")}>

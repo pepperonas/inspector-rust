@@ -996,3 +996,69 @@ fn audio_tracks_export_levels() {
         let _ = std::fs::remove_dir_all(&work);
     }
 }
+
+/// Stage 7: a left-tilted zoom, the 3D cursor, depth of field and a vignette effect look the
+/// same in the preview and in the export's still; the tilt and the vignette visibly change
+/// the frame (against the flat, effect-free still).
+///
+/// ```sh
+/// IR_RECORD_PROJECT=<project> cargo test -p record-render --test helper_live stage7_preview_matches_still -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn stage7_preview_matches_still() {
+    let Some(dir) = project() else { return };
+    let out = out_dir("stage7");
+    let mut h = Helper::start();
+    let flat = styled_scene(&dir);
+    let frame = 2 * 30; // inside the 1–3 s zoom
+    let (w, hgt, plain) = still(&mut h, &flat, frame, &out, "flat.jpg");
+
+    let mut scene = flat.clone();
+    scene["zoomRegions"][0]["rotation"] = json!("left");
+    scene["effects"]["depthOfField"] = json!(true);
+    scene["cursor"]["model3d"] = json!(true);
+    let end = recording(&dir).0 as f64 / 1000.0;
+    scene["shaderEffects"] = json!([{
+        "clipIndex": 0, "startSec": 0.0, "endSec": end, "programmeStartSec": 0.0, "programmeEndSec": end,
+        "target": "image", "contract": 1,
+        "code": include_str!("../../core/rust-lib/assets/record/effects/vignette.wgsl"),
+        "params": [{"name": "strength", "type": "number"}, {"name": "radius", "type": "number"},
+                   {"name": "softness", "type": "number"}, {"name": "color", "type": "color"}],
+        "values": {"strength": 0.8, "radius": 0.75, "softness": 0.45, "color": [0.0, 0.0, 0.0, 1.0]}
+    }]);
+    let (_, _, styled) = still(&mut h, &scene, frame, &out, "still.jpg");
+    let changed = plain.iter().zip(&styled).map(|(a, b)| (*a as i64 - *b as i64).unsigned_abs()).sum::<u64>() as f64
+        / plain.len() as f64;
+    let corner = |px: &[u8]| -> f64 {
+        let mut s = 0u64;
+        for y in 0..24 {
+            for x in 0..24 {
+                let i = ((y * w + x) * 3) as usize;
+                s += px[i] as u64 + px[i + 1] as u64 + px[i + 2] as u64;
+            }
+        }
+        s as f64 / (24.0 * 24.0 * 3.0)
+    };
+    println!("stage7: flat vs styled mean diff {changed:.2}, corner {:.1} -> {:.1}", corner(&plain), corner(&styled));
+    assert!(changed > 2.0, "tilt + vignette did not change the frame ({changed:.2})");
+    assert!(corner(&styled) < corner(&plain) - 5.0, "the vignette did not darken the corner");
+
+    h.send(&Command::Open { scene, preview_w: w, preview_h: hgt });
+    assert!(matches!(h.event(Duration::from_secs(30)), Event::Ready { .. }));
+    h.send(&Command::SetTime { source_sec: 2.0 });
+    let f = settled(&mut h, 0, 4.0);
+    assert_eq!((f.w, f.h), (w, hgt), "preview and still share a size");
+    let raw = out.join("preview.rgba");
+    std::fs::write(&raw, &f.rgba).unwrap();
+    let _ = Proc::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &format!("{w}x{hgt}"), "-i"])
+        .arg(&raw)
+        .arg(out.join("preview.png"))
+        .status();
+    let (mae, worst) = diff(&f, &styled);
+    println!("stage7: {w}x{hgt}, mean abs diff {mae:.2} / 255, worst 32-px block {worst:.2} (files in {})", out.display());
+    assert!(mae < 3.0, "preview differs from the still: mean abs diff {mae:.2}");
+    assert!(worst < 20.0, "a part of the preview differs from the still: worst block {worst:.2}");
+    assert!(h.shutdown().success());
+}

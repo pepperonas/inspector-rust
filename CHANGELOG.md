@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.239.2] — 2026-11-04
+
+### Fixed
+- **Countdown stuck on the screen.** If a recording was cancelled (or the countdown ended) while its countdown window was still being created, the window appeared afterwards and stayed over the whole screen showing "1" until the app was quit. A window cancelled while it is being built now closes itself.
+
 ## [0.239.1] — 2026-11-04
 
 ### Fixed

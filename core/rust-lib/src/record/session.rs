@@ -685,6 +685,30 @@ impl CameraSlot {
     }
 }
 
+/// Which record windows are still wanted. `open_window` builds on a worker
+/// thread, so a `close_window` can arrive BEFORE the window exists — it then
+/// finds nothing to close, and the window appears afterwards and never goes
+/// away (seen live: the countdown stuck on "1" over the whole screen). The
+/// builder therefore re-checks this after building and closes a window that
+/// was cancelled in the meantime.
+#[derive(Default)]
+pub(crate) struct WindowWants(parking_lot::Mutex<std::collections::HashSet<String>>);
+
+impl WindowWants {
+    pub(crate) fn want(&self, label: &str) {
+        self.0.lock().insert(label.to_string());
+    }
+    pub(crate) fn release(&self, label: &str) {
+        self.0.lock().remove(label);
+    }
+    /// After a build: true = the window is stale and must be closed now.
+    pub(crate) fn stale(&self, label: &str) -> bool {
+        !self.0.lock().contains(label)
+    }
+}
+
+pub(crate) static WINDOW_WANTS: std::sync::LazyLock<WindowWants> = std::sync::LazyLock::new(WindowWants::default);
+
 #[cfg(target_os = "macos")]
 pub use mac::*;
 
@@ -1257,15 +1281,25 @@ mod mac {
 
     /// Build a window from a worker thread (never from a command's thread).
     fn open_window(app: &AppHandle, label: &'static str) {
+        WINDOW_WANTS.want(label);
         let app = app.clone();
         std::thread::spawn(move || {
             if let Err(e) = build_window(&app, label) {
                 tracing::warn!("record: {e}");
             }
+            // close_window may have run while we were building (it found
+            // nothing then) — close the now-stale window ourselves.
+            if WINDOW_WANTS.stale(label) {
+                if let Some(w) = app.get_webview_window(label) {
+                    tracing::info!("record: closing {label}, cancelled while it was being built");
+                    let _ = w.close();
+                }
+            }
         });
     }
 
     fn close_window(app: &AppHandle, label: &str) {
+        WINDOW_WANTS.release(label);
         if let Some(w) = app.get_webview_window(label) {
             let _ = w.close();
         }
@@ -1982,6 +2016,61 @@ mod mac {
         a.clock.resume(host_now_ns());
         std::thread::sleep(third * 2);
         finish(a)
+    }
+}
+
+#[cfg(test)]
+mod window_wants_tests {
+    use super::WindowWants;
+
+    #[test]
+    fn closed_before_build_finished_is_stale() {
+        // the countdown race: open → close (nothing built yet) → build ends
+        let w = WindowWants::default();
+        w.want("record-countdown");
+        w.release("record-countdown");
+        assert!(w.stale("record-countdown"));
+    }
+
+    #[test]
+    fn still_open_window_is_kept() {
+        let w = WindowWants::default();
+        w.want("record-countdown");
+        assert!(!w.stale("record-countdown"));
+    }
+
+    #[test]
+    fn reopened_window_is_kept() {
+        let w = WindowWants::default();
+        w.want("record-hud");
+        w.release("record-hud");
+        w.want("record-hud");
+        assert!(!w.stale("record-hud"));
+    }
+
+    #[test]
+    fn open_and_close_window_use_the_guard() {
+        let src = include_str!("session.rs");
+        let body = |name: &str| {
+            let i = src.find(&format!("fn {name}(app: &AppHandle")).expect(name);
+            let rest = &src[i..];
+            rest[..rest.find("\n    }\n").unwrap()].to_string()
+        };
+        let open = body("open_window");
+        let close = body("close_window");
+        assert!(open.contains("WINDOW_WANTS.want(label)"), "open_window must register");
+        assert!(open.contains("if WINDOW_WANTS.stale(label) {") && open.contains(".close()"), "builder must close stale windows");
+        assert!(close.contains("WINDOW_WANTS.release(label)"), "close_window must release");
+    }
+
+    #[test]
+    fn labels_are_independent() {
+        let w = WindowWants::default();
+        w.want("record-countdown");
+        w.want("record-hud");
+        w.release("record-countdown");
+        assert!(w.stale("record-countdown"));
+        assert!(!w.stale("record-hud"));
     }
 }
 

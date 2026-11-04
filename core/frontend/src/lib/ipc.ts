@@ -5313,6 +5313,8 @@ export interface RecordAppearance {
   motionBlur: number;
   frame: RecordFrame;
   frameTheme: RecordFrameTheme;
+  /** Blurs the far side of a tilted zoom; only has an effect with a rotated zoom. */
+  depthOfField: boolean;
 }
 export interface RecordCustomCursor { file: string; hotspotX: number; hotspotY: number }
 export interface RecordCursorStyle {
@@ -5327,9 +5329,13 @@ export interface RecordCursorStyle {
   clickImpact: boolean;
   clickSound: boolean;
   clickSoundGainDb: number;
+  /** Draws the pointer as a 3D object. */
+  model3d: boolean;
 }
 export type RecordFocusMode = "manual" | "auto";
 export type RecordZoomOrigin = "manual" | "auto";
+/** The compositor's 3D camera presets for a zoom; absent/null = flat. */
+export type RecordZoomRotation = "left" | "right" | "orbit";
 export interface RecordZoomRegion {
   id: string;
   clip: number;
@@ -5344,6 +5350,7 @@ export interface RecordZoomRegion {
   focusMode: RecordFocusMode;
   origin: RecordZoomOrigin;
   hideCursor: boolean;
+  rotation?: RecordZoomRotation | null;
 }
 export type RecordTextAlign = "left" | "center" | "right";
 export type RecordTextAnimation = "none" | "fade" | "rise" | "pop" | "slide-left" | "typewriter" | "pulse";

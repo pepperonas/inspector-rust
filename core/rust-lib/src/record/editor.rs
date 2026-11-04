@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub const EDITOR_VERSION: u32 = 5;
+pub const EDITOR_VERSION: u32 = 6;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -219,6 +219,8 @@ pub struct Appearance {
     pub motion_blur: f64,
     pub frame: Frame,
     pub frame_theme: FrameTheme,
+    /// Blurs the far side of a tilted zoom. No effect without a rotated zoom.
+    pub depth_of_field: bool,
 }
 
 impl Default for Appearance {
@@ -234,6 +236,7 @@ impl Default for Appearance {
             motion_blur: 0.2,
             frame: Frame::None,
             frame_theme: FrameTheme::Light,
+            depth_of_field: true,
         }
     }
 }
@@ -251,6 +254,7 @@ impl Appearance {
             motion_blur: 0.0,
             frame: Frame::None,
             frame_theme: FrameTheme::Light,
+            depth_of_field: true,
         }
     }
 }
@@ -278,6 +282,8 @@ pub struct CursorStyle {
     pub click_impact: bool,
     pub click_sound: bool,
     pub click_sound_gain_db: f64,
+    /// Draws the pointer as a 3D object (sculpted themes) or extruded.
+    pub model3d: bool,
 }
 
 impl Default for CursorStyle {
@@ -294,6 +300,7 @@ impl Default for CursorStyle {
             click_impact: false,
             click_sound: false,
             click_sound_gain_db: 0.0,
+            model3d: false,
         }
     }
 }
@@ -321,6 +328,15 @@ pub enum ZoomOrigin {
     Auto,
 }
 
+/// The compositor's camera presets for a zoom (`left`, `right`, `orbit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ZoomRotation {
+    Left,
+    Right,
+    Orbit,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ZoomRegion {
@@ -342,6 +358,8 @@ pub struct ZoomRegion {
     pub origin: ZoomOrigin,
     #[serde(default)]
     pub hide_cursor: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<ZoomRotation>,
 }
 
 /// The scale a region zooms to: its custom scale (clamped to 1..5) or its depth's table value.
@@ -1003,7 +1021,7 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
     }
 }
 
-/// Reads a stored editor block: v5 as is, v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
+/// Reads a stored editor block: v6 as is, v5 upgraded with no rotated zooms, depth of field on and a flat cursor,  v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
 /// (`CameraStyle::default()`, picture-in-picture whether or not there is a camera) and no layout
 /// regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
@@ -1040,6 +1058,10 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
         doc.version = 5;
         doc.transcripts = Vec::new();
         doc.captions = CaptionSettings::default();
+    }
+    if doc.version == 5 {
+        // Stage 7 fields all default to "as before".
+        doc.version = 6;
     }
     (doc.version == EDITOR_VERSION).then_some(doc)
 }
@@ -2123,6 +2145,7 @@ pub(crate) mod tests {
             focus_mode: FocusMode::Auto,
             origin: ZoomOrigin::Manual,
             hide_cursor: false,
+            rotation: None,
         }
     }
 
@@ -2173,7 +2196,7 @@ pub(crate) mod tests {
             "transcripts": [{"words": [{"startMs": 0, "endMs": 100, "text": "x"}]}],
         });
         let d = migrate(v4).unwrap();
-        assert_eq!(d.version, 5);
+        assert_eq!(d.version, EDITOR_VERSION);
         assert!(d.transcripts.is_empty());
         assert_eq!(d.captions, CaptionSettings::default());
         assert!(!d.captions.enabled);

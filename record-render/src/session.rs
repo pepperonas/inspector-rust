@@ -1290,6 +1290,31 @@ mod tests {
         assert_eq!(q(hex(d).unwrap())[..3], q(want)[..3]);
     }
 
+    /// Preview equals export for the 3D cursor: a model3d scene pushes `cursorModel3d = true`,
+    /// a flat one pushes `false` (so a stale value never lingers).
+    #[test]
+    fn a_model3d_scene_pushes_cursor_model3d_to_the_preview() {
+        let mut v = styled();
+        v["cursor"]["model3d"] = true.into();
+        assert!(live_params(&v).bools.contains(&("cursorModel3d", true)));
+        v["cursor"]["model3d"] = false.into();
+        assert!(live_params(&v).bools.contains(&("cursorModel3d", false)));
+    }
+
+    /// The names the app's `scene_json::sculpt_name` / `glass_name` emit (SCULPTED_THEMES x
+    /// SCULPTED_STATES, mirrored here because this crate does not link the core) are all known
+    /// to the compositor; an unknown one would silently fall back to the extruded sprite.
+    #[test]
+    fn every_sculpt_name_is_known_to_the_compositor() {
+        let themes = ["studio-ink", "prism-glow", "pop-coral", "pixel-candy", "star-sprout", "glass-lens"];
+        for t in themes {
+            for st in ["arrow", "pointer"] {
+                assert!(openscreen_compositor::sculpt::sculpted_shape(&format!("{t}/{st}")).is_some(), "{t}/{st}");
+            }
+        }
+        assert!(openscreen_compositor::sculpt::sculpted_shape("studio-ink/text").is_none());
+    }
+
     /// Test mirror of the LiveView's inspector state: `set_param_*` (live.rs:1131-1181) and
     /// the `InspectorParams → LiveParams` mapping of its render thread (live.rs:1797-1811).
     /// The compositor has no public way to read either back.

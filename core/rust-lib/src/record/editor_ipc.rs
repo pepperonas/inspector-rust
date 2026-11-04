@@ -2867,6 +2867,7 @@ mod tests {
             focus_mode: crate::record::editor::FocusMode::Manual,
             origin: crate::record::editor::ZoomOrigin::Manual,
             hide_cursor: false,
+            rotation: None,
         }
     }
 

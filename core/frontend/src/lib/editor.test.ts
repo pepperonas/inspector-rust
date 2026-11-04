@@ -95,6 +95,7 @@ const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
     motionBlur: 0,
     frame: "none",
     frameTheme: "light",
+    depthOfField: true,
   },
   cursor: {
     show: false,
@@ -108,6 +109,7 @@ const base = (over: Partial<RecordEditDoc> = {}): RecordEditDoc => ({
     clickImpact: false,
     clickSound: false,
     clickSoundGainDb: 0,
+    model3d: false,
   },
   zooms: [],
   autoZoomDone: true,
@@ -877,5 +879,14 @@ describe("transcript cut (stage 6)", () => {
     expect(canRestoreGap(reordered, 0)).toBe(false);
     expect(restoreGap(reordered, 0)).toBe(reordered);
     expect(canRestoreGap(reordered, 1)).toBe(false);
+  });
+});
+
+describe("stage 7 fields", () => {
+  it("a new zoom is flat (no rotation) and the base doc carries depth of field on, 3D cursor off", () => {
+    const d = addZoom(base(), 0, 100);
+    expect(d.zooms[0].rotation ?? null).toBeNull();
+    expect(base().appearance.depthOfField).toBe(true);
+    expect(base().cursor.model3d).toBe(false);
   });
 });

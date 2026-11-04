@@ -7,7 +7,7 @@
 //! [`layout::composite_layout`] per clip, the camera file per clip and its `webcamEffect`, zoom
 //! regions bounded by [`layout::max_zoom_scale`], the cursor with
 //! its sprite map, and the click sound. Stage-7 fields stay off (`rotation: null`,
-//! `model3d: false`, `depthOfField: false`).
+//! `model3d: false`, `depthOfField: false`) unless the document asks for them (stage 7).
 //!
 //! Files named by the document (own background image, own cursor, wallpaper and theme ids) are
 //! never trusted: only a plain file name under `<project>/assets/`, only known ids — anything
@@ -18,7 +18,7 @@ use super::assets::{AssetRoot, CURSOR_KINDS, AS_ARROW_DEFAULT};
 use super::click_cues::click_hits_by_source;
 use super::editor::{
     self, take_dir, valid_take_id, zoom_scale, AnnotationBody, Aspect, BlurShape, Background, EditDoc, FocusMode, Frame, FrameTheme, TakeMeta,
-    TakeMetas, WallpaperMotion, CameraBgMode, CameraMask, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, LAYOUT_TRANSITION_SEC, TAKES_DIR,
+    TakeMetas, WallpaperMotion, ZoomRotation, CameraBgMode, CameraMask, DEFAULT_CURSOR_THEME, DEFAULT_WALLPAPER, LAYOUT_TRANSITION_SEC, TAKES_DIR,
 };
 use super::layout::{self, LayoutPreset};
 use super::project::{read_project, CursorProvider, CursorRecording, Project, RecordingMeta, CAMERA_FILE, CURSOR_FILE, MIC_FILE, SCREEN_FILE};
@@ -208,7 +208,7 @@ fn effects(doc: &EditDoc) -> Value {
         "shadow": a.shadow,
         "roundnessFrac": if a.padding > 0.0 || framed { a.radius_px / ROUNDNESS_REFERENCE_PX } else { 0.0 },
         "motionBlur": a.motion_blur,
-        "depthOfField": false,
+        "depthOfField": a.depth_of_field && doc.zooms.iter().any(|z| z.rotation.is_some()),
     });
     if let Some(f) = frame_name(a.frame) {
         e["frame"] = json!(f);
@@ -217,6 +217,21 @@ fn effects(doc: &EditDoc) -> Value {
         }
     }
     e
+}
+
+/// Themes with modelled (sculpted) arrow and pointer shapes in the compositor.
+pub const SCULPTED_THEMES: [&str; 6] = ["studio-ink", "prism-glow", "pop-coral", "pixel-candy", "star-sprout", "glass-lens"];
+/// The cursor states that have a sculpted model.
+pub const SCULPTED_STATES: [&str; 2] = ["arrow", "pointer"];
+
+/// `"<theme>/<state>"` for a sculpted theme/state, and only with the 3D cursor on.
+pub fn sculpt_name(theme: &str, state: &str, model3d: bool) -> Option<String> {
+    (model3d && SCULPTED_THEMES.contains(&theme) && SCULPTED_STATES.contains(&state)).then(|| format!("{theme}/{state}"))
+}
+
+/// `"glass-lens/<state>"` for the glass-lens arrow and pointer, with or without the 3D cursor.
+pub fn glass_name(theme: &str, state: &str) -> Option<String> {
+    (theme == "glass-lens" && SCULPTED_STATES.contains(&state)).then(|| format!("{theme}/{state}"))
 }
 
 /// The sprite map: the theme (unknown → default) with the default as-arrow kinds; an own cursor
@@ -237,6 +252,17 @@ fn cursor_sprites(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Map<
             }
             _ => json!({"path": path_str(&path), "hotspotX": f32_to_f64(hx), "hotspotY": f32_to_f64(hy)}),
         };
+        let mut sprite = sprite;
+        // An own pointer image stands in for the arrow group: no modelled stand-in for those.
+        let own = custom.is_some() && arrow_group.contains(&state.as_str());
+        if !own {
+            if let Some(n) = sculpt_name(&doc.cursor.theme, &state, doc.cursor.model3d) {
+                sprite["sculpt"] = json!(n);
+            }
+            if let Some(n) = glass_name(&doc.cursor.theme, &state) {
+                sprite["glass"] = json!(n);
+            }
+        }
         map.insert(state, sprite);
     }
     map
@@ -361,7 +387,11 @@ pub fn scene_json_with(
                 "focusX": z.focus_x,
                 "focusY": z.focus_y,
                 "focusMode": match z.focus_mode { FocusMode::Auto => "auto", FocusMode::Manual => "manual" },
-                "rotation": null,
+                "rotation": z.rotation.map(|r| match r {
+                    ZoomRotation::Left => "left",
+                    ZoomRotation::Right => "right",
+                    ZoomRotation::Orbit => "orbit",
+                }),
             });
             if z.hide_cursor {
                 r["hideCursor"] = json!(true);
@@ -389,7 +419,7 @@ pub fn scene_json_with(
         "smoothing": c.smoothing,
         "motionBlur": c.motion_blur,
         "clickBounce": c.click_bounce,
-        "model3d": false,
+        "model3d": c.model3d,
         "clipToBounds": false,
         "theme": c.theme,
         "cursorSprites": Value::Object(cursor_sprites(project_dir, doc, assets)),
@@ -690,6 +720,7 @@ mod tests {
 
     const GOLDEN: &str = include_str!("fixtures/scene-golden.json");
     const GOLDEN_STYLED: &str = include_str!("fixtures/scene-golden-styled.json");
+    const GOLDEN_3D: &str = include_str!("fixtures/scene-golden-3d.json");
     const GOLDEN_CAPTIONS: &str = include_str!("fixtures/scene-golden-captions.json");
     const DIR: &str = "/Users/someone/Movies/Inspector Rust/take-1";
     const PLACEHOLDER: &str = "<PROJECT>";
@@ -776,6 +807,7 @@ mod tests {
             motion_blur: 0.2,
             frame: Frame::Window,
             frame_theme: FrameTheme::Dark,
+            depth_of_field: true,
         };
         d.cursor = CursorStyle {
             show: true,
@@ -799,6 +831,7 @@ mod tests {
                 focus_mode: FocusMode::Auto,
                 origin: ZoomOrigin::Auto,
                 hide_cursor: false,
+                rotation: None,
             },
             ZoomRegion {
                 id: "z2".into(),
@@ -812,6 +845,7 @@ mod tests {
                 focus_mode: FocusMode::Manual,
                 origin: ZoomOrigin::Manual,
                 hide_cursor: true,
+                rotation: None,
             },
         ];
         d.auto_zoom_done = true;
@@ -1189,6 +1223,7 @@ mod tests {
             focus_mode: FocusMode::Auto,
             origin: ZoomOrigin::Manual,
             hide_cursor: false,
+            rotation: None,
         }];
         let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), None, &TakeSources::new());
         let clips = v["clips"].as_array().unwrap();
@@ -1806,5 +1841,153 @@ mod tests {
         // The resolved names the compositor matches on.
         let presets = ["picture-in-picture", "dual-frame", "vertical-stack", "camera-only", "no-webcam"];
         assert!(regs.iter().all(|r| presets.contains(&r["preset"].as_str().unwrap())));
+    }
+
+    // ---- stage 7: 3D camera, depth of field, 3D / glass cursor ----
+
+    fn scene_of(d: &EditDoc) -> Value {
+        let out = editor::output_size(&project().recording, &TakeMetas::new(), d, OutputTarget::P1080);
+        scene_json_with(Path::new(DIR), &project(), d, out, 30, &assets(), Some(&cursor_rec()), &TakeSources::new())
+    }
+
+    fn with_zoom_rotations(mut d: EditDoc, rot: &[Option<ZoomRotation>]) -> EditDoc {
+        d.zooms.clear();
+        for (i, r) in rot.iter().enumerate() {
+            d.zooms.push(ZoomRegion {
+                id: format!("r{i}"),
+                clip: 0,
+                start_ms: 100 + i as u64 * 1_000,
+                end_ms: 900 + i as u64 * 1_000,
+                depth: 3,
+                custom_scale: None,
+                focus_x: 0.5,
+                focus_y: 0.5,
+                focus_mode: FocusMode::Manual,
+                origin: ZoomOrigin::Manual,
+                hide_cursor: false,
+                rotation: *r,
+            });
+        }
+        d
+    }
+
+    #[test]
+    fn v5_document_opens_as_v6_unchanged() {
+        let v5 = serde_json::json!({
+            "version": 5,
+            "clips": [{"startMs": 0, "endMs": 5000}],
+            "zooms": [{"id": "z", "clip": 0, "startMs": 0, "endMs": 1000, "depth": 3, "focusX": 0.5, "focusY": 0.5}],
+        });
+        let d = editor::migrate(v5).unwrap();
+        assert_eq!(d.version, 6);
+        assert_eq!(d.version, EDITOR_VERSION);
+        assert_eq!(d.zooms[0].rotation, None);
+        assert!(d.appearance.depth_of_field);
+        assert!(!d.cursor.model3d);
+    }
+
+    #[test]
+    fn rotation_presets_reach_the_scene() {
+        let d = with_zoom_rotations(
+            styled_doc(),
+            &[Some(ZoomRotation::Left), Some(ZoomRotation::Right), Some(ZoomRotation::Orbit), None],
+        );
+        let v = scene_of(&d);
+        let r: Vec<Value> = v["zoomRegions"].as_array().unwrap().iter().map(|z| z["rotation"].clone()).collect();
+        assert_eq!(r, vec![json!("left"), json!("right"), json!("orbit"), Value::Null]);
+    }
+
+    #[test]
+    fn depth_of_field_is_emitted_only_with_a_tilted_zoom() {
+        let flat = with_zoom_rotations(styled_doc(), &[None]);
+        assert_eq!(scene_of(&flat)["effects"]["depthOfField"], false);
+        let mut tilted = with_zoom_rotations(styled_doc(), &[None, Some(ZoomRotation::Left)]);
+        assert_eq!(scene_of(&tilted)["effects"]["depthOfField"], true);
+        tilted.appearance.depth_of_field = false;
+        assert_eq!(scene_of(&tilted)["effects"]["depthOfField"], false);
+    }
+
+    #[test]
+    fn model3d_reaches_the_scene() {
+        let mut d = styled_doc();
+        assert_eq!(scene_of(&d)["cursor"]["model3d"], false);
+        d.cursor.model3d = true;
+        assert_eq!(scene_of(&d)["cursor"]["model3d"], true);
+    }
+
+    #[test]
+    fn sculpt_is_emitted_only_for_sculpted_states_with_model3d() {
+        let mut d = styled_doc();
+        d.cursor.theme = "studio-ink".into();
+        d.cursor.model3d = true;
+        let v = scene_of(&d);
+        let sprites = v["cursor"]["cursorSprites"].as_object().unwrap();
+        assert_eq!(sprites["arrow"]["sculpt"], "studio-ink/arrow");
+        assert_eq!(sprites["pointer"]["sculpt"], "studio-ink/pointer");
+        for (state, s) in sprites {
+            if !SCULPTED_STATES.contains(&state.as_str()) {
+                assert!(s.get("sculpt").is_none(), "{state}");
+            }
+            assert!(s.get("glass").is_none(), "{state}");
+        }
+        d.cursor.model3d = false;
+        let v = scene_of(&d);
+        for (state, s) in v["cursor"]["cursorSprites"].as_object().unwrap() {
+            assert!(s.get("sculpt").is_none(), "{state}");
+        }
+        d.cursor.model3d = true;
+        d.cursor.theme = "default".into();
+        let v = scene_of(&d);
+        for (state, s) in v["cursor"]["cursorSprites"].as_object().unwrap() {
+            assert!(s.get("sculpt").is_none() && s.get("glass").is_none(), "{state}");
+        }
+    }
+
+    #[test]
+    fn glass_lens_carries_glass_with_or_without_model3d() {
+        for model3d in [false, true] {
+            let mut d = styled_doc();
+            d.cursor.theme = "glass-lens".into();
+            d.cursor.model3d = model3d;
+            let v = scene_of(&d);
+            let sprites = v["cursor"]["cursorSprites"].as_object().unwrap();
+            assert_eq!(sprites["arrow"]["glass"], "glass-lens/arrow");
+            assert_eq!(sprites["pointer"]["glass"], "glass-lens/pointer");
+            for (state, s) in sprites {
+                if !SCULPTED_STATES.contains(&state.as_str()) {
+                    assert!(s.get("glass").is_none(), "{state}");
+                }
+            }
+        }
+        let mut d = styled_doc();
+        d.cursor.theme = "pop-coral".into();
+        for (_, s) in scene_of(&d)["cursor"]["cursorSprites"].as_object().unwrap() {
+            assert!(s.get("glass").is_none());
+        }
+    }
+
+    #[test]
+    fn sculpt_and_glass_names_are_pure_and_total() {
+        for t in SCULPTED_THEMES {
+            for s in SCULPTED_STATES {
+                assert_eq!(sculpt_name(t, s, true), Some(format!("{t}/{s}")));
+                assert_eq!(sculpt_name(t, s, false), None);
+            }
+            assert_eq!(sculpt_name(t, "text", true), None);
+        }
+        assert_eq!(sculpt_name("default", "arrow", true), None);
+        assert_eq!(glass_name("glass-lens", "arrow").as_deref(), Some("glass-lens/arrow"));
+        assert_eq!(glass_name("studio-ink", "arrow"), None);
+    }
+
+    #[test]
+    fn stage7_golden() {
+        let mut d = with_zoom_rotations(styled_doc(), &[Some(ZoomRotation::Left), Some(ZoomRotation::Orbit)]);
+        d.cursor.theme = "studio-ink".into();
+        d.cursor.model3d = true;
+        let v = scene_of(&d);
+        check_golden(&placeholders(&v), GOLDEN_3D, "scene-golden-3d.json");
+        assert_eq!(v["effects"]["depthOfField"], true);
+        assert_eq!(v["cursor"]["model3d"], true);
     }
 }

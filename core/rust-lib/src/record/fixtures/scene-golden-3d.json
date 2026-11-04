@@ -1,0 +1,272 @@
+{
+  "background": {
+    "kind": "image",
+    "motion": "drift",
+    "path": "<ASSETS>/wallpapers/03.jpg"
+  },
+  "clickSound": {
+    "downPath": "<ASSETS>/sounds/click-down.wav",
+    "hits": [
+      {
+        "gain": 0.5011872336272722,
+        "release": false,
+        "timeSec": 1.25
+      },
+      {
+        "gain": 0.35083106353909055,
+        "release": true,
+        "timeSec": 1.29
+      },
+      {
+        "gain": 0.5011872336272722,
+        "release": false,
+        "timeSec": 3.9
+      },
+      {
+        "gain": 0.5011872336272722,
+        "release": false,
+        "timeSec": 4.08
+      },
+      {
+        "gain": 0.35083106353909055,
+        "release": true,
+        "timeSec": 4.12
+      },
+      {
+        "gain": 0.4260091485831814,
+        "release": false,
+        "timeSec": 5.5
+      },
+      {
+        "gain": 0.29820640400822696,
+        "release": true,
+        "timeSec": 5.72
+      }
+    ],
+    "upPath": "<ASSETS>/sounds/click-up.wav"
+  },
+  "clips": [
+    {
+      "cursorPath": "<PROJECT>/cursor.json",
+      "extraAudio": {
+        "gainDb": -6.0,
+        "offsetSec": 0.12,
+        "path": "<PROJECT>/mic.wav"
+      },
+      "hasAudio": true,
+      "normalise": "voice",
+      "screenPath": "<PROJECT>/screen.mp4",
+      "sourceEndSec": 4.0,
+      "sourceStartSec": 0.0,
+      "systemGainDb": 0.0,
+      "webcamOffsetSec": 0.0,
+      "webcamPath": ""
+    },
+    {
+      "cursorPath": "<PROJECT>/cursor.json",
+      "extraAudio": {
+        "gainDb": -6.0,
+        "offsetSec": 0.12,
+        "path": "<PROJECT>/mic.wav"
+      },
+      "hasAudio": true,
+      "normalise": "voice",
+      "screenPath": "<PROJECT>/screen.mp4",
+      "sourceEndSec": 10.0,
+      "sourceStartSec": 6.5,
+      "systemGainDb": 0.0,
+      "webcamOffsetSec": 0.0,
+      "webcamPath": ""
+    }
+  ],
+  "cropByClip": [
+    null,
+    {
+      "height": 1.0,
+      "width": 0.5,
+      "x": 0.25,
+      "y": 0.0
+    }
+  ],
+  "cursor": {
+    "autoHide": true,
+    "clickBounce": 1.0,
+    "clickImpact": true,
+    "clipToBounds": false,
+    "cursorSprites": {
+      "app-starting": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "arrow": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png",
+        "sculpt": "studio-ink/arrow"
+      },
+      "closed-hand": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "crosshair": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "help": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "move": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "not-allowed": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "open-hand": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "pointer": {
+        "hotspotX": 0.4015,
+        "hotspotY": 0.0647,
+        "path": "<ASSETS>/cursors/studio-ink/pointer.png",
+        "sculpt": "studio-ink/pointer"
+      },
+      "resize-ew": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "resize-nesw": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "resize-ns": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "resize-nwse": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "text": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "up-arrow": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      },
+      "wait": {
+        "hotspotX": 0.1947,
+        "hotspotY": 0.0656,
+        "path": "<ASSETS>/cursors/studio-ink/arrow.png"
+      }
+    },
+    "model3d": true,
+    "motionBlur": 0.35,
+    "show": true,
+    "size": 3.6,
+    "smoothing": 0.3,
+    "theme": "studio-ink"
+  },
+  "effects": {
+    "blur": 0.3,
+    "depthOfField": true,
+    "frame": "window",
+    "frameTheme": "dark",
+    "motionBlur": 0.2,
+    "padding": 0.4,
+    "roundnessFrac": 0.022222222222222223,
+    "shadow": 0.6
+  },
+  "layout": {
+    "layoutByClip": [
+      {
+        "screenRect": {
+          "height": 0.8032069970845481,
+          "width": 0.8833333333333333,
+          "x": 0.058333333333333334,
+          "y": 0.11588921282798834
+        }
+      },
+      {
+        "screenRect": {
+          "height": 0.8068513119533528,
+          "width": 0.44375,
+          "x": 0.278125,
+          "y": 0.11224489795918367
+        }
+      }
+    ],
+    "preset": "no-webcam",
+    "screenRect": {
+      "height": 0.8032069970845481,
+      "width": 0.8833333333333333,
+      "x": 0.058333333333333334,
+      "y": 0.11588921282798834
+    },
+    "webcamMirror": false,
+    "webcamPosition": null,
+    "webcamReactiveZoom": false,
+    "webcamShape": "rectangle",
+    "webcamSize": 1.0
+  },
+  "output": {
+    "fps": 30,
+    "height": 1372,
+    "width": 1920
+  },
+  "speedRegions": [
+    {
+      "clipIndex": 0,
+      "endSec": 3.0,
+      "speed": 2.0,
+      "startSec": 1.0
+    },
+    {
+      "clipIndex": 1,
+      "endSec": 9.25,
+      "speed": 0.5,
+      "startSec": 7.0
+    }
+  ],
+  "zoomRegions": [
+    {
+      "clipIndex": 0,
+      "endSec": 0.9,
+      "focusMode": "manual",
+      "focusX": 0.5,
+      "focusY": 0.5,
+      "id": "r0",
+      "rotation": "left",
+      "scale": 1.8,
+      "startSec": 0.1
+    },
+    {
+      "clipIndex": 0,
+      "endSec": 1.9,
+      "focusMode": "manual",
+      "focusX": 0.5,
+      "focusY": 0.5,
+      "id": "r1",
+      "rotation": "orbit",
+      "scale": 1.8,
+      "startSec": 1.1
+    }
+  ]
+}

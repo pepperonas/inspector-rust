@@ -441,6 +441,7 @@ pub fn plan_auto_zooms(doc: &EditDoc, cursor: &CursorRecording) -> Vec<ZoomRegio
                 focus_mode: FocusMode::Auto,
                 origin: ZoomOrigin::Auto,
                 hide_cursor: false,
+                rotation: None,
             })
         })
         .collect()
@@ -841,6 +842,7 @@ mod tests {
             focus_mode: FocusMode::Manual,
             origin: ZoomOrigin::Manual,
             hide_cursor: false,
+            rotation: None,
         });
         let v = plan_auto_zooms(&d, &rec(vec![click(4000, 0.5, 0.5), s(9500, 0.6, 0.4)]));
         assert_eq!(zs(&v), vec![(1, 3500, 5500)]);
@@ -929,6 +931,7 @@ mod tests {
             focus_mode: FocusMode::Manual,
             origin: ZoomOrigin::Manual,
             hide_cursor: true,
+            rotation: None,
         };
         d.zooms.push(mine.clone());
         let before = d.clone();

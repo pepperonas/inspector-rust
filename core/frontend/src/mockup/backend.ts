@@ -594,11 +594,11 @@ let edDoc: EdDoc = {
   micGainDb: -3,
   appearance: {
     background: { kind: "wallpaper", id: "01" }, backgroundMotion: "none", padding: 50, radiusPx: 40,
-    shadow: 0.6, backgroundBlur: 0, motionBlur: 0.2, frame: "none", frameTheme: "light",
+    shadow: 0.6, backgroundBlur: 0, motionBlur: 0.2, frame: "none", frameTheme: "light", depthOfField: true,
   },
   cursor: {
     show: true, autoHide: false, theme: "default", custom: null, size: 3.6, smoothing: 0.3, motionBlur: 0.35,
-    clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0,
+    clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0, model3d: false,
   },
   zooms: [],
   autoZoomDone: true,

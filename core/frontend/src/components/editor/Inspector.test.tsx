@@ -22,11 +22,12 @@ const doc0 = (over: Partial<RecordEditDoc["appearance"]> = {}): RecordEditDoc =>
     motionBlur: 0.2,
     frame: "none",
     frameTheme: "light",
+    depthOfField: true,
     ...over,
   },
   cursor: {
     show: true, autoHide: false, theme: "default", custom: null, size: 3.6, smoothing: 0.3,
-    motionBlur: 0.35, clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0,
+    motionBlur: 0.35, clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0, model3d: false,
   },
   zooms: [],
   autoZoomDone: true,

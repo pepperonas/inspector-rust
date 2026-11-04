@@ -105,6 +105,7 @@ const doc0: RecordEditDoc = {
     motionBlur: 0,
     frame: "none",
     frameTheme: "light",
+    depthOfField: true,
   },
   cursor: {
     show: false,
@@ -118,6 +119,7 @@ const doc0: RecordEditDoc = {
     clickImpact: false,
     clickSound: false,
     clickSoundGainDb: 0,
+    model3d: false,
   },
   zooms: [],
   autoZoomDone: true,

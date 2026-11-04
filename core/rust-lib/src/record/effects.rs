@@ -18,8 +18,6 @@ use std::sync::OnceLock;
 pub const CONTRACT: u32 = 1;
 /// The compositor's ceiling on declared parameters (`PARAMS_BUFFER_BYTES` / 16).
 pub const MAX_PARAMS: usize = 32;
-/// Length of a freshly added effect region.
-pub const NEW_EFFECT_MS: u64 = 3000;
 
 /// The one declaration of every built-in's parameters (also read by record-render and the UI).
 pub const PARAMS_JSON: &str = include_str!("../../assets/record/effects/params.json");

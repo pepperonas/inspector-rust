@@ -63,6 +63,7 @@ cp "${REPO_ROOT}/target/${TRIPLE}/release/ir-ocr" "${APP}/Contents/MacOS/ir-ocr"
 # for the x86_64 DMG the script is a no-op and the editor reports the helper
 # as missing). Before signing, like the ir-ocr helper.
 bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${APP}" "${TRIPLE}"
+bash "${REPO_ROOT}/scripts/bundle-record-cli.sh" "${APP}" "${TRIPLE}"
 bash "${REPO_ROOT}/scripts/bundle-transcribe.sh" "${APP}" "${TRIPLE}"
 
 echo "▸ Sealing ${APP} (ad-hoc deep sign)…"

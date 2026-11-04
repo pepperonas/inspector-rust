@@ -1,0 +1,22 @@
+[package]
+name = "ir-record-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+description = "`ir-record`: command line (and MCP server) for Inspector Rust's screen recorder, over the app's local control socket"
+
+[lib]
+name = "ir_record_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ir-record"
+path = "src/main.rs"
+
+# Deliberately small: only serde/serde_json. Everything else (unix socket, signals,
+# launching the app) is std + the C library std already links.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

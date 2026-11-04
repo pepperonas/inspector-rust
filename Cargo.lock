@@ -3213,6 +3213,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ir-record-cli"
+version = "0.238.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iri-string"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

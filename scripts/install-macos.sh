@@ -108,10 +108,10 @@ source_sha256() {
            core/frontend/src core/frontend/index.html \
            core/frontend/package.json core/frontend/tsconfig.json \
            core/frontend/vite.config.ts \
-           ocr-helper record-render record-render-protocol \
+           ocr-helper record-render record-render-protocol record-cli \
            transcribe-core transcribe-helper transcribe-protocol scripts/bundle-transcribe.sh \
            vendor/openscreen-compositor vendor/ffmpeg-licence \
-           scripts/bundle-record-render.sh scripts/build-ffmpeg-macos.sh \
+           scripts/bundle-record-render.sh scripts/build-ffmpeg-macos.sh scripts/bundle-record-cli.sh \
            macos/src-tauri/src macos/src-tauri/Cargo.toml \
            macos/src-tauri/tauri.conf.json macos/src-tauri/entitlements.plist \
            macos/src-tauri/build.rs macos/src-tauri/capabilities \
@@ -516,6 +516,9 @@ fi
 # failure: a bundle whose helper points at a build-machine path must not ship.
 # See scripts/bundle-record-render.sh.
 bash "${REPO_ROOT}/scripts/bundle-record-render.sh" "${INSTALL_PATH}"
+# The `ir-record` command line + MCP server (talks to the app over its control
+# socket). See scripts/bundle-record-cli.sh.
+bash "${REPO_ROOT}/scripts/bundle-record-cli.sh" "${INSTALL_PATH}"
 # The live transcription helper (whisper.cpp on Metal). See scripts/bundle-transcribe.sh.
 bash "${REPO_ROOT}/scripts/bundle-transcribe.sh" "${INSTALL_PATH}"
 

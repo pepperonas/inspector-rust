@@ -1,5 +1,5 @@
-import { MIN_ZOOM_MS, removeAnnotation, removeTrack, removeZoom } from "./editor";
-import type { RecordAnnotation, RecordAudioTrack, RecordEditDoc, RecordZoomRegion } from "./ipc";
+import { MIN_ZOOM_MS, deleteEffect, removeAnnotation, removeTrack, removeZoom } from "./editor";
+import type { RecordAnnotation, RecordAudioTrack, RecordEditDoc, RecordEffectRegion, RecordZoomRegion } from "./ipc";
 
 /**
  * What the record editor has selected: exactly one object — a clip (by index) or a zoom,
@@ -12,6 +12,8 @@ export type Selection =
   | { kind: "track"; id: string }
   /** A layout region (stage 5): selectable and deletable, not copied. */
   | { kind: "layout"; id: string }
+  /** A shader effect region (stage 7). */
+  | { kind: "effect"; id: string }
   | null;
 
 /** The editor's region clipboard: a snapshot of the copied regions (never the live objects). */
@@ -19,6 +21,7 @@ export interface ClipboardRegions {
   zooms: RecordZoomRegion[];
   annotations: RecordAnnotation[];
   tracks: RecordAudioTrack[];
+  effects?: RecordEffectRegion[];
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -26,7 +29,7 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 /** The selected region as clipboard data; `null` for a clip, nothing or a missing id. */
 export function copyRegions(doc: RecordEditDoc, selection: Selection): ClipboardRegions | null {
   if (!selection || selection.kind === "clip" || selection.kind === "layout") return null;
-  const out: ClipboardRegions = { zooms: [], annotations: [], tracks: [] };
+  const out: ClipboardRegions = { zooms: [], annotations: [], tracks: [], effects: [] };
   if (selection.kind === "zoom") {
     const z = doc.zooms.find((x) => x.id === selection.id);
     if (!z) return null;
@@ -35,6 +38,10 @@ export function copyRegions(doc: RecordEditDoc, selection: Selection): Clipboard
     const a = doc.annotations.find((x) => x.id === selection.id);
     if (!a) return null;
     out.annotations.push(clone(a));
+  } else if (selection.kind === "effect") {
+    const e = (doc.effects ?? []).find((x) => x.id === selection.id);
+    if (!e) return null;
+    out.effects!.push(clone(e));
   } else {
     const t = doc.audioTracks.find((x) => x.id === selection.id);
     if (!t) return null;
@@ -52,7 +59,9 @@ export function cutRegions(doc: RecordEditDoc, selection: Selection): { data: Cl
       ? removeZoom(doc, selection.id)
       : selection.kind === "annotation"
         ? removeAnnotation(doc, selection.id)
-        : removeTrack(doc, selection.id);
+        : selection.kind === "effect"
+          ? deleteEffect(doc, selection.id)
+          : removeTrack(doc, selection.id);
   return { data, doc: next };
 }
 
@@ -69,7 +78,7 @@ export function cutRegions(doc: RecordEditDoc, selection: Selection): { data: Cl
 export function pasteRegions(doc: RecordEditDoc, clip: number, sourceMs: number, data: ClipboardRegions): RecordEditDoc {
   const c = doc.clips[clip];
   if (!c) return doc;
-  const starts = [...data.zooms, ...data.annotations, ...data.tracks].map((r) => r.startMs);
+  const starts = [...data.zooms, ...data.annotations, ...data.tracks, ...(data.effects ?? [])].map((r) => r.startMs);
   if (starts.length === 0) return doc;
   const base = Math.min(...starts);
   const at = Math.round(sourceMs);
@@ -87,13 +96,18 @@ export function pasteRegions(doc: RecordEditDoc, clip: number, sourceMs: number,
     .map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r) }))
     .filter((r) => r.endMs > r.startMs)
     .map((r) => ({ ...r, zIndex: (z += 1) }));
+  // One effect at a time: a pasted effect replaces what it covers (Rust resolves; the later wins).
+  const effects = (data.effects ?? [])
+    .map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, ...span(r) }))
+    .filter((r) => r.endMs > r.startMs);
   const tracks = data.tracks.map((r) => ({ ...clone(r), id: crypto.randomUUID(), clip, startMs: place(r.startMs) }));
-  if (!zooms.length && !annotations.length && !tracks.length) return doc;
+  if (!zooms.length && !annotations.length && !tracks.length && !effects.length) return doc;
   return {
     ...doc,
     zooms: zooms.length ? [...doc.zooms, ...zooms] : doc.zooms,
     annotations: annotations.length ? [...doc.annotations, ...annotations] : doc.annotations,
     audioTracks: tracks.length ? [...doc.audioTracks, ...tracks] : doc.audioTracks,
+    effects: effects.length ? [...(doc.effects ?? []), ...effects] : doc.effects,
   };
 }
 
@@ -108,5 +122,7 @@ export function selectionAfterPaste(before: RecordEditDoc, after: RecordEditDoc)
   const a = added(before.annotations, after.annotations);
   if (a) return { kind: "annotation", id: a };
   const t = added(before.audioTracks, after.audioTracks);
-  return t ? { kind: "track", id: t } : null;
+  if (t) return { kind: "track", id: t };
+  const e = added(before.effects ?? [], after.effects ?? []);
+  return e ? { kind: "effect", id: e } : null;
 }

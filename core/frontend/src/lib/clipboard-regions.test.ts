@@ -137,3 +137,24 @@ describe("copy and paste of regions", () => {
     expect(cutRegions(d, { kind: "clip", index: 0 })).toBeNull();
   });
 });
+
+describe("effect regions (stage 7)", () => {
+  it("copy, cut and paste give a new id at the playhead", () => {
+    const doc = {
+      clips: [{ startMs: 0, endMs: 10_000 }],
+      zooms: [],
+      annotations: [],
+      audioTracks: [],
+      effects: [{ id: "e1", clip: 0, startMs: 1000, endMs: 3000, effect: "grain", values: { amount: 0.5 } }],
+    } as unknown as import("./ipc").RecordEditDoc;
+    const sel = { kind: "effect" as const, id: "e1" };
+    const data = copyRegions(doc, sel)!;
+    expect(data.effects).toHaveLength(1);
+    expect(cutRegions(doc, sel)!.doc.effects).toEqual([]);
+    const pasted = pasteRegions(doc, 0, 6000, data);
+    expect(pasted.effects).toHaveLength(2);
+    expect(pasted.effects![1]).toMatchObject({ clip: 0, startMs: 6000, endMs: 8000, effect: "grain", values: { amount: 0.5 } });
+    expect(pasted.effects![1].id).not.toBe("e1");
+    expect(selectionAfterPaste(doc, pasted)).toEqual({ kind: "effect", id: pasted.effects![1].id });
+  });
+});

@@ -5497,6 +5497,25 @@ export interface RecordCaptionSettings {
   maxWords: number;
   lang: "auto" | "de" | "en";
 }
+export type RecordEffectValue = number | boolean | string;
+/** A shader effect over a stretch of one clip (SOURCE ms); `values` holds only the user's overrides. */
+export interface RecordEffectRegion {
+  id: string;
+  clip: number;
+  startMs: number;
+  endMs: number;
+  effect: string;
+  values: Record<string, RecordEffectValue>;
+}
+export interface RecordEffectSpan {
+  /** Index into `doc.effects` (Rust's mapping). */
+  index: number;
+  id: string;
+  effect: string;
+  programmeStartMs: number;
+  programmeEndMs: number;
+  row: number;
+}
 export interface RecordEditDoc {
   version: number;
   clips: RecordEditClip[];
@@ -5514,6 +5533,8 @@ export interface RecordEditDoc {
   systemGainDb: number;
   camera: RecordCameraStyle;
   layoutRegions: RecordLayoutRegion[];
+  /** Shader effect regions (v6); at most one effect at a time on the programme. */
+  effects?: RecordEffectRegion[];
   /** One transcript per recording (v5); captions are derived from it, never stored. */
   transcripts: RecordTranscript[];
   captions: RecordCaptionSettings;
@@ -5530,6 +5551,8 @@ export interface RecordEditorView {
   /** Layout regions in programme ms (`index` into `doc.layoutRegions`; Rust's mapping): from the
    *  region's start until the clip's next region or the clip's end. */
   layoutSpans?: { index: number; progStartMs: number; progEndMs: number }[];
+  /** Effect regions in programme ms (Rust's mapping); the effects lane draws these. */
+  effects?: RecordEffectSpan[];
   /** Per clip: whether it has a camera (Rust's `clip_camera`; empty outside an editor session). */
   clipCameras?: boolean[];
   /** Recorded clicks on the programme clock (the preview's click sound). */

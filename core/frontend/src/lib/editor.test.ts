@@ -74,6 +74,11 @@ import {
   trimSourceAt,
   splitAt,
   cutSourceRange,
+  setZoomRotation,
+  addEffect,
+  setEffectValue,
+  moveEffect,
+  deleteEffect,
   canRestoreGap,
   restoreGap,
 } from "./editor";
@@ -888,5 +893,67 @@ describe("stage 7 fields", () => {
     expect(d.zooms[0].rotation ?? null).toBeNull();
     expect(base().appearance.depthOfField).toBe(true);
     expect(base().cursor.model3d).toBe(false);
+  });
+});
+
+describe("stage 7: rotation and effects", () => {
+  const fx = (over = {}) => ({ id: "e1", clip: 0, startMs: 2000, endMs: 6000, effect: "vignette", values: {}, ...over });
+  const withFx = (e = fx()) => base({ effects: [e] });
+
+  it("setZoomRotation changes only rotation", () => {
+    const z = addZoom(base(), 0, 1000);
+    const id = z.zooms[0].id;
+    const r = setZoomRotation(z, id, "orbit");
+    expect(r.zooms[0]).toEqual({ ...z.zooms[0], rotation: "orbit" });
+    expect(setZoomRotation(r, id, null).zooms[0]).toEqual(z.zooms[0]);
+    expect(setZoomRotation(z, "nope", "left")).toBe(z);
+  });
+
+  it("add / set / move / delete", () => {
+    const d = addEffect(base(), 0, 1000, 99_999, "grain");
+    expect(d.effects).toHaveLength(1);
+    expect(d.effects![0]).toMatchObject({ clip: 0, startMs: 1000, endMs: 10_000, effect: "grain", values: {} });
+    expect(addEffect(base(), 0, 1000, 2000, "nope")).toEqual(base());
+    const id = d.effects![0].id;
+    const s = setEffectValue(d, id, "amount", 7);
+    expect(s.effects![0].values).toEqual({ amount: 1 });
+    expect(setEffectValue(s, id, "amount", 0.15).effects![0].values).toEqual({});
+    expect(setEffectValue(d, id, "bogus", 1)).toBe(d);
+    const m = moveEffect(d, id, 0, 3000, 4000);
+    expect(m.effects![0]).toMatchObject({ startMs: 3000, endMs: 4000 });
+    expect(deleteEffect(m, id).effects).toEqual([]);
+  });
+
+  it("splitAt puts a spanning effect in both halves, second with a fresh id", () => {
+    const d = base({ effects: [fx()] });
+    const out = splitAt(d, 0, 4000);
+    expect(out.effects).toHaveLength(2);
+    expect(out.effects![0]).toMatchObject({ id: "e1", clip: 0, startMs: 2000, endMs: 4000 });
+    expect(out.effects![1]).toMatchObject({ clip: 1, startMs: 4000, endMs: 6000, effect: "vignette" });
+    expect(out.effects![1].id).not.toBe("e1");
+  });
+
+  it("restoreGap rejoins the halves", () => {
+    const split = splitAt(withFx(), 0, 4000);
+    const joined = restoreGap(split, 0);
+    expect(joined.effects).toHaveLength(1);
+    expect(joined.effects![0]).toMatchObject({ clip: 0, startMs: 2000, endMs: 6000 });
+  });
+
+  it("cutSourceRange keeps an effect outside and shortens one crossing the cut", () => {
+    const outside = cutSourceRange(base({ effects: [fx({ startMs: 8000, endMs: 9500 })] }), 0, 2000, 4000);
+    expect(outside.effects).toHaveLength(1);
+    expect(outside.effects![0]).toMatchObject({ clip: 1, startMs: 8000, endMs: 9500 });
+    const crossing = cutSourceRange(withFx(fx({ startMs: 3000, endMs: 7000 })), 0, 2000, 5000);
+    expect(crossing.effects).toHaveLength(1);
+    expect(crossing.effects![0]).toMatchObject({ clip: 1, startMs: 5000, endMs: 7000 });
+    const head = cutSourceRange(withFx(fx({ startMs: 1000, endMs: 3000 })), 0, 2000, 5000);
+    expect(head.effects![0]).toMatchObject({ clip: 0, startMs: 1000, endMs: 2000 });
+  });
+
+  it("deleteClip takes its effects along and re-indexes the rest", () => {
+    const two = splitAt(base({ effects: [fx({ startMs: 1000, endMs: 2000 }), fx({ id: "e2", startMs: 6000, endMs: 7000 })] }), 0, 4000);
+    const out = deleteClip(two, 0);
+    expect(out.effects!.map((e) => [e.id, e.clip])).toEqual([["e2", 0]]);
   });
 });

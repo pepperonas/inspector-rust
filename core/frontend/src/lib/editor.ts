@@ -24,10 +24,14 @@ import type {
   RecordEditDoc,
   RecordLayoutPreset,
   RecordLayoutRegion,
+  RecordEffectRegion,
+  RecordEffectValue,
+  RecordZoomRotation,
   RecordEditorView,
   RecordTakeMeta,
   RecordZoomRegion,
 } from "./ipc";
+import { coerceEffectValue, effectSpec } from "./effects";
 
 /** Clips shorter than this are dropped by Rust's `normalize` — a split never makes one. */
 export const MIN_CLIP_MS = 100;
@@ -83,6 +87,7 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
   // BOTH halves, the second under a fresh id; `restoreGap` joins them again.
   const zooms = splitRegions(doc.zooms, clip, at);
   const annotations = splitRegions(doc.annotations, clip, at);
+  const effects = splitRegions(doc.effects ?? [], clip, at);
   // A track's anchor follows the half holding its start.
   const audioTracks = doc.audioTracks.map((t) =>
     t.clip > clip || (t.clip === clip && t.startMs >= at) ? { ...t, clip: t.clip + 1 } : t,
@@ -91,7 +96,7 @@ export function splitAt(doc: RecordEditDoc, clip: number, sourceMs: number): Rec
   const crop = [...doc.crop];
   while (crop.length < doc.clips.length) crop.push(null);
   crop.splice(clip + 1, 0, crop[clip] ?? null);
-  return { ...doc, clips, speed, crop, zooms, annotations, audioTracks, layoutRegions };
+  return { ...doc, clips, speed, crop, zooms, annotations, audioTracks, layoutRegions, effects };
 }
 
 /** Zoom/annotation regions after splitting clip `clip` at source `at`. */
@@ -138,6 +143,7 @@ export function deleteClip(doc: RecordEditDoc, clip: number): RecordEditDoc {
     speed: doc.speed.filter((r) => r.clip !== clip).map((r) => (r.clip > clip ? { ...r, clip: r.clip - 1 } : r)),
     crop: doc.crop.filter((_, i) => i !== clip),
     zooms: doc.zooms.filter((z) => z.clip !== clip).map((z) => (z.clip > clip ? { ...z, clip: z.clip - 1 } : z)),
+    effects: (doc.effects ?? []).filter((x) => x.clip !== clip).map((x) => (x.clip > clip ? { ...x, clip: x.clip - 1 } : x)),
     annotations: doc.annotations
       .filter((a) => a.clip !== clip)
       .map((a) => (a.clip > clip ? { ...a, clip: a.clip - 1 } : a)),
@@ -199,6 +205,7 @@ export function cutSourceRange(doc: RecordEditDoc, clip: number, startMs: number
     speed: clamp(once.speed),
     zooms: clamp(once.zooms),
     annotations: clamp(once.annotations),
+    effects: clamp(once.effects ?? []),
     audioTracks: once.audioTracks.map((t) => (t.clip === second && t.startMs < e ? { ...t, startMs: e } : t)),
     layoutRegions,
   };
@@ -288,6 +295,7 @@ export function restoreGap(doc: RecordEditDoc, clip: number): RecordEditDoc {
     speed: joinRegions(doc.speed, clip, a.endMs, b.startMs),
     zooms: joinRegions(doc.zooms, clip, a.endMs, b.startMs),
     annotations: joinRegions(doc.annotations, clip, a.endMs, b.startMs),
+    effects: joinRegions(doc.effects ?? [], clip, a.endMs, b.startMs),
     // A cut builds no middle clip, so no track was deleted by it (only a cut covering a whole
     // clip deletes that clip, with its tracks — that is not a gap restoreGap can undo).
     audioTracks: doc.audioTracks.map(shift),
@@ -347,6 +355,63 @@ export function updateZoom(doc: RecordEditDoc, id: string, patch: Partial<Omit<R
 
 export function removeZoom(doc: RecordEditDoc, id: string): RecordEditDoc {
   return { ...doc, zooms: doc.zooms.filter((z) => z.id !== id) };
+}
+
+/** Sets (or, with `null`, clears) a zoom's 3D camera preset; everything else is untouched. */
+export function setZoomRotation(doc: RecordEditDoc, zoomId: string, rotation: RecordZoomRotation | null): RecordEditDoc {
+  if (!doc.zooms.some((z) => z.id === zoomId)) return doc;
+  return {
+    ...doc,
+    zooms: doc.zooms.map((z) => {
+      if (z.id !== zoomId) return z;
+      if (rotation) return { ...z, rotation };
+      const { rotation: _r, ...rest } = z;
+      return rest;
+    }),
+  };
+}
+
+// ── shader effects (stage 7) ────────────────────────────────────────────────
+
+/** A new effect region over source `[startMs, endMs)` of `clip` (clamped into the clip) with
+ *  default values (empty `values`). Rust resolves overlaps — the later one wins. */
+export function addEffect(doc: RecordEditDoc, clip: number, startMs: number, endMs: number, effectId: string): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c || !effectSpec(effectId)) return doc;
+  const a = Math.max(c.startMs, Math.round(Math.min(startMs, endMs)));
+  const b = Math.min(c.endMs, Math.round(Math.max(startMs, endMs)));
+  if (b <= a) return doc;
+  const region: RecordEffectRegion = { id: crypto.randomUUID(), clip, startMs: a, endMs: b, effect: effectId, values: {} };
+  return { ...doc, effects: [...(doc.effects ?? []), region] };
+}
+
+/** Overrides one parameter (clamped/validated by the catalogue); a value equal to the default
+ *  is dropped so `values` keeps only real overrides. */
+export function setEffectValue(doc: RecordEditDoc, regionId: string, name: string, value: RecordEffectValue): RecordEditDoc {
+  const r = (doc.effects ?? []).find((x) => x.id === regionId);
+  if (!r) return doc;
+  const param = effectSpec(r.effect)?.params.find((p) => p.name === name);
+  if (!param) return doc;
+  const v = coerceEffectValue(param, value);
+  if (v === undefined) return doc;
+  const values = { ...r.values };
+  if (v === param.default) delete values[name];
+  else values[name] = v;
+  return { ...doc, effects: (doc.effects ?? []).map((x) => (x.id === regionId ? { ...x, values } : x)) };
+}
+
+/** Moves/resizes a region (SOURCE ms of `clip`, clamped into it). */
+export function moveEffect(doc: RecordEditDoc, regionId: string, clip: number, startMs: number, endMs: number): RecordEditDoc {
+  const c = doc.clips[clip];
+  if (!c || !(doc.effects ?? []).some((x) => x.id === regionId)) return doc;
+  const a = Math.max(c.startMs, Math.round(Math.min(startMs, endMs)));
+  const b = Math.min(c.endMs, Math.round(Math.max(startMs, endMs)));
+  if (b <= a) return doc;
+  return { ...doc, effects: (doc.effects ?? []).map((x) => (x.id === regionId ? { ...x, clip, startMs: a, endMs: b } : x)) };
+}
+
+export function deleteEffect(doc: RecordEditDoc, regionId: string): RecordEditDoc {
+  return { ...doc, effects: (doc.effects ?? []).filter((x) => x.id !== regionId) };
 }
 
 /** Removes the planner's zooms; the ones the user made stay. */

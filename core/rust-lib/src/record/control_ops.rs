@@ -38,7 +38,6 @@ pub const ERR_CONFIRM: &str = "record.control.confirm_required";
 pub const ERR_OUT_EXISTS: &str = "record.control.out_exists";
 pub const ERR_BAD_OUT: &str = "record.control.bad_out";
 pub const ERR_CANCELLED: &str = "record.control.cancelled";
-pub const ERR_UNSUPPORTED: &str = "record.unsupported";
 
 /// Most frames one `record.frames` call renders.
 pub const MAX_FRAMES: usize = 8;
@@ -392,6 +391,33 @@ pub fn merge_transcripts(doc: &EditDoc, next: &[Transcript], lang: Option<transc
     out
 }
 
+/// Nested fields that are left out of the serialised document while unset
+/// (`skip_serializing_if`), so they cannot be found in it.
+const OPTIONAL_LOOK_KEYS: [&str; 1] = ["camera.position"];
+
+/// The first key path of `patch` that `base` (the serialised current value) does not have,
+/// e.g. `appearance.paddin`. An object whose `kind` tag changes is a different enum variant
+/// with its own fields: it is not checked further (deserialising it validates the variant).
+pub fn unknown_key(base: &Value, patch: &Value, path: &str) -> Option<String> {
+    let (Value::Object(b), Value::Object(p)) = (base, patch) else { return None };
+    if p.get("kind").is_some_and(|k| Some(k) != b.get("kind")) {
+        return None;
+    }
+    for (k, v) in p {
+        let here = format!("{path}.{k}");
+        match b.get(k) {
+            Some(bv) => {
+                if let Some(found) = unknown_key(bv, v, &here) {
+                    return Some(found);
+                }
+            }
+            None if OPTIONAL_LOOK_KEYS.contains(&here.as_str()) => {}
+            None => return Some(here),
+        }
+    }
+    None
+}
+
 /// Top-level fields `look.set` may change.
 pub const LOOK_FIELDS: [&str; 7] = ["appearance", "cursor", "output", "camera", "captions", "micGainDb", "systemGainDb"];
 
@@ -648,6 +674,9 @@ fn apply_one(doc: &EditDoc, op: &Value, ctx: &OpCtx, new_id: &mut dyn FnMut() ->
             for k in LOOK_FIELDS {
                 if let Some(p) = a.take(k) {
                     any = true;
+                    if let Some(bad_key) = v.get(k).and_then(|base| unknown_key(base, &p, k)) {
+                        return Err(bad(format!("unknown field {bad_key}")));
+                    }
                     let slot = v.as_object_mut().expect("a doc serialises to an object").entry(k).or_insert(Value::Null);
                     merge_json(slot, &p);
                 }
@@ -752,7 +781,7 @@ fn to_json(v: &impl serde::Serialize) -> Result<Value, ControlError> {
 
 fn projects(app: &AppHandle, _c: &mut Call) -> Result<Value, ControlError> {
     let open = super::editor_ipc::open_dir();
-    let shown = open.is_some() && super::editor_ipc::window_visible(app);
+    let shown = open.is_some() && super::editor_ipc::editor_window_exists(app);
     let list: Vec<Value> = super::project::list_projects(&root(app))
         .into_iter()
         .map(|p| {
@@ -778,7 +807,7 @@ fn project(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
     if let Some(o) = p.as_object_mut() {
         o.remove("editor");
     }
-    Ok(json!({"project": p, "view": to_json(&view)?, "open": super::editor_ipc::window_visible(app)}))
+    Ok(json!({"project": p, "view": to_json(&view)?, "open": super::editor_ipc::editor_window_exists(app)}))
 }
 
 fn doc(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
@@ -799,12 +828,26 @@ fn random_id() -> String {
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
 }
 
+/// The title of the last `rename` op (the one that wins), if any.
+pub fn last_rename(ops: &[Value]) -> Option<String> {
+    ops.iter()
+        .rev()
+        .find(|o| o.get("op").and_then(Value::as_str) == Some("rename"))
+        .and_then(|o| o.get("title").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
 fn edit(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
     let ops = match c.params.get("ops") {
         Some(Value::Array(a)) => a.clone(),
         _ => return Err(perr("ops must be a list of ops")),
     };
-    let id = session_for(app, c)?;
+    let dir = project_dir(app, c)?;
+    // A rename that would be refused fails before the document changes (all or nothing).
+    if let Some(t) = last_rename(&ops) {
+        super::session::rename_check(app, &dir, &t).map_err(ControlError::sentinel)?;
+    }
+    let id = super::editor_ipc::control_session(app, &dir).map_err(ControlError::sentinel)?;
     let root = root(app);
     let (view, (created, title)) = super::editor_ipc::control_edit(app, id, |p| {
         let preset = |file: &str, d: &EditDoc| -> Result<EditDoc, ControlError> {
@@ -816,13 +859,8 @@ fn edit(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
         Ok((out.doc, (out.created, out.title)))
     })?;
     if let Some(t) = title {
-        if let Some(dir) = super::editor_ipc::open_dir() {
-            match super::editor_ipc::retitle_open(&dir, &t) {
-                Some(Ok(r)) => r.announce(app),
-                Some(Err(e)) => return Err(ControlError::sentinel(e)),
-                None => {}
-            }
-        }
+        // Checked above; what can still fail here is the write itself.
+        super::session::rename_project(app, &dir, &t).map_err(ControlError::sentinel)?;
     }
     let created: Vec<Value> = created.into_iter().map(|(i, id)| json!({"index": i, "id": id})).collect();
     Ok(json!({"view": to_json(&view)?, "created": created}))
@@ -1226,6 +1264,27 @@ mod tests {
     }
 
     #[test]
+    fn look_set_refuses_unknown_nested_keys() {
+        let d = two_clips();
+        let e = run(&d, json!([{"op": "look.set", "appearance": {"paddin": 10}}])).unwrap_err();
+        assert_eq!(e.code, ERR_BAD_OP);
+        assert!(e.message.contains("appearance.paddin"), "{}", e.message);
+        let e = run(&d, json!([{"op": "look.set", "captions": {"enabled": true, "colour": "#fff"}}])).unwrap_err();
+        assert!(e.message.contains("captions.colour"), "{}", e.message);
+        // A different background variant brings its own fields; an unset optional is allowed.
+        let out = run(&d, json!([{"op": "look.set", "appearance": {"background": {"kind": "color", "color": "#112233"}}}])).unwrap().doc;
+        assert_eq!(out.appearance.background, editor::Background::Color { color: "#112233".into() });
+        run(&d, json!([{"op": "look.set", "camera": {"position": {"x": 0.3, "y": 0.4}}}])).unwrap();
+    }
+
+    #[test]
+    fn last_rename_takes_the_last_title() {
+        let ops = json!([{"op": "rename", "title": "a"}, {"op": "zoom.auto"}, {"op": "rename", "title": "b"}]);
+        assert_eq!(last_rename(ops.as_array().unwrap()).as_deref(), Some("b"));
+        assert_eq!(last_rename(json!([{"op": "zoom.auto"}]).as_array().unwrap()), None);
+    }
+
+    #[test]
     fn rename_cleans_the_title() {
         let d = two_clips();
         let out = run(&d, json!([{"op": "rename", "title": "  Demo  "}])).unwrap();
@@ -1280,6 +1339,22 @@ mod tests {
         assert_eq!(session_choice(Some(a), a, false), SessionChoice::Reuse);
         assert_eq!(session_choice(Some(b), a, true), SessionChoice::Refuse);
         assert_eq!(session_choice(Some(b), a, false), SessionChoice::Open);
+    }
+
+    #[test]
+    fn a_minimised_editor_window_still_owns_its_session() {
+        use super::super::editor_ipc::{idle_close_target, session_choice, SessionChoice};
+        // Existence, not visibility: a minimised window exists, so B is refused under it.
+        assert_eq!(session_choice(Some(Path::new("/r/a")), Path::new("/r/b"), true), SessionChoice::Refuse);
+        let src = include_str!("editor_ipc.rs");
+        let f = src.split("pub fn editor_window_exists(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        assert!(f.contains(".is_some()") && !f.contains("is_visible"), "{f}");
+        // The idle watcher closes only the control's own window-less session.
+        assert_eq!(idle_close_target(7, Some(7), false), Some(7));
+        assert_eq!(idle_close_target(7, Some(7), true), None, "a window (even minimised) owns it");
+        assert_eq!(idle_close_target(7, Some(8), false), None, "editor_open installed another one");
+        assert_eq!(idle_close_target(0, Some(8), false), None, "no control session");
+        assert_eq!(idle_close_target(7, None, false), None);
     }
 
     #[test]

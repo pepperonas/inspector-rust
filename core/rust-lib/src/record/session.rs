@@ -1861,10 +1861,10 @@ mod mac {
         Ok(())
     }
 
-    /// Renames a project of the recordings folder: only the title in its `project.json`
-    /// changes (the folder keeps its name, so links and the Finder stay valid). The project
-    /// being recorded is refused; the one open in the editor takes the title as well.
-    pub fn rename_project(app: &AppHandle, dir: &Path, title: &str) -> Result<String, String> {
+    /// What `rename_project` refuses, checked without changing anything: the folder must be a
+    /// project of the recordings folder, not the one being recorded, and the title usable.
+    /// Returns the canonical folder and the cleaned title.
+    pub fn rename_check(app: &AppHandle, dir: &Path, title: &str) -> Result<(PathBuf, String), String> {
         let st = app.state::<RecordState>();
         let root = app
             .try_state::<crate::db::DbHandle>()
@@ -1877,6 +1877,14 @@ mod mac {
             }
         }
         let title = crate::record::project::clean_title(title).map_err(str::to_string)?;
+        Ok((dir, title))
+    }
+
+    /// Renames a project of the recordings folder: only the title in its `project.json`
+    /// changes (the folder keeps its name, so links and the Finder stay valid). The project
+    /// being recorded is refused; the one open in the editor takes the title as well.
+    pub fn rename_project(app: &AppHandle, dir: &Path, title: &str) -> Result<String, String> {
+        let (dir, title) = rename_check(app, dir, title)?;
         // Open in the editor: the session writes it (its next save would otherwise put the
         // old title back, and a separate read-modify-write could race a save).
         #[cfg(target_arch = "aarch64")]

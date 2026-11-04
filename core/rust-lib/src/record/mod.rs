@@ -49,7 +49,7 @@ pub fn register_control() {
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     for m in CONTROL_METHODS {
         crate::control::register(m, |_, _| {
-            Err(crate::control::ControlError::new("record.unsupported", "record needs a Mac with Apple Silicon"))
+            Err(crate::control::ControlError::new(session::ERR_UNSUPPORTED, "record needs a Mac with Apple Silicon"))
         });
     }
 }

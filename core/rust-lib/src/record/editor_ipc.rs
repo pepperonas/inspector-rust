@@ -1264,6 +1264,8 @@ fn open_session(app: &AppHandle, dir: PathBuf, show: bool) -> Result<EditorInit,
         out
     };
     let helper_error = if show {
+        // The session belongs to the window now: the control idle watcher never closes it.
+        CONTROL_SID.store(0, Ordering::SeqCst);
         show_window(app);
         ensure_client(app, false).and_then(|c| c.open(scene, preview.0, preview.1)).map(note_segmentation_model).err()
     } else {
@@ -2513,7 +2515,7 @@ fn doc_with_voiceover(doc: &EditDoc, play: &EditDoc, plan: &voiceover::Plan, fil
 /// A control call targets another project than the one a visible editor window shows.
 pub const ERR_OTHER_OPEN: &str = "record.control.other_open";
 /// To a visible editor: a control call changed its document, `{sessionId, doc, view}`. The
-/// window takes it as one undo step.
+/// window takes it as one undo step (sent whenever an editor window exists, also minimised).
 pub const EV_EXTERNAL: &str = "record-editor-external";
 /// A window-less session (opened by a control call) closes after this long without one.
 pub const CONTROL_IDLE: Duration = Duration::from_secs(300);
@@ -2523,27 +2525,32 @@ const CANCEL_GRACE: Duration = Duration::from_secs(30);
 static LAST_CONTROL_MS: AtomicU64 = AtomicU64::new(0);
 static IDLE_WATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether the editor window is on screen. Never call it holding the session lock (it asks
-/// the main thread).
-pub fn window_visible(app: &AppHandle) -> bool {
-    app.get_webview_window(EDITOR_LABEL).is_some_and(|w| w.is_visible().unwrap_or(false))
+/// Whether an editor window exists — shown, minimised or behind other windows. A closed
+/// window is destroyed (its session ends with it), so existence is the signal: a minimised
+/// window still holds the user's session.
+pub fn editor_window_exists(app: &AppHandle) -> bool {
+    app.get_webview_window(EDITOR_LABEL).is_some()
 }
+
+/// The window-less session a control call opened (0 = none). Only that one may be closed
+/// for idleness — never a session `editor_open` installed (its window may not be built yet).
+static CONTROL_SID: AtomicU64 = AtomicU64::new(0);
 
 /// What a control call does about the open session (pure).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionChoice {
     /// The target is open: use that session.
     Reuse,
-    /// Nothing open, or another project without a visible window: open the target window-less.
+    /// Nothing open, or another project without an editor window: open the target window-less.
     Open,
-    /// A visible window shows another project.
+    /// An editor window (even minimised) shows another project.
     Refuse,
 }
 
-pub fn session_choice(open: Option<&Path>, target: &Path, window_visible: bool) -> SessionChoice {
+pub fn session_choice(open: Option<&Path>, target: &Path, window_exists: bool) -> SessionChoice {
     match open {
         Some(d) if d == target => SessionChoice::Reuse,
-        Some(_) if window_visible => SessionChoice::Refuse,
+        Some(_) if window_exists => SessionChoice::Refuse,
         _ => SessionChoice::Open,
     }
 }
@@ -2552,15 +2559,26 @@ pub fn session_choice(open: Option<&Path>, target: &Path, window_visible: bool) 
 /// closes itself after [`CONTROL_IDLE`].
 pub fn control_session(app: &AppHandle, dir: &Path) -> Result<u64, String> {
     let target = open_target(dir).map_err(str::to_string)?;
-    let visible = window_visible(app);
+    let window = editor_window_exists(app);
     let open = session().as_ref().map(|s| (s.id, s.dir.clone()));
-    let id = match session_choice(open.as_ref().map(|(_, d)| d.as_path()), &target, visible) {
+    let id = match session_choice(open.as_ref().map(|(_, d)| d.as_path()), &target, window) {
+        // A reused session keeps its owner: only one this module opened is ever idle-closed.
         SessionChoice::Reuse => open.map(|(id, _)| id).ok_or(ERR_NO_SESSION)?,
         SessionChoice::Refuse => return Err(ERR_OTHER_OPEN.into()),
-        SessionChoice::Open => open_session(app, target, false)?.session_id,
+        SessionChoice::Open => {
+            let id = open_session(app, target, false)?.session_id;
+            CONTROL_SID.store(id, Ordering::SeqCst);
+            id
+        }
     };
     touch_control(app);
     Ok(id)
+}
+
+/// The id the idle watcher may close: the control session, while it is still the open one
+/// and no editor window exists (pure).
+pub fn idle_close_target(control_sid: u64, current: Option<u64>, window_exists: bool) -> Option<u64> {
+    (control_sid != 0 && current == Some(control_sid) && !window_exists).then_some(control_sid)
 }
 
 fn touch_control(app: &AppHandle) {
@@ -2572,15 +2590,17 @@ fn touch_control(app: &AppHandle) {
     let spawned = std::thread::Builder::new().name("ir-control-idle".into()).spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(15));
-            let Some(id) = session().as_ref().map(|s| s.id) else { break };
-            // A window took the session: it closes with the window.
-            if window_visible(&app) {
+            let current = session().as_ref().map(|s| s.id);
+            // No control session any more (an editor took over, a window shows it, it closed).
+            let Some(id) = idle_close_target(CONTROL_SID.load(Ordering::SeqCst), current, editor_window_exists(&app)) else {
                 break;
-            }
+            };
             let idle = now_ms().saturating_sub(LAST_CONTROL_MS.load(Ordering::SeqCst));
             let busy = current_client().is_some_and(|c| c.exporting()) || is_transcribing();
             if idle >= CONTROL_IDLE.as_millis() as u64 && !busy {
+                // `close` checks the id again under the lock: a session installed meanwhile stays.
                 close(&app, false, Some(id));
+                let _ = CONTROL_SID.compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst);
                 break;
             }
         }
@@ -2617,7 +2637,7 @@ pub fn control_edit<T>(
     f: impl FnOnce(&EditParts) -> Result<(EditDoc, T), crate::control::ControlError>,
 ) -> Result<(EditorView, T), crate::control::ControlError> {
     use crate::control::ControlError;
-    let visible = window_visible(app);
+    let visible = editor_window_exists(app);
     let (view, scene, cmds, out) = {
         let mut guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
@@ -2830,7 +2850,7 @@ pub fn control_frames(
 /// window refuses ([`ERR_DELETE_OPEN`]).
 pub fn control_release(app: &AppHandle, dir: &Path) -> Result<(), String> {
     let Some(id) = session().as_ref().filter(|s| s.dir == dir).map(|s| s.id) else { return Ok(()) };
-    if window_visible(app) {
+    if editor_window_exists(app) {
         return Err(ERR_DELETE_OPEN.into());
     }
     close(app, false, Some(id));

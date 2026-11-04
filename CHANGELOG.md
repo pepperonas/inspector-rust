@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.239.1] — 2026-11-04
+
+### Fixed
+- **Ctrl+C during the countdown of `ir-record record`** now cancels the take before it starts; before, the recording began after the countdown and stopped at once, leaving an almost empty project.
+- **Output names with a dot.** `ir-record export --out demo.v2` writes `demo.v2.mp4`; only another video format's extension (`.mov`, `.gif` …) is still refused.
+- **MCP server:** a request with a `null` id, or a second call under an id that is still running, is refused with "Invalid Request" (they could not be answered or cancelled apart); a read error on stdin now ends with exit code 1.
 ## [0.239.0] — 2026-11-04
 
 ### Added

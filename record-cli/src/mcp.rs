@@ -94,7 +94,8 @@ pub fn run() -> i32 {
     serve(stdin.lock(), Box::new(std::io::stdout()), Arc::new(|launch| client::connect(launch, CONNECT_TIMEOUT)))
 }
 
-/// The server loop: until EOF on `input`. Returns the exit code (0).
+/// The server loop: until EOF on `input`. Returns the exit code: 0 at EOF,
+/// 1 when stdin could not be read.
 pub fn serve(mut input: impl BufRead, out: Box<dyn Write + Send>, connect: Connector) -> i32 {
     let shared = Arc::new(Shared {
         out: Mutex::new(out),
@@ -105,6 +106,7 @@ pub fn serve(mut input: impl BufRead, out: Box<dyn Write + Send>, connect: Conne
     });
     let mut threads: Vec<JoinHandle<()>> = Vec::new();
     let mut buf = Vec::new();
+    let mut code = 0;
     loop {
         buf.clear();
         match (&mut input).take(MAX_LINE + 1).read_until(b'\n', &mut buf) {
@@ -113,6 +115,7 @@ pub fn serve(mut input: impl BufRead, out: Box<dyn Write + Send>, connect: Conne
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => {
                 eprintln!("ir-record mcp: reading stdin: {e}");
+                code = 1;
                 break;
             }
         }
@@ -138,7 +141,7 @@ pub fn serve(mut input: impl BufRead, out: Box<dyn Write + Send>, connect: Conne
     for h in threads {
         let _ = h.join();
     }
-    0
+    code
 }
 
 /// One stdin line. Returns the thread of a started tool call.
@@ -168,6 +171,11 @@ fn handle_line(shared: &Arc<Shared>, line: &str) -> Option<JoinHandle<()>> {
         notification(shared, method, &params);
         return None;
     };
+    if id.is_null() {
+        // MCP: a request id MUST NOT be null (it could never be answered or cancelled apart).
+        shared.send(&rpc_error(&Value::Null, INVALID_REQUEST, "Invalid Request: id must not be null"));
+        return None;
+    }
     if obj.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
         shared.send(&rpc_error(&id, INVALID_REQUEST, "Invalid Request: jsonrpc must be \"2.0\""));
         return None;
@@ -235,7 +243,17 @@ fn start_call(shared: &Arc<Shared>, id: Value, params: &Value) -> Option<JoinHan
     let token = params.get("_meta").and_then(|m| m.get("progressToken")).cloned();
     let cancel = Arc::new(AtomicBool::new(false));
     let key = id.to_string();
-    shared.running.lock().unwrap_or_else(|e| e.into_inner()).insert(key.clone(), cancel.clone());
+    {
+        let mut running = shared.running.lock().unwrap_or_else(|e| e.into_inner());
+        if running.contains_key(&key) {
+            // MCP: ids are unique per session; a second call under a running id
+            // would share its cancel flag and steal its registry entry.
+            drop(running);
+            shared.send(&rpc_error(&id, INVALID_REQUEST, "Invalid Request: a request with this id is still running"));
+            return None;
+        }
+        running.insert(key.clone(), cancel.clone());
+    }
     let spawned = std::thread::Builder::new().name(format!("ir-mcp-{name}")).spawn({
         let shared = shared.clone();
         let key = key.clone();
@@ -438,6 +456,10 @@ mod tests {
     /// Run `serve` on in-memory input with a connector that never reaches an
     /// app; return the output lines.
     fn session(input: &str) -> Vec<Value> {
+        session_with(input, Arc::new(|_| Err(ClientError::NotRunning)), 0)
+    }
+
+    fn session_with(input: &str, connect: Connector, want_code: i32) -> Vec<Value> {
         struct Pipe(mpsc::Sender<Vec<u8>>);
         impl Write for Pipe {
             fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
@@ -449,8 +471,8 @@ mod tests {
             }
         }
         let (tx, rx) = mpsc::channel();
-        let code = serve(Cursor::new(input.to_string()), Box::new(Pipe(tx)), Arc::new(|_| Err(ClientError::NotRunning)));
-        assert_eq!(code, 0);
+        let code = serve(Cursor::new(input.to_string()), Box::new(Pipe(tx)), connect);
+        assert_eq!(code, want_code);
         let bytes: Vec<u8> = rx.try_iter().flatten().collect();
         String::from_utf8(bytes).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
     }
@@ -524,5 +546,59 @@ mod tests {
         let out = session("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"1999-01-01\"}}\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}\n");
         assert_eq!(out[0]["result"]["protocolVersion"], LATEST);
         assert_eq!(out[1]["result"]["tools"][0]["annotations"]["readOnlyHint"], true);
+    }
+
+    #[test]
+    fn a_null_id_is_refused() {
+        let out = session("{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"ping\"}\n");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["id"], Value::Null);
+        assert_eq!(out[0]["error"]["code"], json!(INVALID_REQUEST));
+        assert_eq!(out[0]["error"]["message"], "Invalid Request: id must not be null");
+    }
+
+    #[test]
+    fn a_second_call_under_a_running_id_is_refused_and_the_first_still_answers() {
+        // The connector holds the first call long enough for the second line to arrive.
+        let slow: Connector = Arc::new(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Err(ClientError::NotRunning)
+        });
+        let call = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"record_status\"}}\n";
+        let out = session_with(&format!("{call}{call}"), slow, 0);
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert_eq!(out[0]["error"]["code"], json!(INVALID_REQUEST));
+        assert_eq!(out[0]["error"]["message"], "Invalid Request: a request with this id is still running");
+        assert_eq!(out[1]["id"], json!(9));
+        assert_eq!(out[1]["result"]["structuredContent"]["error"]["code"], "client.not_running");
+    }
+
+    #[test]
+    fn the_same_id_is_fine_again_once_the_first_call_finished() {
+        let call = "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"ping\"}\n";
+        let out = session(&format!("{call}{call}"));
+        assert_eq!(out.len(), 2);
+        assert!(out.iter().all(|m| m["result"] == json!({})));
+    }
+
+    #[test]
+    fn a_stdin_read_error_ends_with_exit_code_1() {
+        struct Broken;
+        impl std::io::Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("boom"))
+            }
+        }
+        struct Sink;
+        impl Write for Sink {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let code = serve(std::io::BufReader::new(Broken), Box::new(Sink), Arc::new(|_| Err(ClientError::NotRunning)));
+        assert_eq!(code, 1);
     }
 }

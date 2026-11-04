@@ -82,6 +82,16 @@ pub fn serve(c: UnixStream, closed: Arc<AtomicUsize>) {
                 }
                 return;
             }
+            "record.start" if v["params"]["title"] == "slow-start" => {
+                // A countdown that only ends when the client goes away.
+                send(&mut out, json!({"id": id, "event": {"phase": "countdown", "seconds": 3}}));
+                let _ = c.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut b = [0u8; 1];
+                if matches!((&c).read(&mut b), Ok(0)) {
+                    closed.fetch_add(1, Ordering::SeqCst);
+                }
+                return;
+            }
             "record.start" => {
                 send(&mut out, json!({"id": id, "event": {"phase": "countdown", "seconds": 3}}));
                 send(&mut out, json!({"id": id, "result": {"project": "/r/take", "folder": "take", "status": {"phase": "recording"}}}));

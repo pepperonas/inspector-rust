@@ -12,6 +12,7 @@ use super::control_ops::ERR_BAD_PARAMS;
 use super::session::{self, next_phase, Action, Phase, RecordConfig, StartOptions};
 use crate::control::{Call, ControlError};
 use serde_json::{json, Map, Value};
+use std::sync::atomic::Ordering;
 use tauri::AppHandle;
 
 pub const ERR_AMBIGUOUS: &str = "record.control.ambiguous";
@@ -394,9 +395,17 @@ pub(crate) fn start(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError
     }
     let picked = picked_for(&plan.source)?;
     if plan.opts.countdown {
-        c.emit(json!({"phase": "countdown", "seconds": 3}));
+        c.emit(json!({"phase": "countdown", "seconds": session::COUNTDOWN_SECS}));
     }
-    let st = session::start_with(app, plan.opts, Some(picked)).map_err(ControlError::sentinel)?;
+    // A client that goes away during the countdown (Ctrl+C) cancels the take before it
+    // records; one that goes away while capture starts gets its fresh take discarded.
+    let cancelled = c.cancelled;
+    let st = session::start_with_abort(app, plan.opts, Some(picked), &|| cancelled.load(Ordering::SeqCst))
+        .map_err(ControlError::sentinel)?;
+    if c.is_cancelled() {
+        let _ = session::cancel(app);
+        return Err(ControlError::sentinel(session::ERR_CANCELLED.to_string()));
+    }
     let dir = st.project_dir.clone().unwrap_or_default();
     Ok(json!({"project": dir, "folder": folder_of(&dir), "status": to_json(&st)?}))
 }

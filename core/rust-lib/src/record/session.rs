@@ -728,7 +728,11 @@ mod mac {
     /// NSWindow level above the menu bar and the Dock (a free area may include them).
     const REGION_LEVEL: i64 = 1000;
     const FPS: u32 = 60;
-    const COUNTDOWN: Duration = Duration::from_secs(3);
+    /// Length of the start countdown (the countdown window counts this down).
+    pub const COUNTDOWN_SECS: u64 = 3;
+    const COUNTDOWN: Duration = Duration::from_secs(COUNTDOWN_SECS);
+    /// How often an abortable countdown checks its abort flag.
+    const COUNTDOWN_SLICE: Duration = Duration::from_millis(50);
     const FIRST_FRAME: Duration = Duration::from_secs(3);
 
     struct Active {
@@ -1579,6 +1583,17 @@ mod mac {
     /// [`start`] with a given source (`None` = the current pick of the picker/area overlay).
     /// A given source leaves the picker slot alone, so the HUD keeps its own pick.
     pub fn start_with(app: &AppHandle, opts: StartOptions, source: Option<Picked>) -> Result<RecordStatus, String> {
+        start_with_abort(app, opts, source, &|| false)
+    }
+
+    /// [`start_with`] whose countdown ends early when `abort()` turns true: the take is then
+    /// cancelled before capture starts (`record.cancelled`, nothing left on disk).
+    pub fn start_with_abort(
+        app: &AppHandle,
+        opts: StartOptions,
+        source: Option<Picked>,
+        abort: &dyn Fn() -> bool,
+    ) -> Result<RecordStatus, String> {
         support_reason().map_err(|_| ERR_UNSUPPORTED.to_string())?;
         let st = app.state::<RecordState>();
         let my_gen = {
@@ -1619,8 +1634,14 @@ mod mac {
 
         if opts.countdown {
             open_window(app, COUNTDOWN_LABEL);
-            std::thread::sleep(COUNTDOWN);
+            let until = std::time::Instant::now() + COUNTDOWN;
+            while std::time::Instant::now() < until && !abort() {
+                std::thread::sleep(COUNTDOWN_SLICE.min(until.saturating_duration_since(std::time::Instant::now())));
+            }
             close_window(app, COUNTDOWN_LABEL);
+        }
+        if abort() {
+            let _ = st.transition(Action::Cancel);
         }
         let still_ours = |st: &RecordState| {
             let g = st.inner.lock();

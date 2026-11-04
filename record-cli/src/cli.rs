@@ -745,9 +745,9 @@ const STATUS_EVERY: Duration = Duration::from_millis(1000);
 fn record(conn: &mut Conn, args: &RecordArgs, out: &mut Out, stop: &dyn Fn() -> bool) -> i32 {
     let mut params = args.params.clone();
     params.insert("countdown".into(), json!(args.countdown));
-    // `record.start` itself is not interrupted: the countdown is short and the
-    // take is stopped right after it if Ctrl+C came meanwhile.
-    let started = match conn.call("record.start", Value::Object(params), &mut |ev| out.progress(&ev)) {
+    // Ctrl+C during `record.start` closes the connection: the app then cancels the
+    // take (during the countdown nothing is recorded, nothing is left on disk).
+    let started = match conn.call_until("record.start", Value::Object(params), &mut |ev| out.progress(&ev), stop) {
         Ok(v) => v,
         Err(e) => return out.remote(&e),
     };
@@ -1072,6 +1072,34 @@ mod flow_tests {
         assert_eq!(code, EXIT_OK);
         assert_eq!(n.load(Ordering::SeqCst), 1000);
         assert_eq!(String::from_utf8(so).unwrap().trim(), "/r/take");
+    }
+
+    #[test]
+    fn ctrl_c_during_the_countdown_closes_the_connection_and_stops_nothing() {
+        let d = td();
+        let n = Arc::new(AtomicUsize::new(0));
+        let mut c = conn(&d, n.clone());
+        let stop = Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            s2.store(true, Ordering::SeqCst);
+        });
+        let mut params = Map::new();
+        params.insert("title".into(), json!("slow-start"));
+        let (mut so, mut se) = (Vec::new(), Vec::new());
+        let t = Instant::now();
+        let code = execute(
+            &mut c,
+            &Command::Record(RecordArgs { params, countdown: true, ..Default::default() }),
+            &mut Out::new(false, &mut so, &mut se),
+            &|| stop.load(Ordering::SeqCst),
+        );
+        assert_eq!(code, EXIT_FAILED);
+        assert!(t.elapsed() < Duration::from_secs(3), "did not wait for the countdown");
+        // Give the fake server a moment to see the close.
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(n.load(Ordering::SeqCst), 1, "connection closed once, no record.stop sent");
     }
 
     #[test]

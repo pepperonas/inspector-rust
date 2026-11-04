@@ -735,10 +735,20 @@ pub fn export_out(out: &str, ext: &str) -> Result<PathBuf, ControlError> {
     if !p.is_absolute() {
         return Err(ControlError::new(ERR_BAD_OUT, "out must be an absolute path"));
     }
+    // A dot in the name (`demo.v2`) is part of the name; only another video/image
+    // format's extension is a contradiction worth refusing.
+    const OTHER_FORMATS: [&str; 7] = ["mp4", "m4v", "mov", "gif", "webm", "mkv", "avi"];
     let p = match p.extension().and_then(|e| e.to_str()) {
         Some(e) if e.eq_ignore_ascii_case(ext) => p.to_path_buf(),
-        Some(e) => return Err(ControlError::new(ERR_BAD_OUT, format!("out ends in .{e}, the format writes .{ext}"))),
-        None => p.with_extension(ext),
+        Some(e) if OTHER_FORMATS.iter().any(|f| f.eq_ignore_ascii_case(e)) => {
+            return Err(ControlError::new(ERR_BAD_OUT, format!("out ends in .{e}, the format writes .{ext}")))
+        }
+        _ => {
+            let mut name = p.as_os_str().to_os_string();
+            name.push(".");
+            name.push(ext);
+            PathBuf::from(name)
+        }
     };
     let parent = p.parent().filter(|d| d.is_dir()).ok_or_else(|| ControlError::new(ERR_BAD_OUT, "out's folder does not exist"))?;
     let name = p.file_name().ok_or_else(|| ControlError::new(ERR_BAD_OUT, "out has no file name"))?;
@@ -1332,6 +1342,9 @@ mod tests {
         assert_eq!(export_out(t.0.join("no/such/a.mp4").to_str().unwrap(), "mp4").unwrap_err().code, ERR_BAD_OUT);
         assert_eq!(export_out(t.0.join("a").to_str().unwrap(), "mp4").unwrap(), t.0.join("a.mp4"));
         assert_eq!(export_out(t.0.join("b.MP4").to_str().unwrap(), "mp4").unwrap(), t.0.join("b.MP4"));
+        assert_eq!(export_out(t.0.join("demo.v2").to_str().unwrap(), "mp4").unwrap(), t.0.join("demo.v2.mp4"));
+        assert_eq!(export_out(t.0.join("2026.11.04 take").to_str().unwrap(), "gif").unwrap(), t.0.join("2026.11.04 take.gif"));
+        assert_eq!(export_out(t.0.join("x.MOV").to_str().unwrap(), "mp4").unwrap_err().code, ERR_BAD_OUT);
         std::fs::write(t.0.join("c.mp4"), b"x").unwrap();
         assert_eq!(export_out(t.0.join("c.mp4").to_str().unwrap(), "mp4").unwrap_err().code, ERR_OUT_EXISTS);
     }

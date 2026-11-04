@@ -57,7 +57,9 @@ Human mode: the result on stdout (table for `list`, path for `export`/`stop`), p
 
 `0` ok. `2` usage errors and usage-type sentinels (`bad_request`, `*.bad_params`, `*.bad_op`, `*.bad_project`, `*.confirm_required`, `*.ambiguous`, `*.no_match`, ...). `1` everything else: `record.permission` (Screen Recording not granted), `record.busy`, `record.unsupported`, client errors (not running, token, interrupted), and a stop that did not end `ready`.
 
-Ctrl+C stops a recording (`record` without `--duration`) or cancels a running export/transcription (the connection closes, the app aborts the job; exit 1).
+Ctrl+C stops a recording (`record` without `--duration`) or cancels a running export/transcription (the connection closes, the app aborts the job; exit 1). Ctrl+C during the countdown cancels the take before it starts — nothing is recorded, no project is left behind (exit 1).
+
+`export --out` takes an absolute path; without the format's extension it is appended (`demo.v2` → `demo.v2.mp4`). Another video format's extension (`.mov`, `.gif` …) is refused, an existing file is never overwritten.
 
 ## `record.edit` ops
 

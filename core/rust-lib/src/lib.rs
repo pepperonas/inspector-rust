@@ -26,6 +26,7 @@ mod cli_dispatch;
 mod clipboard_watcher;
 mod color_loupe;
 mod commands;
+mod control;
 mod crypto;
 mod cursor_wrap;
 mod cutout;
@@ -563,6 +564,9 @@ pub fn run(context: tauri::Context<Wry>) {
             // The handle first: the idle gate talks to the webview's warm
             // AudioContext via the warm-audio-suspend/-resume events.
             boom::set_app_handle(app.handle());
+            if let Err(e) = control::start(app.handle().clone()) {
+                tracing::warn!("control socket not started: {e}");
+            }
             boom::apply(&db_handle);
 
             clipboard_watcher::spawn(
@@ -1413,6 +1417,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // cancelled and its partial file removed).
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             record::editor_ipc::shutdown(_app);
+            control::stop();
             boom::shutdown();
             live_transcribe::restore_output();
             transcribe_client::shutdown();

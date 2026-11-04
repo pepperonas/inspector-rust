@@ -764,6 +764,14 @@ export class LiveGesture {
       this.send(h.present, false);
     }, this.delayMs);
   }
+  /** Ends the gesture without a step: the history is put back to where it began and a
+   *  pending live send is dropped (a document from outside replaces it). */
+  abort(): void {
+    const h = this.history();
+    const start = this.start;
+    this.cancel();
+    if (h && start) h.replace(start);
+  }
   /** Drops a pending live send (the editor unmounts). */
   cancel(): void {
     if (this.timer != null) clearTimeout(this.timer);

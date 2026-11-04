@@ -995,15 +995,38 @@ pub fn export_done_toast(path: &str) -> crate::status_toast::StatusToast {
     crate::status_toast::StatusToast { kind: "record".into(), on: true, title: crate::i18n::t("rec2.toast.exported"), subtitle: name }
 }
 
+/// A control call waiting on its export (stage 8): the helper's export notices go here too,
+/// and the done-toast and Finder reveal are skipped (the caller asked for a file, not a show).
+static EXPORT_WATCH: Mutex<Option<std::sync::mpsc::Sender<Notice>>> = Mutex::new(None);
+
+fn export_watch() -> std::sync::MutexGuard<'static, Option<std::sync::mpsc::Sender<Notice>>> {
+    EXPORT_WATCH.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 fn sink(app: &AppHandle) -> Sink {
     let app = app.clone();
-    Arc::new(move |notice| match notice {
+    Arc::new(move |notice| {
+        let watched = match export_watch().as_ref() {
+            Some(tx) => {
+                let _ = tx.send(notice.clone());
+                true
+            }
+            None => false,
+        };
+        ui_notice(&app, notice, watched)
+    })
+}
+
+fn ui_notice(app: &AppHandle, notice: Notice, watched: bool) {
+    match notice {
         Notice::ExportProgress { frames, total } => {
             let _ = app.emit(EV_EXPORT_PROGRESS, serde_json::json!({ "frames": frames, "total": total }));
         }
         Notice::ExportDone { path } => {
-            crate::commands::reveal_in_file_manager(Path::new(&path));
-            crate::status_toast::announce_keeping_popup(&app, export_done_toast(&path));
+            if !watched {
+                crate::commands::reveal_in_file_manager(Path::new(&path));
+                crate::status_toast::announce_keeping_popup(app, export_done_toast(&path));
+            }
             let _ = app.emit(EV_EXPORT_DONE, serde_json::json!({ "path": path }));
         }
         Notice::ExportFailed { reason, cancelled } => {
@@ -1014,7 +1037,7 @@ fn sink(app: &AppHandle) -> Sink {
             let _ = std::thread::Builder::new().name("ir-editor-save".into()).spawn(flush_save);
             let _ = app.emit(EV_FATAL, serde_json::json!({ "reason": reason }));
         }
-    })
+    }
 }
 
 /// The live client, or none (never started / dead). Does not start one.
@@ -1169,6 +1192,13 @@ fn read_editor_project(dir: &Path) -> Result<Project, String> {
 /// Blocking (the helper's `Open` takes a moment) — call it from a worker thread. Used by the
 /// `editor_open` IPC and by the recording session after a take (Task 7).
 pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> {
+    open_session(app, dir, true)
+}
+
+/// [`open_editor`]'s session part. `show` = build/re-show the window and start the preview;
+/// without it (a control call, stage 8) only the session is made — the render helper starts
+/// when something needs it (export, frames) or a window opens, and nothing is shown.
+fn open_session(app: &AppHandle, dir: PathBuf, show: bool) -> Result<EditorInit, String> {
     open_allowed()?;
     let dir = open_target(&dir).map_err(str::to_string)?;
     let project = read_editor_project(&dir).map_err(|e| {
@@ -1233,17 +1263,21 @@ pub fn open_editor(app: &AppHandle, dir: PathBuf) -> Result<EditorInit, String> 
         }
         out
     };
-    show_window(app);
-    let helper_error = ensure_client(app, false)
-        .and_then(|c| c.open(scene, preview.0, preview.1))
-        .map(note_segmentation_model)
-        .err();
+    let helper_error = if show {
+        show_window(app);
+        ensure_client(app, false).and_then(|c| c.open(scene, preview.0, preview.1)).map(note_segmentation_model).err()
+    } else {
+        // A live helper still shows the previous project: it gets this one's scene.
+        current_client().and_then(|c| c.open(scene, preview.0, preview.1).map(note_segmentation_model).err())
+    };
     if let Some(e) = &helper_error {
         tracing::warn!(target: "record::editor", "preview did not start: {e}");
     }
     // A window that already existed still shows the previous project: it reloads on this.
     let _ = app.emit(EV_OPENED, serde_json::json!({ "sessionId": init.session_id }));
-    ensure_peaks(app);
+    if show {
+        ensure_peaks(app);
+    }
     Ok(EditorInit { helper_error, ..init })
 }
 
@@ -2474,6 +2508,335 @@ fn doc_with_voiceover(doc: &EditDoc, play: &EditDoc, plan: &voiceover::Plan, fil
     next
 }
 
+// ---- control socket (record stage 8) ------------------------------------------------------
+
+/// A control call targets another project than the one a visible editor window shows.
+pub const ERR_OTHER_OPEN: &str = "record.control.other_open";
+/// To a visible editor: a control call changed its document, `{sessionId, doc, view}`. The
+/// window takes it as one undo step.
+pub const EV_EXTERNAL: &str = "record-editor-external";
+/// A window-less session (opened by a control call) closes after this long without one.
+pub const CONTROL_IDLE: Duration = Duration::from_secs(300);
+/// How long a cancelled export may take to report its end.
+const CANCEL_GRACE: Duration = Duration::from_secs(30);
+
+static LAST_CONTROL_MS: AtomicU64 = AtomicU64::new(0);
+static IDLE_WATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the editor window is on screen. Never call it holding the session lock (it asks
+/// the main thread).
+pub fn window_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(EDITOR_LABEL).is_some_and(|w| w.is_visible().unwrap_or(false))
+}
+
+/// What a control call does about the open session (pure).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionChoice {
+    /// The target is open: use that session.
+    Reuse,
+    /// Nothing open, or another project without a visible window: open the target window-less.
+    Open,
+    /// A visible window shows another project.
+    Refuse,
+}
+
+pub fn session_choice(open: Option<&Path>, target: &Path, window_visible: bool) -> SessionChoice {
+    match open {
+        Some(d) if d == target => SessionChoice::Reuse,
+        Some(_) if window_visible => SessionChoice::Refuse,
+        _ => SessionChoice::Open,
+    }
+}
+
+/// The session a control call on `dir` works in (see [`session_choice`]). A window-less one
+/// closes itself after [`CONTROL_IDLE`].
+pub fn control_session(app: &AppHandle, dir: &Path) -> Result<u64, String> {
+    let target = open_target(dir).map_err(str::to_string)?;
+    let visible = window_visible(app);
+    let open = session().as_ref().map(|s| (s.id, s.dir.clone()));
+    let id = match session_choice(open.as_ref().map(|(_, d)| d.as_path()), &target, visible) {
+        SessionChoice::Reuse => open.map(|(id, _)| id).ok_or(ERR_NO_SESSION)?,
+        SessionChoice::Refuse => return Err(ERR_OTHER_OPEN.into()),
+        SessionChoice::Open => open_session(app, target, false)?.session_id,
+    };
+    touch_control(app);
+    Ok(id)
+}
+
+fn touch_control(app: &AppHandle) {
+    LAST_CONTROL_MS.store(now_ms(), Ordering::SeqCst);
+    if IDLE_WATCH.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    let spawned = std::thread::Builder::new().name("ir-control-idle".into()).spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(15));
+            let Some(id) = session().as_ref().map(|s| s.id) else { break };
+            // A window took the session: it closes with the window.
+            if window_visible(&app) {
+                break;
+            }
+            let idle = now_ms().saturating_sub(LAST_CONTROL_MS.load(Ordering::SeqCst));
+            let busy = current_client().is_some_and(|c| c.exporting()) || is_transcribing();
+            if idle >= CONTROL_IDLE.as_millis() as u64 && !busy {
+                close(&app, false, Some(id));
+                break;
+            }
+        }
+        IDLE_WATCH.store(false, Ordering::SeqCst);
+    });
+    if spawned.is_err() {
+        IDLE_WATCH.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The stored project (its `editor` block as last saved) and the live view of session `id`.
+pub fn control_view(session_id: u64) -> Result<(Project, EditorView), String> {
+    let guard = session();
+    let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    Ok((s.project.clone(), s.view()))
+}
+
+/// What a control edit sees of the session.
+pub struct EditParts<'a> {
+    pub doc: &'a EditDoc,
+    pub dir: &'a Path,
+    pub duration_ms: u64,
+    pub takes: &'a TakeMetas,
+    pub cursor: Option<&'a CursorRecording>,
+}
+
+/// A control edit: `f` makes the next document from the session's under the session lock (no
+/// edit can slip in between read and write), then it is applied like `editor_update` and
+/// saved (debounced). A visible window gets the result as [`EV_EXTERNAL`]; without one the
+/// render helper is only told when it already runs.
+pub fn control_edit<T>(
+    app: &AppHandle,
+    session_id: u64,
+    f: impl FnOnce(&EditParts) -> Result<(EditDoc, T), crate::control::ControlError>,
+) -> Result<(EditorView, T), crate::control::ControlError> {
+    use crate::control::ControlError;
+    let visible = window_visible(app);
+    let (view, scene, cmds, out) = {
+        let mut guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
+        let metas = s.metas();
+        let parts = EditParts {
+            doc: &s.doc,
+            dir: &s.dir,
+            duration_ms: s.project.recording.duration_ms,
+            takes: &metas,
+            cursor: s.cursor.as_ref(),
+        };
+        let (doc, out) = f(&parts)?;
+        let (view, scene, cmds) = apply_update(&mut guard, session_id, doc, now_ms()).map_err(ControlError::sentinel)?;
+        if let Some(s) = guard.as_mut() {
+            schedule_save(s);
+        }
+        (view, scene, cmds, out)
+    };
+    let client = if visible { ensure_client(app, true).ok() } else { current_client() };
+    if let Some(c) = client {
+        if let Err(e) = send_all(&c, &cmds).and_then(|_| c.send(&Command::SetScene { scene })) {
+            tracing::warn!(target: "record::editor", "control edit: preview not updated: {e}");
+        }
+    }
+    if visible {
+        let _ = app.emit(EV_EXTERNAL, serde_json::json!({ "sessionId": session_id, "doc": view.doc, "view": view }));
+        ensure_peaks(app);
+    }
+    touch_control(app);
+    Ok((view, out))
+}
+
+/// `record.transcribe`: transcribes like `editor_transcribe` (cancelled when `cancelled`
+/// flips), then lays the words into the NEWEST document in Rust — one undo step in a visible
+/// window. A session switched meanwhile: the result goes into the project's session if that
+/// is open again, else straight into its `project.json` (nothing is lost).
+pub fn control_transcribe(
+    app: &AppHandle,
+    session_id: u64,
+    lang: transcribe_protocol::Lang,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<(TranscribeResult, EditorView), crate::control::ControlError> {
+    use crate::control::ControlError;
+    let dir = {
+        let guard = session();
+        guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?.dir.clone()
+    };
+    let done = std::sync::atomic::AtomicBool::new(false);
+    let result = std::thread::scope(|sc| {
+        sc.spawn(|| {
+            let mut sent = false;
+            while !done.load(Ordering::SeqCst) {
+                if cancelled.load(Ordering::Relaxed) && !sent {
+                    sent = transcribe_cancel();
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        });
+        let r = transcribe_project(app, session_id, lang);
+        done.store(true, Ordering::SeqCst);
+        r
+    })
+    .map_err(ControlError::sentinel)?;
+    let lang = Some(lang);
+    let merge = |doc: &EditDoc| super::control_ops::merge_transcripts(doc, &result.transcripts, lang);
+    let target = session().as_ref().filter(|s| s.dir == dir).map(|s| s.id);
+    let view = match target {
+        Some(id) => control_edit(app, id, |p| Ok((merge(p.doc), ())))?.0,
+        None => {
+            let mut project = read_editor_project(&dir).map_err(|_| ControlError::sentinel(ERR_UNREADABLE))?;
+            let takes = load_takes(&dir);
+            let next = merge(&editor::load(&project, &take_metas(&takes)));
+            editor::store(&mut project, &next);
+            project.updated_at = chrono::Utc::now().timestamp_millis();
+            project::write_atomic(&dir, PROJECT_FILE, &project)
+                .map_err(|e| ControlError::new("record.control.failed", format!("saving the transcript failed: {e}")))?;
+            let cursor = read_cursor(&dir);
+            session_view(&project.recording, &editor::playable(&next, &take_metas(&takes)), cursor.as_ref(), &takes, (0, 0))
+        }
+    };
+    Ok((result, view))
+}
+
+/// Clears [`EXPORT_WATCH`] however the export wait ends.
+struct WatchGuard;
+impl Drop for WatchGuard {
+    fn drop(&mut self) {
+        export_watch().take();
+    }
+}
+
+/// `record.export`: exports session `id` (to `out` when given, else into Downloads like the
+/// editor) and waits for the end, forwarding progress. `cancelled` flipping (the requesting
+/// connection closed) cancels the export: no orphaned export.
+pub fn control_export(
+    app: &AppHandle,
+    session_id: u64,
+    opts: ExportOptions,
+    out: Option<&str>,
+    cancelled: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<String, crate::control::ControlError> {
+    use crate::control::ControlError;
+    let (scene, kind, path) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
+        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc).map_err(ControlError::sentinel)?;
+        let path = match out {
+            Some(o) => super::control_ops::export_out(o, ext)?,
+            None => {
+                let downloads = dirs::download_dir()
+                    .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+                    .filter(|d| d.is_dir())
+                    .ok_or_else(|| ControlError::sentinel(ERR_NO_DOWNLOADS))?;
+                let title = if s.project.title.trim().is_empty() {
+                    s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                } else {
+                    s.project.title.clone()
+                };
+                export_path(&downloads, &title, chrono::Local::now().naive_local(), ext, |p| p.exists())
+            }
+        };
+        (s.scene(size, fps), kind, path)
+    };
+    let client = ensure_client(app, true).map_err(ControlError::sentinel)?;
+    if client.exporting() {
+        return Err(ControlError::sentinel("record.editor.export_busy"));
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    *export_watch() = Some(tx);
+    let _guard = WatchGuard;
+    let target = path.to_string_lossy().into_owned();
+    client.export(scene, kind, target.clone()).map_err(ControlError::sentinel)?;
+    touch_control(app);
+    let mut cancel_at: Option<Instant> = None;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(Notice::ExportProgress { frames, total }) => progress(frames, total),
+            Ok(Notice::ExportDone { path }) => return Ok(path),
+            Ok(Notice::ExportFailed { reason, cancelled: was_cancelled }) => {
+                return Err(if was_cancelled || cancel_at.is_some() {
+                    ControlError::new(super::control_ops::ERR_CANCELLED, "the export was cancelled")
+                } else {
+                    ControlError::sentinel(reason)
+                });
+            }
+            Ok(Notice::Dead { reason }) => return Err(ControlError::new("record.control.helper_died", reason)),
+            Err(_) => {
+                if client.is_dead() {
+                    return Err(ControlError::new("record.control.helper_died", "the render helper is gone"));
+                }
+                if cancelled.load(Ordering::Relaxed) && cancel_at.is_none() {
+                    cancel_at = Some(Instant::now());
+                    let _ = client.cancel_export();
+                }
+                if cancel_at.is_some_and(|t| t.elapsed() > CANCEL_GRACE) {
+                    return Err(ControlError::new(super::control_ops::ERR_CANCELLED, "the export was cancelled"));
+                }
+            }
+        }
+        touch_control(app);
+    }
+}
+
+/// `record.frames`: JPEGs of the programme at `ms` (≤ [`super::control_ops::MAX_FRAMES`]),
+/// at most `max_width` wide, rendered by the helper on the session's current document.
+pub fn control_frames(
+    app: &AppHandle,
+    session_id: u64,
+    ms: &[u64],
+    max_width: u32,
+) -> Result<Vec<Vec<u8>>, crate::control::ControlError> {
+    use crate::control::ControlError;
+    use super::control_ops::FRAMES_FPS;
+    let (scene, idx) = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
+        let idx = super::control_ops::frame_indices(ms, editor::programme_duration_ms(&s.play), FRAMES_FPS)?;
+        (s.scene(s.output(OutputTarget::P1080), FRAMES_FPS), idx)
+    };
+    let client = ensure_client(app, true).map_err(ControlError::sentinel)?;
+    let mut unique = idx.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    let rendered = client.thumbs(scene, FRAMES_FPS, unique, max_width);
+    let cmds = {
+        let mut guard = session();
+        guard.as_mut().filter(|s| s.transport.playing()).map(|s| {
+            s.last_frame_ms = now_ms();
+            s.transport.reaim(&s.play, now_ms())
+        })
+    };
+    if let Some(cmds) = cmds {
+        let _ = send_all(&client, &cmds);
+    }
+    let rendered = rendered.map_err(ControlError::sentinel)?;
+    touch_control(app);
+    idx.iter()
+        .map(|i| {
+            rendered
+                .iter()
+                .find(|(k, _)| k == i)
+                .map(|(_, j)| j.clone())
+                .ok_or_else(|| ControlError::new("record.control.failed", format!("frame {i} was not rendered")))
+        })
+        .collect()
+}
+
+/// Before a control delete of `dir`: a window-less session on it is closed; one in a visible
+/// window refuses ([`ERR_DELETE_OPEN`]).
+pub fn control_release(app: &AppHandle, dir: &Path) -> Result<(), String> {
+    let Some(id) = session().as_ref().filter(|s| s.dir == dir).map(|s| s.id) else { return Ok(()) };
+    if window_visible(app) {
+        return Err(ERR_DELETE_OPEN.into());
+    }
+    close(app, false, Some(id));
+    Ok(())
+}
+
 /// App exit (`RunEvent::Exit`): save and stop the helper.
 pub fn shutdown(app: &AppHandle) {
     close(app, false, None);
@@ -2497,7 +2860,9 @@ mod tests {
         let src = include_str!("editor_ipc.rs");
         let arm = src.split("Notice::ExportDone { path } =>").nth(1).unwrap().split("Notice::ExportFailed").next().unwrap();
         assert_eq!(arm.matches("reveal_in_file_manager").count(), 1);
-        assert!(arm.contains("announce_keeping_popup(&app, export_done_toast(&path))"));
+        assert!(arm.contains("announce_keeping_popup(app, export_done_toast(&path))"));
+        // A control export (stage 8) waits for the file itself: no toast, no Finder.
+        assert!(arm.trim_start().trim_start_matches('{').trim_start().starts_with("if !watched {"), "{arm}");
     }
     use crate::record::editor::{Aspect, EditClip, OutputShape, SpeedRegion, EDITOR_VERSION};
     use chrono::NaiveDate;
@@ -3464,8 +3829,10 @@ mod tests {
         let v = serde_json::to_value(s.init(None)).unwrap();
         assert_eq!(v["sessionId"], 7);
         let src = include_str!("editor_ipc.rs");
-        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        let open = src.split("fn open_session(").nth(1).unwrap().split("\n}\n").next().unwrap();
         assert!(open.contains("app.emit(EV_OPENED"), "open_editor announces the new session");
+        let editor = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        assert!(editor.contains("open_session(app, dir, true)"), "the editor opens WITH its window");
         let _ = std::fs::remove_dir_all(&b);
     }
 
@@ -3495,7 +3862,7 @@ mod tests {
         }
         // The guard runs first in open_editor, before anything reads the folder.
         let src = include_str!("editor_ipc.rs");
-        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        let open = src.split("fn open_session(").nth(1).unwrap().split("\n}\n").next().unwrap();
         let guard = open.find("open_target(&dir)").expect("open_editor validates the folder");
         assert!(guard < open.find("read_editor_project").unwrap());
         let _ = std::fs::remove_dir_all(elsewhere.parent().unwrap());
@@ -3581,7 +3948,7 @@ mod tests {
         assert_eq!(open_refusal(false), Ok(()));
         // The guard runs before the session is touched (the export must not lose its scene).
         let src = include_str!("editor_ipc.rs");
-        let open = src.split("pub fn open_editor(").nth(1).unwrap().split("\n}\n").next().unwrap();
+        let open = src.split("fn open_session(").nth(1).unwrap().split("\n}\n").next().unwrap();
         let guard = open.find("open_allowed()?").expect("open_editor checks for a running export");
         assert!(guard < open.find("flush_save").unwrap() && guard < open.find("session()").unwrap());
     }

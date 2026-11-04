@@ -564,6 +564,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // The handle first: the idle gate talks to the webview's warm
             // AudioContext via the warm-audio-suspend/-resume events.
             boom::set_app_handle(app.handle());
+            record::register_control();
             if let Err(e) = control::start(app.handle().clone()) {
                 tracing::warn!("control socket not started: {e}");
             }

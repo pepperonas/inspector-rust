@@ -11,9 +11,6 @@
 //! and closes the connection. When the requesting connection closes while a
 //! handler runs, `Call::cancelled` flips so long handlers (export) stop.
 
-// The record control methods (stage 8, tasks 2-3) register against this API.
-#![allow(dead_code)]
-
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,6 +27,17 @@ pub struct ControlError {
 impl ControlError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
         Self { code: code.into(), message: message.into() }
+    }
+
+    /// An app error string as a control error: a `record.*`/`control.*` sentinel (optionally
+    /// followed by `:detail`) keeps its code; anything else is `record.control.failed`.
+    pub fn sentinel(e: impl Into<String>) -> Self {
+        let e = e.into();
+        let head = e.split([':', ' ']).next().unwrap_or("");
+        let is_code = (head.starts_with("record.") || head.starts_with("control."))
+            && head.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_');
+        let code = if is_code { head.to_string() } else { "record.control.failed".to_string() };
+        Self { code, message: e }
     }
 }
 
@@ -467,6 +475,14 @@ mod tests {
         assert_eq!(parse_request(r#"{"id":1}"#).unwrap_err().code, "control.bad_request");
         assert_eq!(request_id("{nope"), Value::Null);
         assert_eq!(request_id(r#"{"id":9}"#), json!(9));
+    }
+
+    #[test]
+    fn sentinel_keeps_codes_and_wraps_text() {
+        assert_eq!(ControlError::sentinel("record.editor.no_session").code, "record.editor.no_session");
+        assert_eq!(ControlError::sentinel("record.session.invalid:gone").code, "record.session.invalid");
+        assert_eq!(ControlError::sentinel("render helper is gone").code, "record.control.failed");
+        assert_eq!(ControlError::sentinel("record helper: x").code, "record.control.failed");
     }
 
     #[test]

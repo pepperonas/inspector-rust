@@ -205,6 +205,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const noticeTimer = useRef(0);
   /** Sequence of `editorUpdate` calls; only the newest answer may update the view. */
   const seq = useRef(0);
+  /** `editorUpdate` calls queued or on their way (see `record-editor-external`). */
+  const inflight = useRef(0);
   const seeking = useRef(false);
   /** The session this editor was mounted for; every update names it. */
   const sessionId = useRef(0);
@@ -394,6 +396,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     setSaving(true);
     window.clearTimeout(savedTimer.current);
     const mine = ++seq.current;
+    inflight.current += 1;
     const next = chain.current.then(async () => {
       try {
         const v = await editorUpdate(sessionId.current, doc);
@@ -411,12 +414,50 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         // Rust may hold the doc even though the preview failed: show what it has.
         if (mine === seq.current) await resync();
       } finally {
+        inflight.current -= 1;
         savedTimer.current = window.setTimeout(() => setSaving(false), SAVED_AFTER_MS);
       }
     });
     chain.current = next;
     return next;
   }, [movePos, report, resync]);
+
+  // A control call (ir-record / MCP) changed the document in Rust: it becomes ONE undo step
+  // here. A live drag is abandoned (its pending send would put the older document back), and
+  // when edits of this window were still on their way — Rust may have applied them after the
+  // control edit — the control's document is sent again once they landed, so it wins.
+  useEffect(() => {
+    const off = listen<{ sessionId: number; doc: RecordEditDoc; view?: RecordEditorView }>("record-editor-external", (e) => {
+      const h = history.current;
+      if (!h || e.payload.sessionId !== sessionId.current) return;
+      const doc = e.payload.doc;
+      liveRef.current?.abort();
+      if (micStart.current) {
+        h.replace(micStart.current);
+        micStart.current = null;
+      }
+      const raced = inflight.current > 0;
+      seq.current += 1;
+      h.push(doc);
+      setUndoable({ undo: h.canUndo(), redo: h.canRedo() });
+      setView((v) => (e.payload.view ? e.payload.view : v ? { ...v, doc } : v));
+      if (raced) {
+        chain.current = chain.current.then(async () => {
+          if (h.present !== doc) return; // a newer edit (made on top of this one) is queued
+          try {
+            const v = await editorUpdate(sessionId.current, doc);
+            if (h.present === doc) {
+              h.replace(v.doc);
+              setView(v);
+            }
+          } catch (err) {
+            report(err);
+          }
+        });
+      }
+    });
+    return () => void off.then((u) => u());
+  }, [report]);
 
   const commit = useCallback((doc: RecordEditDoc) => void send(doc, true), [send]);
 

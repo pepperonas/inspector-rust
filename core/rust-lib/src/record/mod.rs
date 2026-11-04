@@ -32,12 +32,41 @@ pub mod project;
 pub mod render_client;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod editor_ipc;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub mod control_ops;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod scene_json;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod voiceover;
 pub mod wav;
 pub mod zoom_plan;
+
+/// The record methods of the control socket (stage 8). Off Apple Silicon (no editor there)
+/// they answer `record.unsupported`.
+pub fn register_control() {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    control_ops::register_all();
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    for m in CONTROL_METHODS {
+        crate::control::register(m, |_, _| {
+            Err(crate::control::ControlError::new("record.unsupported", "record needs a Mac with Apple Silicon"))
+        });
+    }
+}
+
+/// Every record control method (the list `register_control` serves).
+pub const CONTROL_METHODS: [&str; 10] = [
+    "record.projects",
+    "record.project",
+    "record.doc",
+    "record.transcript",
+    "record.edit",
+    "record.export",
+    "record.transcribe",
+    "record.frames",
+    "record.delete",
+    "record.rename",
+];
 
 /// Window label of the record editor (the status toast must not `app.hide()` it away).
 pub const EDITOR_WINDOW: &str = "record-editor";

@@ -344,6 +344,84 @@ describe("RecordEditor", () => {
     expect(getAllByTestId("ed-clip")).toHaveLength(1);
   });
 
+  it("a control edit arrives as one undo step; ⌘Z restores the doc before it", async () => {
+    const { getAllByTestId } = await mount();
+    const external: RecordEditDoc = { ...doc0, clips: [{ startMs: 0, endMs: 3000 }, { startMs: 5000, endMs: 10_000 }], crop: [null, null] };
+    await act(async () => {
+      listeners.get("record-editor-external")?.({ payload: { sessionId: 99, doc: { ...doc0, clips: [] } } });
+      listeners.get("record-editor-external")?.({ payload: { sessionId: 1, doc: external, view: viewOf(external) } });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(getAllByTestId("ed-clip")).toHaveLength(2);
+    // Rust already holds it: nothing is sent back.
+    expect(editorUpdate).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toEqual(doc0.clips);
+    expect(getAllByTestId("ed-clip")).toHaveLength(1);
+    // Redo brings the control edit back.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true, shiftKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect((lastSent() as RecordEditDoc).clips).toEqual(external.clips);
+  });
+
+  it("an edit of the window still on its way when a control edit lands does not overwrite it", async () => {
+    const { getAllByTestId } = await mount();
+    let answer: () => void = () => {};
+    let resent: () => void = () => {};
+    editorUpdate
+      .mockImplementationOnce((d: RecordEditDoc) => new Promise((r) => (answer = () => r(viewOf(d)))))
+      .mockImplementationOnce((d: RecordEditDoc) => new Promise((r) => (resent = () => r(viewOf(d)))));
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "s" });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(editorUpdate).toHaveBeenCalledTimes(1);
+    const external: RecordEditDoc = { ...doc0, micGainDb: -6 };
+    await act(async () => {
+      listeners.get("record-editor-external")?.({ payload: { sessionId: 1, doc: external, view: viewOf(external) } });
+      answer();
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    // The split's late answer must not draw over it, and the control doc is sent again last.
+    expect(getAllByTestId("ed-clip")).toHaveLength(1);
+    expect(editorUpdate).toHaveBeenCalledTimes(2);
+    expect(lastSent()).toEqual(external);
+    await act(async () => {
+      resent();
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(getAllByTestId("ed-clip")).toHaveLength(1);
+  });
+
+  it("a control edit during an inspector drag drops the drag's pending live send", async () => {
+    const { getByRole } = await mount();
+    await act(async () => {
+      fireEvent.click(getByRole("tab", { name: "Frame" }));
+    });
+    const pad = getByRole("slider", { name: "Padding" }) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(pad, { target: { value: "10" } });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    const external: RecordEditDoc = { ...doc0, micGainDb: -6 };
+    await act(async () => {
+      listeners.get("record-editor-external")?.({ payload: { sessionId: 1, doc: external, view: viewOf(external) } });
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(editorUpdate).not.toHaveBeenCalled();
+    // ⌘Z goes back to the doc before the drag began, not to a half-dragged one.
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "z", metaKey: true });
+      await vi.advanceTimersByTimeAsync(5);
+    });
+    expect(lastSent()).toEqual(doc0);
+  });
+
   it("keys typed into a field do not drive the editor", async () => {
     const { container } = await mount();
     const input = document.createElement("input");

@@ -949,6 +949,8 @@ describe("stage 7: rotation and effects", () => {
     expect(crossing.effects![0]).toMatchObject({ clip: 1, startMs: 5000, endMs: 7000 });
     const head = cutSourceRange(withFx(fx({ startMs: 1000, endMs: 3000 })), 0, 2000, 5000);
     expect(head.effects![0]).toMatchObject({ clip: 0, startMs: 1000, endMs: 2000 });
+    const inside = cutSourceRange(withFx(fx({ startMs: 3000, endMs: 4000 })), 0, 2000, 5000);
+    expect(inside.effects ?? []).toHaveLength(0);
   });
 
   it("deleteClip takes its effects along and re-indexes the rest", () => {

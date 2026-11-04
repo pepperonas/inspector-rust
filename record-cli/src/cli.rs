@@ -707,9 +707,7 @@ pub fn run(argv: &[String]) -> i32 {
             let _ = writeln!(out.stdout, "ir-record {}", env!("CARGO_PKG_VERSION"));
             return EXIT_OK;
         }
-        Command::Mcp => {
-            return out.error("client.unsupported", "the MCP server is not part of this build yet", EXIT_FAILED);
-        }
+        Command::Mcp => return crate::mcp::run(),
         _ => {}
     }
     client::install_interrupt_handler();

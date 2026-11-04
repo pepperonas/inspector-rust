@@ -271,6 +271,19 @@ impl Conn {
         self.call_inner(method, params, on_event, stop, None)
     }
 
+    /// Like [`Conn::call_until`], and also gives up at `deadline` (`client.io`,
+    /// "no answer in time"; the connection is closed). For short read methods.
+    pub fn call_within(
+        &mut self,
+        method: &str,
+        params: Value,
+        on_event: &mut dyn FnMut(Value),
+        stop: &dyn Fn() -> bool,
+        deadline: Option<Instant>,
+    ) -> Result<Value, RemoteError> {
+        self.call_inner(method, params, on_event, stop, deadline)
+    }
+
     fn call_inner(
         &mut self,
         method: &str,

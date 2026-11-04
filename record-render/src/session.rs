@@ -1306,9 +1306,18 @@ mod tests {
     /// to the compositor; an unknown one would silently fall back to the extruded sprite.
     #[test]
     fn every_sculpt_name_is_known_to_the_compositor() {
-        let themes = ["studio-ink", "prism-glow", "pop-coral", "pixel-candy", "star-sprout", "glass-lens"];
-        for t in themes {
-            for st in ["arrow", "pointer"] {
+        // The lists core emits, read from its source (this crate cannot link the core).
+        let src = include_str!("../../core/rust-lib/src/record/scene_json.rs");
+        let list = |name: &str| -> Vec<String> {
+            let start = src.find(&format!("pub const {name}:")).unwrap_or_else(|| panic!("{name} not found"));
+            let body = &src[start..];
+            let body = &body[body.find("= [").expect("array") + 3..body.find("];").expect("end")];
+            body.split(',').map(|t| t.trim().trim_matches('"').to_string()).filter(|t| !t.is_empty()).collect()
+        };
+        let (themes, states) = (list("SCULPTED_THEMES"), list("SCULPTED_STATES"));
+        assert_eq!((themes.len(), states.len()), (6, 2), "{themes:?} {states:?}");
+        for t in &themes {
+            for st in &states {
                 assert!(openscreen_compositor::sculpt::sculpted_shape(&format!("{t}/{st}")).is_some(), "{t}/{st}");
             }
         }

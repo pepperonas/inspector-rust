@@ -246,13 +246,12 @@ fn cursor_sprites(project_dir: &Path, doc: &EditDoc, assets: &AssetRoot) -> Map<
         .collect();
     let mut map = Map::new();
     for (state, path, hx, hy) in theme.map(|t| t.sprites).unwrap_or_default() {
-        let sprite = match &custom {
+        let mut sprite = match &custom {
             Some((p, c)) if arrow_group.contains(&state.as_str()) => {
                 json!({"path": path_str(p), "hotspotX": c.hotspot_x, "hotspotY": c.hotspot_y})
             }
             _ => json!({"path": path_str(&path), "hotspotX": f32_to_f64(hx), "hotspotY": f32_to_f64(hy)}),
         };
-        let mut sprite = sprite;
         // An own pointer image stands in for the arrow group: no modelled stand-in for those.
         let own = custom.is_some() && arrow_group.contains(&state.as_str());
         if !own {

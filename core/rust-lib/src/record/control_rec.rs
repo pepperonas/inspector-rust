@@ -279,6 +279,21 @@ fn config(app: &AppHandle) -> RecordConfig {
     app.try_state::<crate::db::DbHandle>().map(|db| RecordConfig::load(&db)).unwrap_or_default()
 }
 
+/// Sentinel for a missing Screen Recording grant, checked before any listing (which would
+/// otherwise wait up to 5 s and fail with a guess).
+pub const ERR_PERMISSION: &str = "record.permission";
+
+fn screen_permission() -> Result<(), ControlError> {
+    if crate::screen_recording::screen_recording_granted() {
+        Ok(())
+    } else {
+        Err(ControlError::new(
+            ERR_PERMISSION,
+            "Inspector Rust has no Screen Recording permission (System Settings → Privacy & Security → Screen Recording)",
+        ))
+    }
+}
+
 fn sources_failed(e: String) -> ControlError {
     ControlError::new(session::ERR_START_FAILED, format!("cannot list the screen's sources (Screen Recording?): {e}"))
 }
@@ -296,6 +311,7 @@ fn mics() -> Vec<Value> {
 
 pub(crate) fn sources(_app: &AppHandle, _c: &mut Call) -> Result<Value, ControlError> {
     session::support_reason().map_err(|e| ControlError::new(session::ERR_UNSUPPORTED, crate::i18n::t(e)))?;
+    screen_permission()?;
     let (displays, windows) = super::capture_macos::shareable_sources().map_err(sources_failed)?;
     let cameras: Vec<Value> = super::camera::devices()
         .into_iter()
@@ -328,6 +344,7 @@ fn display_for<'a>(
 
 fn picked_for(source: &SourceQuery) -> Result<super::picker_macos::Picked, ControlError> {
     use super::picker_macos::Picked;
+    screen_permission()?;
     let (displays, windows) = super::capture_macos::shareable_sources().map_err(sources_failed)?;
     let start_failed = |e: String| ControlError::new(session::ERR_START_FAILED, e);
     match source {

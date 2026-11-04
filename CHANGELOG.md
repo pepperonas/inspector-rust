@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.238.0] — 2026-11-04
+
+### Added
+- **3D camera for zooms.** In the recording editor's Zoom tab, a zoom can turn the screen to the left or right, or orbit it with the pointer (Orbit is offered when the clip has pointer data or the zoom has a fixed focus). A Depth of field switch on the Frame tab softens the far side of a tilted screen.
+- **3D cursor.** The Pointer tab has a 3D cursor switch: the pointer is drawn as a modelled object with a shadow. The Glass lens theme draws its pointer as a glass lens.
+- **Effects.** A new Effects tab and timeline lane add one of six built-in image effects to a stretch of the video: Vignette, Film grain, Chromatic aberration, Click ripple, Spotlight (follows the pointer) and Scanlines, each with its own settings. One effect plays at a time; effects follow splits, cuts, copies and clip moves like zooms. Preview and export draw them the same way.
+
 ## [0.237.0] — 2026-11-03
 
 ### Added

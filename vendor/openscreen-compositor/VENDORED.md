@@ -291,6 +291,8 @@ computed in C — EAGAIN is −35 on macOS, not −11; upstream hard-coded −11
    never names a missing `camera.mp4` (`project::drop_missing_camera`), so this only happens
    for a camera file that exists but holds no decodable frame.
 
+Stage 7 (3D camera, 3D cursor, depth of field, shader effects) needed no patch: the scene keys and renderers were already in the vendored code.
+
 No other source line was changed. Compiler warnings of the upstream code (unused imports, dead
 code, bindgen transmutes) are left as they are.
 

@@ -131,11 +131,16 @@ pub fn register(method: &'static str, h: Handler) {
 #[cfg(unix)]
 mod server {
     use super::*;
-    use std::io::{BufRead, BufReader, Write};
+    use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::time::Duration;
+
+    /// Longest request line accepted (a document edit fits many times over).
+    pub(super) const MAX_LINE: usize = 4 << 20;
+    /// How long a write to a client may block before the call counts as cancelled.
+    const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
     pub type Table<C> = Arc<Mutex<HashMap<&'static str, HandlerFn<C>>>>;
 
@@ -220,12 +225,21 @@ mod server {
 
     fn serve_conn<C>(conn: UnixStream, ctx: &C, table: &Table<C>, token: &str) {
         let Ok(mut out) = conn.try_clone() else { return };
-        let mut reader = BufReader::new(conn.try_clone().unwrap());
+        // A client that stops reading must not wedge a handler thread in `send`/`emit`;
+        // the timeout is socket-wide, so it covers every clone.
+        let _ = out.set_write_timeout(Some(WRITE_TIMEOUT));
+        let Ok(read_half) = conn.try_clone() else { return };
+        let mut reader = BufReader::new(read_half);
         let mut line = String::new();
         loop {
             line.clear();
-            match reader.read_line(&mut line) {
+            match (&mut reader).take(MAX_LINE as u64).read_line(&mut line) {
                 Ok(0) | Err(_) => return,
+                Ok(n) if n >= MAX_LINE && !line.ends_with('\n') => {
+                    let e = ControlError::new("control.bad_request", "request line too long");
+                    let _ = send(&mut out, &error_line(&Value::Null, &e));
+                    return;
+                }
                 Ok(_) => {}
             }
             if line.trim().is_empty() {
@@ -259,14 +273,19 @@ mod server {
 
             let cancelled = Arc::new(AtomicBool::new(false));
             let done = Arc::new(AtomicBool::new(false));
+            let (Ok(watch_conn), Ok(mut emit_out)) = (conn.try_clone(), out.try_clone()) else { return };
             let watcher = {
-                let (c, d, cn) = (cancelled.clone(), done.clone(), conn.try_clone().unwrap());
-                std::thread::spawn(move || watch_close(cn, &c, &d))
+                let (c, d) = (cancelled.clone(), done.clone());
+                std::thread::spawn(move || watch_close(watch_conn, &c, &d))
             };
             let id = req.id.clone();
-            let mut emit_out = out.try_clone().unwrap();
+            let emit_cancel = cancelled.clone();
             let mut emit = |ev: Value| {
-                let _ = send(&mut emit_out, &event_line(&id, &ev));
+                // A client that can't take events any more (gone, or stuck past the write
+                // timeout) cancels the call, like a closed connection.
+                if !send(&mut emit_out, &event_line(&id, &ev)) {
+                    emit_cancel.store(true, Ordering::Relaxed);
+                }
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut call = Call { params: &req.params, cancelled: &cancelled, emit: &mut emit };
@@ -515,6 +534,21 @@ mod tests {
         assert_eq!(lines[0]["event"], json!({"phase": "a"}));
         assert_eq!(lines[1]["event"], json!({"phase": "b"}));
         assert_eq!(lines[2]["result"], json!("done"));
+    }
+
+    #[test]
+    fn an_endless_line_is_refused_not_buffered() {
+        let d = td();
+        let (_tok, mut s) = up(d.path());
+        let mut r = BufReader::new(s.try_clone().unwrap());
+        let big = vec![b'x'; server::MAX_LINE + 10];
+        let _ = s.write_all(&big); // the server may close before taking it all
+        let mut o = String::new();
+        r.read_line(&mut o).unwrap();
+        let v: Value = serde_json::from_str(&o).unwrap();
+        assert_eq!(v["error"]["code"], json!("control.bad_request"));
+        o.clear();
+        assert_eq!(r.read_line(&mut o).unwrap(), 0, "the connection is closed");
     }
 
     #[test]

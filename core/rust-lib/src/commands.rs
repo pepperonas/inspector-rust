@@ -7056,6 +7056,15 @@ pub fn set_history_max(app: AppHandle, db: State<'_, DbHandle>, max: i64) -> Res
 
 // ── record (stage 1): picker, session, projects ─────────────────────────────
 
+/// Path of the `ir-record` command line inside the bundle (next to the app
+/// binary); `None` in a dev build, where the helper isn't there.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn record_cli_path() -> Option<String> {
+    let p = std::env::current_exe().ok()?.parent()?.join("ir-record");
+    p.is_file().then(|| p.to_string_lossy().into_owned())
+}
+
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub fn record_status(state: State<'_, crate::record::session::RecordState>) -> crate::record::RecordStatus {

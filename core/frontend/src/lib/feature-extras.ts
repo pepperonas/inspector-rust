@@ -43,6 +43,7 @@ export const NON_COMMAND_FEATURES: FeatureRow[] = [
   { get name() { return t("fx.calculator.name"); }, trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, get note() { return t("fx.calculator.note"); } },
   { get name() { return t("fx.converter.name"); }, trigger: "5 km in mi · 0xff in dec · 1700000000 as date", typed: true, get note() { return t("fx.converter.note"); } },
   { get name() { return t("fx.colour.name"); }, trigger: "#hex · rgb(…) · hsl(…)", typed: true, get note() { return t("fx.colour.note"); } },
+  { get name() { return t("fx.record_cli.name"); }, trigger: "ir-record · ir-record mcp", typed: true, get note() { return t("fx.record_cli.note"); } },
 ];
 
 /** Hidden triggers — an exact word, deliberately NOT in autocomplete/`COMMANDS`. */

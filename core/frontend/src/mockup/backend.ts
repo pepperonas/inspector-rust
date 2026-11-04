@@ -1254,6 +1254,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return null;
     case "record_preset_set_default": mockDefaultPreset = (args.file as string | null) ?? null; return null;
     case "record_presets_reveal": return null;
+    case "record_cli_path": return "/Applications/InspectorRust.app/Contents/MacOS/ir-record";
     case "record_list_projects":
       return [
         { dir: "/Users/ana/Movies/Inspector Rust/2026-10-02 Onboarding", title: "Onboarding", createdAt: Date.parse("2026-10-02T09:12:00Z"), updatedAt: Date.parse("2026-10-04T11:30:00Z"), durationMs: 8_000, status: "ready", failure: null, active: false, thumb: null },

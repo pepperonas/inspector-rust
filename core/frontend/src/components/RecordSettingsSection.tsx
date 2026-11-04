@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Video } from "lucide-react";
 import {
   getRecordConfig,
+  recordCliPath,
   setRecordConfig,
   type CameraQuality,
   type RecordConfig,
@@ -10,6 +11,39 @@ import { t, useT } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
 import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { CameraDeniedHint, useRecordCamera } from "./useRecordCamera";
+
+function CopyLine({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  const copy = async () => {
+    try {
+      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+      await writeText(text);
+      setDone(true);
+      window.setTimeout(() => setDone(false), 1800);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+  return (
+    <div className="mb-1 flex items-center gap-2">
+      <span className="shrink-0 text-[11px] text-[var(--color-muted)]">{label}</span>
+      <code
+        data-testid="set-record-cli-line"
+        className="min-w-0 flex-1 select-all truncate rounded border border-[var(--color-border)] px-2 py-1 text-[11px]"
+        title={text}
+      >
+        {text}
+      </code>
+      <button
+        type="button"
+        className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px] transition-colors duration-(--duration-fast) ease-sharp"
+        onClick={() => void copy()}
+      >
+        {done ? t("rec8.cli.copied") : t("rec8.cli.copy")}
+      </button>
+    </div>
+  );
+}
 
 /** Settings → Recording: project folder + the defaults the HUD starts with. */
 export function RecordSettingsSection() {
@@ -20,6 +54,10 @@ export function RecordSettingsSection() {
   const [bindings, saveBindings] = useEditorShortcuts();
   const [keysOpen, setKeysOpen] = useState(false);
   const cam = useRecordCamera();
+  const [cliPath, setCliPath] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    void recordCliPath().then(setCliPath).catch(() => setCliPath(null));
+  }, []);
 
   useEffect(() => {
     void getRecordConfig().then(setCfg).catch(() => {});
@@ -152,6 +190,18 @@ export function RecordSettingsSection() {
         >
           {t("rec4.keys.settings_open")}
         </button>
+      </Row>
+      <Row label={t("rec8.cli.label")} help={t("rec8.cli.help")}>
+        {cliPath ? (
+          <div data-testid="set-record-cli">
+            <CopyLine label={t("rec8.cli.mcp")} text={`claude mcp add inspector-rust-record -- "${cliPath}" mcp`} />
+            <CopyLine label={t("rec8.cli.link")} text={`ln -s "${cliPath}" ~/.local/bin/ir-record`} />
+          </div>
+        ) : cliPath === null ? (
+          <div data-testid="set-record-cli-dev" className="text-[11px] text-[var(--color-muted)]">
+            {t("rec8.cli.dev")}
+          </div>
+        ) : null}
       </Row>
       {keysOpen && <ShortcutsDialog bindings={bindings} onSave={saveBindings} onClose={() => setKeysOpen(false)} />}
     </Section>

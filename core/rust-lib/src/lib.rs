@@ -1212,6 +1212,8 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::record_status,
             #[cfg(target_os = "macos")]
+            commands::record_cli_path,
+            #[cfg(target_os = "macos")]
             commands::record_open_hud,
             #[cfg(target_os = "macos")]
             commands::record_open_notes,

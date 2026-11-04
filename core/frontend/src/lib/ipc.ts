@@ -5220,6 +5220,10 @@ export interface RecordProjectItem {
   /** `data:image/jpeg;base64,…` from the editor's filmstrip; null → placeholder. */
   thumb?: string | null;
 }
+/** Path of `ir-record` in the installed bundle; null in a dev build. */
+export function recordCliPath(): Promise<string | null> {
+  return invoke("record_cli_path");
+}
 /** All projects, most recently edited first (no row cap). */
 export function recordListProjects(): Promise<RecordProjectItem[]> {
   return invoke("record_list_projects");

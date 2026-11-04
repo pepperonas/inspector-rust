@@ -1006,6 +1006,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "editor: L", result: "With a camera in the project: switches to another camera layout from the playhead; the Camera tab picks it." },
       { input: "editor: Effects → Add effect → Vignette", result: "Darkens the edges for a 2-s stretch at the playhead; drag it on the effects lane, tune it in the tab." },
       { input: "editor: Captions → Transcribe, then T", result: "Word-timed captions in preview and export; select words in the Transcript tab and press ⌫ to cut them out of the video." },
+      { input: "ir-record export <project> --json", result: "Exports an MP4 from the terminal; NDJSON progress lines, the file path in the final `done` line." },
     ],
     tips: [
       "The hotkey `Ctrl+Shift+Alt+S` skips the search bar and opens the HUD directly.",
@@ -1015,6 +1016,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Style presets are files in the recordings folder under `Presets/` — copy one to another Mac to share a look.",
       "Turn on Camera in the HUD to record the webcam as its own track; the editor's Camera tab sets picture-in-picture, dual frame, vertical or camera only, and the camera background (cut-out, blur or an own image). **L** changes the layout from the playhead.",
       "Captions and the transcript are local: the model is the one chosen in the `meeting` settings, and cut words stay struck through so one click restores the cut.",
+      "Command line and AI clients: `ir-record` inside the app bundle drives the recorder (list, record, edit, export); `ir-record mcp` is an MCP server. Settings → Recording shows the path and the lines to copy (docs/record-cli.md).",
       "Every editor key can be changed: press `?` in the editor (or Settings → Recording); undo/redo, the arrows, Tab and Esc stay fixed.",
       "Turn off \"Open the editor after recording\" in Settings → Recording to get the Finder instead; a failed take always goes to the Finder.",
       "Edits are saved into the project itself — reopening the project in the editor brings them back; the recording is never changed.",

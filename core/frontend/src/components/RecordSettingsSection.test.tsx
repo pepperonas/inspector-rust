@@ -5,6 +5,7 @@ const setRecordShortcuts = vi.fn(async (s: unknown) => s);
 const setRecordConfig = vi.fn(async (c: unknown) => c);
 const recordCameraRequest = vi.fn(async () => "authorized");
 let cameraAuth = "authorized";
+let cliPath: string | null = "/Applications/InspectorRust.app/Contents/MacOS/ir-record";
 vi.mock("../lib/ipc", () => ({
   getRecordConfig: async () => ({
     projectDir: "/Users/ana/Movies/Inspector Rust",
@@ -19,6 +20,7 @@ vi.mock("../lib/ipc", () => ({
     cameraQuality: "1080p",
   }),
   setRecordConfig: (c: unknown) => setRecordConfig(c),
+  recordCliPath: async () => cliPath,
   recordCameraAuth: async () => cameraAuth,
   recordCameraRequest: () => recordCameraRequest(),
   recordOpenCameraSettings: async () => undefined,
@@ -119,5 +121,26 @@ describe("Settings → Recording → editor shortcuts", () => {
       window.removeEventListener("keydown", popup);
       document.removeEventListener("keydown", popup);
     }
+  });
+});
+
+describe("Settings → Recording → command line", () => {
+  it("shows the two setup lines with the bundle path", async () => {
+    const r = render(<RecordSettingsSection />);
+    await act(async () => {});
+    const lines = r.getAllByTestId("set-record-cli-line").map((e) => e.textContent);
+    expect(lines).toEqual([
+      'claude mcp add inspector-rust-record -- "/Applications/InspectorRust.app/Contents/MacOS/ir-record" mcp',
+      'ln -s "/Applications/InspectorRust.app/Contents/MacOS/ir-record" ~/.local/bin/ir-record',
+    ]);
+  });
+
+  it("explains a dev build instead", async () => {
+    cliPath = null;
+    const r = render(<RecordSettingsSection />);
+    await act(async () => {});
+    expect(r.queryByTestId("set-record-cli")).toBeNull();
+    expect(r.getByTestId("set-record-cli-dev")).toBeTruthy();
+    cliPath = "/Applications/InspectorRust.app/Contents/MacOS/ir-record";
   });
 });

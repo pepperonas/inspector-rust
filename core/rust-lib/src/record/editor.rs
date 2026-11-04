@@ -803,6 +803,10 @@ pub struct EditDoc {
     /// How the captions look and where they sit (v5).
     #[serde(default)]
     pub captions: CaptionSettings,
+    /// Built-in shader effects on the timeline (v6), one at a time, see
+    /// [`super::effects::EffectRegion`].
+    #[serde(default, deserialize_with = "lenient_vec")]
+    pub effects: Vec<super::effects::EffectRegion>,
 }
 
 /// The words of one recording, with times in that recording's SOURCE ms.
@@ -963,6 +967,8 @@ pub struct EditorView {
     pub annotation_spans: Vec<AnnotationSpan>,
     /// Layout regions in programme ms (Rust's mapping): the layout lane draws these.
     pub layout_spans: Vec<LayoutSpan>,
+    /// Shader effect regions in programme ms (Rust's mapping, like zooms): the effects lane.
+    pub effects: Vec<super::effects::EffectSpan>,
     /// Per clip: whether it has a camera (`clip_camera`). Filled by the editor session (empty
     /// from [`view`], which has no recording metadata); the camera tab and the layout lane ask it.
     pub clip_cameras: Vec<bool>,
@@ -1018,6 +1024,7 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
         layout_regions: Vec::new(),
         transcripts: Vec::new(),
         captions: CaptionSettings::default(),
+        effects: Vec::new(),
     }
 }
 
@@ -1194,9 +1201,11 @@ fn remap_clips(doc: &mut EditDoc, map: impl Fn(usize) -> Option<usize>) {
     doc.annotations.retain_mut(|a| map(a.clip).map(|c| a.clip = c).is_some());
     doc.audio_tracks.retain_mut(|t| map(t.clip).map(|c| t.clip = c).is_some());
     doc.layout_regions.retain_mut(|r| map(r.clip).map(|c| r.clip = c).is_some());
+    doc.effects.retain_mut(|e| map(e.clip).map(|c| e.clip = c).is_some());
     doc.speed.sort_by_key(|r| (r.clip, r.start_ms));
     doc.zooms.sort_by_key(|z| (z.clip, z.start_ms));
     doc.layout_regions.sort_by_key(|r| (r.clip, r.start_ms));
+    doc.effects.sort_by_key(|e| (e.clip, e.start_ms));
 }
 
 /// Clip `from` moved to position `to` (the index it has afterwards, `Vec::remove` + `insert`).
@@ -1286,9 +1295,18 @@ pub fn duplicate_clip(doc: &EditDoc, index: usize) -> EditDoc {
         .map(|r| LayoutRegion { id: copy_id(&r.id, &mut layout_ids), clip: copy, ..r.clone() })
         .collect();
     next.layout_regions.extend(layouts);
+    let mut effect_ids: HashSet<String> = next.effects.iter().map(|e| e.id.clone()).collect();
+    let effects: Vec<super::effects::EffectRegion> = doc
+        .effects
+        .iter()
+        .filter(|e| e.clip == index)
+        .map(|e| super::effects::EffectRegion { id: copy_id(&e.id, &mut effect_ids), clip: copy, ..e.clone() })
+        .collect();
+    next.effects.extend(effects);
     next.speed.sort_by_key(|r| (r.clip, r.start_ms));
     next.zooms.sort_by_key(|z| (z.clip, z.start_ms));
     next.layout_regions.sort_by_key(|r| (r.clip, r.start_ms));
+    next.effects.sort_by_key(|e| (e.clip, e.start_ms));
     next
 }
 
@@ -1340,6 +1358,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         layout_regions,
         transcripts,
         captions,
+        effects,
         ..
     } = doc;
     crop.resize(clips.len(), None);
@@ -1417,6 +1436,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
     let annotations = normalize_annotations(annotations, &new_clips, new_index);
     let audio_tracks = normalize_tracks(audio_tracks, &new_clips, new_index);
     let layout_regions = normalize_layout_regions(layout_regions, &new_clips, new_index);
+    let effects = super::effects::normalize_effects(effects, &new_clips, new_index);
 
     EditDoc {
         version: EDITOR_VERSION,
@@ -1436,6 +1456,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         layout_regions,
         transcripts: normalize_transcripts(transcripts, duration_ms, takes),
         captions: super::captions::normalize_settings(captions),
+        effects,
     }
 }
 
@@ -1942,6 +1963,20 @@ pub fn view(doc: &EditDoc) -> EditorView {
             })
         })
         .collect();
+    let effects = doc
+        .effects
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.clip < doc.clips.len())
+        .map(|(index, e)| super::effects::EffectSpan {
+            index,
+            id: e.id.clone(),
+            effect: e.effect.clone(),
+            programme_start_ms: source_to_programme(doc, e.clip, e.start_ms),
+            programme_end_ms: source_to_programme(doc, e.clip, e.end_ms),
+            row: 0,
+        })
+        .collect();
     EditorView {
         doc: doc.clone(),
         programme_ms: programme_duration_ms(doc),
@@ -1950,6 +1985,7 @@ pub fn view(doc: &EditDoc) -> EditorView {
         zooms,
         annotation_spans,
         layout_spans,
+        effects,
         clip_cameras: Vec::new(),
         click_hits: Vec::new(),
         screen_rects: Vec::new(),
@@ -2129,6 +2165,7 @@ pub(crate) mod tests {
             layout_regions: Vec::new(),
             transcripts: Vec::new(),
             captions: CaptionSettings::default(),
+            effects: Vec::new(),
         }
     }
 
@@ -3176,6 +3213,73 @@ pub(crate) mod tests {
         // The take's own size is that clip's source size.
         assert_eq!(clip_source_size(&meta_fixture(), &takes, &n, 3), (1280, 720));
         assert_eq!(clip_source_size(&meta_fixture(), &takes, &n, 1), (3024, 1964));
+    }
+
+    fn fx(clip: usize, start_ms: u64, end_ms: u64) -> super::super::effects::EffectRegion {
+        super::super::effects::EffectRegion {
+            id: format!("e{clip}-{start_ms}"),
+            clip,
+            start_ms,
+            end_ms,
+            effect: "vignette".into(),
+            values: Default::default(),
+        }
+    }
+
+    /// Effect regions follow their clip exactly like zoom regions.
+    #[test]
+    fn effect_regions_follow_clip_operations() {
+        let mut d = three_clip_doc();
+        d.effects = vec![fx(0, 0, 1_000), fx(1, 3_500, 4_500), fx(2, 6_500, 7_500)];
+        let clips_of = |m: &EditDoc| -> Vec<(usize, String)> { m.effects.iter().map(|e| (e.clip, e.id.clone())).collect() };
+        let zoom_clips = |m: &EditDoc| -> Vec<usize> { m.zooms.iter().map(|z| z.clip).collect() };
+        let effect_clips = |m: &EditDoc| -> Vec<usize> { m.effects.iter().map(|e| e.clip).collect() };
+
+        let m = move_clip(&d, 0, 2);
+        assert_eq!(effect_clips(&m), zoom_clips(&m));
+        assert_eq!(clips_of(&m), vec![(0, "e1-3500".into()), (1, "e2-6500".into()), (2, "e0-0".into())]);
+        assert_eq!(move_clip(&m, 2, 0).effects, d.effects);
+
+        let c = duplicate_clip(&d, 0);
+        assert_eq!(effect_clips(&c), zoom_clips(&c));
+        assert_eq!(
+            clips_of(&c),
+            vec![(0, "e0-0".into()), (1, "e0-0-copy".into()), (2, "e1-3500".into()), (3, "e2-6500".into())]
+        );
+        let n = normalize(c, 10_000, &NO_TAKES);
+        assert_eq!((n.zooms.len(), n.effects.len()), (4, 4), "copies on different clips never overlap");
+
+        let meta = TakeMeta { duration_ms: 5_000, ..TakeMeta::default() };
+        let a = append_take(&d, "t9", &meta);
+        assert_eq!(a.effects, d.effects);
+
+        // A clip that goes (too short) takes its effects along; later clips' effects re-index.
+        let mut gone = d.clone();
+        gone.clips[1] = clip(3_000, 3_050);
+        let n = normalize(gone, 10_000, &NO_TAKES);
+        assert_eq!(effect_clips(&n), zoom_clips(&n));
+        assert_eq!(clips_of(&n), vec![(0, "e0-0".into()), (1, "e2-6500".into())]);
+
+        // The view's spans are on the programme (clip 0 has 0.5–1 s at 2×: it ends at 0.75 s).
+        let v = view(&normalize(d, 10_000, &NO_TAKES));
+        let s: Vec<_> = v.effects.iter().map(|s| (s.index, s.programme_start_ms, s.programme_end_ms, s.row)).collect();
+        let z: Vec<_> = v.zooms.iter().map(|s| (s.index, s.prog_start_ms, s.prog_end_ms, 0)).collect();
+        assert_eq!(s, z, "effect spans map exactly like the zoom spans on the same times");
+        assert_eq!(v.effects[0].effect, "vignette");
+    }
+
+    #[test]
+    fn v5_document_opens_without_effects() {
+        let mut v = serde_json::to_value(three_clip_doc()).unwrap();
+        v["version"] = serde_json::json!(5);
+        v.as_object_mut().unwrap().remove("effects");
+        let d = migrate(v).unwrap();
+        assert_eq!(d.version, EDITOR_VERSION);
+        assert!(d.effects.is_empty());
+        // A broken entry is skipped, the rest kept (lenient).
+        let mut v = serde_json::to_value(three_clip_doc()).unwrap();
+        v["effects"] = serde_json::json!([{"clip": 0, "startMs": 0, "endMs": 900, "effect": "grain"}, {"clip": "x"}]);
+        assert_eq!(migrate(v).unwrap().effects.len(), 1);
     }
 
     fn meta_fixture() -> RecordingMeta {

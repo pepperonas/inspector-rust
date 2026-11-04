@@ -1,0 +1,57 @@
+[
+  {
+    "id": "vignette",
+    "needsPointer": false,
+    "params": [
+      { "name": "strength", "type": "number", "min": 0, "max": 1, "default": 0.35 },
+      { "name": "radius", "type": "number", "min": 0.2, "max": 1.2, "default": 0.75 },
+      { "name": "softness", "type": "number", "min": 0.05, "max": 1, "default": 0.45 },
+      { "name": "color", "type": "color", "default": "#000000" }
+    ]
+  },
+  {
+    "id": "grain",
+    "needsPointer": false,
+    "params": [
+      { "name": "amount", "type": "number", "min": 0, "max": 1, "default": 0.15 },
+      { "name": "size", "type": "number", "min": 1, "max": 4, "default": 1.5 },
+      { "name": "animated", "type": "toggle", "default": true }
+    ]
+  },
+  {
+    "id": "chromatic",
+    "needsPointer": false,
+    "params": [
+      { "name": "strength", "type": "number", "min": 0, "max": 1, "default": 0.3 },
+      { "name": "center_clear", "type": "number", "min": 0, "max": 1, "default": 0.5 }
+    ]
+  },
+  {
+    "id": "ripple",
+    "needsPointer": true,
+    "params": [
+      { "name": "strength", "type": "number", "min": 0, "max": 2, "default": 0.6 },
+      { "name": "radius", "type": "number", "min": 0.05, "max": 0.5, "default": 0.18 },
+      { "name": "duration", "type": "number", "min": 0.3, "max": 2, "default": 0.8 },
+      { "name": "shine", "type": "number", "min": 0, "max": 1, "default": 0.3 }
+    ]
+  },
+  {
+    "id": "spotlight",
+    "needsPointer": true,
+    "params": [
+      { "name": "dim", "type": "number", "min": 0, "max": 1, "default": 0.45 },
+      { "name": "radius", "type": "number", "min": 0.05, "max": 0.6, "default": 0.18 },
+      { "name": "softness", "type": "number", "min": 0.01, "max": 0.4, "default": 0.12 }
+    ]
+  },
+  {
+    "id": "scanlines",
+    "needsPointer": false,
+    "params": [
+      { "name": "intensity", "type": "number", "min": 0, "max": 1, "default": 0.18 },
+      { "name": "spacing", "type": "number", "min": 2, "max": 12, "default": 4 },
+      { "name": "roll", "type": "toggle", "default": false }
+    ]
+  }
+]

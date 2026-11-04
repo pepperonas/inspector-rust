@@ -474,6 +474,24 @@ pub fn scene_json_with(
     if !annotations.is_empty() {
         scene["annotations"] = Value::Array(annotations);
     }
+    // Shader effects: one entry per region, the pill on the programme as it plays. Only when
+    // there are any: a document without effects keeps its scene byte for byte.
+    let play = editor::playable(doc, &metas);
+    let shader_effects: Vec<Value> = doc
+        .effects
+        .iter()
+        .filter_map(|e| {
+            let ci = kept(e.clip)?;
+            let prog = (
+                editor::source_to_programme(&play, e.clip, e.start_ms),
+                editor::source_to_programme(&play, e.clip, e.end_ms),
+            );
+            super::effects::scene_entry(e, ci, prog)
+        })
+        .collect();
+    if !shader_effects.is_empty() {
+        scene["shaderEffects"] = Value::Array(shader_effects);
+    }
     // On the programme as it plays: a track anchored to a missing take's clip is left out.
     let tracks = super::audio_tracks::project_tracks(&editor::playable(doc, &metas), project_dir);
     if !tracks.is_empty() {
@@ -1988,5 +2006,87 @@ mod tests {
         check_golden(&placeholders(&v), GOLDEN_3D, "scene-golden-3d.json");
         assert_eq!(v["effects"]["depthOfField"], true);
         assert_eq!(v["cursor"]["model3d"], true);
+    }
+
+    fn effect(clip: usize, start: u64, end: u64, id: &str) -> crate::record::effects::EffectRegion {
+        crate::record::effects::EffectRegion {
+            id: "fx".into(),
+            clip,
+            start_ms: start,
+            end_ms: end,
+            effect: id.into(),
+            values: Default::default(),
+        }
+    }
+
+    #[test]
+    fn shader_effects_absent_without_regions() {
+        for d in [doc(), styled_doc()] {
+            let v = scene_json_with(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets(), Some(&cursor_rec()), &TakeSources::new());
+            assert!(v.get("shaderEffects").is_none());
+        }
+        // An unknown effect id never reaches the scene (normalize drops it; the emitter too).
+        let mut d = doc();
+        d.effects = vec![effect(0, 0, 2_000, "deep-fry")];
+        let v = scene_json(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets());
+        assert!(v.get("shaderEffects").is_none());
+    }
+
+    #[test]
+    fn shader_effects_fragment() {
+        use crate::record::effects::EffectValue;
+        let mut d = doc();
+        let mut e = effect(1, 6_600, 8_000, "vignette");
+        e.values.insert("strength".into(), EffectValue::Number(0.8));
+        e.values.insert("color".into(), EffectValue::Color("#ff000080".into()));
+        d.effects = vec![e];
+        let d = editor::normalize(d, 10_000, &TakeMetas::new());
+        let v = scene_json(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets());
+        let list = v["shaderEffects"].as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        let f = &list[0];
+        assert_eq!(f["clipIndex"], 1);
+        assert_eq!((f["startSec"].as_f64(), f["endSec"].as_f64()), (Some(6.6), Some(8.0)));
+        // Clip 0 plays 3 s (1–3 s at 2×); clip 1: 6.5→6.6 s at 1×, 7→8 s at 0.5×.
+        assert_eq!((f["programmeStartSec"].as_f64(), f["programmeEndSec"].as_f64()), (Some(3.1), Some(5.5)));
+        assert_eq!(f["target"], "image");
+        assert_eq!(f["contract"], 1);
+        assert_eq!(f["code"], crate::record::effects::builtin("vignette").unwrap().code);
+        assert_eq!(
+            f["params"],
+            json!([
+                {"name": "strength", "type": "number"},
+                {"name": "radius", "type": "number"},
+                {"name": "softness", "type": "number"},
+                {"name": "color", "type": "color"},
+            ])
+        );
+        assert_eq!(f["values"]["strength"], 0.8);
+        assert_eq!(f["values"]["radius"], 0.75);
+        assert_eq!(f["values"]["softness"], 0.45);
+        assert_eq!(f["values"]["color"], json!([1.0, 0.0, 0.0, 128.0 / 255.0]));
+        // Every key is one the compositor's `SceneShaderEffect` reads (camelCase of its fields).
+        let keys: Vec<&str> = f.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        let fields = ["clipIndex", "startSec", "endSec", "programmeStartSec", "programmeEndSec", "target", "contract", "code", "params", "values"];
+        assert_eq!(keys.len(), fields.len());
+        assert!(keys.iter().all(|k| fields.contains(k)), "{keys:?}");
+        // Everything else is the scene without the effect, byte for byte.
+        let mut with = v.clone();
+        with.as_object_mut().unwrap().remove("shaderEffects");
+        let without = scene_json(Path::new(DIR), &project(), &editor::EditDoc { effects: vec![], ..d }, (1920, 1080), 30, &assets());
+        assert_eq!(with, without);
+    }
+
+    #[test]
+    fn shader_effects_of_a_missing_take_are_omitted_and_reindexed() {
+        let mut d = doc();
+        d.clips[0].source = Some("gone".into());
+        d.effects = vec![effect(0, 0, 2_000, "grain"), effect(1, 7_000, 8_000, "scanlines")];
+        let v = scene_json(Path::new(DIR), &project(), &d, (1920, 1080), 30, &assets());
+        let list = v["shaderEffects"].as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["clipIndex"], 0);
+        // The missing clip lasts no time: clip 1 starts the programme (6.5→7 s = 0.5 s).
+        assert_eq!(list[0]["programmeStartSec"].as_f64(), Some(0.5));
     }
 }

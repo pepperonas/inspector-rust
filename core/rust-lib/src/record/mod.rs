@@ -17,6 +17,8 @@ pub mod cursor_macos;
 // Only the Apple-Silicon editor IPC uses these three; elsewhere they are compiled but unused.
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod editor;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+pub mod effects;
 pub mod layout;
 pub mod mic;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]

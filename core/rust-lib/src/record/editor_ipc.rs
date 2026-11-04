@@ -2687,6 +2687,7 @@ mod tests {
             layout_regions: Vec::new(),
             transcripts: Vec::new(),
             captions: Default::default(),
+            effects: Vec::new(),
         }
     }
 

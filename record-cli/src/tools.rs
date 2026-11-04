@@ -338,7 +338,7 @@ pub static TOOLS: &[Tool] = &[
     },
     Tool {
         name: "record_delete",
-        description: "Delete a project folder for good. Requires `confirm: true`. Refused while the project is open in an editor window.",
+        description: "Move a project folder to the Trash. Requires `confirm: true`. Refused while the project is open in an editor window.",
         method: "record.delete",
         launch: true,
         read_only: false,

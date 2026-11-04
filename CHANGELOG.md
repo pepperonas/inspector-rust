@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.239.0] — 2026-11-04
+
+### Added
+- **`ir-record` command line.** A small program inside the app bundle drives recording projects from a terminal: `list`, `info`, `doc`, `sources`, `record` (with `--duration`, or Ctrl+C to stop), `stop`, `pause`, `resume`, `status`, `export` (MP4/GIF with progress), `transcribe`, `auto-zoom`, `edit` (a list of edit operations as JSON), `rename` and `delete --yes`. `--json` prints one JSON event per line; exit codes are 0 (ok), 1 (failed) and 2 (usage). The app is started in the background when it isn't running.
+- **MCP server.** `ir-record mcp` is a stdio MCP server with 17 `record_*` tools (projects, document, transcript, sources, frames as images, edits, auto-zoom, transcription, export with progress, rename, delete, start/stop/pause/resume/status). Settings → Recording shows the line to add it to Claude Code.
+- Edits from the command line or MCP go through the app; a project open in the editor shows them right away and Undo takes them back.
+
 ## [0.238.0] — 2026-11-04
 
 ### Added

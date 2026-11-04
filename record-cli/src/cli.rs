@@ -351,7 +351,7 @@ pub fn parse_with(
             let a = split(tail, none, &["--yes", "-y"])?;
             let p = a.positionals(name, &["project"])?.remove(0);
             if !a.has("--yes") && !a.has("-y") {
-                return usage("delete removes the recording for good — add --yes");
+                return usage("delete moves the recording to the Trash — add --yes");
             }
             Command::Delete(p)
         }

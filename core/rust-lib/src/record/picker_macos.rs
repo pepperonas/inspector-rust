@@ -151,7 +151,7 @@ impl Picked {
 
     /// A free area of display `display_id` (display-local points, already clamped), recorded
     /// through our own display filter (every window of this process excluded).
-    pub(crate) fn region(display_id: u32, region: (f64, f64, f64, f64)) -> Result<Picked, String> {
+    pub fn region(display_id: u32, region: (f64, f64, f64, f64)) -> Result<Picked, String> {
         let f = capture_macos::display_filter(display_id)?;
         let scale = unsafe { f.pointPixelScale() as f64 };
         Ok(Picked {
@@ -168,12 +168,23 @@ impl Picked {
         })
     }
 
-    /// For tests: a whole display, our app excluded.
-    #[cfg(test)]
+    /// A whole display, our app excluded (tests, the control socket).
     pub fn display(display_id: u32) -> Result<Picked, String> {
         let f = capture_macos::display_filter(display_id)?;
         let mut p = Picked::from_filter(f, SourceKind::Display, true);
         p.display_id = Some(display_id);
+        Ok(p)
+    }
+
+    /// One window by its id (the control socket), labelled `label` when it is not empty.
+    pub fn window(window_id: u32, label: &str) -> Result<Picked, String> {
+        let f = capture_macos::window_filter(window_id)?;
+        let mut p = Picked::from_filter(f, SourceKind::Window, false);
+        p.kind = SourceKind::Window;
+        p.window_id = Some(window_id);
+        if !label.trim().is_empty() {
+            p.label = label.to_string();
+        }
         Ok(p)
     }
 

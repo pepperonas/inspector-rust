@@ -753,6 +753,8 @@ mod mac {
         dir: Option<PathBuf>,
         low_disk_minutes: Option<u64>,
         camera_warning: Option<String>,
+        /// Label of the source this take records (a control start does not use the picker slot).
+        source: Option<String>,
     }
 
     #[derive(Default)]
@@ -786,7 +788,12 @@ mod mac {
                 phase: g.phase,
                 elapsed_ms: elapsed,
                 project_dir: g.dir.as_ref().map(|d| d.to_string_lossy().into_owned()),
-                source: picker_macos::current().map(|p| p.label),
+                // The take's own source while one runs; otherwise what the picker holds.
+                source: g
+                    .source
+                    .clone()
+                    .filter(|_| !matches!(g.phase, Phase::Idle | Phase::Picking))
+                    .or_else(|| picker_macos::current().map(|p| p.label)),
                 low_disk_minutes: g.low_disk_minutes,
                 camera_warning: g.camera_warning.clone(),
             }
@@ -1566,6 +1573,12 @@ mod mac {
     }
 
     pub fn start(app: &AppHandle, opts: StartOptions) -> Result<RecordStatus, String> {
+        start_with(app, opts, None)
+    }
+
+    /// [`start`] with a given source (`None` = the current pick of the picker/area overlay).
+    /// A given source leaves the picker slot alone, so the HUD keeps its own pick.
+    pub fn start_with(app: &AppHandle, opts: StartOptions, source: Option<Picked>) -> Result<RecordStatus, String> {
         support_reason().map_err(|_| ERR_UNSUPPORTED.to_string())?;
         let st = app.state::<RecordState>();
         let my_gen = {
@@ -1574,6 +1587,7 @@ mod mac {
             g.gen += 1;
             g.low_disk_minutes = None;
             g.camera_warning = None;
+            g.source = None;
             g.gen
         };
         let fail_early = |e: String| {
@@ -1581,9 +1595,10 @@ mod mac {
             emit_status(app);
             e
         };
-        let Some(picked) = picker_macos::current() else {
+        let Some(picked) = source.or_else(picker_macos::current) else {
             return Err(fail_early(ERR_NO_SOURCE.into()));
         };
+        st.inner.lock().source = Some(picked.label.clone());
         let root = app
             .try_state::<crate::db::DbHandle>()
             .map(|db| RecordConfig::load(&db).root())
@@ -1738,6 +1753,7 @@ mod mac {
             g.dir = None;
             g.low_disk_minutes = None;
             g.camera_warning = None;
+            g.source = None;
         }
         close_window(app, BAR_LABEL);
         close_window(app, REGION_FRAME_LABEL);
@@ -1746,15 +1762,31 @@ mod mac {
     }
 
     pub fn stop(app: &AppHandle) -> Result<String, String> {
+        stop_take(app, true).map(|t| t.dir)
+    }
+
+    /// What [`stop_take`] finished.
+    pub struct StoppedTake {
+        pub dir: String,
+        pub status: ProjectStatus,
+        pub failure: Option<String>,
+    }
+
+    /// Finish the take (waits for the files). `follow_up` = open the editor or reveal the
+    /// folder afterwards like the control bar does; a control stop may skip that.
+    pub fn stop_take(app: &AppHandle, follow_up: bool) -> Result<StoppedTake, String> {
         let st = app.state::<RecordState>();
         let a = take_active(&st, Action::Stop)?;
         emit_status(app);
         let out = finish(a);
         after_finish(app, &st);
-        let open_editor = app.try_state::<crate::db::DbHandle>().map(|db| RecordConfig::load(&db).open_editor).unwrap_or(true);
-        match after_stop(out.status, open_editor, cfg!(target_arch = "aarch64")) {
-            AfterStop::OpenEditor => open_editor_after_take(app, out.dir.clone()),
-            AfterStop::Reveal => crate::commands::reveal_in_file_manager(&out.dir),
+        if follow_up {
+            let open_editor =
+                app.try_state::<crate::db::DbHandle>().map(|db| RecordConfig::load(&db).open_editor).unwrap_or(true);
+            match after_stop(out.status, open_editor, cfg!(target_arch = "aarch64")) {
+                AfterStop::OpenEditor => open_editor_after_take(app, out.dir.clone()),
+                AfterStop::Reveal => crate::commands::reveal_in_file_manager(&out.dir),
+            }
         }
         let dir = out.dir.to_string_lossy().into_owned();
         let failed = out.status == ProjectStatus::Failed;
@@ -1762,9 +1794,9 @@ mod mac {
         announce_failure(app, camera_toast(failed, out.camera_warning.as_deref()));
         let _ = app.emit(
             "record-finished",
-            FinishedEvent { dir: dir.clone(), status: status_str(out.status).into(), failure: out.failure },
+            FinishedEvent { dir: dir.clone(), status: status_str(out.status).into(), failure: out.failure.clone() },
         );
-        Ok(dir)
+        Ok(StoppedTake { dir, status: out.status, failure: out.failure })
     }
 
     /// Opens the finished take in the editor on a worker (opening blocks on the helper); if the

@@ -662,6 +662,127 @@ pub fn window_filter(window_id: u32) -> Result<Retained<SCContentFilter>, String
     }
 }
 
+// ---------- sources (control socket) ----------
+
+/// A display ScreenCaptureKit can record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShareableDisplay {
+    pub id: u32,
+    /// `NSScreen.localizedName` ("Built-in Retina Display"), empty when unknown.
+    pub name: String,
+    /// Points.
+    pub width: f64,
+    pub height: f64,
+    pub main: bool,
+}
+
+/// A window ScreenCaptureKit can record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShareableWindow {
+    pub id: u32,
+    pub app: String,
+    pub title: String,
+    /// Global top-left points.
+    pub frame: (f64, f64, f64, f64),
+}
+
+/// Smallest window worth offering as a source (points, each side).
+pub const MIN_WINDOW_PT: f64 = 40.0;
+
+/// Whether an on-screen window is offered as a source: a normal-level window (no menu bar,
+/// Dock, overlays) of another process, big enough to see, named by its app or title.
+pub fn listable_window(layer: isize, pid: i32, own_pid: i32, w: f64, h: f64, app: &str, title: &str) -> bool {
+    layer == 0
+        && pid != own_pid
+        && w >= MIN_WINDOW_PT
+        && h >= MIN_WINDOW_PT
+        && !(app.trim().is_empty() && title.trim().is_empty())
+}
+
+/// `NSScreen.localizedName` per CoreGraphics display id.
+fn screen_names() -> Vec<(u32, String)> {
+    let mut out = Vec::new();
+    unsafe {
+        let Some(cls) = objc2::runtime::AnyClass::get(c"NSScreen") else { return out };
+        let screens: *mut AnyObject = msg_send![cls, screens];
+        if screens.is_null() {
+            return out;
+        }
+        let key = NSString::from_str("NSScreenNumber");
+        let n: usize = msg_send![screens, count];
+        for i in 0..n {
+            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            if s.is_null() {
+                continue;
+            }
+            let desc: *mut AnyObject = msg_send![s, deviceDescription];
+            if desc.is_null() {
+                continue;
+            }
+            let num: *mut AnyObject = msg_send![desc, objectForKey: &*key];
+            if num.is_null() {
+                continue;
+            }
+            let id: u32 = msg_send![num, unsignedIntValue];
+            if !(*s).class().responds_to(sel!(localizedName)) {
+                continue;
+            }
+            let name: Option<Retained<NSString>> = msg_send![s, localizedName];
+            out.push((id, name.map(|n| n.to_string()).unwrap_or_default()));
+        }
+    }
+    out
+}
+
+/// Every display and every listable on-screen window (needs Screen Recording).
+pub fn shareable_sources() -> Result<(Vec<ShareableDisplay>, Vec<ShareableWindow>), String> {
+    let content = shareable_content(true)?;
+    let main = main_display_id();
+    let names = screen_names();
+    let me = std::process::id() as i32;
+    unsafe {
+        let displays = content
+            .0
+            .displays()
+            .iter()
+            .map(|d| {
+                let id = d.displayID();
+                ShareableDisplay {
+                    id,
+                    name: names.iter().find(|(n, _)| *n == id).map(|(_, s)| s.clone()).unwrap_or_default(),
+                    width: d.width() as f64,
+                    height: d.height() as f64,
+                    main: id == main,
+                }
+            })
+            .collect();
+        let windows = content
+            .0
+            .windows()
+            .iter()
+            .filter_map(|w| {
+                let app = w.owningApplication();
+                let pid: i32 = match &app {
+                    Some(a) => msg_send![&**a, processID],
+                    None => -1,
+                };
+                let app_name = app.map(|a| a.applicationName().to_string()).unwrap_or_default();
+                let title = w.title().map(|t| t.to_string()).unwrap_or_default();
+                let f = w.frame();
+                let layer = w.windowLayer();
+                (w.isOnScreen() && listable_window(layer, pid, me, f.size.width, f.size.height, &app_name, &title))
+                    .then(|| ShareableWindow {
+                        id: w.windowID(),
+                        app: app_name,
+                        title,
+                        frame: (f.origin.x, f.origin.y, f.size.width, f.size.height),
+                    })
+            })
+            .collect();
+        Ok((displays, windows))
+    }
+}
+
 // ---------- the capture ----------
 
 pub struct Capture {

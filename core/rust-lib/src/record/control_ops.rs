@@ -975,7 +975,14 @@ fn rename(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
 
 /// Registers the record methods on the control socket.
 pub fn register_all() {
+    use super::control_rec as rec;
     use crate::control::register;
+    register("record.sources", rec::sources);
+    register("record.start", rec::start);
+    register("record.stop", rec::stop);
+    register("record.pause", rec::pause);
+    register("record.resume", rec::resume);
+    register("record.status", rec::status);
     register("record.projects", projects);
     register("record.project", project);
     register("record.doc", doc);

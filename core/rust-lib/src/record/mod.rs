@@ -34,6 +34,8 @@ pub mod render_client;
 pub mod editor_ipc;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod control_ops;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub mod control_rec;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod scene_json;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
@@ -55,7 +57,13 @@ pub fn register_control() {
 }
 
 /// Every record control method (the list `register_control` serves).
-pub const CONTROL_METHODS: [&str; 10] = [
+pub const CONTROL_METHODS: [&str; 16] = [
+    "record.sources",
+    "record.start",
+    "record.stop",
+    "record.pause",
+    "record.resume",
+    "record.status",
     "record.projects",
     "record.project",
     "record.doc",

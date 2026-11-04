@@ -2283,13 +2283,32 @@ pub fn import_asset(app: &AppHandle, session_id: u64, src: &Path, kind: AssetKin
         let guard = session();
         guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?.dir.clone()
     };
-    import_with_duration(&dir, src, kind, |file, cache| {
-        let client = ensure_client(app, true)?;
-        client
-            .peaks(file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned(), PEAKS_TIMEOUT)
-            .map(|(_, duration_ms)| duration_ms)
-            .map_err(|e| format!("{e:?}"))
-    })
+    import_with_duration(&dir, src, kind, |file, cache| probe_audio(app, file, cache))
+}
+
+/// Length of an audio file through the helper (writes its waveform cache).
+fn probe_audio(app: &AppHandle, file: &Path, cache: &Path) -> Result<u64, String> {
+    let client = ensure_client(app, true)?;
+    client
+        .peaks(file.to_string_lossy().into_owned(), cache.to_string_lossy().into_owned(), PEAKS_TIMEOUT)
+        .map(|(_, duration_ms)| duration_ms)
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Control `track.add`: copies an audio file into the project `dir` and reads its length
+/// (no editor session needed). `(asset file name, length ms)`.
+pub fn import_audio_into(app: &AppHandle, dir: &Path, src: &Path) -> Result<(String, u64), String> {
+    let got = import_with_duration(dir, src, AssetKind::Audio, |file, cache| probe_audio(app, file, cache))?;
+    Ok((got.file, got.duration_ms.unwrap_or(0)))
+}
+
+/// Removes an audio file [`import_audio_into`] copied in (and its waveform cache).
+pub fn remove_imported_audio(dir: &Path, file: &str) {
+    let path = dir.join(super::scene_json::PROJECT_ASSETS_DIR).join(file);
+    if let Some(cache) = peaks::cache_name_for(&path) {
+        let _ = std::fs::remove_file(dir.join(cache));
+    }
+    let _ = std::fs::remove_file(path);
 }
 
 /// [`import_asset_into`], then for audio `probe(file, peaks_cache) -> duration_ms`. A probe

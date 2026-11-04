@@ -228,6 +228,19 @@ impl CursorVisibility {
     }
 }
 
+/// Whether a pointer point counts as being on the recorded content.
+/// `inside` = within the captured rectangle; `captured` = the recorded window
+/// (window takes only); `top` = the frontmost window under the point. A window
+/// take's rectangle can be covered by another app's window: a point there is
+/// over that other window, not over the recording. `top == None` (nothing
+/// found) keeps the rectangle answer.
+pub fn on_recorded_content(inside: bool, captured: Option<u32>, top: Option<u32>) -> bool {
+    match (captured, top) {
+        (Some(c), Some(t)) => inside && c == t,
+        _ => inside,
+    }
+}
+
 /// `(cx, cy, inside)` relative to `bounds = (x, y, w, h)`; NOT clamped.
 pub fn normalize_point(px: f64, py: f64, bounds: (f64, f64, f64, f64)) -> (f64, f64, bool) {
     let (x, y, w, h) = bounds;
@@ -572,6 +585,19 @@ mod tests {
         assert!(v.observe(true));
         assert!(v.observe(false));
     }
+    #[test]
+    fn a_covered_spot_of_a_recorded_window_is_not_on_the_content() {
+        // Display / region take: only the rectangle counts.
+        assert!(on_recorded_content(true, None, Some(7)));
+        assert!(!on_recorded_content(false, None, None));
+        // Window take: the recorded window must be the one on top.
+        assert!(on_recorded_content(true, Some(42), Some(42)));
+        assert!(!on_recorded_content(true, Some(42), Some(7)), "another window covers it");
+        assert!(!on_recorded_content(false, Some(42), Some(42)), "outside the rectangle");
+        // Nothing found under the point: keep the rectangle answer.
+        assert!(on_recorded_content(true, Some(42), None));
+    }
+
     #[test]
     fn normalize_point_unclamped() {
         let (cx, cy, inside) = normalize_point(150.0, 20.0, (100.0, 0.0, 100.0, 50.0));

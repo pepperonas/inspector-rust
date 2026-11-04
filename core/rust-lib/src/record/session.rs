@@ -1027,7 +1027,7 @@ mod mac {
         } else {
             None
         };
-        let cursor = CursorRecorder::start(capture.content_bounds_pt(), clock.clone(), origin_ns);
+        let cursor = CursorRecorder::start(capture.content_bounds_pt(), picked.window_id, clock.clone(), origin_ns);
         let assertion = prevent_display_sleep();
         Ok(Active {
             dir: prep.dir,

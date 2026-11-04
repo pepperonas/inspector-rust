@@ -27,7 +27,7 @@ The app writes a discovery file (`control.json`: socket, token) into its data di
 | `info <p>` | project metadata and timeline view |
 | `doc <p>` | the edit document and view (region ids, clip indices) |
 | `sources` | displays, windows, microphones, cameras |
-| `record [--display Q \| --window Q] [--mic] [--system-audio] [--camera] [--no-countdown] [--title T] [--duration S]` | start a take; waits for `--duration` or Ctrl+C, then stops and prints the project path. `Q` = id (number) or name part. Flags not given fall back to the app's settings |
+| `record [--display Q \| --window Q] [--[no-]mic] [--[no-]system-audio] [--[no-]camera] [--no-countdown] [--title T] [--duration S]` | start a take; waits for `--duration` or Ctrl+C, then stops and prints the project path. `Q` = id (number) or name part. Microphone, system sound and camera: `--x` on, `--no-x` off, neither = the app's setting. A window take records only that app's sound |
 | `stop`, `pause`, `resume`, `status` | control the running take |
 | `export <p> [--format mp4\|gif] [--quality p720\|p1080\|source] [--fps N] [--codec h264\|hevc] [--gif-width N] [-o PATH]` | export; prints the file path |
 | `transcribe <p> [--lang de\|en\|auto]` | transcribe on the Mac, merge into the doc |
@@ -63,7 +63,9 @@ Ctrl+C stops a recording (`record` without `--duration`) or cancels a running ex
 
 ## `record.edit` ops
 
-`zoom.add`, `zoom.set`, `zoom.remove`, `zoom.auto`, `clip.split`, `clip.delete`, `clip.move`, `clip.duplicate`, `clip.speed`, `clip.crop`, `annotation.add`, `annotation.set`, `annotation.remove`, `effect.add`, `effect.set`, `effect.remove`, `look.set`, `preset.apply`, `rename`.
+`zoom.add`, `zoom.set`, `zoom.remove`, `zoom.auto`, `clip.split`, `clip.delete`, `clip.move`, `clip.duplicate`, `clip.speed`, `clip.crop`, `annotation.add`, `annotation.set`, `annotation.remove`, `effect.add`, `effect.set`, `effect.remove`, `track.add`, `track.set`, `track.remove`, `look.set`, `preset.apply`, `rename`.
+
+`track.add {file, kind?, atProgrammeMs | clip (+startMs)?, gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}` lays an audio file under the programme: `file` is an absolute path (MP3, M4A, AAC, WAV, FLAC), copied into the project before the ops run and removed again if they fail; `kind` is `voiceover` (default, 0 dB, no fades) or `music` (−18 dB, 1 s fades); without a placement it starts at clip 0. `track.set {id, …}` changes level, mute, loop, fades or label; `track.remove {id}`. Narration for a scripted demo: `say -o q.aiff "…"` → `afconvert -f WAVE -d LEI16 q.aiff q.wav` → `track.add`.
 
 Placement for add ops (and `*.set` to move): `atProgrammeMs` (+ `durationMs`, programme ms = the edited timeline) or `clip` (+ `startMs`, `durationMs`, source ms of that clip); default duration 2000. Read `doc` first: region ids and clip indices come from it. Ops apply in order, all or nothing, as one undo step in an open editor window. Example:
 

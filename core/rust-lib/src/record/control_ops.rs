@@ -10,8 +10,9 @@
 //! [`apply_ops`] is pure and all-or-nothing; the handlers are thin.
 
 use super::editor::{
-    self, Annotation, AnnotationBody, CropRect, EditClip, EditDoc, FocusMode, LayoutRegion, SpeedRegion, TakeMetas,
-    Transcript, ZoomOrigin, ZoomRegion, DEFAULT_ZOOM_DEPTH, MAX_SPEED, MIN_CLIP_MS, MIN_SPEED, NEW_ZOOM_MS,
+    self, Annotation, AnnotationBody, AudioTrack, CropRect, EditClip, EditDoc, FocusMode, LayoutRegion, SpeedRegion,
+    TakeMetas, TrackKind, Transcript, ZoomOrigin, ZoomRegion, DEFAULT_ZOOM_DEPTH, MAX_SPEED, MIN_CLIP_MS, MIN_SPEED,
+    MUSIC_DEFAULT_FADE_MS, MUSIC_DEFAULT_GAIN_DB, NEW_ZOOM_MS,
 };
 use super::effects::EffectRegion;
 use super::project::CursorRecording;
@@ -87,6 +88,9 @@ pub struct OpCtx<'a> {
     pub cursor: Option<&'a CursorRecording>,
     /// `preset.apply`: the document with the preset file applied (copies its files).
     pub preset: &'a dyn Fn(&str, &EditDoc) -> Result<EditDoc, ControlError>,
+    /// `track.add`: the audio file given as `file`, already copied into the project
+    /// (`(asset file name, length ms)`); `None` = not imported.
+    pub audio: &'a dyn Fn(&str) -> Option<(String, u64)>,
 }
 
 /// The outcome of [`apply_ops`].
@@ -686,6 +690,83 @@ fn apply_one(doc: &EditDoc, op: &Value, ctx: &OpCtx, new_id: &mut dyn FnMut() ->
             }
             next = serde_json::from_value(v).map_err(|e| bad(format!("look: {e}")))?;
         }
+        "track.add" => {
+            let path = a.need_str("file")?;
+            let (file, duration_ms) =
+                (ctx.audio)(&path).ok_or_else(|| bad(format!("file {path} was not imported (an absolute path to an audio file)")))?;
+            let kind = match a.str("kind")?.as_deref() {
+                None | Some("voiceover") => TrackKind::Voiceover,
+                Some("music") => TrackKind::Music,
+                Some(o) => return Err(bad(format!("kind must be voiceover or music, not {o}"))),
+            };
+            let (clip, start_ms) = match (a.u64("atProgrammeMs")?, a.usize("clip")?) {
+                (Some(_), Some(_)) => return Err(bad("give atProgrammeMs or clip (+ startMs), not both")),
+                (Some(t), None) => editor::programme_to_source(&play, t)
+                    .ok_or_else(|| err(ERR_OUT_OF_RANGE, format!("atProgrammeMs {t} is past the end")))?,
+                (None, c) => {
+                    let c = clip_index(doc, c.unwrap_or(0))?;
+                    let clip = &doc.clips[c];
+                    let s = a.u64("startMs")?.unwrap_or(clip.start_ms);
+                    if s < clip.start_ms || s > clip.end_ms {
+                        return Err(err(
+                            ERR_OUT_OF_RANGE,
+                            format!("startMs {s} is outside clip {c} ({}..{})", clip.start_ms, clip.end_ms),
+                        ));
+                    }
+                    (c, s)
+                }
+            };
+            let id = fresh_id(a.str("id")?, |i| doc.audio_tracks.iter().any(|t| t.id == i), new_id)?;
+            let music = kind == TrackKind::Music;
+            let fade = if music { MUSIC_DEFAULT_FADE_MS } else { 0 };
+            next.audio_tracks.push(AudioTrack {
+                id: id.clone(),
+                kind,
+                file,
+                clip,
+                start_ms,
+                duration_ms,
+                offset_ms: 0,
+                span_ms: (!music).then_some(duration_ms),
+                gain_db: a.f64("gainDb")?.unwrap_or(if music { MUSIC_DEFAULT_GAIN_DB } else { 0.0 }),
+                looped: a.bool("looped")?.unwrap_or(false),
+                fade_in_ms: a.u64("fadeInMs")?.unwrap_or(fade),
+                fade_out_ms: a.u64("fadeOutMs")?.unwrap_or(fade),
+                muted: false,
+                label: a.str("label")?.unwrap_or_default(),
+            });
+            created = Some(id);
+        }
+        "track.set" => {
+            let id = a.need_str("id")?;
+            let t = next.audio_tracks.iter_mut().find(|t| t.id == id).ok_or_else(|| err(ERR_NO_REGION, format!("no track {id}")))?;
+            if let Some(v) = a.f64("gainDb")? {
+                t.gain_db = v;
+            }
+            if let Some(v) = a.bool("muted")? {
+                t.muted = v;
+            }
+            if let Some(v) = a.bool("looped")? {
+                t.looped = v;
+            }
+            if let Some(v) = a.u64("fadeInMs")? {
+                t.fade_in_ms = v;
+            }
+            if let Some(v) = a.u64("fadeOutMs")? {
+                t.fade_out_ms = v;
+            }
+            if let Some(v) = a.str("label")? {
+                t.label = v;
+            }
+        }
+        "track.remove" => {
+            let id = a.need_str("id")?;
+            let before = next.audio_tracks.len();
+            next.audio_tracks.retain(|t| t.id != id);
+            if next.audio_tracks.len() == before {
+                return Err(err(ERR_NO_REGION, format!("no track {id}")));
+            }
+        }
         "preset.apply" => {
             let file = a.need_str("file")?;
             next = (ctx.preset)(&file, doc).map_err(|e| OpErr { code: e.code, msg: e.message })?;
@@ -847,6 +928,22 @@ pub fn last_rename(ops: &[Value]) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The distinct `file` values of the `track.add` ops, in order.
+fn track_files(ops: &[Value]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for op in ops {
+        if op.get("op").and_then(Value::as_str) != Some("track.add") {
+            continue;
+        }
+        if let Some(f) = op.get("file").and_then(Value::as_str) {
+            if !out.iter().any(|x| x == f) {
+                out.push(f.to_string());
+            }
+        }
+    }
+    out
+}
+
 fn edit(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
     let ops = match c.params.get("ops") {
         Some(Value::Array(a)) => a.clone(),
@@ -858,22 +955,54 @@ fn edit(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
         super::session::rename_check(app, &dir, &t).map_err(ControlError::sentinel)?;
     }
     let id = super::editor_ipc::control_session(app, &dir).map_err(ControlError::sentinel)?;
+    // Audio for `track.add` is copied in and measured first, outside the session lock (the
+    // helper decodes it); if the edit then fails, the copies go again.
+    let mut imported: Vec<(String, String, u64)> = Vec::new();
+    for path in track_files(&ops) {
+        if !Path::new(&path).is_absolute() {
+            remove_imported(&dir, &imported);
+            return Err(perr(format!("track.add: file must be an absolute path, not {path}")));
+        }
+        match super::editor_ipc::import_audio_into(app, &dir, Path::new(&path)) {
+            Ok((file, ms)) => imported.push((path, file, ms)),
+            Err(e) => {
+                remove_imported(&dir, &imported);
+                let mut ce = ControlError::sentinel(&e);
+                ce.message = format!("track.add {path}: {}", ce.message);
+                return Err(ce);
+            }
+        }
+    }
     let root = root(app);
-    let (view, (created, title)) = super::editor_ipc::control_edit(app, id, |p| {
+    let result = super::editor_ipc::control_edit(app, id, |p| {
         let preset = |file: &str, d: &EditDoc| -> Result<EditDoc, ControlError> {
             let pr = super::presets::read_preset(&root, file).map_err(ControlError::sentinel)?;
             Ok(super::presets::apply_preset(d, &pr, &root, p.dir))
         };
-        let ctx = OpCtx { duration_ms: p.duration_ms, takes: p.takes, cursor: p.cursor, preset: &preset };
+        let audio = |path: &str| imported.iter().find(|(p, _, _)| p == path).map(|(_, f, ms)| (f.clone(), *ms));
+        let ctx = OpCtx { duration_ms: p.duration_ms, takes: p.takes, cursor: p.cursor, preset: &preset, audio: &audio };
         let out = apply_ops(p.doc, &ops, &ctx, &mut random_id)?;
         Ok((out.doc, (out.created, out.title)))
-    })?;
+    });
+    let (view, (created, title)) = match result {
+        Ok(r) => r,
+        Err(e) => {
+            remove_imported(&dir, &imported);
+            return Err(e);
+        }
+    };
     if let Some(t) = title {
         // Checked above; what can still fail here is the write itself.
         super::session::rename_project(app, &dir, &t).map_err(ControlError::sentinel)?;
     }
     let created: Vec<Value> = created.into_iter().map(|(i, id)| json!({"index": i, "id": id})).collect();
     Ok(json!({"view": to_json(&view)?, "created": created}))
+}
+
+fn remove_imported(dir: &Path, imported: &[(String, String, u64)]) {
+    for (_, file, _) in imported {
+        super::editor_ipc::remove_imported_audio(dir, file);
+    }
 }
 
 fn export(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
@@ -1018,8 +1147,13 @@ mod tests {
         Err(ControlError::new("record.presets.unreadable", "no presets in tests"))
     }
 
+    /// `/a/voice.m4a` is imported as `voice-1.m4a` (3 s); everything else was not.
+    fn test_audio(path: &str) -> Option<(String, u64)> {
+        (path == "/a/voice.m4a").then(|| ("voice-1.m4a".to_string(), 3_000))
+    }
+
     fn ctx() -> OpCtx<'static> {
-        OpCtx { duration_ms: 10_000, takes: &NO_TAKES, cursor: None, preset: &no_preset }
+        OpCtx { duration_ms: 10_000, takes: &NO_TAKES, cursor: None, preset: &no_preset, audio: &test_audio }
     }
 
     fn ids() -> impl FnMut() -> String {
@@ -1245,6 +1379,60 @@ mod tests {
         assert_eq!(zs, vec![("z", 1, 7000, 8000), ("id1", 2, 8000, 9000)]);
         assert_eq!(out.doc.crop.len(), 3);
         assert_eq!(run(&d, json!([{"op": "clip.split", "clip": 0, "sourceMs": 50}])).unwrap_err().code, ERR_BAD_SPLIT);
+    }
+
+    #[test]
+    fn track_add_lays_an_imported_file_under_the_programme() {
+        let d = two_clips();
+        // Programme 5000 ms = clip 1, source 7000 ms.
+        let out = run(&d, json!([{"op": "track.add", "file": "/a/voice.m4a", "atProgrammeMs": 5000, "id": "q"}])).unwrap();
+        let t = &out.doc.audio_tracks[0];
+        assert_eq!((t.id.as_str(), t.file.as_str(), t.clip, t.start_ms), ("q", "voice-1.m4a", 1, 7000));
+        assert_eq!((t.kind, t.duration_ms, t.span_ms, t.gain_db), (TrackKind::Voiceover, 3_000, Some(3_000), 0.0));
+        assert_eq!(out.created, vec![(0, "q".to_string())]);
+        // Music: the editor's defaults, then explicit values win.
+        let out = run(&d, json!([{"op": "track.add", "file": "/a/voice.m4a", "kind": "music", "clip": 0}])).unwrap();
+        let m = &out.doc.audio_tracks[0];
+        assert_eq!((m.kind, m.start_ms, m.span_ms), (TrackKind::Music, 0, None));
+        assert_eq!((m.gain_db, m.fade_in_ms, m.fade_out_ms), (MUSIC_DEFAULT_GAIN_DB, MUSIC_DEFAULT_FADE_MS, MUSIC_DEFAULT_FADE_MS));
+        let out = run(&d, json!([{"op": "track.add", "file": "/a/voice.m4a", "clip": 1, "startMs": 6500, "gainDb": -6, "label": "Frage"}])).unwrap();
+        let v = &out.doc.audio_tracks[0];
+        assert_eq!((v.start_ms, v.gain_db, v.label.as_str()), (6500, -6.0, "Frage"));
+        // Not imported, bad kind, outside the clip.
+        assert_eq!(run(&d, json!([{"op": "track.add", "file": "/b/x.wav", "clip": 0}])).unwrap_err().code, ERR_BAD_OP);
+        assert_eq!(run(&d, json!([{"op": "track.add", "file": "/a/voice.m4a", "kind": "noise", "clip": 0}])).unwrap_err().code, ERR_BAD_OP);
+        assert_eq!(
+            run(&d, json!([{"op": "track.add", "file": "/a/voice.m4a", "clip": 0, "startMs": 5000}])).unwrap_err().code,
+            ERR_OUT_OF_RANGE
+        );
+    }
+
+    #[test]
+    fn track_set_and_remove() {
+        let d = two_clips();
+        let out = run(&d, json!([
+            {"op": "track.add", "file": "/a/voice.m4a", "clip": 0, "id": "q"},
+            {"op": "track.set", "id": "q", "gainDb": 4, "muted": true, "fadeInMs": 200, "label": "x"}
+        ]))
+        .unwrap();
+        let t = &out.doc.audio_tracks[0];
+        assert_eq!((t.gain_db, t.muted, t.fade_in_ms, t.label.as_str()), (4.0, true, 200, "x"));
+        let gone = run(&out.doc, json!([{"op": "track.remove", "id": "q"}])).unwrap();
+        assert!(gone.doc.audio_tracks.is_empty());
+        assert_eq!(run(&d, json!([{"op": "track.remove", "id": "q"}])).unwrap_err().code, ERR_NO_REGION);
+        assert_eq!(run(&d, json!([{"op": "track.set", "id": "q", "gainDb": 1}])).unwrap_err().code, ERR_NO_REGION);
+    }
+
+    #[test]
+    fn track_files_are_the_op_files_once() {
+        let ops = vec![
+            json!({"op": "track.add", "file": "/a/voice.m4a"}),
+            json!({"op": "zoom.add", "clip": 0}),
+            json!({"op": "track.add", "file": "/a/voice.m4a"}),
+            json!({"op": "track.add", "file": "/b/song.mp3"}),
+            json!({"op": "track.add"}),
+        ];
+        assert_eq!(track_files(&ops), vec!["/a/voice.m4a".to_string(), "/b/song.mp3".to_string()]);
     }
 
     #[test]

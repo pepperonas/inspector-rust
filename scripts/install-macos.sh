@@ -314,12 +314,20 @@ NEW_SRC_HASH="$(source_sha256)"
 OLD_SRC_HASH="$(stored_source_hash "${INSTALL_PATH}")"
 INSTALLED_ID="$(current_identifier "${INSTALL_PATH}")"
 
+# A main binary that is not a Mach-O executable (e.g. truncated when the disk ran
+# full: cargo only WARNS when stripping fails, the file stays corrupt) must never be
+# kept or installed — "incorrect executable format" at launch.
+binary_ok() {
+  file -b "$1" 2>/dev/null | grep -q '^Mach-O'
+}
+
 UNCHANGED=0
 if [[ -n "${NEW_SRC_HASH}" \
    && -n "${OLD_SRC_HASH}" \
    && "${NEW_SRC_HASH}" == "${OLD_SRC_HASH}" \
    && "${INSTALLED_ID}" == "${BUNDLE_ID}" \
-   && -d "${INSTALL_PATH}" ]]; then
+   && -d "${INSTALL_PATH}" ]] \
+   && binary_ok "${INSTALL_PATH}/Contents/MacOS/inspector-rust"; then
   UNCHANGED=1
 fi
 
@@ -385,6 +393,11 @@ fi # IR_SKIP_BUILD
 
 if [[ ! -d "${BUILD_OUT}" ]]; then
   echo "✘ build output missing: ${BUILD_OUT}" >&2
+  exit 1
+fi
+if [[ "${UNCHANGED}" -eq 0 ]] && ! binary_ok "${BUILD_OUT}/Contents/MacOS/inspector-rust"; then
+  echo "✘ the built binary is not a Mach-O executable (disk full while linking/stripping?)." >&2
+  echo "  Free space, delete target/release/inspector-rust and run again." >&2
   exit 1
 fi
 

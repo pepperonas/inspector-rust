@@ -34,9 +34,10 @@ Projects (<project> = folder name from `list`, or an absolute path):
 
 Recording:
   sources                           displays, windows, microphones, cameras
-  record [--display Q | --window Q] [--mic] [--system-audio] [--camera]
-         [--no-countdown] [--title T] [--duration S]
-                                    without --duration, Ctrl+C stops
+  record [--display Q | --window Q] [--[no-]mic] [--[no-]system-audio]
+         [--[no-]camera] [--no-countdown] [--title T] [--duration S]
+                                    without --duration, Ctrl+C stops;
+                                    mic/audio/camera not given = app setting
   stop | pause | resume | status
 
   mcp                               MCP server on stdio
@@ -266,7 +267,15 @@ pub fn parse_with(
             let a = split(
                 tail,
                 &["--display", "--window", "--title", "--duration"],
-                &["--mic", "--system-audio", "--camera", "--no-countdown"],
+                &[
+                    "--mic",
+                    "--system-audio",
+                    "--camera",
+                    "--no-mic",
+                    "--no-system-audio",
+                    "--no-camera",
+                    "--no-countdown",
+                ],
             )?;
             a.positionals(name, &[])?;
             let mut params = Map::new();
@@ -280,9 +289,21 @@ pub fn parse_with(
                 }
                 (None, None) => {}
             }
-            for (flag, key) in [("--mic", "mic"), ("--system-audio", "systemAudio"), ("--camera", "camera")] {
-                if a.has(flag) {
-                    params.insert(key.into(), json!(true));
+            // Without either flag the app's own setting decides.
+            for (on, off, key) in [
+                ("--mic", "--no-mic", "mic"),
+                ("--system-audio", "--no-system-audio", "systemAudio"),
+                ("--camera", "--no-camera", "camera"),
+            ] {
+                match (a.has(on), a.has(off)) {
+                    (true, true) => return usage(format!("record: give {on} or {off}, not both")),
+                    (true, false) => {
+                        params.insert(key.into(), json!(true));
+                    }
+                    (false, true) => {
+                        params.insert(key.into(), json!(false));
+                    }
+                    (false, false) => {}
                 }
             }
             if let Some(t) = a.get("--title") {
@@ -859,6 +880,10 @@ mod tests {
         assert!(r.countdown, "countdown is on unless --no-countdown");
         assert_eq!(r.duration, None);
         assert!(err("record --display 1 --window x").contains("not both"));
+        let Command::Record(r) = cmd("record --no-mic --no-system-audio --no-camera") else { panic!() };
+        assert_eq!(Value::Object(r.params), json!({"mic": false, "systemAudio": false, "camera": false}));
+        assert!(err("record --camera --no-camera").contains("not both"));
+        assert!(err("record --no-mic --mic").contains("not both"));
         assert!(err("record --duration 0").contains("--duration"));
         assert!(err("record --duration soon").contains("--duration"));
         assert!(err("record --display").contains("needs a value"));

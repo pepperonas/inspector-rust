@@ -17,7 +17,7 @@
 //!
 //! The ordering/cap rules are the pure [`SampleSink`] (unit-tested below).
 
-use super::core::{cursor_type_for_roles, normalize_point, CursorType, CursorVisibility};
+use super::core::{cursor_type_for_roles, normalize_point, on_recorded_content, CursorType, CursorVisibility};
 use super::PauseShared;
 use super::host_now_ns;
 use super::project::{CursorAsset, CursorProvider, CursorRecording, CursorSample, Interaction};
@@ -343,6 +343,46 @@ unsafe fn pid_at_point(pt: (f64, f64)) -> Option<i32> {
     })
 }
 
+/// Window number of the frontmost on-screen window containing `pt` (global
+/// top-left points). Our own windows are skipped: they are kept out of the
+/// recording, and several are click-through overlays that would otherwise
+/// "cover" everything. Must run inside an autorelease pool.
+unsafe fn window_at_point(pt: (f64, f64)) -> Option<u32> {
+    let own = std::process::id() as i32;
+    let list = CGWindowListCopyWindowInfo(CG_WINDOW_LIST_ON_SCREEN_ONLY | CG_WINDOW_LIST_EXCLUDE_DESKTOP, 0);
+    if list.is_null() {
+        return None;
+    }
+    let arr = list as *mut AnyObject; // CFArray, toll-free bridged
+    let k_bounds = ns_str(c"kCGWindowBounds");
+    let k_pid = ns_str(c"kCGWindowOwnerPID");
+    let k_num = ns_str(c"kCGWindowNumber");
+    let k_alpha = ns_str(c"kCGWindowAlpha");
+    let (k_x, k_y, k_w, k_h) = (ns_str(c"X"), ns_str(c"Y"), ns_str(c"Width"), ns_str(c"Height"));
+    let n: usize = msg_send![arr, count];
+    let mut found = None;
+    for i in 0..n {
+        let d: *mut AnyObject = msg_send![arr, objectAtIndex: i];
+        if ns_f64(d, k_pid).is_some_and(|p| p as i32 == own) || ns_f64(d, k_alpha).is_some_and(|a| a <= 0.0) {
+            continue;
+        }
+        let b: *mut AnyObject = msg_send![d, objectForKey: k_bounds];
+        if b.is_null() {
+            continue;
+        }
+        let (Some(x), Some(y), Some(w), Some(h)) = (ns_f64(b, k_x), ns_f64(b, k_y), ns_f64(b, k_w), ns_f64(b, k_h))
+        else {
+            continue;
+        };
+        if pt.0 >= x && pt.0 < x + w && pt.1 >= y && pt.1 < y + h {
+            found = ns_f64(d, k_num).map(|v| v as u32);
+            break;
+        }
+    }
+    CFRelease(list);
+    found
+}
+
 /// Per-app AX element cache: the messaging timeout is set on the APP element
 /// (never on the system-wide one, which would change the process-global
 /// timeout other threads rely on).
@@ -554,6 +594,8 @@ pub struct TickStats {
 
 struct Shared {
     bounds: Mutex<(f64, f64, f64, f64)>,
+    /// The recorded window (window takes): points it doesn't own are off the content.
+    window: Option<u32>,
     stop: AtomicBool,
 }
 
@@ -564,10 +606,12 @@ pub struct CursorRecorder {
 
 impl CursorRecorder {
     /// Start sampling. `bounds_pt` = captured content in global top-left
-    /// points (x, y, w, h); `origin_ns` = timeline ns of video time 0.
-    pub fn start(bounds_pt: (f64, f64, f64, f64), clock: Arc<PauseShared>, origin_ns: i64) -> Self {
+    /// points (x, y, w, h); `window` = the recorded window of a window take;
+    /// `origin_ns` = timeline ns of video time 0.
+    pub fn start(bounds_pt: (f64, f64, f64, f64), window: Option<u32>, clock: Arc<PauseShared>, origin_ns: i64) -> Self {
         let shared = Arc::new(Shared {
             bounds: Mutex::new(bounds_pt),
+            window,
             stop: AtomicBool::new(false),
         });
         let sh = shared.clone();
@@ -688,11 +732,24 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
         };
         let bounds = *shared.bounds.lock();
         let (cx, cy, inside) = normalize_point(p.0, p.1, bounds);
+        // Window take: another app's window may cover part of the recorded one.
+        let top = match shared.window {
+            // SAFETY: own autorelease pool for the dictionary keys; nests in the tick's.
+            Some(_) if inside => objc2::rc::autoreleasepool(|_| unsafe { window_at_point(p) }),
+            _ => None,
+        };
+        let on = on_recorded_content(inside, shared.window, top);
+        // A click is judged on its own point, never smoothed: a click on
+        // another window is not a click in the recording (auto-zoom, click cues).
+        let visible = match kind {
+            Some(k) if k != Interaction::Move => on,
+            _ => vis.observe(on),
+        };
         sink.push(CursorSample {
             time_ms,
             cx,
             cy,
-            visible: Some(vis.observe(inside)),
+            visible: Some(visible),
             asset_id: asset_id.clone(),
             cursor_type: if native { cursor_type } else { None },
             interaction_type: Some(kind.unwrap_or(Interaction::Move)),
@@ -808,6 +865,18 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
 mod tests {
     use super::*;
 
+    #[test]
+    fn window_takes_judge_points_by_the_window_on_top() {
+        // Wiring of the occlusion rule (the rule itself: core::on_recorded_content).
+        let src = include_str!("cursor_macos.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(code.contains("on_recorded_content(inside, shared.window, top)"));
+        // A click is never smoothed by the visibility debounce.
+        assert!(code.contains("Some(k) if k != Interaction::Move => on,"));
+        let session = include_str!("session.rs");
+        assert!(session.contains("CursorRecorder::start(capture.content_bounds_pt(), picked.window_id,"));
+    }
+
     fn s(t: u64, kind: Interaction) -> CursorSample {
         CursorSample {
             time_ms: t,
@@ -887,7 +956,7 @@ mod tests {
     fn cursor_recorder_live() {
         let clock = Arc::new(PauseShared::new());
         let origin = clock.timeline_ns(host_now_ns());
-        let rec = CursorRecorder::start((0.0, 0.0, 1920.0, 1080.0), clock, origin);
+        let rec = CursorRecorder::start((0.0, 0.0, 1920.0, 1080.0), None, clock, origin);
         std::thread::sleep(Duration::from_secs(2));
         let (r, st) = rec.stop_with_stats();
         let avg = st.total_work.as_secs_f64() * 1000.0 / st.ticks.max(1) as f64;

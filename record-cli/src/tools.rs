@@ -18,7 +18,7 @@ pub const READ_DEADLINE: Duration = Duration::from_secs(60);
 pub const FRAMES_DEADLINE: Duration = Duration::from_secs(180);
 
 /// Op kinds of `record.edit` (Task 2's table).
-pub const EDIT_OPS: [&str; 19] = [
+pub const EDIT_OPS: [&str; 22] = [
     "zoom.add",
     "zoom.set",
     "zoom.remove",
@@ -36,6 +36,9 @@ pub const EDIT_OPS: [&str; 19] = [
     "effect.set",
     "effect.remove",
     "look.set",
+    "track.add",
+    "track.set",
+    "track.remove",
     "preset.apply",
     "rename",
 ];
@@ -200,6 +203,7 @@ Ops: zoom.add {placement, depth 1–6, focusX/focusY 0–1, hideCursor, rotation
 clip.split {atProgrammeMs | clip+sourceMs}; clip.delete {clip}; clip.move {clip, to}; clip.duplicate {clip}; clip.speed {speed 0.25–16, clip (+startMs,endMs source ms) | atProgrammeMs+durationMs}; clip.crop {clip, crop {x,y,w,h} fractions | null}; \
 annotation.add {placement, body {kind: text|image|arrow|blur, …}, x,y,w,h percent, id?}; annotation.set / annotation.remove {id}; \
 effect.add {placement, effect (built-in id e.g. vignette, grain, spotlight), values?}; effect.set / effect.remove {id}; \
+track.add {file (absolute path to MP3/M4A/AAC/WAV/FLAC; copied into the project), kind voiceover|music (default voiceover), atProgrammeMs | clip (+startMs source ms; default clip 0 start), gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}; track.set {id, gainDb?, muted?, looped?, fadeInMs?, fadeOutMs?, label?}; track.remove {id}; \
 look.set {appearance?, cursor?, output?, camera?, captions?, micGainDb?, systemGainDb?} (partial, deep-merged); preset.apply {file}; rename {title}. \
 Returns the new view and the ids of created regions.";
 
@@ -663,11 +667,27 @@ mod tests {
     fn edit_op_enum_has_every_kind_once() {
         let s = edit_schema();
         let e = s["properties"]["ops"]["items"]["properties"]["op"]["enum"].as_array().unwrap().clone();
-        assert_eq!(e.len(), 19);
         for (i, op) in e.iter().enumerate() {
             assert!(!e[i + 1..].contains(op), "{op} twice");
         }
-        assert!(e.contains(&json!("look.set")));
+        // Exactly the ops the app's `apply_one` matches on (read from its source).
+        let src = include_str!("../../core/rust-lib/src/record/control_ops.rs");
+        let body = &src[src.find("fn apply_one(").unwrap()..];
+        let body = &body[..body.find("other => return Err(bad(format!(\"unknown op").unwrap()];
+        let mut app_ops: Vec<String> = Vec::new();
+        for line in body.lines().map(str::trim) {
+            if line.starts_with('"') && line.ends_with("=> {") {
+                for part in line.trim_end_matches("=> {").split('|') {
+                    app_ops.push(part.trim().trim_matches('"').to_string());
+                }
+            }
+        }
+        let mut ours: Vec<String> = e.iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        app_ops.sort();
+        app_ops.dedup(); // nested matches name an op twice
+        ours.sort();
+        assert!(app_ops.len() > 15, "parsed {app_ops:?}");
+        assert_eq!(ours, app_ops);
     }
 
     fn check(tool: &str, args: Value) -> Result<(), String> {

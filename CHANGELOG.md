@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.240.0] — 2026-11-04
+
+### Added
+- **Sound for scripted demos.** `ir-record edit` and the MCP edit tool take three new ops: `track.add` lays an audio file (MP3, M4A, AAC, WAV or FLAC) under the programme as voiceover or music, `track.set` changes its level, fades, loop, mute or label, and `track.remove` takes it out. The file is copied into the project; if the edit fails, the copy is removed again.
+- **Switch the microphone, system sound and camera off from the command line.** `ir-record record` now has `--no-mic`, `--no-system-audio` and `--no-camera`. Before, a flag could only switch something on, and whatever was on in the app's settings was recorded anyway, the camera included.
+
+### Fixed
+- **Clicks on other windows no longer count in window recordings.** When another app's window covered part of the recorded window, clicks there were treated as clicks in the recording: auto-zoom zoomed in on them and the click effects played. A point now counts only when the recorded window is the one on top, and a click is judged on its own position instead of the smoothed pointer visibility.
+
 ## [0.239.2] — 2026-11-04
 
 ### Fixed

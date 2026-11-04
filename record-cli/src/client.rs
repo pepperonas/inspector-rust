@@ -138,11 +138,18 @@ fn default_data_dir() -> Option<PathBuf> {
 }
 
 /// Parsed `control.json`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Discovery {
     pub pid: u32,
     pub socket: PathBuf,
     pub token: String,
+}
+
+/// Never prints the token.
+impl std::fmt::Debug for Discovery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Discovery").field("pid", &self.pid).field("socket", &self.socket).field("token", &"<redacted>").finish()
+    }
 }
 
 /// Pure: parse the discovery file's contents.

@@ -600,8 +600,16 @@ let edDoc: EdDoc = {
     show: true, autoHide: false, theme: "default", custom: null, size: 3.6, smoothing: 0.3, motionBlur: 0.35,
     clickBounce: 1, clickImpact: false, clickSound: false, clickSoundGainDb: 0, model3d: false,
   },
-  zooms: [],
+  // Stage 7: one invented zoom with the screen turned left (3D camera).
+  zooms: [
+    {
+      id: "zoom-tilt", clip: 0, startMs: 2_000, endMs: 6_500, depth: 3, customScale: null, focusX: 0.5, focusY: 0.5,
+      focusMode: "auto", origin: "manual", hideCursor: false, rotation: "left",
+    },
+  ],
   autoZoomDone: true,
+  // Stage 7: one invented vignette over part of the second clip.
+  effects: [{ id: "fx-vignette", clip: 1, startMs: 11_500, endMs: 13_800, effect: "vignette", values: { strength: 0.5 } }],
   // Invented annotations, one of each kind (stage 4): a title, an arrow, a blur over an
   // "e-mail address", and an image waiting for its file.
   annotations: [
@@ -710,6 +718,14 @@ function edView(doc: EdDoc) {
       const off = clips[z.clip].progStartMs - doc.clips[z.clip].startMs;
       return { index, progStartMs: z.startMs + off, progEndMs: z.endMs + off };
     });
+  // Effect regions the same way (mockup only; Rust maps these in the app).
+  const effects = ((doc.effects ?? []) as { id: string; clip: number; startMs: number; endMs: number; effect: string }[])
+    .map((r, index) => ({ r, index }))
+    .filter(({ r }) => doc.clips[r.clip])
+    .map(({ r, index }) => {
+      const off = clips[r.clip].progStartMs - doc.clips[r.clip].startMs;
+      return { index, id: r.id, effect: r.effect, programmeStartMs: r.startMs + off, programmeEndMs: r.endMs + off, row: 0 };
+    });
   // Annotations the same way (mockup only; the app gets these spans from Rust).
   const annotationSpans = ((doc.annotations ?? []) as { clip: number; startMs: number; endMs: number }[])
     .map((a, index) => ({ a, index }))
@@ -778,7 +794,7 @@ function edView(doc: EdDoc) {
   const cx = cam.position ? Math.min(ow - m - cw, Math.max(m, cam.position.x * ow - cw / 2)) : ow - m - cw;
   const cy = cam.position ? Math.min(oh - m - ch, Math.max(m, cam.position.y * oh - ch / 2)) : oh - m - ch;
   const cameraRects = doc.clips.map(() => [cx / ow, cy / oh, cw / ow, ch / oh] as [number, number, number, number]);
-  return { doc, programmeMs: programme, clips, speed, zooms, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  return { doc, programmeMs: programme, clips, speed, zooms, effects, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;

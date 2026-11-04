@@ -11,6 +11,7 @@ import type {
   RecordLayoutPreset,
   RecordWallpaperMotion,
   RecordZoomRegion,
+  RecordZoomRotation,
 } from "../../lib/ipc";
 import {
   BOUNCE_LEVELS,
@@ -20,6 +21,7 @@ import {
   motionAllowed,
   removeAutoZooms,
   removeZoom,
+  setZoomRotation,
   setAppearance,
   setCursorStyle,
   updateZoom,
@@ -30,6 +32,8 @@ import { AnnotationTab } from "./AnnotationTab";
 import { AudioTab, VoiceoverPanel, type VoiceoverView } from "./AudioTab";
 import { CameraTab } from "./CameraTab";
 import { CaptionsTab } from "./CaptionsTab";
+import { EffectsTab } from "./EffectsTab";
+import { clipHasPointer } from "../../lib/effects";
 import { TranscriptTab } from "./TranscriptTab";
 import type { Transcription } from "./useTranscription";
 import { useT, type MessageKey } from "../../lib/i18n";
@@ -78,7 +82,7 @@ export interface InspectorProps {
   onVoiceoverStop?: () => void;
   onVoiceoverCancel?: () => void;
   /** Rust's spans and per-clip camera answer, for the camera tab. */
-  view?: Pick<RecordEditorView, "doc" | "layoutSpans" | "clipCameras">;
+  view?: Pick<RecordEditorView, "doc" | "layoutSpans" | "clipCameras" | "takes">;
   /** Playhead, programme ms (the camera tab's "from here"). */
   positionMs?: number;
   /** The helper can cut the camera's background out; `null` while asking. */
@@ -100,11 +104,16 @@ export interface InspectorProps {
   onSeek?: (programmeMs: number) => void;
   /** Words were selected in the transcript (other selections let go). */
   onWordsSelected?: () => void;
+  /** The effect region (`id`) selected on the timeline; brings up the effects tab. */
+  selectedEffect?: string | null;
+  onSelectEffect?: (id: string | null) => void;
+  /** A new effect region of `effectId` at the playhead (the editor maps it through Rust). */
+  onAddEffect?: (effectId: string) => void;
   /** A key asked for a tab (`n` counts the requests, so the same tab can be asked twice). */
   requestTab?: { tab: InspectorTab; n: number } | null;
 }
 
-export type InspectorTab = "background" | "frame" | "cursor" | "camera" | "zoom" | "annotation" | "audio" | "captions" | "transcript";
+export type InspectorTab = "background" | "frame" | "cursor" | "camera" | "zoom" | "annotation" | "effects" | "audio" | "captions" | "transcript";
 type Tab = InspectorTab;
 const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "background", label: "rec3.insp.tab_background" },
@@ -113,6 +122,7 @@ const TABS: { id: Tab; label: MessageKey }[] = [
   { id: "camera", label: "rec5.cam.tab" },
   { id: "zoom", label: "rec3.zoom.tab" },
   { id: "annotation", label: "rec4.ann.tab" },
+  { id: "effects", label: "record.editor.effects.tab" },
   { id: "audio", label: "rec4.audio.tab" },
   { id: "captions", label: "rec6.cap.tab" },
   { id: "transcript", label: "rec6.tr.tab" },
@@ -154,6 +164,7 @@ export function Inspector(props: InspectorProps) {
   const selectedAnnotation = props.selectedAnnotation ?? null;
   const selectedTrack = props.selectedTrack ?? null;
   const selectedLayout = props.selectedLayout ?? null;
+  const selectedEffect = props.selectedEffect ?? null;
   const [tab, setTab] = useState<Tab>(
     props.selectedZoom
       ? "zoom"
@@ -163,7 +174,9 @@ export function Inspector(props: InspectorProps) {
           ? "audio"
           : selectedLayout
             ? "camera"
-            : "background",
+            : selectedEffect
+              ? "effects"
+              : "background",
   );
   const requestTab = props.requestTab ?? null;
   // A request present at mount is honoured too: T may be what opened the column.
@@ -187,6 +200,11 @@ export function Inspector(props: InspectorProps) {
   if (selectedAnnotation !== seenAnnotation) {
     setSeenAnnotation(selectedAnnotation);
     if (selectedAnnotation) setTab("annotation");
+  }
+  const [seenEffect, setSeenEffect] = useState(selectedEffect);
+  if (selectedEffect !== seenEffect) {
+    setSeenEffect(selectedEffect);
+    if (selectedEffect) setTab("effects");
   }
   const [seenTrack, setSeenTrack] = useState(selectedTrack);
   if (selectedTrack !== seenTrack) {
@@ -260,6 +278,18 @@ export function Inspector(props: InspectorProps) {
             onImport={props.onImport}
             projectAssetUrl={props.projectAssetUrl}
             getDoc={props.getDoc}
+          />
+        )}
+        {tab === "effects" && (
+          <EffectsTab
+            doc={props.doc}
+            selected={selectedEffect}
+            onSelect={props.onSelectEffect ?? (() => undefined)}
+            onAdd={props.onAddEffect ?? (() => undefined)}
+            onCommit={props.onCommit}
+            onLive={props.onLive}
+            onLiveEnd={props.onLiveEnd}
+            clipHasPointer={(clip) => clipHasPointer(props.doc, clip, !!props.assets?.hasCursorData, props.view?.takes)}
           />
         )}
         {tab === "audio" && (
@@ -415,6 +445,16 @@ function FrameTab({ doc, onCommit, onLive, onLiveEnd }: InspectorProps) {
           ))}
         </Chips>
       </Group>
+      {doc.zooms.some((z) => !!z.rotation) && (
+        <div className="space-y-0.5">
+          <Toggle
+            label={t("record.editor.dof")}
+            checked={a.depthOfField}
+            onChange={(depthOfField) => onCommit(setAppearance(doc, { depthOfField }))}
+          />
+          <p className="text-[11px] text-[var(--color-muted)]">{t("record.editor.dof_hint")}</p>
+        </div>
+      )}
       <Group label={t("rec3.insp.aspect")}>
         <Chips>
           {ASPECTS.map((asp) => (
@@ -448,6 +488,12 @@ function CursorTab({ doc, assets, assetUrl, projectAssetUrl, onCommit, onLive, o
     <>
       <Toggle label={t("rec3.insp.cursor_show")} checked={c.show} onChange={(show) => commit({ show })} />
       <Toggle label={t("rec3.insp.cursor_autohide")} checked={c.autoHide} onChange={(autoHide) => commit({ autoHide })} />
+      <div className="space-y-0.5">
+        <Toggle label={t("record.editor.cursor.model3d")} checked={c.model3d} disabled={!c.show} onChange={(model3d) => commit({ model3d })} />
+        <p className="text-[11px] text-[var(--color-muted)]">
+          {t(c.show ? "record.editor.cursor.model3d_hint" : "record.editor.cursor.model3d_off")}
+        </p>
+      </div>
       <Group label={t("rec3.insp.cursor_style")}>
         <div className="grid grid-cols-4 gap-1.5">
           {assets.themes.map((th) => {
@@ -549,7 +595,14 @@ function CursorTab({ doc, assets, assetUrl, projectAssetUrl, onCommit, onLive, o
   );
 }
 
-function ZoomTab({ doc, assets, selectedZoom, onSelectZoom, onAutoZoom, onCommit, onLive, onLiveEnd }: InspectorProps) {
+const CAMERA3D: { id: RecordZoomRotation | null; label: MessageKey }[] = [
+  { id: null, label: "record.editor.camera3d.off" },
+  { id: "orbit", label: "record.editor.camera3d.orbit" },
+  { id: "left", label: "record.editor.camera3d.left" },
+  { id: "right", label: "record.editor.camera3d.right" },
+];
+
+function ZoomTab({ doc, assets, view, selectedZoom, onSelectZoom, onAutoZoom, onCommit, onLive, onLiveEnd }: InspectorProps) {
   const t = useT();
   const z = selectedZoom ? doc.zooms.find((x) => x.id === selectedZoom) : undefined;
   const hasData = !!assets?.hasCursorData;
@@ -611,6 +664,30 @@ function ZoomTab({ doc, assets, selectedZoom, onSelectZoom, onAutoZoom, onCommit
               </p>
             )}
           </Group>
+          {(() => {
+            const rotation = z.rotation ?? null;
+            const pointer = clipHasPointer(doc, z.clip, hasData, view?.takes);
+            // Orbit circles the pointer: without pointer data in auto focus it would hold still,
+            // so it is offered only with data or a fixed focus — a stored orbit stays visible.
+            const orbitOk = pointer || z.focusMode === "manual";
+            return (
+              <Group
+                label={t("record.editor.camera3d.title")}
+                hint={rotation === "orbit" && !orbitOk ? t("record.editor.camera3d.orbit_still") : t("record.editor.camera3d.hint")}
+              >
+                <Chips>
+                  {CAMERA3D.filter((c) => c.id !== "orbit" || orbitOk || rotation === "orbit").map((c) => (
+                    <Chip
+                      key={c.id ?? "off"}
+                      label={t(c.label)}
+                      active={rotation === c.id}
+                      onClick={() => onCommit(updateZoom(setZoomRotation(doc, z.id, c.id), z.id, { origin: "manual" }))}
+                    />
+                  ))}
+                </Chips>
+              </Group>
+            );
+          })()}
           <Toggle label={t("rec3.zoom.hide_cursor")} checked={z.hideCursor} onChange={(hideCursor) => onCommit(patch(z, { hideCursor }))} />
           <button
             type="button"

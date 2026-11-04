@@ -1,5 +1,5 @@
 import catalogue from "../../../rust-lib/assets/record/effects/params.json";
-import type { RecordEffectValue } from "./ipc";
+import type { RecordEditDoc, RecordEffectValue, RecordTakeMeta } from "./ipc";
 
 /**
  * The shader-effect catalogue for the UI. The single declaration lives in
@@ -41,4 +41,23 @@ export function coerceEffectValue(param: EffectParam, value: RecordEffectValue):
   }
   if (param.type === "toggle") return typeof value === "boolean" ? value : undefined;
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value.toLowerCase() : undefined;
+}
+
+/** Length of an effect added from the Effects tab (source ms, clipped to the clip). */
+export const EFFECT_ADD_MS = 2_000;
+
+/**
+ * Whether `clip` has recorded pointer data: an inserted take answers with its own meta
+ * (`takes[source].hasCursor`, Rust's `take_metas`), the project's own take with
+ * `EditorAssets.hasCursorData` — the same two sources the editor already reads.
+ */
+export function clipHasPointer(
+  doc: RecordEditDoc,
+  clip: number,
+  ownHasCursor: boolean,
+  takes: Record<string, RecordTakeMeta> | undefined,
+): boolean {
+  const c = doc.clips[clip];
+  if (!c) return false;
+  return c.source ? !!takes?.[c.source]?.hasCursor : ownHasCursor;
 }

@@ -745,3 +745,76 @@ describe("Timeline layout lane", () => {
     expect((second.onChange.mock.calls[0][0] as RecordEditDoc).layoutRegions[0]).toMatchObject({ clip: 1, startMs: 6_090 });
   });
 });
+
+describe("Timeline effects lane", () => {
+  /** Clip 0 = programme 0–5 s (source 0–5 s), clip 1 = 5–10 s (source 6–11 s). */
+  function setupEffects(effects: NonNullable<RecordEditDoc["effects"]>, over: { selectedEffect?: string | null } = {}) {
+    const doc = { ...doc0(), effects };
+    const base = view0(doc);
+    const spans = effects.map((r, index) => {
+      const off = r.clip === 0 ? 0 : -1_000;
+      return { index, id: r.id, effect: r.effect, programmeStartMs: r.startMs + off, programmeEndMs: r.endMs + off, row: 0 };
+    });
+    const onChange = vi.fn();
+    const onSelectEffect = vi.fn();
+    render(
+      <Timeline
+        view={{ ...base, effects: spans }}
+        thumbs={[]}
+        positionMs={0}
+        durationMs={11_000}
+        selectedClip={null}
+        onSelect={() => undefined}
+        onSeek={() => undefined}
+        getDoc={() => doc}
+        onChange={onChange}
+        onError={() => undefined}
+        onSpeedValue={() => undefined}
+        onSpeedRemove={() => undefined}
+        onWidth={() => undefined}
+        selectedEffect={over.selectedEffect ?? null}
+        onSelectEffect={onSelectEffect}
+      />,
+    );
+    return { onChange, onSelectEffect };
+  }
+  const fx = (id: string, clip: number, startMs: number, endMs: number, effect = "vignette") => ({ id, clip, startMs, endMs, effect, values: {} });
+
+  it("the lane is hidden without effects", () => {
+    setupEffects([]);
+    expect(screen.queryByTestId("ed-effects-track")).toBeNull();
+  });
+
+  it("draws a block per Rust span, named after the effect; a click selects it", () => {
+    const { onSelectEffect } = setupEffects([fx("a", 0, 1_000, 2_000), fx("b", 1, 7_000, 9_000, "grain")]);
+    const blocks = screen.getAllByTestId("ed-effect");
+    expect(blocks.map((b) => [b.style.left, b.style.width, b.textContent])).toEqual([
+      ["100px", "100px", "Vignette"],
+      ["600px", "200px", "Film grain"],
+    ]);
+    fireEvent.pointerDown(blocks[1], { clientX: 610, pointerId: 1 });
+    fireEvent.pointerUp(blocks[1], { clientX: 610, pointerId: 1 });
+    expect(onSelectEffect).toHaveBeenCalledWith("b");
+  });
+
+  it("a drag snaps onto a clip edge and moves the region in source ms of its clip", async () => {
+    // Effect 1–2 s of clip 0; end lands 7 px from the clip end (5 s) → snaps.
+    const { onChange } = setupEffects([fx("a", 0, 1_000, 2_000)]);
+    const block = screen.getByTestId("ed-effect");
+    fireEvent.pointerDown(block, { clientX: 150, pointerId: 1 });
+    fireEvent.pointerMove(block, { clientX: 443, pointerId: 1 });
+    expect(screen.getByTestId("ed-snap-guide").style.left).toBe("500px");
+    fireEvent.pointerUp(block, { clientX: 443, pointerId: 1 });
+    await flush();
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).effects?.[0]).toMatchObject({ clip: 0, startMs: 4_000, endMs: 5_000 });
+  });
+
+  it("Delete removes the selected effect", () => {
+    const { onChange, onSelectEffect } = setupEffects([fx("a", 0, 1_000, 2_000)], { selectedEffect: "a" });
+    const ev = new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect((onChange.mock.calls[0][0] as RecordEditDoc).effects).toEqual([]);
+    expect(onSelectEffect).toHaveBeenCalledWith(null);
+  });
+});

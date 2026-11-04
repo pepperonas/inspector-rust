@@ -212,6 +212,53 @@ describe("Inspector", () => {
     expect(next.camera.preset).toBe("picture-in-picture");
   });
 
+  it("the 3D cursor is a switch, off while the pointer is hidden", () => {
+    const { props } = mount();
+    fireEvent.click(screen.getByRole("tab", { name: "Pointer" }));
+    const sw = screen.getByRole("checkbox", { name: "3D cursor" }) as HTMLInputElement;
+    expect(sw.disabled).toBe(false);
+    fireEvent.click(sw);
+    expect(((props.onCommit as ReturnType<typeof vi.fn>).mock.calls[0][0] as RecordEditDoc).cursor.model3d).toBe(true);
+    cleanup();
+    const hidden = doc0();
+    mount({ doc: { ...hidden, cursor: { ...hidden.cursor, show: false } } });
+    fireEvent.click(screen.getByRole("tab", { name: "Pointer" }));
+    expect((screen.getByRole("checkbox", { name: "3D cursor" }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("depth of field appears in the frame tab only with a tilted zoom", () => {
+    const flat = { id: "a", clip: 0, startMs: 0, endMs: 2_000, depth: 3, customScale: null, focusX: 0.5, focusY: 0.5, focusMode: "auto" as const, origin: "manual" as const, hideCursor: false };
+    mount({ doc: { ...doc0(), zooms: [flat] } });
+    fireEvent.click(screen.getByRole("tab", { name: "Frame" }));
+    expect(screen.queryByRole("checkbox", { name: "Depth of field" })).toBeNull();
+    cleanup();
+    const { props } = mount({ doc: { ...doc0(), zooms: [{ ...flat, rotation: "left" as const }] } });
+    fireEvent.click(screen.getByRole("tab", { name: "Frame" }));
+    const dof = screen.getByRole("checkbox", { name: "Depth of field" }) as HTMLInputElement;
+    expect(dof.checked).toBe(true);
+    fireEvent.click(dof);
+    expect(((props.onCommit as ReturnType<typeof vi.fn>).mock.calls[0][0] as RecordEditDoc).appearance.depthOfField).toBe(false);
+  });
+
+  it("the frame picker offers every device frame and both frame colours", () => {
+    mount();
+    fireEvent.click(screen.getByRole("tab", { name: "Frame" }));
+    for (const n of ["None", "Window", "Laptop", "Phone", "Monitor", "Light", "Dark"]) expect(screen.getByRole("button", { name: n }), n).toBeTruthy();
+  });
+
+  it("selecting an effect brings up the effects tab; adding goes to the editor", () => {
+    const fx = { id: "fx", clip: 0, startMs: 0, endMs: 2_000, effect: "vignette", values: {} };
+    const onAddEffect = vi.fn();
+    const { props, rerender } = mount({ doc: { ...doc0(), effects: [fx] }, onAddEffect });
+    expect(screen.getByRole("tab", { name: "Effects" }).getAttribute("aria-selected")).toBe("false");
+    rerender(<Inspector {...props} selectedEffect="fx" />);
+    expect(screen.getByRole("tab", { name: "Effects" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("slider", { name: "Strength" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add effect" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Film grain/ }));
+    expect(onAddEffect).toHaveBeenCalledWith("grain");
+  });
+
   describe("zoom tab", () => {
     const z = (id: string, origin: "auto" | "manual", over: Partial<RecordEditDoc["zooms"][number]> = {}) => ({
       id,
@@ -280,6 +327,47 @@ describe("Inspector", () => {
       fireEvent.click(screen.getByRole("button", { name: "Auto-zoom" }));
       expect(m.props.onAutoZoom).toHaveBeenCalledTimes(1);
       void props;
+    });
+
+    it("the 3D camera row sets the rotation; Off clears it; the zoom becomes manual", () => {
+      const { props } = mount({ doc: withZooms(z("a", "auto")), selectedZoom: "a" });
+      for (const n of ["Off", "Orbit", "Turned left", "Turned right"]) expect(screen.getByRole("button", { name: n })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Off" }).getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Turned left" }));
+      fireEvent.click(screen.getByRole("button", { name: "Orbit" }));
+      const c = committed(props);
+      expect(c[0].zooms[0]).toMatchObject({ rotation: "left", origin: "manual" });
+      expect(c[1].zooms[0].rotation).toBe("orbit");
+      cleanup();
+      const m = mount({ doc: withZooms(z("a", "manual", { rotation: "right" })), selectedZoom: "a" });
+      expect(screen.getByRole("button", { name: "Turned right" }).getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(screen.getByRole("button", { name: "Off" }));
+      expect(committed(m.props)[0].zooms[0].rotation ?? null).toBeNull();
+    });
+
+    it("Orbit is not offered without pointer data in auto focus; a fixed focus or a stored orbit keeps it", () => {
+      mount({ assets: assets(false), doc: withZooms(z("a", "manual")), selectedZoom: "a" });
+      expect(screen.queryByRole("button", { name: "Orbit" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Turned left" })).toBeTruthy();
+      cleanup();
+      mount({ assets: assets(false), doc: withZooms(z("a", "manual", { focusMode: "manual" })), selectedZoom: "a" });
+      expect(screen.getByRole("button", { name: "Orbit" })).toBeTruthy();
+      cleanup();
+      mount({ assets: assets(false), doc: withZooms(z("a", "manual", { rotation: "orbit" })), selectedZoom: "a" });
+      expect(screen.getByRole("button", { name: "Orbit" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByText(/the camera holds still/)).toBeTruthy();
+    });
+
+    it("pointer data is per clip: an inserted take without pointer data hides Orbit", () => {
+      const base = withZooms(z("a", "manual", { clip: 1 }));
+      const d = { ...base, clips: [...base.clips, { startMs: 0, endMs: 4_000, source: "t2" }], crop: [null, null] };
+      const take = { durationMs: 4_000, width: 1920, height: 1080, systemAudio: false, hasMic: false, micOffsetMs: 0, hasCursor: false };
+      const view = { doc: d, layoutSpans: [], clipCameras: [false, false], takes: { t2: take } };
+      mount({ doc: d, view, selectedZoom: "a" });
+      expect(screen.queryByRole("button", { name: "Orbit" })).toBeNull();
+      cleanup();
+      mount({ doc: d, view: { ...view, takes: { t2: { ...take, hasCursor: true } } }, selectedZoom: "a" });
+      expect(screen.getByRole("button", { name: "Orbit" })).toBeTruthy();
     });
 
     it("removing auto-zooms keeps the manual ones", () => {

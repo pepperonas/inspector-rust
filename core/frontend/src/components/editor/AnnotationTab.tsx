@@ -21,7 +21,7 @@ import {
   type AnnotationBodyPatch,
 } from "../../lib/editor";
 import { useT, type MessageKey } from "../../lib/i18n";
-import { Chip, Chips, Group, RangeSlider, chipClass } from "./InspectorParts";
+import { Chip, Chips, ColorRow, Group, RangeSlider, chipClass } from "./InspectorParts";
 import { useBindings, useKeyLabel } from "./bindings-context";
 
 /** The CSS family the editor registers each bundled annotation font under. */
@@ -366,22 +366,5 @@ function AnnotationSettings({ doc, a, onSelect, onCommit, onLive, onLiveEnd, onI
         {t("rec4.ann.delete")}
       </button>
     </div>
-  );
-}
-
-/** A colour picker: moves live while picking, one undo step when left. */
-function ColorRow({ label, value, onLive, onEnd }: { label: string; value: string; onLive: (hex: string) => void; onEnd: () => void }) {
-  return (
-    <label className="flex items-center justify-between gap-2 text-[12px]">
-      {label}
-      <input
-        type="color"
-        value={value}
-        aria-label={label}
-        onChange={(e) => onLive(e.target.value)}
-        onBlur={onEnd}
-        className="h-7 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
-      />
-    </label>
   );
 }

@@ -70,6 +70,7 @@ import {
   MAX_MIC_DB,
   MIN_MIC_DB,
   addAnnotation,
+  addEffect,
   addLayoutRegion,
   addSpeed,
   addTrack,
@@ -96,6 +97,7 @@ import {
   type CropPreset,
 } from "../lib/editor";
 import { tn, useT, type MessageKey } from "../lib/i18n";
+import { EFFECT_ADD_MS } from "../lib/effects";
 import { Preview } from "./editor/Preview";
 import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
@@ -225,6 +227,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const selectedAnnotation = selection?.kind === "annotation" ? selection.id : null;
   const selectedTrack = selection?.kind === "track" ? selection.id : null;
   const selectedLayout = selection?.kind === "layout" ? selection.id : null;
+  const selectedEffect = selection?.kind === "effect" ? selection.id : null;
   const setSelected = useCallback(
     (index: number | null) => setSelection((cur) => (index != null ? { kind: "clip", index } : cur?.kind === "clip" ? null : cur)),
     [],
@@ -239,6 +242,10 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   );
   const setSelectedTrack = useCallback(
     (id: string | null) => setSelection((cur) => (id ? { kind: "track", id } : cur?.kind === "track" ? null : cur)),
+    [],
+  );
+  const setSelectedEffect = useCallback(
+    (id: string | null) => setSelection((cur) => (id ? { kind: "effect", id } : cur?.kind === "effect" ? null : cur)),
     [],
   );
   const setSelectedLayout = useCallback(
@@ -626,6 +633,21 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       setSelectedLayout(next.layoutRegions[next.layoutRegions.length - 1].id);
     },
     [commit, sourceHere, cur, setSelectedLayout],
+  );
+
+  /** An effect from the effects tab at the playhead: 2 s, clipped to the clip (Rust maps). */
+  const addEffectHere = useCallback(
+    async (effectId: string) => {
+      const at = await sourceHere();
+      const doc = cur();
+      if (!at || !doc) return;
+      const next = addEffect(doc, at.clip, at.sourceMs, at.sourceMs + EFFECT_ADD_MS, effectId);
+      const made = next.effects?.[next.effects.length - 1];
+      if (next === doc || !made) return;
+      commit(next);
+      setSelectedEffect(made.id);
+    },
+    [commit, sourceHere, cur, setSelectedEffect],
   );
 
   const addAnnotationHere = useCallback(
@@ -1337,6 +1359,9 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             cameraSrc={cameraSrc}
             onAddLayoutRegion={(preset) => void addLayoutHere(preset)}
             selectedLayout={selectedLayout}
+            selectedEffect={selectedEffect}
+            onSelectEffect={setSelectedEffect}
+            onAddEffect={(id) => void addEffectHere(id)}
             transcription={transcription}
             outputAspect={ratio}
             cue={cue.source}
@@ -1464,6 +1489,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           selectedLayout={selectedLayout}
           onSelectLayout={setSelectedLayout}
           onLayoutAdded={layoutAdded}
+          selectedEffect={selectedEffect}
+          onSelectEffect={setSelectedEffect}
         />
       </div>
 

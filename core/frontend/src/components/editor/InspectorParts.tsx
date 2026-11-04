@@ -155,6 +155,23 @@ export function Slider({
   return <RangeSlider {...rest} min={r.min} max={r.max} step={r.step} onLive={(v) => onLive(clampSetting(setting, v))} />;
 }
 
+/** A colour picker: moves live while picking, one undo step when left. */
+export function ColorRow({ label, value, onLive, onEnd }: { label: string; value: string; onLive: (hex: string) => void; onEnd: () => void }) {
+  return (
+    <label className="flex items-center justify-between gap-2 text-[12px]">
+      {label}
+      <input
+        type="color"
+        value={value}
+        aria-label={label}
+        onChange={(e) => onLive(e.target.value)}
+        onBlur={onEnd}
+        className="h-7 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
+      />
+    </label>
+  );
+}
+
 const sameBg = (a: RecordBackground, b: RecordBackground) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Wallpapers, gradients, colours and an own image: the background picker of the background

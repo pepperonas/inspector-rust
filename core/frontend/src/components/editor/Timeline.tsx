@@ -15,6 +15,8 @@ import {
   MIN_SPEED,
   SPEED_STEPS,
   addZoom,
+  deleteEffect,
+  moveEffect,
   clipDropGap,
   clipMoveTarget,
   fmtZoom,
@@ -36,6 +38,7 @@ import { AudioLane, LaneHint, WaveLayer, type ResolveTrackEdge } from "./AudioLa
 import { useKeyLabel } from "./bindings-context";
 import { DEFAULT_BINDINGS, matchAction, type Binding, type Bindings } from "../../lib/editor-shortcuts";
 import { PRESET_LABEL, hasAnyCamera, layoutStartProg, moveLayoutRegion, presetAt } from "../../lib/camera-layout";
+import { effectName } from "./EffectsTab";
 
 /** Kind colour of an annotation block (the zoom track is violet, the speed band amber/sky). */
 const ANN_COLOR: Record<RecordAnnotationKind, string> = {
@@ -71,7 +74,7 @@ type Drag =
   | {
       kind: "zoom";
       /** Which lane the block lives on: both share the region geometry. */
-      lane: "zoom" | "annotation";
+      lane: "zoom" | "annotation" | "effect";
       id: string;
       mode: "move" | "start" | "end";
       x0: number;
@@ -128,6 +131,8 @@ export function Timeline({
   selectedLayout = null,
   onSelectLayout = () => undefined,
   onLayoutAdded = () => undefined,
+  selectedEffect = null,
+  onSelectEffect = () => undefined,
 }: {
   view: RecordEditorView;
   thumbs: string[];
@@ -168,6 +173,9 @@ export function Timeline({
   onSelectLayout?: (id: string | null) => void;
   /** The layout key made a region (the editor brings up its settings). */
   onLayoutAdded?: (id: string) => void;
+  /** The effect region (`id`) the effects tab edits. */
+  selectedEffect?: string | null;
+  onSelectEffect?: (id: string | null) => void;
 }) {
   const t = useT();
   const keyLabel = useKeyLabel();
@@ -191,6 +199,8 @@ export function Timeline({
   const snapping: Snapping = { targets: snapTargets(view), pxPerMs: scale };
   const selection: Selection = selectedLayout
     ? { kind: "layout", id: selectedLayout }
+    : selectedEffect
+    ? { kind: "effect", id: selectedEffect }
     : selectedZoom
     ? { kind: "zoom", id: selectedZoom }
     : selectedAnnotation
@@ -217,9 +227,10 @@ export function Timeline({
   const annotationSpans = view.annotationSpans ?? [];
   const camera = hasAnyCamera(view);
   const layoutSpans = view.layoutSpans ?? [];
-  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view });
+  const effectSpans = view.effects ?? [];
+  const live = useRef({ positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view, selectedEffect, onSelectEffect });
   useEffect(() => {
-    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view };
+    live.current = { positionMs, selectedZoom, getDoc, onChange, onSelectZoom, selectedAnnotation, onSelectAnnotation, annotationSpans, selectedTrack, onSelectTrack, selection, onError, total, bindings, selectedLayout, onSelectLayout, onLayoutAdded, camera, view, selectedEffect, onSelectEffect };
   });
   useEffect(() => {
     if (!keysEnabled || locked) return;
@@ -231,6 +242,7 @@ export function Timeline({
       if (s?.kind === "zoom") cur.onSelectZoom(s.id);
       else if (s?.kind === "annotation") cur.onSelectAnnotation(s.id);
       else if (s?.kind === "track") cur.onSelectTrack(s.id);
+      else if (s?.kind === "effect") cur.onSelectEffect(s.id);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || isTypingTarget(e.target)) return;
@@ -265,6 +277,7 @@ export function Timeline({
         cur.onSelectZoom(null);
         cur.onSelectAnnotation(null);
         cur.onSelectTrack(null);
+        cur.onSelectEffect(null);
       } else if (action === "paste" && clipboard.current) {
         e.preventDefault();
         const data = clipboard.current;
@@ -336,6 +349,10 @@ export function Timeline({
           e.preventDefault();
           cur.onChange(removeLayoutRegion(cur.getDoc(), cur.selectedLayout));
           cur.onSelectLayout(null);
+        } else if (cur.selectedEffect) {
+          e.preventDefault();
+          cur.onChange(deleteEffect(cur.getDoc(), cur.selectedEffect));
+          cur.onSelectEffect(null);
         } else if (cur.selectedTrack) {
           e.preventDefault();
           cur.onChange(removeTrack(cur.getDoc(), cur.selectedTrack));
@@ -434,7 +451,12 @@ export function Timeline({
   /** Commits a zoom or annotation drag: programme edges → source through Rust, inside its clip. */
   const commitZoom = async (d: Extract<Drag, { kind: "zoom" }>) => {
     const doc = getDoc();
-    const z = d.lane === "zoom" ? doc.zooms.find((x) => x.id === d.id) : doc.annotations.find((x) => x.id === d.id);
+    const z =
+      d.lane === "zoom"
+        ? doc.zooms.find((x) => x.id === d.id)
+        : d.lane === "effect"
+          ? (doc.effects ?? []).find((x) => x.id === d.id)
+          : doc.annotations.find((x) => x.id === d.id);
     const c = z ? doc.clips[z.clip] : undefined;
     if (!z || !c) return;
     const target = zoomPreview(d);
@@ -449,6 +471,7 @@ export function Timeline({
     else endMs = await at(target.progEndMs);
     if (startMs === z.startMs && endMs === z.endMs) return;
     if (d.lane === "annotation") onChange(updateAnnotation(getDoc(), d.id, { startMs, endMs }));
+    else if (d.lane === "effect") onChange(moveEffect(getDoc(), d.id, z.clip, startMs, endMs));
     // A planned zoom the user moved or trimmed is theirs now: "Remove auto-zooms" keeps it.
     else onChange(updateZoom(getDoc(), d.id, { startMs, endMs, origin: "manual" }));
   };
@@ -829,6 +852,56 @@ export function Timeline({
             );
           })}
         </div>
+
+        {/* Effects lane (only when the project has effects): a block per Rust programme span. */}
+        {effectSpans.length > 0 && (
+          <div className="relative mt-1 h-5" data-testid="ed-effects-track" aria-label={t("record.editor.effects.lane")}>
+            {effectSpans.map((span) => {
+              const r = doc.effects?.[span.index];
+              const clipSpan = r ? view.clips[r.clip] : undefined;
+              if (!r || !clipSpan) return null;
+              const geo = { progStartMs: span.programmeStartMs, progEndMs: span.programmeEndMs };
+              const d = drag?.kind === "zoom" && drag.lane === "effect" && drag.id === r.id ? drag : null;
+              const g = d ? zoomPreview(d) : geo;
+              const sel = selectedEffect === r.id;
+              const name = effectName(t, r.effect);
+              const start = (mode: "move" | "start" | "end") => (e: ReactPointerEvent) => {
+                e.stopPropagation();
+                capture(e);
+                onSelectEffect(r.id);
+                setDrag({ kind: "zoom", lane: "effect", id: r.id, mode, x0: e.clientX, dx: 0, span: geo, clipSpan });
+              };
+              return (
+                <div
+                  key={r.id}
+                  data-testid="ed-effect"
+                  data-effect={r.effect}
+                  aria-selected={sel}
+                  title={name}
+                  onPointerDown={start("move")}
+                  className={
+                    "absolute top-0 flex h-full cursor-grab items-center overflow-hidden rounded-sm border border-rose-500 bg-rose-600/90 px-1.5 text-[10px] font-medium text-white" +
+                    (sel ? " ring-2 ring-[var(--color-accent)]" : "")
+                  }
+                  style={{ left: g.progStartMs * scale, width: Math.max(10, (g.progEndMs - g.progStartMs) * scale) }}
+                >
+                  <span className="truncate">{name}</span>
+                  {(["start", "end"] as const).map((edge) => (
+                    <span
+                      key={edge}
+                      aria-label={edge === "start" ? t("record.editor.effects.trim_start") : t("record.editor.effects.trim_end")}
+                      onPointerDown={start(edge)}
+                      className={
+                        "absolute top-0 h-full w-1.5 cursor-ew-resize bg-white/60 opacity-0 transition-opacity duration-(--duration-fast) ease-sharp hover:opacity-100 " +
+                        (edge === "start" ? "left-0" : "right-0")
+                      }
+                    />
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Layout lane (under the zoom track, only with a camera): a block per layout change from
             Rust's programme spans; dragging a block moves where it starts. */}

@@ -285,6 +285,22 @@ mod tests {
         p.exists().then(|| Engine::load(&p).unwrap())
     }
 
+    /// What a reload after an idle unload costs: `cargo test --release -p transcribe-core
+    /// --lib reload_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs the installed model"]
+    fn reload_cost() {
+        for round in 1..=3 {
+            let t = std::time::Instant::now();
+            let Some(e) = model() else { return eprintln!("no model") };
+            let load = t.elapsed();
+            let mut tr = WhisperTranscriber::new(std::sync::Arc::new(e));
+            let t = std::time::Instant::now();
+            let _ = crate::pipeline::Transcriber::decode(&mut tr, crate::protocol::Source::Mic, &vec![0.01f32; 16_000 * 2], &opts(JobKind::Final, Lang::De));
+            eprintln!("round {round}: load {load:?}, first decode {:?}", t.elapsed());
+        }
+    }
+
     fn opts(kind: JobKind, lang: Lang) -> DecodeOpts {
         DecodeOpts { kind, lang, last_lang: None, prompt: String::new(), threads: 4 }
     }

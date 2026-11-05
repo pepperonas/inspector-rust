@@ -85,3 +85,10 @@ describe("TranscribeTicker controls", () => {
     vi.useRealTimers();
   });
 });
+
+describe("TranscribeTicker — transform writes", () => {
+  it("writes the transform only when it moved, and again for a newly mounted strip", async () => {
+    const src = (await import("./TranscribeTicker.tsx?raw")).default as string;
+    expect(src).toContain("if (offset.current !== written || strip !== writtenOn) {");
+  });
+});

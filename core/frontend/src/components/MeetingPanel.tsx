@@ -73,12 +73,21 @@ export function MeetingPanel({ focused, runSignal, onExit }: Props) {
   // The ticker's own buttons, the tray and the hotkey change the config too.
   useTauriEvent<MeetingConfig>("meeting-config-changed", (e) => setCfg(e.payload));
 
+  // "meeting-changed" arrives ~10×/s during a meeting and once per MB of a model
+  // download: re-read the session list and the model status only when they can have
+  // changed — a meeting just ended, a download just finished.
+  const prevRef = useRef<MeetingState | null>(null);
   useTauriEvent<MeetingState>("meeting-changed", (e) => {
-    setState(e.payload);
-    if (!e.payload.running && !e.payload.starting) {
+    const prev = prevRef.current;
+    const next = e.payload;
+    prevRef.current = next;
+    setState(next);
+    if (!!prev && (prev.running || prev.starting) && !next.running && !next.starting) {
       void meetingSessions().then(setSessions).catch(() => {});
     }
-    if (e.payload.download === null) void meetingModelStatus().then(setModels).catch(() => {});
+    if (prev?.download != null && next.download == null) {
+      void meetingModelStatus().then(setModels).catch(() => {});
+    }
   });
 
   const running = !!state?.running;

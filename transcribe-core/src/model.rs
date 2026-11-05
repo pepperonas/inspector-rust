@@ -34,12 +34,29 @@ pub fn download(m: &ModelInfo, cancel: &AtomicBool, progress: impl FnMut(u64, u6
     download_from(&format!("{BASE_URL}{}", m.file), m, &models_dir(), cancel, progress)
 }
 
+/// Connecting may take this long; a connection that sends nothing for READ_TIMEOUT
+/// is given up (without it a stalled transfer blocked forever and Cancel had no effect).
+pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+pub const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub fn download_from(
     url: &str,
     m: &ModelInfo,
     dir: &Path,
     cancel: &AtomicBool,
+    progress: impl FnMut(u64, u64),
+) -> Result<PathBuf, String> {
+    download_with_timeouts(url, m, dir, cancel, progress, CONNECT_TIMEOUT, READ_TIMEOUT)
+}
+
+fn download_with_timeouts(
+    url: &str,
+    m: &ModelInfo,
+    dir: &Path,
+    cancel: &AtomicBool,
     mut progress: impl FnMut(u64, u64),
+    connect: std::time::Duration,
+    read: std::time::Duration,
 ) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let target = dir.join(m.file);
@@ -48,7 +65,8 @@ pub fn download_from(
     }
     let part = dir.join(format!("{}.part", m.file));
     let result = (|| {
-        let resp = ureq::get(url).call().map_err(|e| format!("download: {e}"))?;
+        let agent = ureq::AgentBuilder::new().timeout_connect(connect).timeout_read(read).build();
+        let resp = agent.get(url).call().map_err(|e| format!("download: {e}"))?;
         let mut reader = resp.into_reader();
         let mut out = fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
         let mut hasher = Sha256::new();
@@ -180,6 +198,34 @@ mod tests {
         let r = download_from(&serve(body), &info, dir.path(), &AtomicBool::new(true), |_, _| {});
         assert_eq!(r, Err(ERR_CANCELLED.to_string()));
         assert!(!dir.path().join("t.bin").exists());
+    }
+
+    #[test]
+    fn a_stalled_server_is_given_up() {
+        // Accepts, reads the request and then sends nothing.
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            if let Ok((s, _)) = l.accept() {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                drop(s);
+            }
+        });
+        let info = leak_info(b"x", sha256_hex(b"x"));
+        let dir = tempfile::tempdir().unwrap();
+        let t = std::time::Instant::now();
+        let r = download_with_timeouts(
+            &format!("http://{addr}/m.bin"),
+            &info,
+            dir.path(),
+            &AtomicBool::new(false),
+            |_, _| {},
+            std::time::Duration::from_secs(2),
+            std::time::Duration::from_millis(300),
+        );
+        assert!(r.is_err(), "{r:?}");
+        assert!(t.elapsed() < std::time::Duration::from_secs(3), "gave up after the read timeout: {:?}", t.elapsed());
+        assert!(!dir.path().join("t.bin.part").exists());
     }
 
     #[test]

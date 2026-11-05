@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.242.0] — 2026-11-05
+
+### Changed
+- **The speech model is freed after 10 minutes without transcription.** It held 1–2 GB until the app quit. The next dictation, meeting or file loads it again in about a third of a second. Caption transcription no longer keeps the live model next to its own.
+- **Less background work:** the meeting panel re-reads its session list only when a meeting ends and the model list only when a download finishes; `ir-record list` no longer loads thumbnails it doesn't send; window recordings check which window is on top at most every 150 ms for pointer moves (clicks are still checked every time); the cleaner resolves its folders once per run instead of once per file; the live ticker no longer rewrites its position when it stands still.
+
+### Fixed
+- **Model downloads no longer hang forever on a stalled connection** (20 s to connect, 60 s without data), and a second download request no longer interferes with one already running.
+- **Two files transcribed straight after each other could be refused as busy** for a moment after the first finished.
+- **Volume keys stopped changing boom's volume curve after the audio system restarted** (for example after installing the boom driver).
+
 ## [0.241.0] — 2026-11-05
 
 ### Fixed

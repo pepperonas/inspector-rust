@@ -425,9 +425,19 @@ pub fn mark_interrupted(root: &Path) {
 
 /// List projects, marking (and not degrading) the one being recorded now.
 pub fn list_items(root: &Path, active: Option<&Path>, open_in_editor: Option<&Path>) -> Vec<ProjectListItem> {
+    list_items_with(root, active, open_in_editor, true)
+}
+
+/// [`list_items`]; `thumbs = false` leaves the thumbnails out (not read at all).
+pub fn list_items_with(
+    root: &Path,
+    active: Option<&Path>,
+    open_in_editor: Option<&Path>,
+    thumbs: bool,
+) -> Vec<ProjectListItem> {
     let active = active.and_then(|a| std::fs::canonicalize(a).ok());
     let edited = open_in_editor.and_then(|a| std::fs::canonicalize(a).ok());
-    super::project::list_projects(root)
+    super::project::list_projects_with(root, thumbs)
         .into_iter()
         .map(|mut summary| {
             let canon = std::fs::canonicalize(&summary.dir).ok();

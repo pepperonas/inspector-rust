@@ -5,6 +5,7 @@
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
 use transcribe_core::protocol::{encode, decode_command, Command, Event, SessionConfig};
 
@@ -80,6 +81,16 @@ mod engine_side {
             self.loaded = Some((id.to_string(), e.clone()));
             Ok(e)
         }
+
+        pub fn is_loaded(&self) -> bool {
+            self.loaded.is_some()
+        }
+
+        /// Frees the model (1–2 GB). A session or job still holding the engine keeps
+        /// it alive until it ends; the next `get` loads it again (~0.3 s in this process).
+        pub fn unload(&mut self) {
+            self.loaded = None;
+        }
     }
 
     pub fn fallback_root() -> std::path::PathBuf {
@@ -138,11 +149,14 @@ mod engine_side {
                 };
                 // A panic must still end the job: `done` unset left every later
                 // Start / TranscribeFile answering "busy" until the app quit.
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into())) {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into()));
+                // Done BEFORE the final event: the app may send its next command the
+                // moment it reads FileDone, and that one must not find the job busy.
+                d2.store(true, Ordering::SeqCst);
+                match result {
                     Ok((txt, lang)) => emit(Event::FileDone { txt, lang }),
                     Err(error) => emit(Event::FileError { error }),
                 }
-                d2.store(true, Ordering::SeqCst);
             })
             .map_err(|e| e.to_string())?;
         Ok(FileJob { cancel, done })
@@ -182,23 +196,33 @@ mod engine_side {
                         e2(Event::FileProgress { done_ms: d, total_ms: t })
                     })
                 };
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into())) {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into()));
+                d2.store(true, Ordering::SeqCst); // before the final event (see transcribe_file)
+                match result {
                     Ok(r) => emit(Event::FileWords { words: r.words, lang: r.lang }),
                     Err(error) => emit(Event::FileError { error }),
                 }
-                d2.store(true, Ordering::SeqCst);
             })
             .map_err(|e| e.to_string())?;
         Ok(FileJob { cancel, done })
     }
 
-    pub fn download(id: &str, cancel: Arc<AtomicBool>, emit: Emit) {
+    /// `running` is set while this download runs and cleared when it ends.
+    pub fn download(id: &str, cancel: Arc<AtomicBool>, running: Arc<AtomicBool>, emit: Emit) {
         let Some(info) = model::find(id) else {
+            running.store(false, Ordering::SeqCst);
             emit(Event::ModelError { model: id.into(), error: model::ERR_UNKNOWN.into() });
             return;
         };
         let id = id.to_string();
         std::thread::spawn(move || {
+            struct Clear(Arc<AtomicBool>);
+            impl Drop for Clear {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::SeqCst);
+                }
+            }
+            let _clear = Clear(running);
             let e2 = emit.clone();
             let idc = id.clone();
             match model::download(info, &cancel, move |done, total| {
@@ -219,13 +243,20 @@ mod engine_side {
     }
     #[derive(Default)]
     pub struct Engines;
+    impl Engines {
+        pub fn is_loaded(&self) -> bool {
+            false
+        }
+        pub fn unload(&mut self) {}
+    }
     pub fn start(_: SessionConfig, _: &mut Engines, _: Emit) -> Result<Session, String> {
         Err("transcribe.unsupported".into())
     }
     pub fn devices() -> Vec<String> {
         Vec::new()
     }
-    pub fn download(id: &str, _: Arc<AtomicBool>, emit: Emit) {
+    pub fn download(id: &str, _: Arc<AtomicBool>, running: Arc<AtomicBool>, emit: Emit) {
+        running.store(false, Ordering::SeqCst);
         emit(Event::ModelError { model: id.into(), error: "transcribe.unsupported".into() });
     }
     pub fn transcribe_file(
@@ -264,16 +295,69 @@ fn stop_session(session: &mut Option<Session>) {
     }
 }
 
+/// Idle time after which the model is freed (no session, no file job).
+pub const IDLE_UNLOAD: Duration = Duration::from_secs(10 * 60);
+/// How often an idle helper looks at the clock.
+const IDLE_CHECK: Duration = Duration::from_secs(30);
+
+/// Free the model now? Only when loaded, nothing runs and it has been idle long enough.
+pub fn should_unload(loaded: bool, busy: bool, idle_for: Duration) -> bool {
+    loaded && !busy && idle_for >= IDLE_UNLOAD
+}
+
 /// Run until stdin closes or `Shutdown`.
-pub fn serve(input: impl BufRead, emit: Emit) {
+pub fn serve(input: impl BufRead + Send + 'static, emit: Emit) {
+    serve_with(input, emit, IDLE_CHECK)
+}
+
+fn serve_with(input: impl BufRead + Send + 'static, emit: Emit, idle_check: Duration) {
     emit(Event::Ready { version: VERSION.into() });
     let mut engines = Engines::default();
     let mut session: Option<Session> = None;
     let mut file: Option<FileJob> = None;
     let download_cancel = Arc::new(AtomicBool::new(false));
+    let downloading = Arc::new(AtomicBool::new(false));
+    // Lines arrive over a channel so an idle helper can still look at the clock
+    // and free the model (stdin alone blocks until the next command).
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::Builder::new()
+        .name("ir-transcribe-stdin".into())
+        .spawn(move || {
+            for line in input.lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+        .expect("stdin reader thread");
+    let mut last_busy = Instant::now();
 
-    for line in input.lines() {
-        let Ok(line) = line else { break };
+    // A session that stopped on its own (fatal writer error) is gone; a finished
+    // file job frees its slot. Run before the idle check AND again after a command
+    // arrived — a job may have ended while we waited for it.
+    let reap = |session: &mut Option<Session>, file: &mut Option<FileJob>| {
+        if session.as_ref().is_some_and(|s| !s.pipeline.is_running()) {
+            stop_session(session);
+        }
+        if file.as_ref().is_some_and(|f| !f.running()) {
+            *file = None;
+        }
+    };
+    loop {
+        reap(&mut session, &mut file);
+        let busy = session.is_some() || file.is_some();
+        if busy {
+            last_busy = Instant::now();
+        } else if should_unload(engines.is_loaded(), busy, last_busy.elapsed()) {
+            engines.unload();
+            eprintln!("ir-transcribe: model unloaded after {} min idle", IDLE_UNLOAD.as_secs() / 60);
+        }
+        let line = match rx.recv_timeout(idle_check) {
+            Ok(line) => line,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         if line.trim().is_empty() {
             continue;
         }
@@ -284,13 +368,7 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                 continue;
             }
         };
-        // A session that stopped on its own (fatal writer error) is gone.
-        if session.as_ref().is_some_and(|s| !s.pipeline.is_running()) {
-            stop_session(&mut session);
-        }
-        if file.as_ref().is_some_and(|f| !f.running()) {
-            file = None;
-        }
+        reap(&mut session, &mut file);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match cmd {
             Command::Start(cfg) => {
                 if session.is_some() || file.is_some() {
@@ -328,8 +406,15 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                 true
             }
             Command::DownloadModel { model } => {
+                // One download at a time: a second one used to clear the first one's
+                // cancel flag and write into the same .part file. It keeps reporting
+                // progress, so the second request is simply not needed.
+                if downloading.swap(true, Ordering::SeqCst) {
+                    eprintln!("ir-transcribe: a model download is already running");
+                    return true;
+                }
                 download_cancel.store(false, Ordering::SeqCst);
-                download(&model, download_cancel.clone(), emit.clone());
+                download(&model, download_cancel.clone(), downloading.clone(), emit.clone());
                 true
             }
             Command::CancelDownload => {
@@ -352,6 +437,9 @@ pub fn serve(input: impl BufRead, emit: Emit) {
                     emit(Event::FileError { error: ERR_BUSY.into() });
                     return true;
                 }
+                // The word job loads its own DTW context: don't hold the live model
+                // next to it (two large models at once).
+                engines.unload();
                 match transcribe_words(path, lang, &model, emit.clone()) {
                     Ok(j) => file = Some(j),
                     Err(error) => emit(Event::FileError { error }),
@@ -381,4 +469,69 @@ pub fn serve(input: impl BufRead, emit: Emit) {
         f.cancel.store(true, Ordering::SeqCst);
     }
     stop_session(&mut session);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn the_model_is_freed_only_when_loaded_idle_and_old_enough() {
+        assert!(should_unload(true, false, IDLE_UNLOAD));
+        assert!(!should_unload(true, false, IDLE_UNLOAD - Duration::from_secs(1)), "not before");
+        assert!(!should_unload(true, true, IDLE_UNLOAD * 2), "never while a session or job runs");
+        assert!(!should_unload(false, false, IDLE_UNLOAD * 2), "nothing to free");
+        assert_eq!(IDLE_UNLOAD, Duration::from_secs(600));
+    }
+
+    #[test]
+    fn a_job_that_ended_while_waiting_does_not_block_the_next_command() {
+        let src = include_str!("serve.rs");
+        let code = &src[..src.rfind("#[cfg(test)]").unwrap()];
+        let f = &code[code.find("fn serve_with(").unwrap()..];
+        let after_cmd = &f[f.find("let cmd = match decode_command").unwrap()..f.find("let outcome").unwrap()];
+        assert!(after_cmd.contains("reap(&mut session, &mut file);"), "reap again after a command arrived");
+        // Both job threads mark themselves done before their final event.
+        for ev in ["Event::FileDone", "Event::FileWords"] {
+            let at = code.find(&format!("Ok(_) => emit({ev}")).or_else(|| code.find(&format!("=> emit({ev}"))).unwrap();
+            let before = &code[..at];
+            let done = before.rfind("d2.store(true").unwrap();
+            assert!(done > before.rfind("catch_unwind").unwrap(), "{ev}: done is set before the event");
+        }
+    }
+
+    #[test]
+    fn only_one_model_download_runs_at_a_time() {
+        let src = include_str!("serve.rs");
+        let code = &src[..src.rfind("#[cfg(test)]").unwrap()];
+        let arm = &code[code.find("Command::DownloadModel { model } => {").unwrap()..];
+        let arm = &arm[..arm.find("Command::CancelDownload").unwrap()];
+        let guard = arm.find("downloading.swap(true").expect("refuses a second download");
+        assert!(guard < arm.find("download_cancel.store(false").unwrap(), "before resetting the cancel flag");
+    }
+
+    fn run(input: &'static str) -> (Vec<Event>, Duration) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let s2 = seen.clone();
+        let emit: Emit = Arc::new(move |e| s2.lock().unwrap().push(e));
+        let t = Instant::now();
+        serve_with(Cursor::new(input.as_bytes().to_vec()), emit, Duration::from_millis(20));
+        let events = seen.lock().unwrap().clone();
+        (events, t.elapsed())
+    }
+
+    #[test]
+    fn the_loop_still_ends_on_eof_and_on_shutdown_and_answers_commands() {
+        // EOF: the reader thread ends, the loop sees the closed channel.
+        let (ev, took) = run("");
+        assert!(matches!(ev.first(), Some(Event::Ready { .. })));
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        // Commands are still answered in order; Shutdown ends the loop.
+        let stop = encode(&Command::Stop);
+        let input: &'static str = Box::leak(format!("\n{stop}\nnot json\n{}\n", encode(&Command::Shutdown)).into_boxed_str());
+        let (ev, _) = run(input);
+        assert!(ev.iter().any(|e| matches!(e, Event::Stopped { session_dir: None, error: None })), "{ev:?}");
+        assert!(ev.iter().any(|e| matches!(e, Event::Error { error } if error.starts_with("bad command"))), "{ev:?}");
+    }
 }

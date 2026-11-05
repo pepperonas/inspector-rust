@@ -876,7 +876,7 @@ fn projects(app: &AppHandle, _c: &mut Call) -> Result<Value, ControlError> {
     // Through `list_items`, like the UI: the take being recorded right now is
     // `recording`, not the "interrupted" a bare `list_projects` makes of it.
     let active = tauri::Manager::try_state::<super::session::RecordState>(app).and_then(|s| s.active_dir());
-    let list: Vec<Value> = super::session::list_items(&root(app), active.as_deref(), None)
+    let list: Vec<Value> = super::session::list_items_with(&root(app), active.as_deref(), None, false)
         .into_iter()
         .map(|item| item.summary)
         .map(|p| {
@@ -1433,7 +1433,7 @@ mod tests {
         let code = &src[..src.find("#[cfg(test)]").unwrap()];
         let f = &code[code.find("fn projects(").unwrap()..];
         let f = &f[..f.find("fn project(").unwrap()];
-        assert!(f.contains("list_items(&root(app), active.as_deref(), None)"), "not bare list_projects");
+        assert!(f.contains("list_items_with(&root(app), active.as_deref(), None, false)"), "not bare list_projects, no thumbs");
     }
 
     #[test]

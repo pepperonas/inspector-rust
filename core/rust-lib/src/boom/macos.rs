@@ -1492,19 +1492,36 @@ extern "C" fn boom_volume_changed(
     0
 }
 
-static VOLUME_LISTENER_ON: AtomicBool = AtomicBool::new(false);
+/// The boom Audio device the volume listener is attached to (0 = none). A bool
+/// used to mark it "on" for the whole process: after coreaudiod restarts (driver
+/// install/uninstall does that) boom Audio gets a NEW id and the listener stayed
+/// on the dead one — volume keys stopped changing the taper.
+static VOLUME_LISTENER_DEV: AtomicU32 = AtomicU32::new(0);
+
+/// What to do for the listener when the bridge runs on `dev`: `(remove_from, add)`.
+fn volume_listener_step(attached: AudioObjectID, dev: AudioObjectID) -> (Option<AudioObjectID>, bool) {
+    if dev == 0 || attached == dev {
+        return (None, false);
+    }
+    ((attached != 0).then_some(attached), true)
+}
 
 unsafe fn add_volume_listener(boom_dev: AudioObjectID) {
     refresh_volume_gain(boom_dev);
-    if VOLUME_LISTENER_ON.swap(true, Ordering::SeqCst) {
-        return;
-    }
     let a = AudioObjectPropertyAddress {
         selector: PROP_VOLUME_SCALAR,
         scope: SCOPE_OUTPUT,
         element: ELEMENT_MAIN,
     };
-    AudioObjectAddPropertyListener(boom_dev, &a, boom_volume_changed, std::ptr::null_mut());
+    let (remove, add) = volume_listener_step(VOLUME_LISTENER_DEV.load(Ordering::SeqCst), boom_dev);
+    if let Some(old) = remove {
+        // Fails harmlessly when the old id is already gone.
+        AudioObjectRemovePropertyListener(old, &a, boom_volume_changed, std::ptr::null_mut());
+    }
+    if add {
+        AudioObjectAddPropertyListener(boom_dev, &a, boom_volume_changed, std::ptr::null_mut());
+        VOLUME_LISTENER_DEV.store(boom_dev, Ordering::SeqCst);
+    }
 }
 
 /// Register the default-output watch. PERMANENT since v0.160.0 (armed at
@@ -1588,6 +1605,19 @@ pub(crate) fn shutdown() {
     let mut slot = ENGINE.lock();
     if let Some(eng) = slot.as_mut() {
         unsafe { stop_locked(eng) };
+    }
+}
+
+#[cfg(test)]
+mod listener_tests {
+    use super::*;
+
+    #[test]
+    fn the_volume_listener_follows_a_new_boom_device_id() {
+        assert_eq!(volume_listener_step(0, 41), (None, true), "first attach");
+        assert_eq!(volume_listener_step(41, 41), (None, false), "already there");
+        assert_eq!(volume_listener_step(41, 77), (Some(41), true), "coreaudiod restart: move it");
+        assert_eq!(volume_listener_step(41, 0), (None, false), "no device: leave it");
     }
 }
 

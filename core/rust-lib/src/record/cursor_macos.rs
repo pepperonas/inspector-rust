@@ -343,6 +343,9 @@ unsafe fn pid_at_point(pt: (f64, f64)) -> Option<i32> {
     })
 }
 
+/// How long a window take's occlusion answer serves further MOVE samples.
+const OCCLUSION_REUSE: Duration = Duration::from_millis(150);
+
 /// Window number of the frontmost on-screen window containing `pt` (global
 /// top-left points). Our own windows are skipped: they are kept out of the
 /// recording, and several are click-through overlays that would otherwise
@@ -720,6 +723,11 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
     let tick = Duration::from_millis(TICK_MS);
     let mut next = Instant::now();
 
+    // The occlusion answer for MOVE samples is reused for OCCLUSION_REUSE: listing every
+    // window 30×/s on top of the cursor-type lookup's own list doubled the sampler's
+    // WindowServer traffic. Moves are smoothed over three samples anyway; a click is
+    // always judged on a fresh list.
+    let occlusion: std::cell::Cell<Option<(Instant, Option<u32>)>> = std::cell::Cell::new(None);
     let emit = |sink: &mut SampleSink,
                     vis: &mut CursorVisibility,
                     timeline_ns: i64,
@@ -733,9 +741,17 @@ fn run(shared: Arc<Shared>, clock: Arc<PauseShared>, origin_ns: i64) -> (CursorR
         let bounds = *shared.bounds.lock();
         let (cx, cy, inside) = normalize_point(p.0, p.1, bounds);
         // Window take: another app's window may cover part of the recorded one.
+        let is_click = matches!(kind, Some(k) if k != Interaction::Move);
         let top = match shared.window {
-            // SAFETY: own autorelease pool for the dictionary keys; nests in the tick's.
-            Some(_) if inside => objc2::rc::autoreleasepool(|_| unsafe { window_at_point(p) }),
+            Some(_) if inside => match occlusion.get() {
+                Some((at, top)) if !is_click && at.elapsed() < OCCLUSION_REUSE => top,
+                _ => {
+                    // SAFETY: own autorelease pool for the dictionary keys; nests in the tick's.
+                    let top = objc2::rc::autoreleasepool(|_| unsafe { window_at_point(p) });
+                    occlusion.set(Some((Instant::now(), top)));
+                    top
+                }
+            },
             _ => None,
         };
         let on = on_recorded_content(inside, shared.window, top);
@@ -873,6 +889,8 @@ mod tests {
         assert!(code.contains("on_recorded_content(inside, shared.window, top)"));
         // A click is never smoothed by the visibility debounce.
         assert!(code.contains("Some(k) if k != Interaction::Move => on,"));
+        // Moves may reuse the last answer briefly; a click never does.
+        assert!(code.contains("Some((at, top)) if !is_click && at.elapsed() < OCCLUSION_REUSE => top,"));
         let session = include_str!("session.rs");
         assert!(session.contains("CursorRecorder::start(capture.content_bounds_pt(), picked.window_id,"));
     }

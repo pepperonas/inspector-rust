@@ -738,6 +738,9 @@ pub struct CleanResult {
 /// True iff `path` is genuinely inside `root` after canonicalisation. Both
 /// must exist (canonicalize fails otherwise → `false`, the safe default).
 /// This is the gate every deletion passes through.
+/// (Runs use [`contained_in_any`] with roots resolved once; this single-root form
+/// is the reference the tests pin it against.)
+#[cfg(test)]
 pub fn is_contained(path: &Path, root: &Path) -> bool {
     let (Ok(cp), Ok(cr)) = (path.canonicalize(), root.canonicalize()) else {
         return false;
@@ -745,9 +748,11 @@ pub fn is_contained(path: &Path, root: &Path) -> bool {
     cp.starts_with(&cr) && cp != cr
 }
 
-/// True iff `path` is contained in **any** of `roots`.
-fn contained_in_any(path: &Path, roots: &[PathBuf]) -> bool {
-    roots.iter().any(|r| is_contained(path, r))
+/// True iff `path` is contained in **any** of `canon_roots` (already canonical —
+/// resolved once per run instead of once per file and root).
+fn contained_in_any(path: &Path, canon_roots: &[PathBuf]) -> bool {
+    let Ok(cp) = path.canonicalize() else { return false };
+    canon_roots.iter().any(|cr| cp.starts_with(cr) && cp != *cr)
 }
 
 // ── Pure scan / execute core (explicit roots → unit-testable) ────────────
@@ -882,6 +887,9 @@ pub fn execute_plan(
     excludes_by_cat: &std::collections::BTreeMap<String, Vec<PathBuf>>,
 ) -> CleanResult {
     let mut res = CleanResult::default();
+    // A root that does not exist resolves to nothing — containment in it is false,
+    // exactly as `is_contained` decides.
+    let canon_roots: Vec<PathBuf> = allowed_roots.iter().filter_map(|r| r.canonicalize().ok()).collect();
     for item in &plan.items {
         let path = PathBuf::from(&item.path);
         // Re-validate: must exist, be a non-symlink regular file, and still be
@@ -898,7 +906,7 @@ pub fn execute_plan(
             continue;
         }
         let own_excludes = excludes_by_cat.get(&item.category).map(Vec::as_slice).unwrap_or(&[]);
-        if !contained_in_any(&path, allowed_roots) || is_excluded(&path, own_excludes) {
+        if !contained_in_any(&path, &canon_roots) || is_excluded(&path, own_excludes) {
             res.errors
                 .push(format!("{}: outside allowlist (skipped)", item.path));
             continue;

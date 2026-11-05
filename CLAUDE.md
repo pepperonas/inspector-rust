@@ -178,9 +178,10 @@ Found and deliberately NOT changed yet (bigger or a product decision):
 - Text clips have no size cap and store the full text twice (`content_text` + `content_data`).
 - API secrets (`sync.token`, `hue.username`, `weather.api_key`, `pagespeed.api_key`) travel in every backup; importing a file can set `sync.url/token`.
 - Two Macs auto-backing up into one folder prune each other's snapshots (filename has no device part).
-- The editor preview polls the helper every animation frame even when paused; `record.projects` encodes thumbnails it then drops; window takes list all windows twice per cursor tick.
-- The Whisper model (1–2 GB) is never unloaded after a dictation; caption transcription briefly holds two models; model downloads have no read timeout and share one cancel flag.
-- Meeting state is cloned and emitted in full ~10×/s; the ticker runs rAF while idle; boom's volume listener stays on the old device id after a coreaudiod restart; the cleaner re-canonicalises every root per file.
+- The editor preview polls the helper every animation frame even when paused (a slower paused poll would delay edits showing up — needs live UX testing).
+- Meeting state is cloned and emitted in full ~10×/s (changing the payload is an event-contract change for panel + ticker).
+
+Done in v0.242.0 (from this list): the helper frees the Whisper model after `IDLE_UNLOAD` (10 min) without session/job — measured: first load per helper process ~10 s (unchanged, Metal setup), a reload in the same process 0.25–0.32 s; stdin now arrives over a channel so the idle helper can look at the clock, and finished jobs are reaped AFTER a command arrives too (the first version reaped only before waiting and refused a second file as busy — caught by the live `helper_protocol` test); job threads set `done` BEFORE their final event. Words jobs unload the live model first. Downloads: 20 s connect / 60 s read timeout, one at a time (`downloading` flag). Meeting panel re-reads sessions/models only on transitions; `record.projects` lists without thumbnails (`list_items_with(.., false)`); window-take occlusion reused 150 ms for moves; cleaner canonicalises roots once; ticker writes its transform only when it (or the strip element) changed; boom's volume listener follows a new device id (`VOLUME_LISTENER_DEV`).
 - `cargo audit`: 9 remaining advisories in transitive crates the app doesn't feed foreign data (zip via figlet-rs, serde_yaml via ddc-hi, quick-xml via tauri/plist).
 
 ### Doku-Gewährleistung — Abzeichen und Index sind getestet (v0.144.0)

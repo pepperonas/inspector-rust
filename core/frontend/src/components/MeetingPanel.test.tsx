@@ -76,6 +76,34 @@ describe("MeetingPanel", () => {
   });
 });
 
+describe("MeetingPanel — what each event re-reads", () => {
+  it("reads sessions only when a meeting ends and models only when a download finishes", async () => {
+    const ipc = await import("../lib/ipc");
+    render(<MeetingPanel focused={false} runSignal={0} onExit={() => {}} />);
+    await waitFor(() => expect(handlers["meeting-changed"]).toBeTruthy());
+    await waitFor(() => expect(ipc.meetingSessions).toHaveBeenCalled());
+    const sessions = vi.mocked(ipc.meetingSessions);
+    const models = vi.mocked(ipc.meetingModelStatus);
+    sessions.mockClear();
+    models.mockClear();
+    const fire = (p: Partial<MeetingState>) => act(async () => handlers["meeting-changed"]({ payload: { ...idle, ...p } }));
+    // A running meeting sends many events: nothing is re-read.
+    for (let i = 0; i < 5; i++) await fire({ running: true, line_count: i });
+    expect(sessions).not.toHaveBeenCalled();
+    expect(models).not.toHaveBeenCalled();
+    // It ends: the session list once.
+    await fire({});
+    await fire({});
+    expect(sessions).toHaveBeenCalledTimes(1);
+    // A download reports progress many times, then finishes: the model list once.
+    const download = { model: "large-v3-turbo-q5", done: 1, total: 2 } as unknown as MeetingState["download"];
+    for (let i = 0; i < 4; i++) await fire({ download });
+    expect(models).not.toHaveBeenCalled();
+    await fire({ download: null });
+    expect(models).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("MeetingPanel layout", () => {
   it("does not lay the sections out as a shrinking flex column", async () => {
     // Field report 2026-11-03: in a flex column the lines box shrank and its

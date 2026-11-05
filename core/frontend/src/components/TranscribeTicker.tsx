@@ -124,6 +124,10 @@ export function TranscribeTicker() {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
     let last = performance.now();
+    // The strip stands still most of the time: write the transform only when it moved.
+    // (Per element: leaving the large view mounts a NEW strip that needs it again.)
+    let written: number | null = null;
+    let writtenOn: HTMLElement | null = null;
     const tick = (now: number) => {
       const dt = now - last;
       last = now;
@@ -145,7 +149,11 @@ export function TranscribeTicker() {
           piecesRef.current = pruned.pieces;
           setPieces(pruned.pieces);
         }
-        strip.style.transform = `translate3d(${offset.current}px,0,0)`;
+        if (offset.current !== written || strip !== writtenOn) {
+          written = offset.current;
+          writtenOn = strip;
+          strip.style.transform = `translate3d(${offset.current}px,0,0)`;
+        }
       }
       raf = requestAnimationFrame(tick);
     };

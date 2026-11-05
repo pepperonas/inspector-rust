@@ -343,6 +343,12 @@ pub fn is_project_dir(dir: &Path) -> bool {
 /// to `created_at`). Every project is listed — the panel scrolls. Broken projects appear as
 /// `Failed`; folders without a `project.json` are not listed at all.
 pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
+    list_projects_with(root, true)
+}
+
+/// [`list_projects`]; `thumbs = false` skips reading + encoding every `thumb.jpg`
+/// (up to 256 KB each) for callers that don't show them (`record.projects`).
+pub fn list_projects_with(root: &Path, thumbs: bool) -> Vec<ProjectSummary> {
     let Ok(rd) = std::fs::read_dir(root) else { return Vec::new() };
     let mut out = Vec::new();
     for entry in rd.flatten() {
@@ -377,7 +383,7 @@ pub fn list_projects(root: &Path) -> Vec<ProjectSummary> {
                     s => (s, p.failure.clone()),
                 };
                 ProjectSummary {
-                    thumb: thumb_data_uri(&dir),
+                    thumb: if thumbs { thumb_data_uri(&dir) } else { None },
                     dir,
                     title: p.title,
                     created_at: p.created_at,
@@ -584,6 +590,21 @@ mod tests {
         assert!(rename_project(&d, &"ä".repeat(200)).is_ok(), "the limit counts characters, not bytes");
         assert!(rename_project(&d.join("missing"), "x").is_err());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_list_without_thumbs_reads_none_but_lists_the_same() {
+        let root = tmp("list-nothumb");
+        let a = root.join("a");
+        std::fs::create_dir_all(&a).unwrap();
+        write_atomic(&a, PROJECT_FILE, &project("a", ProjectStatus::Ready, 1)).unwrap();
+        std::fs::write(a.join(THUMB_FILE), [0xFF, 0xD8, 0xFF, 0xE0, 1, 2]).unwrap();
+        let with = list_projects_with(&root, true);
+        let without = list_projects_with(&root, false);
+        assert!(with[0].thumb.is_some());
+        assert_eq!(without[0].thumb, None);
+        assert_eq!((with[0].title.clone(), with[0].status), (without[0].title.clone(), without[0].status));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

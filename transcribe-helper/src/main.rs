@@ -24,7 +24,7 @@ fn main() {
     #[cfg(not(unix))]
     let out = std::io::stdout();
     let (emit, writer) = serve::event_writer(out);
-    serve::serve(std::io::stdin().lock(), emit.clone());
+    serve::serve(std::io::BufReader::new(std::io::stdin()), emit.clone());
     drop(emit);
     let _ = writer.join();
 }

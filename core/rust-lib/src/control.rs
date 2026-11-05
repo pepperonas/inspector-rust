@@ -212,7 +212,12 @@ mod server {
                 if stop2.load(Ordering::Relaxed) {
                     break;
                 }
-                let Ok(conn) = conn else { continue };
+                // A failing accept (EMFILE: out of file descriptors) fails again at
+                // once — without a pause this loop would spin a core at 100 %.
+                let Ok(conn) = conn else {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                };
                 let (ctx, table, token) = (ctx.clone(), table.clone(), token2.clone());
                 let _ = std::thread::Builder::new()
                     .name("ir-control-conn".into())

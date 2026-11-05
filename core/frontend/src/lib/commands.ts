@@ -1475,6 +1475,15 @@ export function lookupKeyword(keyword: string): CommandSpec | undefined {
   return COMMANDS.find((c) => c.keyword === keyword);
 }
 
+/** The keyword that types command `kind` back into the search bar. Usually the
+ *  kind itself; a kind whose keyword differs (`repo-export` is typed `export`)
+ *  gets its own keyword — writing the kind would leave an unparseable query and
+ *  the panel closes in the same tick. */
+export function canonicalKeyword(kind: CommandKind): string {
+  const own = COMMANDS.find((c) => c.kind === kind && c.keyword === kind);
+  return (own ?? COMMANDS.find((c) => c.kind === kind))?.keyword ?? kind;
+}
+
 /** Parsed command + its raw arg string ("" if none). */
 export interface ParsedCommand {
   spec: CommandSpec;

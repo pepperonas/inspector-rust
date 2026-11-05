@@ -3181,12 +3181,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   onClick={async () => {
-                    if (
-                      !window.confirm(
-                        t("set.perm.reset_confirm"),
-                      )
-                    )
-                      return;
+                    if (!(await confirmDialog(t("set.perm.reset_confirm")))) return;
                     try {
                       await forceResetAndRequestGrant();
                       await forceResetScreenRecordingGrant();
@@ -3215,12 +3210,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </button>
                 <button
                   onClick={async () => {
-                    if (
-                      !window.confirm(
-                        t("set.perm.quit_confirm"),
-                      )
-                    )
-                      return;
+                    if (!(await confirmDialog(t("set.perm.quit_confirm")))) return;
                     try {
                       await quitApp();
                     } catch (e) {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { parseResizeCommand } from "./resize";
 import {
+  canonicalKeyword,
   COMMANDS,
   DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
@@ -1384,3 +1385,18 @@ describe("usage → limits", () => {
     }
   });
 });
+
+describe("canonicalKeyword", () => {
+  it("types every argument-free command back into something that parses as that command", () => {
+    for (const spec of COMMANDS.filter((c) => !c.requiresArg)) {
+      const kw = canonicalKeyword(spec.kind);
+      expect(parseCommand(kw)?.spec.kind, `${spec.kind} -> ${kw}`).toBe(spec.kind);
+    }
+  });
+
+  it("uses the keyword when it differs from the kind", () => {
+    expect(canonicalKeyword("repo-export")).toBe("export");
+    expect(canonicalKeyword("repo")).toBe("repo");
+  });
+});
+

@@ -152,13 +152,28 @@ pub fn start(device: Option<&str>, mut on_chunk: Chunk, mut on_error: OnError) -
     match ready_rx.recv_timeout(Duration::from_secs(5)) {
         Ok(Ok(())) => Ok(Box::new(MicInput { stop, thread: Some(thread) })),
         Ok(Err(e)) => Err(e),
-        Err(_) => Err("mic: start timed out".into()),
+        Err(_) => {
+            // The thread may still come up after we gave up: tell it to stop at once,
+            // or it records forever next to the retry's capture (mic held open, two
+            // interleaved chunk streams).
+            stop.store(true, Ordering::SeqCst);
+            Err("mic: start timed out".into())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_start_timeout_stops_the_capture_thread() {
+        let src = include_str!("mic.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let arm = &code[code.find("Err(_) => {").expect("timeout arm")..];
+        let arm = &arm[..arm.find("start timed out").unwrap()];
+        assert!(arm.contains("stop.store(true"), "the late thread must see stop");
+    }
 
     #[test]
     #[ignore = "needs a microphone and its permission"]

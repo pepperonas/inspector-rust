@@ -191,6 +191,40 @@ pub fn upsert_clip_derived(
     Ok(id)
 }
 
+/// A clip from a backup or another device, with its own timestamps. A new clip is
+/// inserted with them; an existing one (same hash) only ever moves FORWARD in recency
+/// and back in creation — never set to an older `last_used_at`, which would drop a
+/// clip just reused here down the list (device sync applies every peer row every
+/// cycle). Returns the row id and whether it was newly inserted.
+pub fn import_clip(db: &DbHandle, clip: &NewClip, created_at: i64, last_used_at: i64) -> Result<(i64, bool)> {
+    let now = Utc::now().timestamp_millis();
+    let created = if created_at > 0 { created_at } else { now };
+    let used = if last_used_at > 0 { last_used_at } else { created };
+    let hash = hash_payload(clip.content_type, &clip.content_data);
+    let conn = db.lock();
+    let existing: Option<i64> =
+        conn.query_row("SELECT id FROM entries WHERE hash = ?1", params![&hash], |row| row.get(0)).optional()?;
+    if let Some(id) = existing {
+        // Only touches the row when it actually changes.
+        conn.execute(
+            "UPDATE entries SET created_at = MIN(created_at, ?1), last_used_at = MAX(last_used_at, ?2) \
+             WHERE id = ?3 AND (created_at > ?1 OR last_used_at < ?2)",
+            params![created, used, id],
+        )?;
+        return Ok((id, false));
+    }
+    let enc_text = crypto::encrypt(&clip.content_text);
+    let enc_data = crypto::encrypt(&clip.content_data);
+    conn.execute(
+        "INSERT INTO entries (content_type, content_text, content_data, hash, byte_size, created_at, last_used_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![clip.content_type.as_str(), enc_text, enc_data, hash, clip.byte_size, created, used],
+    )?;
+    let id = conn.last_insert_rowid();
+    prune_locked(&conn, effective_max_entries(&conn))?;
+    Ok((id, true))
+}
+
 /// Settings key for the user-configurable clipboard-history cap.
 pub const KEY_MAX_ENTRIES: &str = "history.max_entries";
 /// Lower/upper bounds the cap is clamped to (the UI mirrors these).
@@ -261,6 +295,8 @@ fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
 /// the prune then kept the user's **oldest** clips and dropped the newest, and
 /// the whole history's chronology read as "imported just now". Mirrors what
 /// `notes::append_imported` already does for notes.
+/// Test helper: imports go through [`import_clip`], which never moves recency back.
+#[cfg(test)]
 pub fn set_timestamps(db: &DbHandle, id: i64, created_at: i64, last_used_at: i64) -> Result<()> {
     let conn = db.lock();
     conn.execute(
@@ -623,6 +659,30 @@ mod tests {
             )
             .unwrap();
         db
+    }
+
+    #[test]
+    fn import_clip_never_moves_a_clip_back_in_recency() {
+        let db = test_db();
+        // New: inserted with the given timestamps.
+        let (id, inserted) = import_clip(&db, &text_clip("x"), 1_000, 2_000).unwrap();
+        assert!(inserted);
+        let ts = |db: &DbHandle| -> (i64, i64) {
+            db.lock()
+                .query_row("SELECT created_at, last_used_at FROM entries WHERE id = ?1", params![id], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap()
+        };
+        assert_eq!(ts(&db), (1_000, 2_000));
+        // Reused here later; an older copy from a peer must not undo that.
+        db.lock().execute("UPDATE entries SET last_used_at = 9_000 WHERE id = ?1", params![id]).unwrap();
+        let (again, inserted) = import_clip(&db, &text_clip("x"), 500, 2_000).unwrap();
+        assert_eq!((again, inserted), (id, false));
+        assert_eq!(ts(&db), (500, 9_000), "created moves back, recency never");
+        // A newer use elsewhere moves it forward.
+        import_clip(&db, &text_clip("x"), 500, 12_000).unwrap();
+        assert_eq!(ts(&db), (500, 12_000));
     }
 
     #[test]

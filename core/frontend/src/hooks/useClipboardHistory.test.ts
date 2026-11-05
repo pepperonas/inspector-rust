@@ -78,3 +78,35 @@ describe("useClipboardHistory — hidden-popup visibility gate (v0.105.0)", () =
     expect(handlers.size).toBe(0);
   });
 });
+
+describe("useClipboardHistory — out-of-order answers", () => {
+  it("an older answer that resolves last does not overwrite the newer list", async () => {
+    const resolvers: Array<(rows: unknown[]) => void> = [];
+    getHistory.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+    const { result } = renderHook(() => useClipboardHistory());
+    await waitFor(() => expect(handlers.size).toBe(3));
+    await fire("window-shown"); // visible: copies refresh at once
+    await fire("clipboard-changed");
+    await fire("clipboard-changed");
+    const n = resolvers.length;
+    expect(n).toBeGreaterThanOrEqual(2);
+    // Newest answers first, then the stale one.
+    await act(async () => resolvers[n - 1]([{ id: 2 }]));
+    await act(async () => resolvers[n - 2]([{ id: 1 }]));
+    expect(result.current.entries).toEqual([{ id: 2 }]);
+    getHistory.mockImplementation(async () => []);
+  });
+
+  it("a failed fetch leaves the list marked stale and stops loading", async () => {
+    getHistory.mockImplementationOnce(async () => {
+      throw new Error("ipc down");
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useClipboardHistory());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await fire("window-shown"); // still dirty → retries
+    expect(getHistory).toHaveBeenCalledTimes(2);
+    err.mockRestore();
+  });
+});
+

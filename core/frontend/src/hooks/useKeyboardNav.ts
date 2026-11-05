@@ -26,6 +26,20 @@ interface Args {
   onNavRepeat?: (repeating: boolean) => void;
 }
 
+/** Marks the popup's main search field: the only text field the list keys may drive. */
+export const MAIN_SEARCH_ATTR = "data-main-search";
+
+/** A key typed into some OTHER text field (clip note, hex value, link box, time
+ *  field): it belongs to that field — Enter must not paste the selected row, the
+ *  arrows must move the caret, Esc must reach the field's own handler. */
+function typedElsewhere(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement) || t.hasAttribute(MAIN_SEARCH_ATTR)) return false;
+  if (t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable) return true;
+  if (t.tagName !== "INPUT") return false;
+  const type = (t as HTMLInputElement).type;
+  return !["range", "checkbox", "radio", "button"].includes(type);
+}
+
 export function useKeyboardNav({
   length,
   selected,
@@ -39,6 +53,8 @@ export function useKeyboardNav({
   const handler = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
+      // Already handled, mid-IME-composition, or typed into another field.
+      if (e.defaultPrevented || e.isComposing || typedElsewhere(e.target)) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         // Shift+↓ → volume down (not list navigation).
@@ -61,7 +77,8 @@ export function useKeyboardNav({
         setSelected(Math.max(selected - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (length > 0) onEnter(e.shiftKey, e.altKey, e.metaKey || e.ctrlKey);
+        // A held Enter must not activate again while the first one is closing the popup.
+        if (length > 0 && !e.repeat) onEnter(e.shiftKey, e.altKey, e.metaKey || e.ctrlKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
         if (!e.repeat) onEscape(); // key-repeat must not queue extra hides

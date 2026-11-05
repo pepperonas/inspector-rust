@@ -78,6 +78,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
         )}
         <input
           ref={setRefs}
+          data-main-search=""
           aria-autocomplete={ghost ? "inline" : undefined}
           type="text"
           autoFocus

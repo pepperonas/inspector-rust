@@ -719,6 +719,10 @@ fn session(
                 let _ = crate::transcribe_client::send(&Command::Window { source: source.capture(), secs });
             }
         } else if begun.elapsed() > Duration::from_secs(120) && stop_sent.is_none() {
+            // The queued Start can still come up (slow model load): stop it, or the
+            // helper records with nobody listening and stays busy until the app quits.
+            let _ = crate::transcribe_client::send(&Command::Stop);
+            let _ = wait_stopped(rx, Duration::from_secs(10));
             return Err(crate::transcribe::user_error("transcribe.timeout"));
         }
         publish(app);
@@ -831,6 +835,16 @@ mod duck_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_start_that_never_comes_is_stopped_before_giving_up() {
+        let src = include_str!("live_transcribe.rs");
+        let code = &src[..src.find("#[cfg(test)]\nmod tests").unwrap()];
+        let at = code.find("begun.elapsed() > Duration::from_secs(120)").unwrap();
+        let arm = &code[at..at + 500];
+        let stop = arm.find("Command::Stop").expect("sends Stop");
+        assert!(stop < arm.find("transcribe.timeout").unwrap(), "before returning the error");
+    }
 
     fn silence(ms: usize) -> Vec<i16> {
         vec![0; RATE * ms / 1000]

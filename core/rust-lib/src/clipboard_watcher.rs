@@ -76,6 +76,11 @@ struct Handler {
 
 impl ClipboardHandler for Handler {
     fn on_clipboard_change(&mut self) {
+        // ANY change supersedes a pending auto-clear — also our own paste, a copy
+        // from an excluded app and one while capture is paused. Counting only
+        // captured clips let a timer from an older copy blank a clipboard that
+        // Inspector Rust had just pasted.
+        self.clear_gen.fetch_add(1, Ordering::SeqCst);
         if self.paused.load(Ordering::Relaxed) {
             return;
         }
@@ -233,7 +238,8 @@ impl Handler {
             .ok()
             .and_then(|s| s.trim().parse::<u64>().ok())
             .unwrap_or(0);
-        let my_gen = self.clear_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        // Bumped for this change in `on_clipboard_change`.
+        let my_gen = self.clear_gen.load(Ordering::SeqCst);
         if secs > 0 {
             let clear_gen = self.clear_gen.clone();
             let app = self.app.clone();
@@ -366,6 +372,16 @@ fn strip_html(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{is_excluded_app, preview_text, strip_html, strip_rtf, WatcherState};
+
+    #[test]
+    fn every_clipboard_change_supersedes_a_pending_auto_clear() {
+        let src = include_str!("clipboard_watcher.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let f = &code[code.find("fn on_clipboard_change").unwrap()..];
+        let bump = f.find("self.clear_gen.fetch_add(1").expect("bumped in on_clipboard_change");
+        assert!(bump < f.find("self.paused.load").unwrap(), "before the pause / exclusion / self-write exits");
+        assert!(code.contains("let my_gen = self.clear_gen.load(Ordering::SeqCst);"));
+    }
 
     #[test]
     fn excluded_app_matches_case_insensitive_substring() {

@@ -873,8 +873,12 @@ fn to_json(v: &impl serde::Serialize) -> Result<Value, ControlError> {
 fn projects(app: &AppHandle, _c: &mut Call) -> Result<Value, ControlError> {
     let open = super::editor_ipc::open_dir();
     let shown = open.is_some() && super::editor_ipc::editor_window_exists(app);
-    let list: Vec<Value> = super::project::list_projects(&root(app))
+    // Through `list_items`, like the UI: the take being recorded right now is
+    // `recording`, not the "interrupted" a bare `list_projects` makes of it.
+    let active = tauri::Manager::try_state::<super::session::RecordState>(app).and_then(|s| s.active_dir());
+    let list: Vec<Value> = super::session::list_items(&root(app), active.as_deref(), None)
         .into_iter()
+        .map(|item| item.summary)
         .map(|p| {
             let folder = p.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let canon = std::fs::canonicalize(&p.dir).ok();
@@ -1421,6 +1425,15 @@ mod tests {
         assert!(gone.doc.audio_tracks.is_empty());
         assert_eq!(run(&d, json!([{"op": "track.remove", "id": "q"}])).unwrap_err().code, ERR_NO_REGION);
         assert_eq!(run(&d, json!([{"op": "track.set", "id": "q", "gainDb": 1}])).unwrap_err().code, ERR_NO_REGION);
+    }
+
+    #[test]
+    fn the_projects_list_knows_the_take_being_recorded() {
+        let src = include_str!("control_ops.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let f = &code[code.find("fn projects(").unwrap()..];
+        let f = &f[..f.find("fn project(").unwrap()];
+        assert!(f.contains("list_items(&root(app), active.as_deref(), None)"), "not bare list_projects");
     }
 
     #[test]

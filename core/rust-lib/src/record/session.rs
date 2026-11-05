@@ -73,7 +73,9 @@ pub fn next_phase(phase: Phase, action: Action) -> Result<Phase, &'static str> {
         (P::Idle | P::Picking, A::Start) => Ok(P::Countdown),
         (_, A::Start) => Err(ERR_BUSY),
         (P::Countdown, A::Begin) => Ok(P::Recording),
-        (P::Countdown, A::Fail | A::Cancel) => Ok(P::Idle),
+        // Stop before anything is recorded = cancel (`ir-record stop` from a second
+        // terminal during the countdown used to fail and the take started anyway).
+        (P::Countdown, A::Fail | A::Cancel | A::Stop) => Ok(P::Idle),
         (P::Recording, A::Pause) => Ok(P::Paused),
         (P::Paused, A::Pause) => Ok(P::Paused),
         (P::Paused, A::Resume) => Ok(P::Recording),
@@ -1831,7 +1833,17 @@ mod mac {
     /// folder afterwards like the control bar does; a control stop may skip that.
     pub fn stop_take(app: &AppHandle, follow_up: bool) -> Result<StoppedTake, String> {
         let st = app.state::<RecordState>();
-        let a = take_active(&st, Action::Stop)?;
+        let a = match take_active(&st, Action::Stop) {
+            Ok(a) => a,
+            // Stopped during the countdown: nothing was recorded, the start thread
+            // cleans up (like `cancel`).
+            Err(e) if e == ERR_CANCELLED => {
+                close_window(app, COUNTDOWN_LABEL);
+                emit_status(app);
+                return Err(e);
+            }
+            Err(e) => return Err(e),
+        };
         emit_status(app);
         let out = finish(a);
         after_finish(app, &st);
@@ -2168,6 +2180,7 @@ mod tests {
         assert_eq!(next_phase(Phase::Picking, Action::Start), Ok(Phase::Countdown));
         assert_eq!(next_phase(Phase::Countdown, Action::Begin), Ok(Phase::Recording));
         assert_eq!(next_phase(Phase::Countdown, Action::Cancel), Ok(Phase::Idle));
+        assert_eq!(next_phase(Phase::Countdown, Action::Stop), Ok(Phase::Idle), "stop in the countdown cancels");
         assert_eq!(next_phase(Phase::Recording, Action::Pause), Ok(Phase::Paused));
         assert_eq!(next_phase(Phase::Paused, Action::Resume), Ok(Phase::Recording));
         assert_eq!(next_phase(Phase::Finishing, Action::Finished), Ok(Phase::Idle));

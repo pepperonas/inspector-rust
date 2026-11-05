@@ -1011,14 +1011,17 @@ pub fn list_apps(
 /// Re-scan installed apps. Called from Settings → Apps → Refresh.
 /// Returns the new count so the UI can confirm the rescan ran.
 #[tauri::command]
-pub fn refresh_apps(state: State<'_, crate::app_launcher::AppIndex>) -> usize {
-    let fresh = crate::app_launcher::scan();
+pub async fn refresh_apps(state: State<'_, crate::app_launcher::AppIndex>) -> Result<usize, String> {
+    // A directory walk (macOS icon lookups, Start-Menu recursion): off the main thread.
+    let fresh = tauri::async_runtime::spawn_blocking(crate::app_launcher::scan)
+        .await
+        .map_err(|e| format!("app scan: {e}"))?;
     let n = fresh.len();
     *state.inner().apps.lock() = fresh;
     // Drop cached icons too — a fresh scan may have replaced apps at
     // the same path with a new version (Sparkle/MAS update).
     state.inner().icons.lock().clear();
-    n
+    Ok(n)
 }
 
 /// Launch the app at `path` via `/usr/bin/open` (macOS Launch Services).
@@ -5705,21 +5708,24 @@ pub fn adjust_volume(delta: i32) -> Result<u8, String> {
 
 /// Read the current system output volume (0–100), or null if no read-back.
 #[tauri::command]
-pub fn get_system_volume() -> Option<u8> {
-    crate::system_commands::get_system_volume()
+pub async fn get_system_volume() -> Option<u8> {
+    // Outputs without a volume control fall back to osascript (~300 ms).
+    tauri::async_runtime::spawn_blocking(crate::system_commands::get_system_volume).await.ok().flatten()
 }
 
 /// Set the system output volume to an absolute level; returns the applied level.
 #[tauri::command]
-pub fn set_system_volume(level: i32) -> Option<u8> {
-    crate::system_commands::set_system_volume(level)
+pub async fn set_system_volume(level: i32) -> Option<u8> {
+    tauri::async_runtime::spawn_blocking(move || crate::system_commands::set_system_volume(level)).await.ok().flatten()
 }
 
 /// `mute` — toggle the system output mute. Returns the new state
 /// (`true` = now muted). macOS-only.
 #[tauri::command]
-pub fn toggle_mute() -> Result<bool, String> {
-    crate::system_commands::toggle_system_mute().map_err(map_err)
+pub async fn toggle_mute() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| crate::system_commands::toggle_system_mute().map_err(map_err))
+        .await
+        .map_err(|e| format!("mute: {e}"))?
 }
 
 /// Commit an already-transformed string to the clipboard + History.
@@ -8224,8 +8230,13 @@ pub fn brightness_close(app: AppHandle) -> Result<(), String> {
 /// List all memes in the configured library (recursive scan). Cheap enough to
 /// call when the picker opens; the frontend fuzzy-filters the result.
 #[tauri::command]
-pub fn list_memes(db: State<'_, DbHandle>) -> Vec<meme::MemeEntry> {
-    meme::list(&db)
+pub async fn list_memes(db: State<'_, DbHandle>) -> Result<Vec<meme::MemeEntry>, String> {
+    // Walks the meme folder recursively — by default a Google Drive streaming
+    // folder whose reads can go over the network: never on the main thread.
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || meme::list(&db))
+        .await
+        .map_err(|e| format!("meme scan: {e}"))
 }
 
 /// Copy a meme file to the clipboard (animation preserved on macOS via a

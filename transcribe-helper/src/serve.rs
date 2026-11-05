@@ -10,6 +10,8 @@ use transcribe_core::protocol::{encode, decode_command, Command, Event, SessionC
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ERR_BUSY: &str = "transcribe.busy";
+/// A file or words job whose thread panicked (the job still ends).
+pub const JOB_PANICKED: &str = "transcribe.job_crashed";
 
 pub type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
@@ -134,7 +136,9 @@ mod engine_side {
                     })?;
                     Ok((file::write_txt(&path, &text.text)?, text.lang))
                 };
-                match run() {
+                // A panic must still end the job: `done` unset left every later
+                // Start / TranscribeFile answering "busy" until the app quit.
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into())) {
                     Ok((txt, lang)) => emit(Event::FileDone { txt, lang }),
                     Err(error) => emit(Event::FileError { error }),
                 }
@@ -178,7 +182,7 @@ mod engine_side {
                         e2(Event::FileProgress { done_ms: d, total_ms: t })
                     })
                 };
-                match run() {
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| Err(JOB_PANICKED.into())) {
                     Ok(r) => emit(Event::FileWords { words: r.words, lang: r.lang }),
                     Err(error) => emit(Event::FileError { error }),
                 }

@@ -67,6 +67,8 @@ pub const EV_EXPORT_FAILED: &str = "record-export-failed";
 pub const ERR_NO_SESSION: &str = "record.editor.no_session";
 pub const ERR_UNREADABLE: &str = "record.editor.unreadable";
 pub const ERR_NO_VIDEO: &str = "record.editor.no_video";
+/// The take is still being recorded: its project.json is not final yet.
+pub const ERR_STILL_RECORDING: &str = "record.editor.still_recording";
 pub const ERR_BAD_EXPORT: &str = "record.editor.bad_export";
 pub const ERR_NO_DOWNLOADS: &str = "record.editor.no_downloads";
 /// Opening a project while an export runs: the helper's render thread is busy until the
@@ -1207,6 +1209,12 @@ fn open_session(app: &AppHandle, dir: PathBuf, show: bool) -> Result<EditorInit,
     })?;
     if project.status == ProjectStatus::Failed || !dir.join(SCREEN_FILE).is_file() {
         return Err(ERR_NO_VIDEO.into());
+    }
+    // A take still running (an interrupted one is marked at startup, so `Recording`
+    // means live): opened now, its session would hold a project with no duration and
+    // later save that stale copy over the finished project.json.
+    if project.status == ProjectStatus::Recording {
+        return Err(ERR_STILL_RECORDING.into());
     }
     let assets = AssetRoot::resolve(app);
     let cursor = read_cursor(&dir);
@@ -2804,20 +2812,44 @@ pub fn control_export(
                 });
             }
             Ok(Notice::Dead { reason }) => return Err(ControlError::new("record.control.helper_died", reason)),
-            Err(_) => {
-                if client.is_dead() {
-                    return Err(ControlError::new("record.control.helper_died", "the render helper is gone"));
-                }
-                if cancelled.load(Ordering::Relaxed) && cancel_at.is_none() {
-                    cancel_at = Some(Instant::now());
-                    let _ = client.cancel_export();
-                }
-                if cancel_at.is_some_and(|t| t.elapsed() > CANCEL_GRACE) {
-                    return Err(ControlError::new(super::control_ops::ERR_CANCELLED, "the export was cancelled"));
-                }
+            // Every pass, not only on a quiet 250 ms: while rendering, progress arrives every
+            // 100 ms and a timeout never happens — a cancel would then go unread.
+            Err(_) => {}
+        }
+        if client.is_dead() {
+            return Err(ControlError::new("record.control.helper_died", "the render helper is gone"));
+        }
+        match cancel_step(cancelled.load(Ordering::Relaxed), &mut cancel_at, Instant::now()) {
+            CancelStep::Continue => {}
+            CancelStep::SendCancel => {
+                let _ = client.cancel_export();
+            }
+            CancelStep::GiveUp => {
+                return Err(ControlError::new(super::control_ops::ERR_CANCELLED, "the export was cancelled"));
             }
         }
         touch_control(app);
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum CancelStep {
+    Continue,
+    /// Asked for the first time: tell the helper.
+    SendCancel,
+    /// The helper did not confirm within [`CANCEL_GRACE`]: stop waiting.
+    GiveUp,
+}
+
+/// One pass of the control export's cancel handling; `cancel_at` = when it was first asked.
+fn cancel_step(cancelled: bool, cancel_at: &mut Option<Instant>, now: Instant) -> CancelStep {
+    match *cancel_at {
+        None if cancelled => {
+            *cancel_at = Some(now);
+            CancelStep::SendCancel
+        }
+        Some(t) if now.saturating_duration_since(t) > CANCEL_GRACE => CancelStep::GiveUp,
+        _ => CancelStep::Continue,
     }
 }
 
@@ -2884,6 +2916,31 @@ pub fn shutdown(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_take_still_recording_is_not_opened() {
+        let src = include_str!("editor_ipc.rs");
+        let f = &src[src.find("fn open_session(").unwrap()..];
+        let f = &f[..f.find("let assets = AssetRoot::resolve(app);").unwrap()];
+        assert!(f.contains("project.status == ProjectStatus::Recording"));
+        assert!(f.contains("ERR_STILL_RECORDING"));
+    }
+
+    #[test]
+    fn a_control_export_cancel_is_seen_while_progress_keeps_coming() {
+        let t0 = Instant::now();
+        let mut at = None;
+        assert_eq!(cancel_step(false, &mut at, t0), CancelStep::Continue);
+        assert_eq!(cancel_step(true, &mut at, t0), CancelStep::SendCancel);
+        assert_eq!(cancel_step(true, &mut at, t0 + Duration::from_millis(100)), CancelStep::Continue, "sent once");
+        assert_eq!(cancel_step(true, &mut at, t0 + CANCEL_GRACE + Duration::from_millis(1)), CancelStep::GiveUp);
+        // The checks run on every pass, not only when no progress arrived.
+        let src = include_str!("editor_ipc.rs");
+        let f = &src[src.find("pub fn control_export(").unwrap()..];
+        let f = &f[..f.find("enum CancelStep").unwrap()];
+        assert!(f.contains("Err(_) => {}"), "cancel handling must not live in the timeout arm");
+        assert!(f.contains("cancel_step(cancelled.load(Ordering::Relaxed)"));
+    }
 
     #[test]
     fn export_done_toast_names_the_file() {

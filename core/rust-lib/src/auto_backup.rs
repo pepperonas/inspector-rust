@@ -139,6 +139,17 @@ pub fn should_run(cfg: &AutoBackupConfig, has_password: bool) -> bool {
     cfg.enabled && !cfg.folder.trim().is_empty() && (!cfg.encrypt || has_password)
 }
 
+/// After a failed cycle, wait this long before trying again (at most one interval).
+pub const RETRY_AFTER_MS: i64 = 5 * 60_000;
+
+/// The `last_check_ms` to store after a FAILED cycle at `now`: due again after
+/// [`RETRY_AFTER_MS`] (or one interval, if shorter). Storing nothing made every 30-s
+/// tick redo the full export + hash (+ Argon2) against a folder that stays broken.
+pub fn retry_check_ms(now_ms: i64, interval_min: u64) -> i64 {
+    let interval = interval_min as i64 * 60_000;
+    now_ms - interval + RETRY_AFTER_MS.min(interval)
+}
+
 /// Is a check due? `last_check_ms == 0` (never run) is always due, so the first
 /// backup lands right after you enable it.
 pub fn due(last_check_ms: i64, interval_min: u64, now_ms: i64) -> bool {
@@ -526,6 +537,10 @@ pub fn start(app: AppHandle, db: DbHandle) {
                 while rx.try_recv().is_ok() {}
             }
             let Ok(cfg) = get_config(&db) else { continue };
+            // Off or without a folder: don't touch the keychain every tick.
+            if !cfg.enabled || cfg.folder.trim().is_empty() {
+                continue;
+            }
             let pass = get_password();
             if !should_run(&cfg, pass.is_some()) {
                 continue;
@@ -548,6 +563,7 @@ pub fn start(app: AppHandle, db: DbHandle) {
                 }
                 Err(e) => {
                     let _ = settings::set(&db, KEY_LAST_ERROR, &format!("{e:#}"));
+                    let _ = settings::set(&db, KEY_LAST_CHECK_MS, &retry_check_ms(now, cfg.interval_min).to_string());
                 }
             }
             let _ = app.emit("auto-backup-status-changed", ());
@@ -594,6 +610,22 @@ mod tests {
         c.encrypt = true;
         assert!(!should_run(&c, false), "encrypt-on needs a password");
         assert!(should_run(&c, true));
+    }
+
+    #[test]
+    fn a_failed_cycle_waits_before_retrying() {
+        let now = 50_000_000i64;
+        let stored = retry_check_ms(now, 60);
+        assert!(!due(stored, 60, now + 30_000), "not on the next 30-s tick");
+        assert!(!due(stored, 60, now + RETRY_AFTER_MS - 1));
+        assert!(due(stored, 60, now + RETRY_AFTER_MS), "but after the retry delay");
+        // A shorter interval than the delay keeps the interval.
+        assert!(due(retry_check_ms(now, 1), 1, now + 60_000));
+        // The worker stores it on the error path.
+        let src = include_str!("auto_backup.rs");
+        let code = &src[..src.find("#[cfg(test)]").unwrap()];
+        let err_arm = &code[code.find("Err(e) => {\n                    let _ = settings::set(&db, KEY_LAST_ERROR").unwrap()..];
+        assert!(err_arm[..err_arm.len().min(400)].contains("retry_check_ms(now, cfg.interval_min)"));
     }
 
     #[test]

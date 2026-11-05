@@ -6,6 +6,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.241.0] — 2026-11-05
+
+### Fixed
+- **Keys in other text fields no longer drive the list.** Enter in a clip note, the recolor hex field, the link box or a trim time field pasted the selected entry and closed the popup; the arrows moved the selection instead of the caret, and Esc closed the whole popup. The list now only reacts to keys from the search field. A held Enter and Enter that confirms IME input no longer activate a row.
+- **`export` opened its panel and closed it straight away.** The search bar now gets the command's real keyword back.
+- **"Reset permissions" and "Quit" in Settings could run without asking.** Both now use a real system confirmation dialog.
+- **The history list could show an older state** when two clipboard changes arrived in quick succession and the first answer came last. A failed refresh now retries on the next open.
+- **Device sync moved clips back down the list.** Every cycle reset a clip you had just used to the other Mac's older time. Imported clips now only ever move forward in recency, and duplicates no longer count as imported.
+- **A restored backup made two Macs share one sync identity.** The device id and the sync and backup workers' bookkeeping are no longer exported or imported.
+- **A failing automatic backup retried every 30 seconds.** It now waits 5 minutes (or one interval) before the next try, and the keychain is not read while automatic backups are off.
+- **Auto-clear could blank a clipboard Inspector Rust had just pasted.** Any clipboard change now cancels a pending clear.
+- **Meme scan, app refresh, volume and mute no longer run on the main thread**, so a slow Google Drive folder or an output without a volume control can't freeze the window.
+- **A microphone that started too late kept recording.** After a start timeout the capture thread is now stopped.
+- **A dictation that never started blocked all transcription until the app was restarted.** The helper now gets a stop.
+- **One unreadable segment no longer loses a whole file transcription**; only a file where nothing could be decoded fails. A crashed transcription job no longer leaves the helper busy.
+- **Exports started from `ir-record` or MCP can be cancelled while they render.** Before, the cancel was only checked when no progress arrived for 250 ms, which never happens during a render.
+- **`ir-record list` showed the take being recorded as interrupted**, and `ir-record stop` during the countdown failed while the take then started anyway. Stopping during the countdown now cancels it.
+- **A take still being recorded can't be opened in the editor or by an edit command**, which could later write a stale copy over its finished project file.
+- The control socket no longer spins a CPU core if accepting a connection keeps failing.
+
+### Security
+- Updated rustls, rustls-webpki, the bundled root certificates and pulldown-cmark to versions without known vulnerabilities.
+
 ## [0.240.0] — 2026-11-04
 
 ### Added

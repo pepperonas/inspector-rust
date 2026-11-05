@@ -181,6 +181,7 @@ import {
   type CommandKind,
   type ParsedCommand,
   commandDescription,
+  canonicalKeyword,
 } from "./lib/commands";
 import { SHAZAM_VIEWS, shazamView } from "./lib/shazam-view";
 import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
@@ -4528,7 +4529,8 @@ function App() {
           commandKind === "github" ||
           commandKind === "record" ||
           commandKind === "gestures";
-        setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
+        const keyword = canonicalKeyword(commandKind);
+        setQuery(keepArg && arg ? `${keyword} ${arg}` : keyword);
       }
       if (commandKind === "record") {
         setRecordMode(true);

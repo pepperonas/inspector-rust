@@ -23,11 +23,24 @@ export function useClipboardHistory() {
   // stale list is impossible unless the event itself is lost.
   const dirtyRef = useRef(true);
 
+  // Two "clipboard-changed" in a row (OCR writes the image, then the text) start
+  // two fetches; only the NEWEST request may set the list, or a slower first
+  // answer would put the older state back.
+  const seqRef = useRef(0);
+
   const refresh = useCallback(async () => {
+    const seq = ++seqRef.current;
     dirtyRef.current = false;
-    const rows = await getHistory(1000, 0);
-    setEntries(rows);
-    setLoading(false);
+    try {
+      const rows = await getHistory(1000, 0);
+      if (seq === seqRef.current) setEntries(rows);
+    } catch (e) {
+      // Stay stale-marked so the next open tries again.
+      dirtyRef.current = true;
+      console.error("history refresh failed", e);
+    } finally {
+      if (seq === seqRef.current) setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

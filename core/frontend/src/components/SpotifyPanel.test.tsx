@@ -177,7 +177,7 @@ describe("SpotifyPanel", () => {
         onEscape: noop,
       });
       return <>
-        <input aria-label="Spotify command" value={arg} onChange={(e) => setArg(e.target.value)} />
+        <input aria-label="Spotify command" data-main-search="" value={arg} onChange={(e) => setArg(e.target.value)} />
         <SpotifyPanel cmd={parseSpotifyArg(arg)} focused={focused} runSignal={signal} onExit={noop} onQuery={noop} />
       </>;
     }

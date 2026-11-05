@@ -146,9 +146,19 @@ pub fn transcribe_stream(
     let mut tail = String::new();
     let mut last_lang: Option<String> = None;
 
+    // A segment whisper cannot decode is skipped (like the live pipeline does);
+    // only a file where NOTHING decoded is an error — one bad segment in a two-hour
+    // recording used to cost the whole transcript.
+    let mut failed: Option<String> = None;
     drive(src, vad, cancel, progress, |_, samples| {
         let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
-        let d = tr.decode(Source::Mic, samples, &opts)?;
+        let d = match tr.decode(Source::Mic, samples, &opts) {
+            Ok(d) => d,
+            Err(e) => {
+                failed = Some(e);
+                return Ok(());
+            }
+        };
         if d.text.is_empty() {
             return Ok(());
         }
@@ -158,6 +168,9 @@ pub fn transcribe_stream(
         lines.push(d.text);
         Ok(())
     })?;
+    if let (true, Some(e)) = (lines.is_empty(), failed) {
+        return Err(e);
+    }
     let lang = langs.into_iter().max_by_key(|(_, n)| *n).map(|(l, _)| l);
     let lines = drop_loops(lines, MAX_REPEAT);
     // Drop exact repeats Whisper sometimes produces across a segment cut.
@@ -199,9 +212,16 @@ pub fn transcribe_words_stream(
     let mut tail = String::new();
     let mut last_lang: Option<String> = None;
 
+    let mut failed: Option<String> = None;
     drive(src, vad, cancel, progress, |s, samples| {
         let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
-        let d = tr.decode_tokens(samples, &opts)?;
+        let d = match tr.decode_tokens(samples, &opts) {
+            Ok(d) => d,
+            Err(e) => {
+                failed = Some(e);
+                return Ok(());
+            }
+        };
         let ws = words_from_tokens(samples_to_ms(s.start), samples_to_ms(s.end), &d.tokens);
         if ws.is_empty() {
             return Ok(());
@@ -213,6 +233,9 @@ pub fn transcribe_words_stream(
         words.extend(ws);
         Ok(())
     })?;
+    if let (true, Some(e)) = (words.is_empty(), failed) {
+        return Err(e);
+    }
     let lang = langs.into_iter().max_by_key(|(_, n)| *n).map(|(l, _)| l);
     Ok(FileWords { words: filter_words(words), lang })
 }
@@ -562,6 +585,36 @@ mod tests {
         assert_eq!(d, t, "ends at 100 %");
         assert_eq!(t, 8500);
         assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "never backwards");
+    }
+
+    /// Fails the segments whose (1-based) number is listed.
+    struct Flaky(usize, Vec<usize>);
+    impl Transcriber for Flaky {
+        fn decode(&mut self, src: Source, s: &[f32], o: &DecodeOpts) -> Result<Decoded, String> {
+            self.0 += 1;
+            if self.1.contains(&self.0) {
+                return Err("decode: whisper failed".into());
+            }
+            Echo(self.0 - 1).decode(src, s, o)
+        }
+    }
+
+    #[test]
+    fn one_failed_segment_does_not_lose_the_file() {
+        let run = |fail: Vec<usize>| {
+            transcribe_stream(
+                &mut Samples::new(speech_with_pauses()),
+                &mut EnergyVad::new(0.05),
+                &mut Flaky(0, fail),
+                Lang::Auto,
+                2,
+                &AtomicBool::new(false),
+                |_, _| {},
+            )
+        };
+        let r = run(vec![1]).expect("the other segment survives");
+        assert_eq!(r.text.lines().count(), 1, "{}", r.text);
+        assert_eq!(run(vec![1, 2]).unwrap_err(), "decode: whisper failed", "nothing decoded = an error");
     }
 
     struct FakeWords(usize);

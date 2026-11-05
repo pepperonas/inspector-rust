@@ -349,13 +349,23 @@ fn export_totp_entries(db: &DbHandle) -> Result<Vec<TotpBackupEntry>> {
 }
 
 /// Read all settings key-value pairs.
+/// Settings that describe THIS machine, not the user's choices: they never leave it
+/// in a backup and are never taken over from one. A restored `devicesync.device_id`
+/// made two Macs write the same sync file (each took the other's for its own and
+/// they overwrote each other silently); the `last_*` bookkeeping of the sync and
+/// backup workers belongs to the run that wrote it.
+pub fn machine_bound_setting(key: &str) -> bool {
+    key == crate::device_sync::KEY_DEVICE_ID
+        || matches!(key.rsplit('.').next(), Some("last_ms" | "last_check_ms" | "last_error" | "last_hash"))
+}
+
 fn export_settings(db: &DbHandle) -> Result<HashMap<String, String>> {
     let conn = db.lock();
     let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
     let rows = stmt
         .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<Result<Vec<_>, rusqlite::Error>>()?;
-    Ok(rows.into_iter().collect())
+    Ok(rows.into_iter().filter(|(k, _)| !machine_bound_setting(k)).collect())
 }
 
 /// Serialize the backup as pretty-printed JSON.
@@ -508,17 +518,12 @@ pub(crate) fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult>
             content_data: entry.content_data.clone(),
             byte_size: entry.byte_size,
         };
-        match db::upsert_clip(db, &new_clip) {
-            Ok(id) => {
-                // Restore the ORIGINAL timestamps. Without this the restore
-                // re-stamped everything with "now" in export order (newest
-                // first), so on a history bigger than the cap the prune kept
-                // the OLDEST clips and threw away the newest — and the whole
-                // chronology collapsed to the moment of import.
-                if entry.created_at > 0 || entry.last_used_at > 0 {
-                    let _ = db::set_timestamps(db, id, entry.created_at, entry.last_used_at);
-                }
-                // Restore pin + note (upsert_clip doesn't carry them).
+        // The ORIGINAL timestamps go in with the row (a restore that re-stamped
+        // everything "now" in export order let the prune keep the OLDEST clips);
+        // a clip that already exists here is never moved back to an older recency.
+        match db::import_clip(db, &new_clip, entry.created_at, entry.last_used_at) {
+            Ok((id, inserted)) => {
+                // Restore pin + note (import_clip doesn't carry them).
                 if entry.pinned {
                     let _ = db::set_pinned(db, id, true);
                 }
@@ -526,7 +531,9 @@ pub(crate) fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult>
                     let _ = db::set_note(db, id, Some(n));
                 }
                 id_map.insert(entry.id, id);
-                result.history_imported += 1;
+                if inserted {
+                    result.history_imported += 1;
+                }
             }
             Err(e) => result.errors.push(format!("history #{idx}: {e}")),
         }
@@ -599,8 +606,8 @@ pub(crate) fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult>
         }
     }
 
-    // 5) Settings — upsert by key.
-    for (key, value) in &backup.settings {
+    // 5) Settings — upsert by key (never this machine's own identity/bookkeeping).
+    for (key, value) in backup.settings.iter().filter(|(k, _)| !machine_bound_setting(k)) {
         match settings::set(db, key, value) {
             Ok(()) => result.settings_imported += 1,
             Err(e) => result.errors.push(format!("setting '{key}': {e}")),
@@ -1980,4 +1987,27 @@ mod tests {
         assert_eq!(rows[1].last_used_at, 1_000);
         assert_eq!(rows[1].created_at, 1_000);
     }
+
+    #[test]
+    fn machine_bound_settings_neither_leave_nor_enter() {
+        assert!(machine_bound_setting("devicesync.device_id"));
+        assert!(machine_bound_setting("autobackup.last_hash"));
+        assert!(machine_bound_setting("devicesync.last_ms"));
+        assert!(!machine_bound_setting("devicesync.folder"));
+        assert!(!machine_bound_setting("appearance.theme"));
+        let src = fresh_db();
+        settings::set(&src, "devicesync.device_id", "AAA").unwrap();
+        settings::set(&src, "appearance.theme", "dark").unwrap();
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+        assert!(!json.contains("AAA"), "the device id is not exported");
+        // An older backup that still carries one does not take it over.
+        let dst = fresh_db();
+        settings::set(&dst, "devicesync.device_id", "BBB").unwrap();
+        let mut b: serde_json::Value = serde_json::from_str(&json).unwrap();
+        b["settings"]["devicesync.device_id"] = serde_json::json!("AAA");
+        import_json(&dst, &b.to_string()).unwrap();
+        assert_eq!(settings::get_or(&dst, "devicesync.device_id", "").unwrap(), "BBB");
+        assert_eq!(settings::get_or(&dst, "appearance.theme", "").unwrap(), "dark");
+    }
+
 }

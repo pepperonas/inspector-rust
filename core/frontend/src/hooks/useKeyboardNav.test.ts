@@ -163,3 +163,51 @@ describe("useKeyboardNav — key-repeat guard (animation layer)", () => {
     expect(second).not.toHaveBeenCalled();
   });
 });
+
+describe("useKeyboardNav — keys that belong elsewhere", () => {
+  function typeInto(el: HTMLElement, key: string, opts: KeyboardEventInit = {}) {
+    document.body.appendChild(el);
+    el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...opts }));
+    el.remove();
+  }
+
+  it("Enter, arrows and Esc in another text field leave the list alone", () => {
+    const { onEnter, onEscape, setSelected } = setup();
+    for (const el of [document.createElement("textarea"), document.createElement("input")]) {
+      typeInto(el, "Enter");
+      typeInto(el, "ArrowDown");
+      typeInto(el, "Escape");
+    }
+    expect(onEnter).not.toHaveBeenCalled();
+    expect(onEscape).not.toHaveBeenCalled();
+    expect(setSelected).not.toHaveBeenCalled();
+  });
+
+  it("the main search field still drives the list", () => {
+    const { onEnter, setSelected } = setup();
+    const search = document.createElement("input");
+    search.setAttribute("data-main-search", "");
+    typeInto(search, "ArrowDown");
+    typeInto(search, "Enter");
+    expect(setSelected).toHaveBeenCalledWith(4);
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a held Enter, IME composition and already-handled keys", () => {
+    const { onEnter } = setup();
+    press("Enter", { repeat: true });
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
+    const handled = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    handled.preventDefault();
+    window.dispatchEvent(handled);
+    expect(onEnter).not.toHaveBeenCalled();
+    press("Enter");
+    expect(onEnter).toHaveBeenCalledTimes(1);
+  });
+
+  it("the search bar carries the marker", async () => {
+    const src = (await import("../components/SearchBar.tsx?raw")).default as string;
+    expect(src).toContain("data-main-search");
+  });
+});
+

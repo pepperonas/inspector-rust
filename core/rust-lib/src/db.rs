@@ -160,7 +160,7 @@ pub fn upsert_clip_derived(
         // computed over plaintext (kept plaintext for dedup) and
         // doesn't reveal content beyond duplicate-presence.
         let enc_text = crypto::encrypt(&clip.content_text);
-        let enc_data = crypto::encrypt(&clip.content_data);
+        let enc_data = stored_data(clip);
         conn.execute(
             r#"
             INSERT INTO entries (
@@ -191,6 +191,71 @@ pub fn upsert_clip_derived(
     Ok(id)
 }
 
+/// Stand-in `content_data` read from a text row whose payload was not stored
+/// separately (the column is NULL): [`decrypt_entry`] turns it back into a copy
+/// of `content_text`. Never written to the database.
+const SAME_AS_TEXT: &str = "\u{1}ir:same-as-text";
+
+/// What to store in `content_data` (v0.243.0). A plain text clip has the very
+/// same text in `content_text` and `content_data`; storing it once (column
+/// NULL) halves the size of every text clip on disk. Only an exact copy is
+/// dropped — a writer that keeps a short preview in `content_text` still
+/// stores its full payload.
+pub(crate) fn stored_data(clip: &NewClip) -> Option<String> {
+    if clip.content_type == ContentType::Text && clip.content_data == clip.content_text {
+        None
+    } else {
+        Some(crypto::encrypt(&clip.content_data))
+    }
+}
+
+/// Settings flag: existing text clips were rewritten to store their text once.
+pub const KEY_TEXT_ONCE: &str = "history.text_once_migrated_v1";
+
+/// One-time cleanup for clips stored before v0.243.0: a text row whose
+/// payload equals its text drops the copy (`content_data` → NULL). Works in
+/// small batches so the lock is never held for long; decrypts outside it.
+/// Returns how many rows were rewritten.
+pub fn store_text_once(db: &DbHandle) -> Result<usize> {
+    let mut changed = 0usize;
+    let mut after = 0i64;
+    loop {
+        let batch: Vec<(i64, String, String)> = {
+            let conn = db.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, content_text, content_data FROM entries
+                 WHERE content_type = 'text' AND content_data IS NOT NULL AND id > ?1
+                 ORDER BY id LIMIT 200",
+            )?;
+            let rows = stmt.query_map(params![after], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let Some(last) = batch.last().map(|b| b.0) else { break };
+        after = last;
+        let same: Vec<i64> = batch
+            .into_iter()
+            .filter(|(_, t, d)| crypto::decrypt(t) == crypto::decrypt(d))
+            .map(|(id, _, _)| id)
+            .collect();
+        if !same.is_empty() {
+            let conn = db.lock();
+            for id in &same {
+                changed += conn.execute(
+                    "UPDATE entries SET content_data = NULL WHERE id = ?1 AND content_type = 'text'",
+                    params![id],
+                )?;
+            }
+        }
+    }
+    Ok(changed)
+}
+
 /// A clip from a backup or another device, with its own timestamps. A new clip is
 /// inserted with them; an existing one (same hash) only ever moves FORWARD in recency
 /// and back in creation — never set to an older `last_used_at`, which would drop a
@@ -214,7 +279,7 @@ pub fn import_clip(db: &DbHandle, clip: &NewClip, created_at: i64, last_used_at:
         return Ok((id, false));
     }
     let enc_text = crypto::encrypt(&clip.content_text);
-    let enc_data = crypto::encrypt(&clip.content_data);
+    let enc_data = stored_data(clip);
     conn.execute(
         "INSERT INTO entries (content_type, content_text, content_data, hash, byte_size, created_at, last_used_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -259,11 +324,7 @@ pub fn max_entries(db: &DbHandle) -> i64 {
 pub fn set_max_entries(db: &DbHandle, max: i64) -> Result<i64> {
     let clamped = max.clamp(MIN_HISTORY_ENTRIES, MAX_HISTORY_ENTRIES);
     let conn = db.lock();
-    conn.execute(
-        "INSERT INTO settings(key, value) VALUES(?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![KEY_MAX_ENTRIES, clamped.to_string()],
-    )?;
+    crate::settings::upsert_locked(&conn, KEY_MAX_ENTRIES, &clamped.to_string())?;
     prune_locked(&conn, clamped)?;
     Ok(clamped)
 }
@@ -640,6 +701,74 @@ mod tests {
         Arc::new(Mutex::new(conn))
     }
 
+    fn raw_data(db: &DbHandle, id: i64) -> Option<String> {
+        db.lock()
+            .query_row("SELECT content_data FROM entries WHERE id = ?1", params![id], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_text_clip_is_stored_once_and_read_back_whole() {
+        let db = test_db();
+        let id = upsert_clip(&db, &text_clip("hello world")).unwrap();
+        assert_eq!(raw_data(&db, id), None, "the copy is not stored");
+        let e = get(&db, id).unwrap().unwrap();
+        assert_eq!(e.content_data, "hello world", "paste still gets the text");
+        assert_eq!(list(&db, 10, 0).unwrap()[0].content_data, "hello world");
+        // The slim list keeps sending no payload for text.
+        assert_eq!(list_slim(&db, 10, 0).unwrap()[0].content_data, "");
+        // The same text again is recognised (hash unchanged).
+        assert_eq!(upsert_clip(&db, &text_clip("hello world")).unwrap(), id);
+        let (id2, inserted) = import_clip(&db, &text_clip("imported"), 1, 2).unwrap();
+        assert!(inserted);
+        assert_eq!(raw_data(&db, id2), None);
+        assert_eq!(get(&db, id2).unwrap().unwrap().content_data, "imported");
+    }
+
+    #[test]
+    fn a_preview_writer_and_other_types_keep_their_payload() {
+        let db = test_db();
+        let preview = NewClip {
+            content_type: ContentType::Text,
+            content_text: "short preview".into(),
+            content_data: "short preview and much more".into(),
+            byte_size: 27,
+        };
+        let id = upsert_clip(&db, &preview).unwrap();
+        assert!(raw_data(&db, id).is_some());
+        assert_eq!(get(&db, id).unwrap().unwrap().content_data, "short preview and much more");
+        let html = NewClip {
+            content_type: ContentType::Html,
+            content_text: "same".into(),
+            content_data: "same".into(),
+            byte_size: 4,
+        };
+        let id = upsert_clip(&db, &html).unwrap();
+        assert!(raw_data(&db, id).is_some(), "only plain text is stored once");
+    }
+
+    #[test]
+    fn existing_doubled_text_rows_are_rewritten_once() {
+        let db = test_db();
+        // Two old-style rows (copy stored) and one preview row.
+        for (t, d, h) in [("a", "a", "h1"), ("b", "b", "h2"), ("p", "p and more", "h3")] {
+            db.lock()
+                .execute(
+                    "INSERT INTO entries (content_type, content_text, content_data, hash, byte_size, created_at, last_used_at)
+                     VALUES ('text', ?1, ?2, ?3, 1, 1, 1)",
+                    params![t, d, h],
+                )
+                .unwrap();
+        }
+        assert_eq!(store_text_once(&db).unwrap(), 2);
+        assert_eq!(store_text_once(&db).unwrap(), 0, "idempotent");
+        let rows = list(&db, 10, 0).unwrap();
+        let by = |t: &str| rows.iter().find(|r| r.content_text == t).unwrap().content_data.clone();
+        assert_eq!(by("a"), "a");
+        assert_eq!(by("b"), "b");
+        assert_eq!(by("p"), "p and more");
+    }
+
     fn text_clip(s: &str) -> NewClip {
         NewClip {
             content_type: ContentType::Text,
@@ -655,7 +784,7 @@ mod tests {
         let db = test_db();
         db.lock()
             .execute_batch(
-                "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);",
+                "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL DEFAULT 0);",
             )
             .unwrap();
         db
@@ -1393,7 +1522,11 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
         id: row.get(0)?,
         content_type,
         content_text: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-        content_data: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+        content_data: match row.get::<_, Option<String>>(3)? {
+            Some(d) => d,
+            None if content_type == ContentType::Text => SAME_AS_TEXT.to_string(),
+            None => String::new(),
+        },
         hash: row.get(4)?,
         byte_size: row.get(5)?,
         created_at: row.get(6)?,
@@ -1408,7 +1541,11 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
 /// The decrypt half of [`row_to_entry`] — call it with the lock DROPPED.
 fn decrypt_entry(mut e: ClipEntry) -> ClipEntry {
     e.content_text = crypto::decrypt(&e.content_text);
-    e.content_data = crypto::decrypt(&e.content_data);
+    e.content_data = if e.content_data == SAME_AS_TEXT {
+        e.content_text.clone()
+    } else {
+        crypto::decrypt(&e.content_data)
+    };
     e.note = e
         .note
         .map(|enc| crypto::decrypt(&enc))

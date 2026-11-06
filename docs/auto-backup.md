@@ -25,9 +25,29 @@ keins.
 ## Format
 
 Jeder Snapshot ist **eine Datei** im bewährten Backup-Format:
-`inspector-rust-backup-YYYYMMDD-HHMMSS.json` (unverschlüsselt) bzw.
-`inspector-rust-backup-YYYYMMDD-HHMMSS.enc.json` (verschlüsselt, AES-256-GCM,
-Schlüssel per Argon2id aus deinem Passwort). Beide enden auf `.json`, also lädt
+`inspector-rust-backup-YYYYMMDD-HHMMSS--<id>-<Mac>.json` (unverschlüsselt) bzw.
+`…--<id>-<Mac>.enc.json` (verschlüsselt, AES-256-GCM, Schlüssel per Argon2id
+aus deinem Passwort). `<id>` sind die ersten 8 Hex-Zeichen der Geräte-ID dieses
+Macs, `<Mac>` der Computername (nur zur Anzeige).
+
+### Mehrere Macs im selben Ordner (v0.243.0)
+
+Vor v0.243.0 hießen die Dateien nur nach dem Zeitpunkt, und jeder Mac behielt
+„die neuesten N" **aller** Dateien im Ordner — zwei Macs im selben Ordner
+löschten sich gegenseitig ihre Stände weg. Jetzt löscht jeder Mac **nur Dateien
+mit seiner eigenen ID**. Dateien im alten Format (ohne Geräteteil) bleiben
+wiederherstellbar und werden **nie** automatisch gelöscht, weil nicht mehr
+erkennbar ist, welchem Mac sie gehören; aufräumen bei Bedarf von Hand. Die
+Wiederherstellungsliste zeigt je Stand „dieser Mac", den Computernamen oder
+„älteres Format".
+
+### API-Schlüssel und Zugangstoken
+
+Die Einstellungen im Backup enthalten auch API-Schlüssel und Token (Wetter,
+PageSpeed, Hue, cue-Sync) — bewusst, damit eine Wiederherstellung vollständig
+ist. Unverschlüsselt liegen sie deshalb (wie die 2FA-Geheimnisse) im Klartext
+im Ordner; die Einstellungen weisen darauf hin. Für Cloud-Ordner:
+verschlüsseln. Beide enden auf `.json`, also lädt
 sie auch der bestehende **„Import"-Knopf** — es gibt zwei Wege zur
 Wiederherstellung.
 

@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.243.0] — 2026-11-06
+
+### Added
+- **Device sync now carries the app settings too.** The newer change of a setting wins; each Mac keeps its own folder paths, audio and camera devices, display brightness and the sync setup itself. A Mac that joins for the first time takes over the settings already in the folder, so a fresh install's defaults never overwrite a configured Mac. Changed hotkeys, gestures, sounds, language, theme and the other live settings take effect right away.
+
+### Changed
+- **Text clips are stored once instead of twice.** A plain text clip kept the same text in two columns; existing clips are rewritten once in the background. Nothing changes for pasting, searching or backups.
+- **Text clips larger than 4 MB are no longer recorded**, like images over 5 MB. They stay on the clipboard; only the history skips them.
+- **Backups warn about the secrets they contain.** Unencrypted backups hold the 2FA secrets and the API keys and access tokens from the settings; the export and auto-backup settings now say so and recommend encryption.
+
+### Fixed
+- **Two Macs backing up into the same folder no longer delete each other's backups.** Each backup file now names the Mac that wrote it, and every Mac only prunes its own. Files from earlier versions stay restorable and are never deleted automatically. The restore list shows which Mac wrote each backup.
+- **The restore list showed backup times shifted by the time-zone offset.**
+
 ## [0.242.0] — 2026-11-05
 
 ### Changed

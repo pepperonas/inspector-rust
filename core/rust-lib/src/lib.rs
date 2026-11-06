@@ -105,6 +105,7 @@ mod screenshot_preview;
 mod sec;
 mod seed;
 mod settings;
+mod settings_sync;
 mod shazam;
 mod shell_alias;
 mod sleep_status;
@@ -282,6 +283,26 @@ pub fn run(context: tauri::Context<Wry>) {
                     }
                     if clean {
                         let _ = settings::set(&db, FLAG, "true");
+                    }
+                });
+            }
+
+            // v0.243.0: store each text clip once (the copy in content_data
+            // was byte-identical). Background, batched, once per database.
+            {
+                let db = db_handle.clone();
+                std::thread::spawn(move || {
+                    if settings::get_bool(&db, db::KEY_TEXT_ONCE, false).unwrap_or(false) {
+                        return;
+                    }
+                    match db::store_text_once(&db) {
+                        Ok(n) => {
+                            if n > 0 {
+                                tracing::info!("text clips: {n} stored once instead of twice");
+                            }
+                            let _ = settings::set(&db, db::KEY_TEXT_ONCE, "true");
+                        }
+                        Err(e) => tracing::warn!("text clip cleanup: {e:#}"),
                     }
                 });
             }

@@ -140,6 +140,10 @@ pub struct Backup {
     /// App settings as key-value pairs (v2+).
     #[serde(default)]
     pub settings: HashMap<String, String>,
+    /// When each setting last changed (ms). Only device sync fills this, so
+    /// the newer change of a key wins between Macs; a backup leaves it out.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub settings_times: HashMap<String, i64>,
     /// Timesheet tracking data (v3+, opt-in — absent unless the user ticked
     /// "include timesheet" at export time).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -252,6 +256,7 @@ pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
         } else {
             HashMap::new()
         },
+        settings_times: HashMap::new(),
         timesheet: if opts.include_timesheet {
             Some(export_timesheet(db)?)
         } else {
@@ -1340,6 +1345,7 @@ mod tests {
             }],
             totp_entries: vec![],
             settings: HashMap::new(),
+            settings_times: HashMap::new(),
             timesheet: None,
         };
         let r = replace_all(&db, backup).unwrap();
@@ -1820,6 +1826,7 @@ mod tests {
                 },
             ],
             settings: HashMap::new(),
+            settings_times: HashMap::new(),
             timesheet: None,
         };
         let r = import_json(&db, &serde_json::to_string(&backup).unwrap()).unwrap();
@@ -1881,6 +1888,7 @@ mod tests {
             notes: vec![],
             totp_entries: vec![],
             settings: HashMap::new(),
+            settings_times: HashMap::new(),
             timesheet: Some(TimesheetBackup {
                 sessions: vec![TrackSessionBackup {
                     id: 1,

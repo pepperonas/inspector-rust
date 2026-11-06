@@ -18,7 +18,77 @@ pub fn init_table(db: &DbHandle) -> Result<()> {
         );
         "#,
     )?;
+    ensure_updated_at(&conn)?;
     Ok(())
+}
+
+/// Add the `updated_at` column (ms since epoch of the last VALUE change) to a
+/// settings table created by an older build. Existing rows get 0 = "older than
+/// anything", so a deliberate change on another Mac always wins over them.
+/// Device sync uses the column to let the newest change of a key win.
+pub(crate) fn ensure_updated_at(conn: &rusqlite::Connection) -> Result<()> {
+    let has: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('settings') WHERE name = 'updated_at'")?
+        .exists([])?;
+    if !has {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Write `value` under `key` on an already-locked connection. The change time
+/// only moves when the value really changes — a start-up routine that writes
+/// the same value again must not look like a fresh decision to device sync.
+pub(crate) fn upsert_locked(conn: &rusqlite::Connection, key: &str, value: &str) -> Result<()> {
+    upsert_at_locked(conn, key, value, now_ms())
+}
+
+/// Like [`upsert_locked`], but with an explicit change time (device sync
+/// keeps the peer's time so the value doesn't bounce back as "newer").
+pub(crate) fn upsert_at_locked(
+    conn: &rusqlite::Connection,
+    key: &str,
+    value: &str,
+    at: i64,
+) -> Result<()> {
+    conn.execute(
+        r#"
+        INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = CASE WHEN settings.value = excluded.value
+                              THEN settings.updated_at
+                              ELSE excluded.updated_at END
+        "#,
+        params![key, value, at],
+    )?;
+    Ok(())
+}
+
+/// Every setting with its change time, for device sync.
+pub fn all_with_times(db: &DbHandle) -> Result<Vec<(String, String, i64)>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare("SELECT key, value, updated_at FROM settings")?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Store a value with an explicit change time (device sync).
+pub fn set_at(db: &DbHandle, key: &str, value: &str, at: i64) -> Result<()> {
+    let conn = db.lock();
+    upsert_at_locked(&conn, key, value, at)
 }
 
 pub fn get(db: &DbHandle, key: &str) -> Result<Option<String>> {
@@ -35,14 +105,7 @@ pub fn get(db: &DbHandle, key: &str) -> Result<Option<String>> {
 
 pub fn set(db: &DbHandle, key: &str, value: &str) -> Result<()> {
     let conn = db.lock();
-    conn.execute(
-        r#"
-        INSERT INTO settings (key, value) VALUES (?1, ?2)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        "#,
-        params![key, value],
-    )?;
-    Ok(())
+    upsert_locked(&conn, key, value)
 }
 
 /// Remove a key (a no-op when it isn't there).

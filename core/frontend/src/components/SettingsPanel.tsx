@@ -2914,9 +2914,13 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     )}
                   </div>
                 )}
-                {encryptBackup && (
+                {encryptBackup ? (
                   <span className="text-[11px] text-amber-500">
                     {t("set.backup.no_recovery")}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-amber-500" data-testid="backup-secrets-warn">
+                    {t("set.backup.secrets_warn")}
                   </span>
                 )}
               </div>
@@ -4177,6 +4181,9 @@ function DeviceSyncSection() {
         <p className="mt-1 text-[11px] text-amber-500">{status.last_error}</p>
       )}
       <p className="mt-3 text-[11px] text-[var(--color-muted)]">
+        {t("set.ds.settings_note")}
+      </p>
+      <p className="mt-1 text-[11px] text-[var(--color-muted)]">
         {t("set.ds.no_deletes")}
       </p>
     </Section>
@@ -4435,6 +4442,12 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
                 <div key={s.path} className="flex items-center gap-2 text-[11px]">
                   {s.encrypted && <Lock size={11} className="shrink-0 text-[var(--color-muted)]" />}
                   <span className="min-w-0 flex-1 truncate">{new Date(s.ts_ms).toLocaleString(locale())}</span>
+                  <span
+                    className="max-w-[9rem] shrink-0 truncate text-[var(--color-muted)]"
+                    title={s.own ? t("set.ab.this_mac") : (s.device ?? t("set.ab.old_format"))}
+                  >
+                    {s.own ? t("set.ab.this_mac") : (s.device ?? t("set.ab.old_format"))}
+                  </span>
                   <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(s.bytes)}</span>
                   {s.encrypted && (
                     <input

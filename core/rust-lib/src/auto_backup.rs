@@ -107,10 +107,16 @@ pub struct AutoBackupStatus {
 pub struct SnapshotInfo {
     pub path: String,
     pub name: String,
-    /// Timestamp parsed from the filename (ms; local wall clock).
+    /// When the snapshot was written (ms since epoch). The name holds local
+    /// wall-clock time; this is that time converted with the local zone.
     pub ts_ms: i64,
     pub bytes: u64,
     pub encrypted: bool,
+    /// Computer name of the Mac that wrote it (`None` for files from before
+    /// v0.243.0, or when the name had no readable part).
+    pub device: Option<String>,
+    /// Written by this Mac.
+    pub own: bool,
 }
 
 /// Outcome of one cycle (for the "Back up now" toast + the worker's bookkeeping).
@@ -177,42 +183,126 @@ pub fn is_our_backup(name: &str) -> bool {
     name.starts_with(FILE_PREFIX) && name.ends_with(PLAIN_SUFFIX)
 }
 
-/// Filename for a snapshot at `local` wall-clock time.
-pub fn backup_filename(local: chrono::NaiveDateTime, encrypted: bool) -> String {
-    let ts = local.format(TS_FMT);
-    let suffix = if encrypted { ENC_SUFFIX } else { PLAIN_SUFFIX };
-    format!("{FILE_PREFIX}{ts}{suffix}")
+/// Separates the time stamp from the device part in a file name.
+const DEVICE_SEP: &str = "--";
+/// Length of the device id kept in a file name.
+const DEVICE_ID_LEN: usize = 8;
+
+/// Which Mac wrote a snapshot (v0.243.0). Two Macs backing up into the same
+/// folder used to prune each other's files; the device part in the name lets
+/// each one keep — and delete — only its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTag {
+    /// First 8 hex digits of this Mac's device id — what pruning matches on.
+    pub id: String,
+    /// Readable computer name, for the restore list only (may change).
+    pub label: String,
 }
 
-/// Parse the wall-clock timestamp back out of one of our filenames (ms). `None`
-/// when the name isn't ours or the stamp doesn't parse. Inverse of
-/// [`backup_filename`] for the time component.
-pub fn parse_backup_ts(name: &str) -> Option<i64> {
+impl DeviceTag {
+    pub fn new(device_id: &str, computer_name: &str) -> Self {
+        let id: String = device_id
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .take(DEVICE_ID_LEN)
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let mut label = String::new();
+        for c in computer_name.chars() {
+            if c.is_ascii_alphanumeric() {
+                label.push(c);
+            } else if !label.ends_with('-') && !label.is_empty() {
+                label.push('-');
+            }
+        }
+        let label: String = label.trim_matches('-').chars().take(32).collect();
+        DeviceTag { id, label: label.trim_end_matches('-').to_string() }
+    }
+}
+
+/// This Mac's tag: the device-sync id (generated once, never synced) plus the
+/// computer name.
+pub fn own_device_tag(db: &DbHandle) -> DeviceTag {
+    let id = crate::device_sync::device_id(db).unwrap_or_default();
+    let name = sysinfo::System::host_name().unwrap_or_default();
+    let name = name.strip_suffix(".local").unwrap_or(&name).to_string();
+    DeviceTag::new(&id, &name)
+}
+
+/// Filename for a snapshot at `local` wall-clock time, written by `device`.
+pub fn backup_filename(local: chrono::NaiveDateTime, encrypted: bool, device: &DeviceTag) -> String {
+    let ts = local.format(TS_FMT);
+    let suffix = if encrypted { ENC_SUFFIX } else { PLAIN_SUFFIX };
+    // Without a usable id (broken settings table) fall back to the old name:
+    // the file stays restorable and is simply never pruned.
+    if device.id.len() != DEVICE_ID_LEN {
+        return format!("{FILE_PREFIX}{ts}{suffix}");
+    }
+    let dev = if device.label.is_empty() {
+        device.id.clone()
+    } else {
+        format!("{}-{}", device.id, device.label)
+    };
+    format!("{FILE_PREFIX}{ts}{DEVICE_SEP}{dev}{suffix}")
+}
+
+/// What a snapshot name says. `device_id` is `None` for files written before
+/// v0.243.0 (no device part) — those stay restorable and are never pruned,
+/// because they may belong to the other Mac.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedName {
+    /// Wall-clock time from the name, as ms (naive, read as UTC).
+    pub ts: i64,
+    pub device_id: Option<String>,
+    pub label: Option<String>,
+}
+
+pub fn parse_backup_name(name: &str) -> Option<ParsedName> {
     if !is_our_backup(name) {
         return None;
     }
     let rest = name.strip_prefix(FILE_PREFIX)?;
     // Strip the more specific suffix first (`.enc.json` also ends `.json`).
-    let stamp = rest
+    let body = rest
         .strip_suffix(ENC_SUFFIX)
         .or_else(|| rest.strip_suffix(PLAIN_SUFFIX))?;
+    let (stamp, device) = match body.split_once(DEVICE_SEP) {
+        Some((s, d)) => (s, Some(d)),
+        None => (body, None),
+    };
     let dt = chrono::NaiveDateTime::parse_from_str(stamp, TS_FMT).ok()?;
-    Some(dt.and_utc().timestamp_millis())
+    let (device_id, label) = match device {
+        None => (None, None),
+        Some(d) => {
+            let (id, label) = match d.split_once('-') {
+                Some((id, l)) => (id, Some(l.to_string()).filter(|l| !l.is_empty())),
+                None => (d, None),
+            };
+            if id.len() != DEVICE_ID_LEN || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            (Some(id.to_ascii_lowercase()), label)
+        }
+    };
+    Some(ParsedName { ts: dt.and_utc().timestamp_millis(), device_id, label })
 }
 
 pub fn is_encrypted_name(name: &str) -> bool {
     name.ends_with(ENC_SUFFIX)
 }
 
-/// Given every one-of-our-backup filename in the folder, the ones to DELETE to
-/// keep only the newest `keep`. Names that aren't ours / don't parse are
-/// ignored (never returned — a foreign file is never a deletion candidate).
-/// Newest = largest parsed timestamp, tie-broken by name so the order can't
-/// wobble.
-pub fn snapshots_to_delete(names: &[String], keep: usize) -> Vec<String> {
+/// Given every filename in the folder, the ones to DELETE so this Mac keeps
+/// its newest `keep`. Only files carrying `own_id` are candidates: another
+/// Mac's snapshots, files from before v0.243.0 (no device part) and foreign
+/// files are never returned. Newest = largest parsed timestamp, tie-broken by
+/// name so the order can't wobble.
+pub fn snapshots_to_delete(names: &[String], keep: usize, own_id: &str) -> Vec<String> {
     let mut ours: Vec<(i64, &String)> = names
         .iter()
-        .filter_map(|n| parse_backup_ts(n).map(|ts| (ts, n)))
+        .filter_map(|n| {
+            let p = parse_backup_name(n)?;
+            (p.device_id.as_deref() == Some(own_id)).then_some((p.ts, n))
+        })
         .collect();
     // Newest first.
     ours.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(a.1)));
@@ -357,7 +447,8 @@ pub fn get_password() -> Option<String> {
 pub fn get_status(db: &DbHandle) -> Result<AutoBackupStatus> {
     let cfg = get_config(db)?;
     let dir = PathBuf::from(cfg.folder.trim());
-    let snapshot_count = list_snapshots(&cfg.folder).map(|v| v.len()).unwrap_or(0);
+    let own = own_device_tag(db);
+    let snapshot_count = list_snapshots(&cfg.folder, &own.id).map(|v| v.len()).unwrap_or(0);
     let last_check_ms = settings::get_or(db, KEY_LAST_CHECK_MS, "0")?.parse().unwrap_or(0);
     Ok(AutoBackupStatus {
         last_ms: settings::get_or(db, KEY_LAST_MS, "0")?.parse().unwrap_or(0),
@@ -376,7 +467,7 @@ pub fn get_status(db: &DbHandle) -> Result<AutoBackupStatus> {
 }
 
 /// Every snapshot in `folder`, newest first. Missing/unreadable folder → empty.
-pub fn list_snapshots(folder: &str) -> Result<Vec<SnapshotInfo>> {
+pub fn list_snapshots(folder: &str, own_id: &str) -> Result<Vec<SnapshotInfo>> {
     let dir = PathBuf::from(folder.trim());
     let rd = match std::fs::read_dir(&dir) {
         Ok(rd) => rd,
@@ -385,18 +476,35 @@ pub fn list_snapshots(folder: &str) -> Result<Vec<SnapshotInfo>> {
     let mut out: Vec<SnapshotInfo> = Vec::new();
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        let Some(ts_ms) = parse_backup_ts(&name) else { continue };
+        let Some(parsed) = parse_backup_name(&name) else { continue };
         let bytes = e.metadata().map(|m| m.len()).unwrap_or(0);
         out.push(SnapshotInfo {
             path: e.path().to_string_lossy().into_owned(),
             name: name.clone(),
-            ts_ms,
+            ts_ms: local_naive_to_epoch(parsed.ts),
             bytes,
             encrypted: is_encrypted_name(&name),
+            own: parsed.device_id.as_deref() == Some(own_id),
+            device: parsed.label,
         });
     }
     out.sort_by(|a, b| b.ts_ms.cmp(&a.ts_ms).then_with(|| b.name.cmp(&a.name)));
     Ok(out)
+}
+
+/// The name stores local wall-clock time; turn it into a real instant so the
+/// restore list shows the time the file was written, not one shifted by the
+/// time-zone offset.
+fn local_naive_to_epoch(naive_ms: i64) -> i64 {
+    use chrono::TimeZone;
+    let Some(naive) = chrono::DateTime::from_timestamp_millis(naive_ms).map(|d| d.naive_utc()) else {
+        return naive_ms;
+    };
+    chrono::Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(naive_ms)
 }
 
 // ── The cycle (impure edge) ──────────────────────────────────────────────────
@@ -456,7 +564,8 @@ pub fn cycle(
     let local = chrono::DateTime::from_timestamp_millis(now_ms)
         .map(|dt| dt.with_timezone(&chrono::Local).naive_local())
         .unwrap_or_else(|| chrono::Local::now().naive_local());
-    let name = backup_filename(local, cfg.encrypt);
+    let device = own_device_tag(db);
+    let name = backup_filename(local, cfg.encrypt, &device);
     let path = dir.join(&name);
     write_atomic(&path, &payload)?;
     settings::set(db, KEY_LAST_HASH, &hash)?;
@@ -470,7 +579,7 @@ pub fn cycle(
         })
         .unwrap_or_default();
     let mut pruned = 0usize;
-    for victim in snapshots_to_delete(&names, cfg.keep) {
+    for victim in snapshots_to_delete(&names, cfg.keep, &device.id) {
         if std::fs::remove_file(dir.join(&victim)).is_ok() {
             pruned += 1;
         }
@@ -575,6 +684,11 @@ pub fn start(app: AppHandle, db: DbHandle) {
 mod tests {
     use super::*;
 
+    /// The time part of one of our filenames (old and new format).
+    fn parse_backup_ts(name: &str) -> Option<i64> {
+        parse_backup_name(name).map(|p| p.ts)
+    }
+
     fn cfg(folder: &str) -> AutoBackupConfig {
         AutoBackupConfig {
             enabled: true,
@@ -640,10 +754,14 @@ mod tests {
     #[test]
     fn filename_roundtrips_and_flags_encryption() {
         let dt = chrono::NaiveDateTime::parse_from_str("20260909-142530", TS_FMT).unwrap();
-        let plain = backup_filename(dt, false);
-        let enc = backup_filename(dt, true);
-        assert_eq!(plain, "inspector-rust-backup-20260909-142530.json");
-        assert_eq!(enc, "inspector-rust-backup-20260909-142530.enc.json");
+        let dev = DeviceTag::new("a1b2c3d4e5f60718", "MacBook Pro (Martin)");
+        let plain = backup_filename(dt, false, &dev);
+        let enc = backup_filename(dt, true, &dev);
+        assert_eq!(plain, "inspector-rust-backup-20260909-142530--a1b2c3d4-MacBook-Pro-Martin.json");
+        assert_eq!(enc, "inspector-rust-backup-20260909-142530--a1b2c3d4-MacBook-Pro-Martin.enc.json");
+        let p = parse_backup_name(&enc).unwrap();
+        assert_eq!(p.device_id.as_deref(), Some("a1b2c3d4"));
+        assert_eq!(p.label.as_deref(), Some("MacBook-Pro-Martin"));
         assert!(is_our_backup(&plain) && is_our_backup(&enc));
         assert!(!is_encrypted_name(&plain) && is_encrypted_name(&enc));
         // The parsed time matches for both, and equals the source instant.
@@ -676,27 +794,52 @@ mod tests {
             "inspector-rust-backup-20260101-000000.json".to_string(),
             "inspector-rust-backup-20260102-000000.enc.json".to_string(),
         ];
-        let del = snapshots_to_delete(&names, 1);
-        assert_eq!(del, vec!["inspector-rust-backup-20260101-000000.json".to_string()]);
+        // Old-style names (no device part) still parse — they stay restorable…
+        assert!(parse_backup_ts("inspector-rust-backup-20260101-000000.json").is_some());
+        assert!(parse_backup_name("inspector-rust-backup-20260101-000000.json").unwrap().device_id.is_none());
+        // …but are never pruned: they may be the other Mac's.
+        assert!(snapshots_to_delete(&names, 1, "a1b2c3d4").is_empty());
+        // A malformed device part is not ours either.
+        assert!(parse_backup_ts("inspector-rust-backup-20260101-000000--xyz-Mac.json").is_none());
+    }
+
+    #[test]
+    fn each_mac_prunes_only_its_own() {
+        let a = |d: u32| format!("inspector-rust-backup-2026010{d}-000000--aaaaaaaa-MacA.json");
+        let b = |d: u32| format!("inspector-rust-backup-2026010{d}-000000--bbbbbbbb-MacB.enc.json");
+        let legacy = "inspector-rust-backup-20251231-000000.json".to_string();
+        let mut names: Vec<String> = (1..=4).map(a).chain((1..=4).map(b)).collect();
+        names.push(legacy.clone());
+        let del = snapshots_to_delete(&names, 2, "aaaaaaaa");
+        assert_eq!(del, vec![a(2), a(1)]);
+        let del_b = snapshots_to_delete(&names, 2, "bbbbbbbb");
+        assert_eq!(del_b, vec![b(2), b(1)]);
+        assert!(!del.contains(&legacy) && !del_b.contains(&legacy));
+    }
+
+    #[test]
+    fn a_missing_device_id_falls_back_to_the_old_name() {
+        let dt = chrono::NaiveDateTime::parse_from_str("20260909-142530", TS_FMT).unwrap();
+        let name = backup_filename(dt, false, &DeviceTag::new("", "Mac"));
+        assert_eq!(name, "inspector-rust-backup-20260909-142530.json");
+    }
+
+    #[test]
+    fn device_labels_are_file_name_safe() {
+        assert_eq!(DeviceTag::new("ABCDEF0123", "Martins MacBook/Pro ✓").label, "Martins-MacBook-Pro");
+        assert_eq!(DeviceTag::new("abcdef0123", "").label, "");
+        assert_eq!(DeviceTag::new("ABCDEF0123", "x").id, "abcdef01");
     }
 
     #[test]
     fn retention_keeps_the_newest_n_only() {
-        let names: Vec<String> = (1..=5)
-            .map(|d| format!("inspector-rust-backup-2026010{d}-000000.json"))
-            .collect();
-        let del = snapshots_to_delete(&names, 2);
+        let n = |d: u32| format!("inspector-rust-backup-2026010{d}-000000--0123abcd.json");
+        let names: Vec<String> = (1..=5).map(n).collect();
+        let del = snapshots_to_delete(&names, 2, "0123abcd");
         // Keep day 5 + day 4; delete 3, 2, 1.
-        assert_eq!(
-            del,
-            vec![
-                "inspector-rust-backup-20260103-000000.json".to_string(),
-                "inspector-rust-backup-20260102-000000.json".to_string(),
-                "inspector-rust-backup-20260101-000000.json".to_string(),
-            ]
-        );
-        assert!(snapshots_to_delete(&names, 5).is_empty(), "keep>=count deletes nothing");
-        assert!(snapshots_to_delete(&names, 99).is_empty());
+        assert_eq!(del, vec![n(3), n(2), n(1)]);
+        assert!(snapshots_to_delete(&names, 5, "0123abcd").is_empty(), "keep>=count deletes nothing");
+        assert!(snapshots_to_delete(&names, 99, "0123abcd").is_empty());
     }
 
     // ── Integration: real files in a temp dir, real DB round-trip ──────────
@@ -798,7 +941,7 @@ mod tests {
             assert!(out.wrote, "forced cycle must write");
         }
         // keep=2 → the oldest of the three was pruned.
-        let snaps = list_snapshots(&c.folder).unwrap();
+        let snaps = list_snapshots(&c.folder, &own_device_tag(&db).id).unwrap();
         assert_eq!(snaps.len(), 2, "retention keeps newest 2");
         assert!(snaps[0].ts_ms > snaps[1].ts_ms, "newest first");
         assert!(!snaps[0].encrypted);
@@ -824,7 +967,7 @@ mod tests {
         // Second, nothing changed → skipped, no second file.
         let out = cycle(&db, &c, None, false, base + 60_000).unwrap();
         assert!(out.unchanged && !out.wrote);
-        assert_eq!(list_snapshots(&c.folder).unwrap().len(), 1);
+        assert_eq!(list_snapshots(&c.folder, &own_device_tag(&db).id).unwrap().len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -837,7 +980,7 @@ mod tests {
         c.encrypt = true;
         let out = cycle(&db, &c, Some("s3cret-pass"), true, chrono::Utc::now().timestamp_millis()).unwrap();
         assert!(out.wrote);
-        let snaps = list_snapshots(&c.folder).unwrap();
+        let snaps = list_snapshots(&c.folder, &own_device_tag(&db).id).unwrap();
         assert_eq!(snaps.len(), 1);
         assert!(snaps[0].encrypted, "the .enc.json name + content are encrypted");
 
@@ -858,7 +1001,7 @@ mod tests {
         let dir = tmpdir("replace");
         let c = cfg(&dir.to_string_lossy());
         cycle(&src, &c, None, true, chrono::Utc::now().timestamp_millis()).unwrap();
-        let snap = &list_snapshots(&c.folder).unwrap()[0].path.clone();
+        let snap = &list_snapshots(&c.folder, &own_device_tag(&src).id).unwrap()[0].path.clone();
 
         // A destination with DIFFERENT data; replace must remove it.
         let dst = fresh_db();

@@ -1197,6 +1197,10 @@ export interface AutoBackupSnapshot {
   ts_ms: number;
   bytes: number;
   encrypted: boolean;
+  /** Computer name of the Mac that wrote it; null for files from before v0.243.0. */
+  device: string | null;
+  /** Written by this Mac. */
+  own: boolean;
 }
 export interface AutoBackupCycleOutcome {
   wrote: boolean;

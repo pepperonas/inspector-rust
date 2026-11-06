@@ -79,6 +79,12 @@ pub struct NewClip {
 /// 5 MB per-entry ceiling for images.
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
 
+/// Largest text-like clip (plain text, HTML, RTF) kept in the history
+/// (v0.243.0). A pasted log of tens of MB would be encrypted, sent to the popup
+/// and searched on every keystroke; anything bigger stays on the clipboard but
+/// is not recorded — like an oversized image.
+pub const MAX_TEXT_BYTES: usize = 4 * 1024 * 1024;
+
 /// History is pruned to this many most-recently-used entries.
 pub const MAX_ENTRIES: i64 = 1000;
 

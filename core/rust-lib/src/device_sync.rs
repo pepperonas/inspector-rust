@@ -40,10 +40,12 @@
 //!   cycle may even bring it back. That is the price of mechanism 1, and it is
 //!   the right trade for a first version — a delete channel is how sync
 //!   features destroy data.
-//! * **Settings and timesheet data are never synced.** Hotkeys, monitor
-//!   brightness, the sync config itself and machine-bound telemetry are local
-//!   by nature; syncing the settings table could also overwrite this very
-//!   feature's configuration mid-cycle.
+//! * **Timesheet data is never synced.**
+//! * **Settings sync since v0.243.0, minus the machine's own** — see
+//!   [`crate::settings_sync`]: folder paths, audio/camera devices, display
+//!   levels, this feature's own configuration and migration flags stay local;
+//!   for everything else the newest change wins. They take the
+//!   `settings_sync::merge` path, never `backup::apply`.
 //! * **2FA secrets are opt-in** (`devicesync.include_totp`, default off).
 
 use std::collections::HashSet;
@@ -117,6 +119,8 @@ pub struct SyncStats {
     pub published: bool,
     /// Human-readable reasons a peer file or the publish step was skipped.
     pub skipped: Vec<String>,
+    /// Settings whose value a peer changed on this Mac.
+    pub settings_changed: Vec<String>,
 }
 
 /// The default shared folder: iCloud Drive, if this Mac has it. `None` means
@@ -385,7 +389,12 @@ pub fn write_atomic(path: &Path, contents: &str) -> Result<()> {
 /// Publish this device's state, honouring the empty-overwrite gate.
 fn publish(db: &DbHandle, dir: &Path, own: &str, cfg: &DeviceSyncConfig, pass: &str, stats: &mut SyncStats) -> Result<()> {
     let opts = export_options(cfg);
-    let doc = backup::export(db, opts).context("export failed")?;
+    let mut doc = backup::export(db, opts).context("export failed")?;
+    // Settings travel on their own path: only the keys that belong to the
+    // app (not to this machine), each with its change time.
+    let (values, times) = crate::settings_sync::export(db);
+    doc.settings = values;
+    doc.settings_times = times;
     let items = payload_items(&doc);
 
     let target = dir.join(own);
@@ -432,9 +441,18 @@ fn publish(db: &DbHandle, dir: &Path, own: &str, cfg: &DeviceSyncConfig, pass: &
 
 /// Merge one peer document in. Additive only.
 fn apply_incoming(db: &DbHandle, mut doc: Backup, stats: &mut SyncStats) -> Result<()> {
-    // Never let a peer's settings or timesheet in, whatever the file claims.
-    doc.settings.clear();
+    // Never let a peer's timesheet in, whatever the file claims. Settings go
+    // through the newest-change-wins merge, never through `backup::apply`
+    // (which would overwrite every key unconditionally).
     doc.timesheet = None;
+    let peer_settings = std::mem::take(&mut doc.settings);
+    let peer_times = std::mem::take(&mut doc.settings_times);
+    let joined = settings::get_bool(db, crate::settings_sync::KEY_JOINED, false).unwrap_or(false);
+    for key in crate::settings_sync::merge(db, &peer_settings, &peer_times, joined) {
+        if !stats.settings_changed.contains(&key) {
+            stats.settings_changed.push(key);
+        }
+    }
 
     let existing: HashSet<_> = notes::list_all(db)
         .unwrap_or_default()
@@ -484,7 +502,20 @@ pub fn cycle(db: &DbHandle, cfg: &DeviceSyncConfig, pass: &str) -> Result<SyncSt
     }
 
     publish(db, &dir, &own, cfg, pass, &mut stats)?;
+    // From now on this Mac's own changes compete by time instead of yielding.
+    let _ = settings::set(db, crate::settings_sync::KEY_JOINED, "true");
     Ok(stats)
+}
+
+/// After a cycle: tell the windows and bring running parts in line with
+/// settings a peer changed.
+pub fn after_cycle(app: &AppHandle, db: &DbHandle, stats: &SyncStats) {
+    if stats.clips + stats.snippets + stats.notes + stats.totp > 0 {
+        let _ = app.emit("clipboard-changed", ());
+        let _ = app.emit("snippets-synced", ());
+        let _ = app.emit("device-sync-applied", ());
+    }
+    crate::settings_sync::reapply(app, db, &stats.settings_changed);
 }
 
 /// Status for the Settings UI.
@@ -549,11 +580,7 @@ pub fn start(app: AppHandle, db: DbHandle) {
                         KEY_LAST_ERROR,
                         &stats.skipped.first().cloned().unwrap_or_default(),
                     );
-                    if stats.clips + stats.snippets + stats.notes + stats.totp > 0 {
-                        let _ = app.emit("clipboard-changed", ());
-                        let _ = app.emit("snippets-synced", ());
-                        let _ = app.emit("device-sync-applied", ());
-                    }
+                    after_cycle(&app, &db, &stats);
                 }
                 Err(e) => {
                     let _ = settings::set(&db, KEY_LAST_ERROR, &format!("{e:#}"));
@@ -661,6 +688,7 @@ mod tests {
             notes: Vec::new(),
             totp_entries: Vec::new(),
             settings: Default::default(),
+            settings_times: Default::default(),
             timesheet: None,
         }
         .tap(history, snippets)
@@ -976,6 +1004,38 @@ mod tests {
 
         cycle(&a, &cfg, PASS).unwrap(); // A reads B
         assert_eq!(clip_count(&a), 2, "A kennt jetzt beide");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_travel_newest_wins_and_machine_keys_stay() {
+        let dir = temp_folder();
+        let cfg = cfg_for(&dir);
+        let a = fresh_db();
+        let b = fresh_db();
+        clip(&a, "a");
+        clip(&b, "b");
+        // A is the configured Mac; B is new and wrote a fresher default.
+        settings::set_at(&a, "appearance.theme", "dark", 1_000).unwrap();
+        settings::set_at(&a, "meme.dir", "/Users/a/memes", 1_000).unwrap();
+        settings::set_at(&b, "appearance.theme", "light", 5_000).unwrap();
+
+        cycle(&a, &cfg, PASS).unwrap(); // A publishes (no peers yet)
+        let s = cycle(&b, &cfg, PASS).unwrap(); // B joins: adopts A's set
+        assert_eq!(settings::get_or(&b, "appearance.theme", "").unwrap(), "dark");
+        assert_eq!(settings::get_or(&b, "meme.dir", "").unwrap(), "", "paths stay local");
+        assert_eq!(s.settings_changed, vec!["appearance.theme".to_string()]);
+
+        // Now joined: B's later change wins on A.
+        settings::set_at(&b, "appearance.theme", "system", 9_000).unwrap();
+        cycle(&b, &cfg, PASS).unwrap();
+        cycle(&a, &cfg, PASS).unwrap();
+        assert_eq!(settings::get_or(&a, "appearance.theme", "").unwrap(), "system");
+        // An older change on A does not undo it.
+        settings::set_at(&a, "appearance.theme", "dark", 8_000).unwrap();
+        cycle(&a, &cfg, PASS).unwrap();
+        cycle(&b, &cfg, PASS).unwrap();
+        assert_eq!(settings::get_or(&b, "appearance.theme", "").unwrap(), "system");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

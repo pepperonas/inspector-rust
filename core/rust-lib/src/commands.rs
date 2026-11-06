@@ -2076,7 +2076,7 @@ pub struct LanguageInfo {
     pub system: crate::i18n::Lang,
 }
 
-fn language_info(setting: &str) -> LanguageInfo {
+pub(crate) fn language_info(setting: &str) -> LanguageInfo {
     let system = crate::i18n::system_lang();
     LanguageInfo {
         setting: crate::i18n::normalise_setting(setting).to_string(),
@@ -2325,7 +2325,7 @@ pub struct CrtAnimation {
     pub default_ms: u32,
 }
 
-fn crt_animation(db: &DbHandle) -> CrtAnimation {
+pub(crate) fn crt_animation(db: &DbHandle) -> CrtAnimation {
     let raw = settings::get(db, KEY_CRT_MS).ok().flatten();
     CrtAnimation {
         ms: normalise_crt_ms(raw.as_deref()),
@@ -2364,7 +2364,7 @@ const KEY_ANIMATION_STAGE: &str = "appearance.animations";
 /// Pure: stored string → valid stage. Anything unknown (hand-edited DB, a
 /// future build's value) collapses to `"full"` — the shipped default — so a
 /// bad value can never wedge the UI into a state this build can't render.
-fn normalise_animation_stage(raw: Option<&str>) -> &'static str {
+pub(crate) fn normalise_animation_stage(raw: Option<&str>) -> &'static str {
     match raw.map(str::trim) {
         Some("reduced") => "reduced",
         Some("off") => "off",
@@ -8692,6 +8692,7 @@ pub fn set_device_sync_passphrase(passphrase: String) -> Result<(), String> {
 /// Run one cycle now. Async — it does argon2 + file IO.
 #[tauri::command]
 pub async fn device_sync_now(
+    app: AppHandle,
     db: tauri::State<'_, DbHandle>,
 ) -> Result<crate::device_sync::SyncStats, String> {
     let db = (*db).clone();
@@ -8701,8 +8702,10 @@ pub async fn device_sync_now(
         if !crate::device_sync::should_run(&cfg, pass.is_some()) {
             return Err("devicesync.not_ready".to_string());
         }
-        crate::device_sync::cycle(&db, &cfg, &pass.unwrap_or_default())
-            .map_err(|e| format!("{e:#}"))
+        let stats = crate::device_sync::cycle(&db, &cfg, &pass.unwrap_or_default())
+            .map_err(|e| format!("{e:#}"))?;
+        crate::device_sync::after_cycle(&app, &db, &stats);
+        Ok(stats)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -8757,7 +8760,7 @@ pub async fn auto_backup_list_snapshots(
     let db = (*db).clone();
     tauri::async_runtime::spawn_blocking(move || {
         let cfg = crate::auto_backup::get_config(&db).map_err(|e| e.to_string())?;
-        crate::auto_backup::list_snapshots(&cfg.folder).map_err(|e| e.to_string())
+        crate::auto_backup::list_snapshots(&cfg.folder, &crate::auto_backup::own_device_tag(&db).id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

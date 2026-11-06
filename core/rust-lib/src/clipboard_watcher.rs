@@ -14,7 +14,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::db::{hash_payload, upsert_clip, DbHandle};
-use crate::models::{ContentType, NewClip, MAX_IMAGE_BYTES};
+use crate::models::{ContentType, NewClip, MAX_IMAGE_BYTES, MAX_TEXT_BYTES};
 
 /// Privacy setting keys (v0.76.0).
 pub const KEY_EXCLUDE_APPS: &str = "clipboard.exclude_apps";
@@ -169,7 +169,7 @@ impl Handler {
         }
         if self.ctx.has(ContentFormat::Html) {
             if let Ok(html) = self.ctx.get_html() {
-                if !html.trim().is_empty() {
+                if !html.trim().is_empty() && text_fits(&html) {
                     let plain = self.ctx.get_text().ok();
                     let text = preview_text(plain.as_deref(), || strip_html(&html));
                     let byte_size = html.len() as i64;
@@ -185,7 +185,7 @@ impl Handler {
         }
         if self.ctx.has(ContentFormat::Rtf) {
             if let Ok(rtf) = self.ctx.get_rich_text() {
-                if !rtf.trim().is_empty() {
+                if !rtf.trim().is_empty() && text_fits(&rtf) {
                     let plain = self.ctx.get_text().ok();
                     let text = preview_text(plain.as_deref(), || strip_rtf(&rtf));
                     let byte_size = rtf.len() as i64;
@@ -201,7 +201,7 @@ impl Handler {
         }
         if self.ctx.has(ContentFormat::Text) {
             if let Ok(text) = self.ctx.get_text() {
-                if !text.trim().is_empty() {
+                if !text.trim().is_empty() && text_fits(&text) {
                     let byte_size = text.len() as i64;
                     self.store(NewClip {
                         content_type: ContentType::Text,
@@ -348,6 +348,17 @@ fn strip_rtf(rtf: &str) -> String {
 ///
 /// The stripper stays as the fallback for the rare rich-without-text clipboard.
 /// The fallback is lazy so it isn't computed when the text flavour is present.
+/// Is a text-like payload small enough to keep? Oversized ones are logged and
+/// skipped; a too-big HTML/RTF flavour falls through to the plain text, which
+/// may still fit.
+fn text_fits(payload: &str) -> bool {
+    let ok = payload.len() <= MAX_TEXT_BYTES;
+    if !ok {
+        tracing::info!("text clip skipped: {} bytes exceeds cap {}", payload.len(), MAX_TEXT_BYTES);
+    }
+    ok
+}
+
 fn preview_text(plain: Option<&str>, fallback: impl FnOnce() -> String) -> String {
     match plain {
         Some(t) if !t.trim().is_empty() => t.to_string(),
@@ -371,7 +382,7 @@ fn strip_html(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_excluded_app, preview_text, strip_html, strip_rtf, WatcherState};
+    use super::{is_excluded_app, preview_text, strip_html, strip_rtf, text_fits, WatcherState};
 
     #[test]
     fn every_clipboard_change_supersedes_a_pending_auto_clear() {
@@ -433,6 +444,15 @@ mod tests {
     #[test]
     fn strip_html_empty_input() {
         assert_eq!(strip_html(""), "");
+    }
+
+    #[test]
+    fn text_fits_up_to_the_cap() {
+        use crate::models::MAX_TEXT_BYTES;
+        assert!(text_fits(&"a".repeat(MAX_TEXT_BYTES)));
+        assert!(!text_fits(&"a".repeat(MAX_TEXT_BYTES + 1)));
+        // Bytes, not characters: 4-byte emoji count four times.
+        assert!(!text_fits(&"😀".repeat(MAX_TEXT_BYTES / 4 + 1)));
     }
 
     #[test]

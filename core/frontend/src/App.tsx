@@ -899,6 +899,17 @@ function App() {
       .catch(() => undefined);
   }, []);
 
+  // Device sync brought settings from another Mac: re-read the theme and
+  // rebuild an open Settings tab so it shows the new values. Language, CRT
+  // and animation stage arrive through their own events from Rust.
+  const [settingsRev, setSettingsRev] = useState(0);
+  useTauriEvent<string[]>("settings-synced", () => {
+    getThemePreference()
+      .then((t) => applyTheme(normaliseTheme(t)))
+      .catch(() => undefined);
+    setSettingsRev((n) => n + 1);
+  });
+
   // Auto-dismiss the paste-failure banner.
   useEffect(() => {
     if (!pasteError) return;
@@ -6702,6 +6713,7 @@ function App() {
             <FeaturesPanel />
           ) : (
             <SettingsPanel
+              key={settingsRev}
               jumpTo={settingsJump}
               onBackupImported={async () => {
                 // After a Backup → Import, refresh every list that might

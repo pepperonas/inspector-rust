@@ -39,12 +39,10 @@ import {
   clampRectToImage,
   dragRect,
   handlesFor,
-  hitTest,
   makeDragAnnotation,
   moveAnnotation,
   nextStepNumber,
   normalizeAnnotation,
-  reflowSteps,
   resizeAnnotation,
   restyleAnnotation,
   type Annotation,
@@ -61,6 +59,17 @@ import {
 } from "../lib/editor-geometry";
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
+import {
+  axisLock,
+  duplicate,
+  hitCandidates,
+  marqueeIds,
+  pasteClip,
+  pickAt,
+  removeIds,
+  reorder,
+  resizeBy,
+} from "../lib/editor-selection";
 import { t, useT } from "../lib/i18n";
 
 /**
@@ -81,13 +90,24 @@ import { t, useT } from "../lib/i18n";
  * Save bakes the canvas to PNG and ships it to the backend, which writes it to
  * ~/Downloads, pushes to clipboard + history, and re-shows the preview.
  *
- * Hotkeys: V select · A/L/T/R/E/H/B/X/N tools · ⌘Z / ⌘⇧Z undo/redo ·
- * ⌘S save · ⌘C copy · Delete/Backspace remove selection · Esc deselect/cancel.
+ * Hotkeys: V select · A/L/T/R/E/H/B/X/N/P/C/S/M tools · ⌘Z / ⌘⇧Z undo/redo ·
+ * ⌘S save · ⌘C copy the IMAGE · ⌘D duplicate · ⌥⌘C / ⌥⌘V copy/paste the
+ * selected elements · ⌘] ⌘[ forward/backward, ⌘⇧] ⌘⇧[ to front/back ·
+ * + / − size · arrows nudge (⇧ = 10 px) · Delete/Backspace remove selection ·
+ * Esc deselect/cancel. Mouse: click selects (outlined shapes by their edge),
+ * clicking the selected spot again picks the next element underneath,
+ * ⇧-click toggles, dragging on empty canvas with V draws a marquee, ⇧ while
+ * moving locks the axis.
  */
 
 type Interaction =
   | { kind: "draw"; start: Point; current: Point }
-  | { kind: "move"; id: string; startPt: Point; orig: Annotation; live: Annotation }
+  /** Moves the whole selection. `cycle`: the press landed on an element that
+   *  was already selected — if it ends without moving, the click moves on to
+   *  the next element underneath instead. */
+  | { kind: "move"; ids: string[]; startPt: Point; orig: Annotation[]; live: Annotation[]; cycle: boolean }
+  /** Select-tool drag on empty canvas; `base` = selection kept with Shift. */
+  | { kind: "marquee"; start: Point; current: Point; base: string[] }
   | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation }
   | { kind: "pen"; points: Point[] }
   | { kind: "crop"; start: Point; current: Point }
@@ -148,7 +168,13 @@ export function ScreenshotEditor() {
   );
   const annotations = hist.present.annotations;
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const setSelectedId = (id: string | null) => setSelectedIds(id ? [id] : []);
+  /** The one selected element, when exactly one is selected (resize handles,
+   *  style read-back). */
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
+  /** Annotations copied with ⌥⌘C, pasted with ⌥⌘V; `pastes` offsets repeats. */
+  const clipRef = useRef<{ items: Annotation[]; pastes: number }>({ items: [], pastes: 0 });
   const [interaction, setInteraction] = useState<Interaction>(null);
 
   /** Inline text-input state. Only non-null while the user is typing. */
@@ -192,9 +218,18 @@ export function ScreenshotEditor() {
     (id: string, a: Annotation) => commitAnns(annotations.map((x) => (x.id === id ? a : x))),
     [commitAnns, annotations],
   );
-  const commitDelete = useCallback(
-    (id: string) => commitAnns(reflowSteps(annotations.filter((x) => x.id !== id))),
+  const commitRemove = useCallback(
+    (ids: string[]) => commitAnns(removeIds(annotations, ids)),
     [commitAnns, annotations],
+  );
+  /** Apply `f` to every selected element as ONE undo step. */
+  const commitMapSelected = useCallback(
+    (f: (a: Annotation) => Annotation) => {
+      if (selectedIds.length === 0) return;
+      const set = new Set(selectedIds);
+      commitAnns(annotations.map((a) => (set.has(a.id) ? f(a) : a)));
+    },
+    [commitAnns, annotations, selectedIds],
   );
   const commitCrop = useCallback(
     (crop: Rect | null) => dispatch({ type: "commit", next: { ...hist.present, crop } }),
@@ -247,7 +282,7 @@ export function ScreenshotEditor() {
     let unlisten: UnlistenFn | undefined;
     void listen("editor-screenshot-changed", () => {
       dispatch({ type: "reset", present: EMPTY_DOC });
-      setSelectedId(null);
+      setSelectedIds([]);
       setBackground(null);
       void loadImage();
     }).then((u) => {
@@ -258,8 +293,9 @@ export function ScreenshotEditor() {
 
   // Drop a selection whose annotation vanished (undo past its creation, delete).
   useEffect(() => {
-    if (selectedId && !annotations.some((a) => a.id === selectedId)) setSelectedId(null);
-  }, [annotations, selectedId]);
+    const alive = selectedIds.filter((id) => annotations.some((a) => a.id === id));
+    if (alive.length !== selectedIds.length) setSelectedIds(alive);
+  }, [annotations, selectedIds]);
 
   // ── Redraw on every state change ─────────────────────────────────
   useEffect(() => {
@@ -283,10 +319,13 @@ export function ScreenshotEditor() {
     ctx.restore();
 
     // Substitute the live-dragged annotation during a move/resize.
-    const list =
-      interaction && (interaction.kind === "move" || interaction.kind === "resize")
-        ? annotations.map((a) => (a.id === interaction.id ? interaction.live : a))
-        : annotations;
+    let list = annotations;
+    if (interaction && interaction.kind === "resize") {
+      list = annotations.map((a) => (a.id === interaction.id ? interaction.live : a));
+    } else if (interaction && interaction.kind === "move") {
+      const live = new Map(interaction.live.map((a) => [a.id, a]));
+      list = annotations.map((a) => live.get(a.id) ?? a);
+    }
     const px = pxRatio();
 
     paintScene(ctx, img, list, layout, background, (c) => {
@@ -298,8 +337,11 @@ export function ScreenshotEditor() {
       if (interaction && interaction.kind === "pen") {
         drawAnnotation(c, { id: "preview", type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow }, img);
       }
-      const sel = tool !== "crop" ? list.find((a) => a.id === selectedId) : undefined;
-      if (sel) drawSelection(c, sel, px);
+      if (tool !== "crop") {
+        const sel = list.filter((a) => selectedIds.includes(a.id));
+        for (const a of sel) drawSelection(c, a, px, sel.length === 1);
+      }
+      if (interaction && interaction.kind === "marquee") drawMarquee(c, dragRect(interaction.start, interaction.current), px);
     });
 
     // Crop chrome (dim outside + border) — only in the bg-off view (full image,
@@ -309,7 +351,7 @@ export function ScreenshotEditor() {
       if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, W, H, px);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hist, interaction, selectedId, tool, color, strokeWidth, opacity, shadow, fontSize, background, imgReady, fitCanvas, pxRatio]);
+  }, [hist, interaction, selectedIds, tool, color, strokeWidth, opacity, shadow, fontSize, background, imgReady, fitCanvas, pxRatio]);
 
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
@@ -361,38 +403,23 @@ export function ScreenshotEditor() {
   // Changing a style control also restyles the current selection.
   const applyColor = (c: string) => {
     setColor(c);
-    if (selectedId) {
-      const a = annById(selectedId);
-      if (a) commitReplace(selectedId, restyleAnnotation(a, { color: c }));
-    }
+    commitMapSelected((a) => restyleAnnotation(a, { color: c }));
   };
   const applyWidth = (w: number) => {
     setStrokeWidth(w);
-    if (selectedId) {
-      const a = annById(selectedId);
-      if (a) commitReplace(selectedId, restyleAnnotation(a, { width: w }));
-    }
+    commitMapSelected((a) => restyleAnnotation(a, { width: w }));
   };
   const applyOpacity = (o: number) => {
     setOpacity(o);
-    if (selectedId) {
-      const a = annById(selectedId);
-      if (a) commitReplace(selectedId, restyleAnnotation(a, { opacity: o }));
-    }
+    commitMapSelected((a) => restyleAnnotation(a, { opacity: o }));
   };
   const applyFontSize = (n: number) => {
     setFontSize(n);
-    if (selectedId) {
-      const a = annById(selectedId);
-      if (a) commitReplace(selectedId, restyleAnnotation(a, { fontSize: n }));
-    }
+    commitMapSelected((a) => restyleAnnotation(a, { fontSize: n }));
   };
   const applyShadow = (on: boolean) => {
     setShadow(on);
-    if (selectedId) {
-      const a = annById(selectedId);
-      if (a) commitReplace(selectedId, restyleAnnotation(a, { shadow: on }));
-    }
+    commitMapSelected((a) => restyleAnnotation(a, { shadow: on }));
   };
 
   // ── Hotkeys ──────────────────────────────────────────────────────
@@ -409,25 +436,55 @@ export function ScreenshotEditor() {
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void save();
+      } else if (mod && e.altKey && e.code === "KeyC") {
+        // ⌥⌘C: copy the selected elements (⌘C stays "copy the image").
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          clipRef.current = { items: annotations.filter((a) => selectedIds.includes(a.id)), pastes: 0 };
+        }
+      } else if (mod && e.altKey && e.code === "KeyV") {
+        e.preventDefault();
+        const clip = clipRef.current;
+        if (clip.items.length > 0) {
+          clip.pastes += 1;
+          const r = pasteClip(annotations, clip.items, 16 * clip.pastes, nextId);
+          commitAnns(r.annotations);
+          setSelectedIds(r.ids);
+        }
       } else if (mod && e.key.toLowerCase() === "c") {
         e.preventDefault();
         void copy();
-      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
+      } else if (mod && e.key.toLowerCase() === "d") {
         e.preventDefault();
-        commitDelete(selectedId);
-        setSelectedId(null);
-      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") && selectedId) {
-        e.preventDefault();
-        const a = annById(selectedId);
-        if (a) {
-          const step = e.shiftKey ? 10 : 1;
-          const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
-          const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-          commitReplace(selectedId, moveAnnotation(a, dx, dy));
+        if (selectedIds.length > 0) {
+          const r = duplicate(annotations, selectedIds, 16, nextId);
+          commitAnns(r.annotations);
+          setSelectedIds(r.ids);
         }
+      } else if (mod && (e.code === "BracketRight" || e.code === "BracketLeft")) {
+        e.preventDefault();
+        if (selectedIds.length > 0) {
+          const up = e.code === "BracketRight";
+          commitAnns(reorder(annotations, selectedIds, e.shiftKey ? (up ? "front" : "back") : up ? "forward" : "backward"));
+        }
+      } else if (!mod && (e.key === "+" || e.key === "=" || e.key === "-")) {
+        e.preventDefault();
+        const dir = e.key === "-" ? -1 : 1;
+        if (selectedIds.length > 0) commitMapSelected((a) => resizeBy(a, dir));
+        else setStrokeWidth((w) => Math.min(24, Math.max(2, w + dir)));
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.length > 0) {
+        e.preventDefault();
+        commitRemove(selectedIds);
+        setSelectedIds([]);
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") && selectedIds.length > 0) {
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        commitMapSelected((a) => moveAnnotation(a, dx, dy));
       } else if (e.key === "Escape") {
         e.preventDefault();
-        if (selectedId) setSelectedId(null);
+        if (selectedIds.length > 0) setSelectedIds([]);
         else cancel();
       } else if (!mod && e.key.length === 1) {
         const key = e.key.toLowerCase();
@@ -539,18 +596,37 @@ export function ScreenshotEditor() {
         return;
       }
     }
-    const hit = hitTest(annotations, p, 6 * pxRatio());
-    if (hit) {
-      setSelectedId(hit);
-      const orig = annotations.find((a) => a.id === hit)!;
-      setInteraction({ kind: "move", id: hit, startPt: p, orig, live: orig });
+    const tol = 6 * pxRatio();
+    const under = hitCandidates(annotations, p, tol).map((h) => h.id);
+    if (under.length > 0) {
+      let next: string[];
+      let cycle = false;
+      if (e.shiftKey) {
+        // Shift-click toggles the element under the pointer.
+        const id = pickAt(annotations, p, null, tol)!;
+        next = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
+      } else if (under.some((id) => selectedIds.includes(id))) {
+        // Pressed on the current selection: drag it, or (if it stays a click)
+        // cycle to the next element underneath on mouse-up.
+        next = selectedIds;
+        cycle = true;
+      } else {
+        next = [pickAt(annotations, p, null, tol)!];
+      }
+      setSelectedIds(next);
+      const orig = annotations.filter((a) => next.includes(a.id));
+      if (orig.length > 0) setInteraction({ kind: "move", ids: next, startPt: p, orig, live: orig, cycle });
       return;
     }
 
-    // Empty space: the Select tool just deselects; the other tools create a new
-    // object (clearing any previous selection first).
-    setSelectedId(null);
-    if (tool === "select") return;
+    // Empty space: the Select tool starts a marquee (Shift adds to the
+    // selection); the other tools create a new object.
+    if (tool === "select") {
+      setInteraction({ kind: "marquee", start: p, current: p, base: e.shiftKey ? selectedIds : [] });
+      if (!e.shiftKey) setSelectedIds([]);
+      return;
+    }
+    setSelectedIds([]);
     if (tool === "text") {
       setTextInput({ x: p.x, y: p.y, value: "" });
       return;
@@ -578,7 +654,10 @@ export function ScreenshotEditor() {
     if (interaction.kind === "draw") {
       setInteraction({ ...interaction, current: p });
     } else if (interaction.kind === "move") {
-      setInteraction({ ...interaction, live: moveAnnotation(interaction.orig, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
+      const d = axisLock(p.x - interaction.startPt.x, p.y - interaction.startPt.y, e.shiftKey);
+      setInteraction({ ...interaction, live: interaction.orig.map((a) => moveAnnotation(a, d.dx, d.dy)) });
+    } else if (interaction.kind === "marquee") {
+      setInteraction({ ...interaction, current: p });
     } else if (interaction.kind === "resize") {
       setInteraction({ ...interaction, live: resizeAnnotation(interaction.orig, interaction.handle, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
     } else if (interaction.kind === "pen") {
@@ -597,8 +676,23 @@ export function ScreenshotEditor() {
         commitAppend(a);
         setSelectedId(a.id);
       }
-    } else if (interaction.kind === "move" || interaction.kind === "resize") {
+    } else if (interaction.kind === "resize") {
       commitReplace(interaction.id, normalizeAnnotation(interaction.live));
+    } else if (interaction.kind === "move") {
+      const p = toCanvasCoords(e);
+      const moved = Math.hypot(p.x - interaction.startPt.x, p.y - interaction.startPt.y) > 2 * pxRatio();
+      if (moved) {
+        const live = new Map(interaction.live.map((a) => [a.id, normalizeAnnotation(a)]));
+        commitAnns(annotations.map((a) => live.get(a.id) ?? a));
+      } else if (interaction.cycle && selectedId) {
+        // A plain click on the selected element: move on to the next one under it.
+        const next = pickAt(annotations, p, { id: selectedId, at: p }, 6 * pxRatio());
+        if (next) setSelectedIds([next]);
+      }
+    } else if (interaction.kind === "marquee") {
+      const r = dragRect(interaction.start, interaction.current);
+      const hit = r.w < 3 && r.h < 3 ? [] : marqueeIds(annotations, r);
+      setSelectedIds([...interaction.base, ...hit.filter((id) => !interaction.base.includes(id))]);
     } else if (interaction.kind === "pen") {
       if (interaction.points.length > 1) {
         const a: Annotation = { id: nextId(), type: "pen", points: interaction.points, color, width: strokeWidth, opacity, shadow };
@@ -842,7 +936,7 @@ function Toolbar({
         />
       </div>
 
-      <SliderRow label={t("shot.size")} min={2} max={16} value={strokeWidth} suffix="px" onChange={setStrokeWidth} />
+      <SliderRow label={t("shot.size")} min={2} max={24} value={strokeWidth} suffix="px" onChange={setStrokeWidth} />
       <SliderRow
         label={t("shot.opacity")}
         min={10}
@@ -1281,7 +1375,17 @@ function drawCropChrome(ctx: CanvasRenderingContext2D, crop: Rect, W: number, H:
 
 /** Dashed outline + square handles around the selected annotation. Sizes are
  *  scaled by `px` (canvas→CSS ratio) so they read consistently on Retina. */
-function drawSelection(ctx: CanvasRenderingContext2D, a: Annotation, px: number) {
+function drawMarquee(ctx: CanvasRenderingContext2D, r: Rect, px: number) {
+  ctx.save();
+  ctx.fillStyle = "rgba(59,130,246,0.12)";
+  ctx.strokeStyle = "#3b82f6";
+  ctx.lineWidth = 1 * px;
+  ctx.fillRect(r.x, r.y, r.w, r.h);
+  ctx.strokeRect(r.x, r.y, r.w, r.h);
+  ctx.restore();
+}
+
+function drawSelection(ctx: CanvasRenderingContext2D, a: Annotation, px: number, withHandles = true) {
   const b = boundsOf(a);
   ctx.save();
   ctx.strokeStyle = "#3b82f6";
@@ -1290,7 +1394,7 @@ function drawSelection(ctx: CanvasRenderingContext2D, a: Annotation, px: number)
   ctx.strokeRect(b.x, b.y, b.w, b.h);
   ctx.setLineDash([]);
   const s = 5 * px;
-  for (const h of handlesFor(a)) {
+  for (const h of withHandles ? handlesFor(a) : []) {
     ctx.fillStyle = "#ffffff";
     ctx.strokeStyle = "#3b82f6";
     ctx.lineWidth = 1.5 * px;

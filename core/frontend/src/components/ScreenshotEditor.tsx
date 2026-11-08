@@ -58,6 +58,8 @@ import {
   normalizeAnnotation,
   resizeAnnotation,
   restyleAnnotation,
+  styleOfAnnotation,
+  canvasFont,
   type Annotation,
   type ArrowAnnotation,
   type ArrowStyle,
@@ -376,6 +378,23 @@ export function ScreenshotEditor() {
     if (alive.length !== selectedIds.length) setSelectedIds(alive);
   }, [annotations, selectedIds]);
 
+  // Selecting exactly one element shows ITS style in the sidebar (not the
+  // tool's), so a control changes what is really there.
+  useEffect(() => {
+    const one = selectedId ? hist.present.annotations.find((a) => a.id === selectedId) : undefined;
+    if (!one) return;
+    const st = styleOfAnnotation(one);
+    if (st.color !== undefined) setColor(st.color);
+    if (st.width !== undefined) setStrokeWidth(st.width);
+    if (st.opacity !== undefined) setOpacity(st.opacity);
+    if (st.shadow !== undefined) setShadow(st.shadow);
+    if (st.fontSize !== undefined) setFontSize(st.fontSize);
+    if (st.arrowStyle !== undefined) setArrowStyle(st.arrowStyle);
+    if (st.fill !== undefined) setFill(st.fill);
+    if (st.textStyle !== undefined) setTextStyle(st.textStyle);
+    // Only on a change of WHICH element is selected — not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
   // ── Redraw on every state change ─────────────────────────────────
   useEffect(() => {
     if (!imgReady) return;
@@ -759,6 +778,9 @@ export function ScreenshotEditor() {
     }
     setSelectedIds([]);
     if (tool === "text") {
+      // Keep the browser from moving focus to the page after this press —
+      // that would blur (and close) the text field we are about to focus.
+      e.preventDefault();
       setTextInput({ x: p.x, y: p.y, value: "" });
       return;
     }
@@ -1067,7 +1089,13 @@ const TEXT_VARIANTS: VariantOption<TextStyle>[] = [
   {
     value: "outline",
     label: () => t("shot.text_outline"),
-    icon: <span className="text-[13px] font-bold" style={{ WebkitTextStroke: "1px currentColor", color: "transparent" }}>A</span>,
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <text x="12" y="18" textAnchor="middle" fontSize="17" fontWeight="800" fill="none" stroke="currentColor" strokeWidth="1.6" fontFamily="-apple-system, sans-serif">
+          A
+        </text>
+      </svg>
+    ),
   },
   {
     value: "pill",
@@ -1095,8 +1123,8 @@ function VariantGrid<V extends string>({
 }) {
   return (
     <div className="mt-3 flex w-full flex-col items-center gap-1" role="radiogroup" aria-label={label}>
-      <span className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">{label}</span>
-      <div className="grid grid-cols-2 gap-1">
+      <span className="text-center text-[9px] uppercase leading-tight tracking-wide text-[var(--color-muted)]">{label}</span>
+      <div className="flex flex-col gap-1">
         {options.map((o) => (
           <button
             key={o.value}
@@ -1105,7 +1133,7 @@ function VariantGrid<V extends string>({
             title={o.label()}
             onClick={() => onPick(o.value)}
             className={
-              "flex h-7 w-7 items-center justify-center rounded-md border " +
+              "flex h-7 w-8 items-center justify-center rounded-md border " +
               (o.value === value
                 ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
                 : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
@@ -1398,7 +1426,7 @@ function EmojiBar({ current, onPick }: { current: string; onPick: (e: string) =>
 
 // ── Inline text input overlay ──────────────────────────────────────
 
-function TextInputOverlay({
+export function TextInputOverlay({
   canvasRef,
   input,
   color,
@@ -1430,9 +1458,13 @@ function TextInputOverlay({
       fontPx: fontSize * cssScaleY,
     });
   }, [canvasRef, input.x, input.y, fontSize]);
+  // Focus once the field exists: on the first render `geom` is still null and
+  // nothing is rendered, so a mount-only focus never reached the input (you
+  // had to click into it before typing).
+  const shown = geom !== null;
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (shown) inputRef.current?.focus();
+  }, [shown]);
   if (!geom) return null;
   return (
     <input
@@ -1536,7 +1568,7 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       drawPen(ctx, a);
       break;
     case "emoji":
-      ctx.font = `${a.size}px var(--font-sans, sans-serif)`;
+      ctx.font = canvasFont(a.size, false);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(a.char, a.x, a.y);
@@ -1734,7 +1766,7 @@ function drawStep(
   ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#ffffff";
-  ctx.font = `bold ${Math.round(r * 1.1)}px var(--font-sans, sans-serif)`;
+  ctx.font = canvasFont(r * 1.1, true);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(String(a.number), a.x, a.y + 1);
@@ -1814,7 +1846,7 @@ function luminance(hex: string): number {
 
 function drawText(ctx: CanvasRenderingContext2D, a: TextAnnotation) {
   const style = a.textStyle ?? "plain";
-  ctx.font = `bold ${a.size}px var(--font-sans, sans-serif)`;
+  ctx.font = canvasFont(a.size, true);
   ctx.textBaseline = "middle";
   if (style === "pill" || style === "box") {
     const w = ctx.measureText(a.text).width;

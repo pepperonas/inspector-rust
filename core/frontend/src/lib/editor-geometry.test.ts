@@ -14,6 +14,8 @@ import {
   reflowSteps,
   normalizeAnnotation,
   DEFAULT_STYLE,
+  styleOfAnnotation,
+  canvasFont,
   type Annotation,
   type Style,
 } from "./editor-geometry";
@@ -393,5 +395,31 @@ describe("style fields (stage 1)", () => {
 
   it("the default arrow is no longer thin", () => {
     expect(DEFAULT_STYLE.width).toBe(6);
+  });
+});
+
+describe("styleOfAnnotation", () => {
+  it("reads back what the controls should show for the selected element", () => {
+    const a: Annotation = { id: "a", type: "arrow", x1: 0, y1: 0, x2: 9, y2: 9, color: "#00ff00", width: 9, opacity: 0.5, shadow: true, style: "bold" };
+    expect(styleOfAnnotation(a)).toEqual({ color: "#00ff00", width: 9, opacity: 0.5, shadow: true, arrowStyle: "bold" });
+    const r: Annotation = { id: "r", type: "rect", x: 0, y: 0, w: 5, h: 5, color: "#0000ff", width: 3 };
+    expect(styleOfAnnotation(r)).toEqual({ color: "#0000ff", width: 3, fill: "outline" });
+    const t: Annotation = { id: "t", type: "text", x: 0, y: 0, text: "x", color: "#111111", size: 40, textStyle: "pill" };
+    expect(styleOfAnnotation(t)).toEqual({ color: "#111111", fontSize: 40, textStyle: "pill" });
+    const old: Annotation = { id: "o", type: "arrow", x1: 0, y1: 0, x2: 9, y2: 9, color: "#ff0000", width: 4 };
+    expect(styleOfAnnotation(old).arrowStyle).toBe("classic");
+    const b: Annotation = { id: "b", type: "blur", x: 0, y: 0, w: 5, h: 5, blockSize: 8 };
+    expect(styleOfAnnotation(b)).toEqual({});
+  });
+});
+
+describe("canvasFont", () => {
+  it("is a font string a canvas accepts (no CSS variables)", () => {
+    // A canvas silently ignores a font containing var(...) and falls back to
+    // 10px — every text and emoji used to be drawn tiny.
+    const f = canvasFont(28, true);
+    expect(f).not.toMatch(/var\(/);
+    expect(f).toMatch(/^bold 28px /);
+    expect(canvasFont(48, false)).toMatch(/^48px /);
   });
 });

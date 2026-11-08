@@ -534,6 +534,31 @@ export function restyleAnnotation(a: Annotation, patch: Partial<Style>): Annotat
   return out as Annotation;
 }
 
+/** Font string for the canvas. A canvas ignores any font containing a CSS
+ *  variable (`var(--font-sans)`) and silently keeps "10px sans-serif", so
+ *  the family is spelled out here. */
+export function canvasFont(px: number, bold: boolean): string {
+  return `${bold ? "bold " : ""}${Math.round(px)}px -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", Roboto, sans-serif`;
+}
+
+/** The style values an element carries — what the sidebar controls show
+ *  while it is the only selected element. Fields it doesn't have are left
+ *  out (blur/redact/spotlight carry none). */
+export function styleOfAnnotation(a: Annotation): Partial<Style> {
+  const out: Partial<Style> = {};
+  const o = a as Annotation & { color?: string; width?: number; opacity?: number; shadow?: boolean; size?: number };
+  if (a.type === "highlight" || a.type === "blur" || a.type === "redact" || a.type === "spotlight") return out;
+  if (typeof o.color === "string") out.color = o.color;
+  if (typeof o.width === "number") out.width = o.width;
+  if (typeof o.opacity === "number") out.opacity = o.opacity;
+  if (typeof o.shadow === "boolean") out.shadow = o.shadow;
+  if (a.type === "text" || a.type === "step" || a.type === "emoji") out.fontSize = a.size;
+  if (a.type === "arrow") out.arrowStyle = a.style ?? "classic";
+  if (a.type === "rect" || a.type === "ellipse") out.fill = a.fill ?? "outline";
+  if (a.type === "text") out.textStyle = a.textStyle ?? "plain";
+  return out;
+}
+
 /** Renumber every step badge 1..N in array order (after a delete). */
 export function reflowSteps(annotations: ReadonlyArray<Annotation>): Annotation[] {
   let n = 0;

@@ -819,8 +819,28 @@ const edThumb = (i: number) =>
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='90'><rect width='160' height='90' fill='hsl(${210 + i * 7},45%,${30 + (i % 4) * 4}%)'/><rect x='20' y='15' width='120' height='60' rx='4' fill='#eef'/></svg>`);
 
+/** Invented screenshot for the screenshot editor (a plain settings window). */
+const SHOT_SVG =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='960' height='600'>
+<rect width='960' height='600' fill='#f3f4f6'/><rect width='960' height='44' fill='#e5e7eb'/>
+<circle cx='24' cy='22' r='7' fill='#f87171'/><circle cx='48' cy='22' r='7' fill='#fbbf24'/><circle cx='72' cy='22' r='7' fill='#34d399'/>
+<text x='480' y='28' font-family='Helvetica' font-size='15' text-anchor='middle' fill='#374151'>Northwind — Settings</text>
+<rect x='40' y='80' width='300' height='16' rx='4' fill='#d1d5db'/><rect x='40' y='112' width='520' height='12' rx='4' fill='#e5e7eb'/>
+<rect x='40' y='134' width='460' height='12' rx='4' fill='#e5e7eb'/><rect x='40' y='156' width='380' height='12' rx='4' fill='#e5e7eb'/>
+<rect x='40' y='210' width='420' height='220' rx='10' fill='#ffffff' stroke='#e5e7eb'/>
+<rect x='64' y='240' width='200' height='12' rx='4' fill='#d1d5db'/><rect x='64' y='270' width='360' height='10' rx='4' fill='#e5e7eb'/>
+<rect x='640' y='470' width='180' height='52' rx='12' fill='#2563eb'/>
+<text x='730' y='503' font-family='Helvetica' font-size='18' text-anchor='middle' fill='#fff'>Save changes</text></svg>`);
+let mockEditorPrefs: string | null = null;
+
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
+    // ── screenshot editor ─────────────────────────────────────────────
+    case "get_pending_screenshot_data_url": return SHOT_SVG;
+    case "get_editor_prefs": return mockEditorPrefs;
+    case "set_editor_prefs": mockEditorPrefs = String(args.json ?? ""); return null;
+    case "set_editor_size": return null;
     // ── boot ──────────────────────────────────────────────────────────────
     case "get_animation_stage": return "reduced";
     case "get_crt_animation": return { ms: 0, min: 80, max: 900, default_ms: 250 };

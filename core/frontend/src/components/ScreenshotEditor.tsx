@@ -8,6 +8,10 @@ import {
   Circle,
   Copy,
   Crop,
+  FlipHorizontal2,
+  FlipVertical2,
+  RotateCcw,
+  RotateCw,
   Droplets,
   Focus,
   Hash,
@@ -70,6 +74,7 @@ import {
   type BackgroundSpec,
   type BlurAnnotation,
   type EditorDoc,
+  type Orient,
   type Handle,
   type PenAnnotation,
   type Point,
@@ -80,6 +85,19 @@ import {
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
 import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
+import {
+  ASPECTS,
+  aspectCrop,
+  aspectRatio,
+  constrainAspect,
+  forwardPoint,
+  isIdentity,
+  orientLines,
+  orientedSize,
+  transformDoc,
+  type AspectId,
+  type OrientOp,
+} from "../lib/editor-transform";
 import { autoRedact, parseOcrLines, snapDrawn, summarizeFindings, type FindingKind, type OcrLine } from "../lib/editor-ocr";
 import {
   axisLock,
@@ -261,6 +279,9 @@ export function ScreenshotEditor() {
     () => initHistory(EMPTY_DOC),
   );
   const annotations = hist.present.annotations;
+  const orient = hist.present.orient;
+  /** Crop shape: `free`, or a fixed ratio the crop drag and the chips keep. */
+  const [aspect, setAspect] = useState<AspectId>("free");
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const setSelectedId = (id: string | null) => setSelectedIds(id ? [id] : []);
@@ -315,9 +336,9 @@ export function ScreenshotEditor() {
   // view; without one the canvas is the full image (crop shown as a dim
   // overlay instead). `null` until the image is loaded.
   const viewLayoutNow = (): SceneLayout | null => {
-    const img = imgRef.current;
+    const img = orientedSource(imgRef.current, orient);
     if (!img) return null;
-    return sceneLayout(img.naturalWidth, img.naturalHeight, background ? hist.present.crop : null, background);
+    return sceneLayout(srcW(img), srcH(img), background ? hist.present.crop : null, background);
   };
 
   // Canvas→CSS pixel ratio: a Retina shot's backing store is 2× its display
@@ -356,13 +377,13 @@ export function ScreenshotEditor() {
   /** Cover every sensitive finding (e-mail, phone, IBAN, keys …) with a
    *  redaction block — one undo step; the new blocks end up selected. */
   const redactSensitive = useCallback(() => {
-    const img = imgRef.current;
+    const img = orientedSource(imgRef.current, orient);
     if (ocr.s === "error" || ocr.s === "idle") {
       runOcr();
       return;
     }
     if (ocr.s !== "ready" || !img) return;
-    const r = autoRedact(annotations, ocr.lines, img.naturalWidth, img.naturalHeight, () => `a${++idRef.current}`);
+    const r = autoRedact(annotations, orientLines(ocr.lines, orient), srcW(img), srcH(img), () => `a${++idRef.current}`);
     if (r.added.length > 0) {
       commitAnns([...annotations, ...r.added]);
       setSelectedIds(r.added.map((a) => a.id));
@@ -378,11 +399,42 @@ export function ScreenshotEditor() {
             .join(", "),
         }),
       );
-  }, [ocr, annotations, runOcr, commitAnns, showNotice]);
+  }, [ocr, annotations, orient, runOcr, commitAnns, showNotice]);
   const commitCrop = useCallback(
     (crop: Rect | null) => dispatch({ type: "commit", next: { ...hist.present, crop } }),
     [hist.present],
   );
+  /** Turn or flip the whole screenshot — image, annotations and crop — as one
+   *  undo step. */
+  const reorient = useCallback(
+    (op: OrientOp) => {
+      const img = orientedSource(imgRef.current, orient);
+      if (!img) return;
+      dispatch({ type: "commit", next: transformDoc(hist.present, srcW(img), srcH(img), op) });
+      setInteraction(null);
+    },
+    [hist.present, orient],
+  );
+  /** Pick a crop shape; a fixed ratio reshapes the crop right away (or makes
+   *  the largest centred one) and switches to the crop tool. */
+  const chooseAspect = useCallback(
+    (id: AspectId) => {
+      setAspect(id);
+      const ratio = aspectRatio(id);
+      const img = orientedSource(imgRef.current, orient);
+      if (ratio === null || !img) return;
+      commitCrop(aspectCrop(hist.present.crop, ratio, srcW(img), srcH(img)));
+      setTool("crop");
+    },
+    [hist.present.crop, orient, commitCrop],
+  );
+  /** The crop rect a drag from `a` to `b` means under the chosen shape. */
+  const cropRectOf = (a: Point, b: Point): Rect => {
+    const ratio = aspectRatio(aspect);
+    const img = orientedSource(imgRef.current, orient);
+    if (ratio !== null && img) return constrainAspect(a, b, ratio, srcW(img), srcH(img));
+    return dragRect(a, b);
+  };
 
   // ── Fit the canvas into the viewport, deterministically ─────────
   const fitCanvas = useCallback(() => {
@@ -460,9 +512,9 @@ export function ScreenshotEditor() {
   useEffect(() => {
     if (!imgReady) return;
     const canvas = canvasRef.current;
-    const img = imgRef.current;
+    const img = orientedSource(imgRef.current, orient);
     if (!canvas || !img) return;
-    const layout = sceneLayout(img.naturalWidth, img.naturalHeight, background ? hist.present.crop : null, background);
+    const layout = sceneLayout(srcW(img), srcH(img), background ? hist.present.crop : null, background);
     const W = Math.round(layout.width);
     const H = Math.round(layout.height);
     if (canvas.width !== W || canvas.height !== H) {
@@ -506,7 +558,7 @@ export function ScreenshotEditor() {
     // Crop chrome (dim outside + border) — only in the bg-off view (full image,
     // offset 0). With a background the crop is baked into the padded scene.
     if (!background) {
-      const crop = interaction && interaction.kind === "crop" ? dragRect(interaction.start, interaction.current) : hist.present.crop;
+      const crop = interaction && interaction.kind === "crop" ? cropRectOf(interaction.start, interaction.current) : hist.present.crop;
       if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, W, H, px);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -519,10 +571,10 @@ export function ScreenshotEditor() {
   // selection handles / crop chrome / in-progress preview, which live on the
   // on-screen canvas) and honour the crop viewport.
   const exportDataUrl = useCallback((): string | null => {
-    const img = imgRef.current;
+    const img = orientedSource(imgRef.current, orient);
     if (!img) return null;
     const crop = hist.present.crop && hist.present.crop.w >= 1 && hist.present.crop.h >= 1 ? hist.present.crop : null;
-    const layout = sceneLayout(img.naturalWidth, img.naturalHeight, crop, background);
+    const layout = sceneLayout(srcW(img), srcH(img), crop, background);
     const off = document.createElement("canvas");
     off.width = Math.max(1, Math.round(layout.width));
     off.height = Math.max(1, Math.round(layout.height));
@@ -530,7 +582,7 @@ export function ScreenshotEditor() {
     if (!ctx) return null;
     paintScene(ctx, img, hist.present.annotations, layout, background);
     return off.toDataURL("image/png");
-  }, [hist.present, background]);
+  }, [hist.present, orient, background]);
   const save = useCallback(async () => {
     if (saving) return;
     const dataUrl = exportDataUrl();
@@ -882,10 +934,10 @@ export function ScreenshotEditor() {
       if (a && !isDegenerate(a)) {
         // The highlighter snaps to the words under the drag (⌥ = keep the rectangle);
         // a redaction never shrinks to the words (see snapDrawn).
-        const img = imgRef.current;
+        const img = orientedSource(imgRef.current, orient);
         const made =
           ocr.s === "ready" && img && !e.altKey
-            ? snapDrawn(a, ocr.lines, img.naturalWidth, img.naturalHeight, nextId)
+            ? snapDrawn(a, orientLines(ocr.lines, orient), srcW(img), srcH(img), nextId)
             : [a];
         commitAnns([...annotations, ...made]);
         setSelectedIds(made.map((m) => m.id));
@@ -914,12 +966,12 @@ export function ScreenshotEditor() {
         setSelectedId(a.id);
       }
     } else if (interaction.kind === "crop") {
-      const img = imgRef.current;
-      const r = dragRect(interaction.start, interaction.current);
+      const img = orientedSource(imgRef.current, orient);
+      const r = cropRectOf(interaction.start, interaction.current);
       if (r.w < 5 && r.h < 5) {
         if (hist.present.crop) commitCrop(null); // a click clears an existing crop
       } else if (img) {
-        commitCrop(clampRectToImage(r, img.naturalWidth, img.naturalHeight));
+        commitCrop(clampRectToImage(r, srcW(img), srcH(img)));
       }
     }
     setInteraction(null);
@@ -1014,6 +1066,9 @@ export function ScreenshotEditor() {
           setShadow={applyShadow}
           background={background}
           setBackground={setBackground}
+          onReorient={reorient}
+          aspect={aspect}
+          onAspect={chooseAspect}
           variantKind={variantKind}
           favorites={favorites}
           onPin={() => pinColor(color)}
@@ -1249,6 +1304,9 @@ function Toolbar({
   setShadow,
   background,
   setBackground,
+  onReorient,
+  aspect,
+  onAspect,
   variantKind,
   favorites,
   onPin,
@@ -1274,6 +1332,9 @@ function Toolbar({
   setShadow: (on: boolean) => void;
   background: BackgroundSpec | null;
   setBackground: (b: BackgroundSpec | null) => void;
+  onReorient: (op: OrientOp) => void;
+  aspect: AspectId;
+  onAspect: (id: AspectId) => void;
   variantKind: "arrow" | "fill" | "text" | null;
   favorites: string[];
   onPin: () => void;
@@ -1387,6 +1448,49 @@ function Toolbar({
           style={{ boxShadow: shadow ? "2px 2px 0 rgba(0,0,0,0.55)" : "none" }}
         />
       </button>
+
+      {/* Turn / flip the whole screenshot, and the crop shape */}
+      <div className="mt-3 flex w-full flex-col items-center gap-1 border-t border-[var(--color-border)] pt-2">
+        <div className="grid grid-cols-2 place-items-center gap-1">
+          {(
+            [
+              ["ccw", <RotateCcw size={15} />, "shot.rotate_ccw"],
+              ["cw", <RotateCw size={15} />, "shot.rotate_cw"],
+              ["flipH", <FlipHorizontal2 size={15} />, "shot.flip_h"],
+              ["flipV", <FlipVertical2 size={15} />, "shot.flip_v"],
+            ] as const
+          ).map(([op, icon, key]) => (
+            <button
+              key={op}
+              onClick={() => onReorient(op)}
+              title={t(key)}
+              aria-label={t(key)}
+              data-testid={`orient-${op}`}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--color-border)] hover:bg-[var(--color-bg)]"
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+        {tool === "crop" && (
+          <div className="mt-1 flex w-full flex-col items-center gap-0.5" role="group" aria-label={t("shot.aspect")}>
+            {ASPECTS.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => onAspect(a.id)}
+                aria-pressed={aspect === a.id}
+                data-testid={`aspect-${a.id}`}
+                className={
+                  "w-full rounded px-1 py-0.5 text-[10px] tabular-nums " +
+                  (aspect === a.id ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]" : "hover:bg-[var(--color-bg)]")
+                }
+              >
+                {a.id === "free" ? t("shot.aspect_free") : a.id}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Background / padding wrapper */}
       <div className="mt-3 flex w-full flex-col items-center gap-1 border-t border-[var(--color-border)] pt-2">
@@ -1592,7 +1696,7 @@ export function TextInputOverlay({
 
 // ── Drawing helpers ────────────────────────────────────────────────
 
-function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HTMLImageElement) {
+function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: EditorSource) {
   ctx.save();
   const op = (a as { opacity?: number }).opacity;
   if (typeof op === "number") ctx.globalAlpha = op;
@@ -1675,11 +1779,40 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
   ctx.restore();
 }
 
+/** The image the editor draws from: the captured screenshot, or a canvas
+ *  with it turned/flipped per the document's `orient` (cached per image). */
+type EditorSource = HTMLImageElement | HTMLCanvasElement;
+const srcW = (s: EditorSource) => (s instanceof HTMLImageElement ? s.naturalWidth : s.width);
+const srcH = (s: EditorSource) => (s instanceof HTMLImageElement ? s.naturalHeight : s.height);
+const orientCache = new WeakMap<HTMLImageElement, { key: string; el: HTMLCanvasElement }>();
+function orientedSource(img: HTMLImageElement | null, orient: Orient | undefined): EditorSource | null {
+  if (!img || !orient || isIdentity(orient)) return img;
+  const key = `${orient.rot}:${orient.flip}`;
+  const hit = orientCache.get(img);
+  if (hit && hit.key === key) return hit.el;
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  const { w, h } = orientedSize(W, H, orient);
+  const el = document.createElement("canvas");
+  el.width = w;
+  el.height = h;
+  const ctx = el.getContext("2d");
+  if (!ctx) return img;
+  // Affine map from three captured points to where they are shown.
+  const o = forwardPoint({ x: 0, y: 0 }, W, H, orient);
+  const ex = forwardPoint({ x: 1, y: 0 }, W, H, orient);
+  const ey = forwardPoint({ x: 0, y: 1 }, W, H, orient);
+  ctx.setTransform(ex.x - o.x, ex.y - o.y, ey.x - o.x, ey.y - o.y, o.x, o.y);
+  ctx.drawImage(img, 0, 0);
+  orientCache.set(img, { key, el });
+  return el;
+}
+
 /** Draw the full scene CONTENT (image + annotations) in IMAGE coordinates —
  *  no selection chrome, no crop dim, no in-progress preview, and no clear (the
  *  caller owns clearing + any crop/background transform + clip). Shared by the
  *  on-screen redraw and the offscreen export so the baked PNG is always clean. */
-function drawSceneContent(ctx: CanvasRenderingContext2D, img: HTMLImageElement, list: Annotation[]) {
+function drawSceneContent(ctx: CanvasRenderingContext2D, img: EditorSource, list: Annotation[]) {
   ctx.drawImage(img, 0, 0);
   for (const a of list) if (a.type !== "spotlight") drawAnnotation(ctx, a, img);
 
@@ -1690,8 +1823,8 @@ function drawSceneContent(ctx: CanvasRenderingContext2D, img: HTMLImageElement, 
   const spots = list.filter((a) => a.type === "spotlight");
   if (spots.length) {
     const layer = document.createElement("canvas");
-    layer.width = img.naturalWidth;
-    layer.height = img.naturalHeight;
+    layer.width = srcW(img);
+    layer.height = srcH(img);
     const lx = layer.getContext("2d");
     if (lx) {
       lx.fillStyle = "rgba(0,0,0,0.6)";
@@ -1738,7 +1871,7 @@ function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, radius: number) {
  *  in image space (offset-translated) after the content. */
 function paintScene(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  img: EditorSource,
   list: Annotation[],
   layout: SceneLayout,
   bg: BackgroundSpec | null,
@@ -1961,7 +2094,7 @@ function drawText(ctx: CanvasRenderingContext2D, a: TextAnnotation) {
   ctx.fillText(a.text, a.x, a.y);
 }
 
-function drawBlur(ctx: CanvasRenderingContext2D, a: BlurAnnotation, source: HTMLImageElement) {
+function drawBlur(ctx: CanvasRenderingContext2D, a: BlurAnnotation, source: EditorSource) {
   const x = Math.round(a.x);
   const y = Math.round(a.y);
   const w = Math.round(a.w);

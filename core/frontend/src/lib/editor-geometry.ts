@@ -210,7 +210,14 @@ export type EditorDoc = {
   annotations: Annotation[];
   crop: Rect | null;
   background: BackgroundSpec | null;
+  /** Rotation/flip of the source image; annotations and crop are stored in
+   *  the ORIENTED image's coordinates. Absent = as captured. */
+  orient?: Orient;
 };
+
+/** `rot` clockwise degrees applied after an optional horizontal flip of the
+ *  captured image (see `editor-transform`). */
+export type Orient = { rot: 0 | 90 | 180 | 270; flip: boolean };
 
 export const EMPTY_DOC: EditorDoc = { annotations: [], crop: null, background: null };
 

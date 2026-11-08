@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.247.0] — 2026-11-08
+
+### Added
+- **Turn and flip a screenshot in the editor.** Four buttons in the sidebar rotate the screenshot left or right and flip it horizontally or vertically. Your annotations and the crop go along; text, step numbers and emoji stay upright. Each turn is one undo step, and "Redact sensitive" still finds the text after a turn.
+- **Crop shapes.** With the crop tool, pick Free, 1:1, 4:3, 3:2, 16:9 or 9:16. Picking a shape reshapes the current crop around its centre (or makes the largest centred crop if there is none), and dragging a new crop keeps the shape.
+
 ## [0.246.0] — 2026-11-08
 
 ### Added

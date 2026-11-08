@@ -607,7 +607,7 @@ mod tests {
             println!("{:?} {:?}", l.text, l.bbox);
             assert_eq!(l.words.len(), token_ranges_utf16(&l.text).len(), "one box per word");
             for w in &l.words {
-                println!("   {:?} {:?}", &l.text.encode_utf16().collect::<Vec<_>>()[w.start..w.end].len(), w.bbox);
+                println!("   {} units {:?}", w.end - w.start, w.bbox);
                 assert!(w.bbox.x >= l.bbox.x - 0.02 && w.bbox.x + w.bbox.w <= l.bbox.x + l.bbox.w + 0.02);
                 assert!(w.bbox.y >= -0.01 && w.bbox.y + w.bbox.h <= 1.01);
             }

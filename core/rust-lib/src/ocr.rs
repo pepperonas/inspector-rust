@@ -23,9 +23,6 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String> {
     recognize_impl(png_bytes, Level::Accurate)
 }
 
-/// Sentinel: word positions need Vision (macOS).
-pub const ERR_WORDS_UNSUPPORTED: &str = "ocr.words_unsupported";
-
 /// Every recognised line with the box of each word, as the helper's JSON
 /// (`ir_ocr_helper::lines_json`: normalised, top-left origin, UTF-16 word
 /// ranges). Used by the screenshot editor to redact/highlight text.
@@ -55,7 +52,8 @@ fn words_impl(png_bytes: &[u8]) -> Result<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn words_impl(_png_bytes: &[u8]) -> Result<String> {
-    anyhow::bail!(ERR_WORDS_UNSUPPORTED)
+    // Sentinel the editor checks to hide the text features (no Vision here).
+    anyhow::bail!("ocr.words_unsupported")
 }
 
 /// A tiny image with a few words. Recognising it makes the OS load the text

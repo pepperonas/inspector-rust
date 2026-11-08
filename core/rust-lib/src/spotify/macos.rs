@@ -156,6 +156,29 @@ const TYPE_WILDCARD: u32 = u32::from_be_bytes(*b"****");
 /// Ask TCC whether Inspector may send Apple events to Spotify — WITHOUT
 /// showing a prompt. Spotify must be running for a definite answer.
 pub fn permission() -> Permission {
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    match super::bounded(&BUSY, PERMISSION_TIMEOUT, "ir-spotify-perm", probe_permission) {
+        super::Bounded::Done(p) => p,
+        outcome => {
+            // macOS 27.2: the probe can hang forever (see `bounded`). Answer
+            // from what the last AppleScript call learned instead — `query`
+            // stores Granted/Denied — so the recorder keeps running.
+            if outcome == super::Bounded::TimedOut && !WARNED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    "spotify: Automation permission check did not answer within {} ms — using the last known state",
+                    PERMISSION_TIMEOUT.as_millis()
+                );
+            }
+            cached_permission()
+        }
+    }
+}
+
+/// How long the recorder and the panel wait for the permission probe.
+const PERMISSION_TIMEOUT: Duration = Duration::from_millis(1500);
+
+fn probe_permission() -> Permission {
     let id = super::BUNDLE_ID.as_bytes();
     let mut desc = AEDesc {
         descriptor_type: 0,

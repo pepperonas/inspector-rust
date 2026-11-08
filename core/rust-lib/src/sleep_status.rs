@@ -365,6 +365,86 @@ Currently in use:\n\
         assert!(!status_from(&[], None).sleep_disabled);
     }
 
+    /// Real `pmset -g assertions` capture on macOS 27.2 (26B123, 2026-11-08).
+    /// `REAL_ASSERTIONS` above is a macOS 26 capture (27.0 was installed on
+    /// 2026-09-16). What 27.2 adds that the parser must survive: more summary
+    /// kinds (`PreventSystemSleepSecurityIndicator`, `ExternalMedia`,
+    /// `NetworkClientActive`), a delegated coreaudiod assertion with
+    /// `Created for PID:` / `Resources:` continuation lines, a usernoted
+    /// assertion with its own short timeout, powerd's `ExternalMedia` header,
+    /// and no kernel-assertion tail at all.
+    const REAL_ASSERTIONS_27_2: &str = "2026-11-08 01:42:29 +0100 \n\
+Assertion status system-wide:\n\
+   BackgroundTask                 0\n\
+   UserIsActive                   1\n\
+   PreventSystemSleep             0\n\
+   PreventSystemSleepSecurityIndicator 0\n\
+   ExternalMedia                  1\n\
+   InternalPreventDisplaySleep    1\n\
+   PreventUserIdleSystemSleep     1\n\
+   NetworkClientActive            0\n\
+Listed by owning process:\n\
+   pid 1001(sharingd): [0x000140bb0001a297] 00:01:22 PreventUserIdleSystemSleep named: \"Handoff\"  \n\
+   pid 850(coreaudiod): [0x000140470001868d] 00:03:19 PreventUserIdleSystemSleep named: \"com.apple.audio.BuiltInSpeakerDevice.context.preventuseridlesleep\"  \n\
+\tCreated for PID: 1559. \n\
+\tResources: audio-out BuiltInSpeakerDevice \n\
+   pid 70864(caffeinate): [0x0001407100019fe8] 00:02:36 PreventUserIdleSystemSleep named: \"caffeinate command-line tool\"  \n\
+\tDetails: caffeinate asserting for 300 secs\n\
+\tLocalized=THE CAFFEINATE TOOL IS PREVENTING SLEEP.\n\
+\tTimeout will fire in 143 secs Action=TimeoutActionRelease\n\
+   pid 990(usernoted): [0x0001410b0001a4fa] 00:00:02 PreventUserIdleSystemSleep named: \"com.apple.usernoted.add-notification\"  \n\
+\tDetails: Process added notification in usernoted\n\
+\tTimeout will fire in 13 secs Action=TimeoutActionRelease\n\
+   pid 609(powerd): [0x000137b800019bde] 00:39:49 PreventUserIdleSystemSleep named: \"Powerd - Prevent sleep while display is on\"  \n\
+   pid 609(powerd): [0x000000e80008827b] 22:45:57 ExternalMedia named: \"com.apple.powermanagement.externalmediamounted\"  \n\
+   pid 609(powerd): [0x00013e9f00109a74] 00:00:25 InternalPreventDisplaySleep named: \"com.apple.powermanagement.delayDisplayOff\"  \n\
+\tTimeout will fire in 275 secs Action=TimeoutActionTurnOff\n\
+   pid 71910(caffeinate): [0x000140b00001a215] 00:01:33 PreventUserIdleSystemSleep named: \"caffeinate command-line tool\"  \n\
+\tDetails: caffeinate asserting for 300 secs\n\
+\tLocalized=THE CAFFEINATE TOOL IS PREVENTING SLEEP.\n\
+\tTimeout will fire in 206 secs Action=TimeoutActionRelease\n";
+
+    /// Real `pmset -g` capture on macOS 27.2 — same shape as 26, with the
+    /// annotation listing every holder.
+    const REAL_PROFILE_27_2: &str = "System-wide power settings:\n\
+Currently in use:\n\
+ standby              1\n\
+ Sleep On Power Button 1\n\
+ hibernatefile        /var/vm/sleepimage\n\
+ powernap             1\n\
+ disksleep            10\n\
+ sleep                0 (sleep prevented by sharingd, coreaudiod, caffeinate, bluetoothd, caffeinate, usernoted, powerd, caffeinate, caffeinate)\n\
+ hibernatemode        3\n\
+ displaysleep         10\n\
+ lowpowermode         0\n";
+
+    #[test]
+    fn parses_the_macos_27_2_capture() {
+        let a = parse_assertions(REAL_ASSERTIONS_27_2);
+        let got: Vec<(&str, Option<u64>)> =
+            a.iter().map(|x| (x.process.as_str(), x.timeout_secs)).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("sharingd", None),
+                ("coreaudiod", None),
+                ("caffeinate", Some(143)),
+                ("usernoted", Some(13)),
+                ("caffeinate", Some(206)),
+            ],
+            "the new continuation lines attach nothing, powerd's display-on \
+             assertion stays filtered and its 275 s sibling does not leak"
+        );
+        assert_eq!(parse_profile_sleep(REAL_PROFILE_27_2), Some(0));
+        let s = status_from(&a, parse_profile_sleep(REAL_PROFILE_27_2));
+        assert!(s.sleep_disabled && s.prevented && s.indefinite);
+        assert_eq!(s.max_timeout_secs, Some(206));
+        assert_eq!(
+            s.holders,
+            vec!["sharingd", "coreaudiod", "caffeinate ×2", "usernoted"]
+        );
+    }
+
     #[test]
     fn timed_only_assertions_are_finite() {
         let a = vec![

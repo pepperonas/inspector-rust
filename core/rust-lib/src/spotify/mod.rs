@@ -526,6 +526,60 @@ pub fn observation_from_notification(
     }
 }
 
+/// Outcome of [`bounded`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum Bounded<T> {
+    /// The call returned in time.
+    Done(T),
+    /// The call is still running; its thread is left behind.
+    TimedOut,
+    /// An earlier call has not returned yet, so none was started.
+    Busy,
+}
+
+/// Run a system call that is allowed to block on a helper thread and wait at
+/// most `timeout` for it.
+///
+/// Why: on macOS 27.2, `AEDeterminePermissionToAutomateTarget` for a running
+/// Spotify blocks forever in a semaphore (even with `askUserIfNeeded = 0`;
+/// reproduced outside the app; Finder answers in 30 ms). Called directly, it
+/// froze the recorder thread and no play was recorded any more.
+///
+/// At most one call is in flight per `busy` flag: while a stuck call holds
+/// it, later calls return [`Bounded::Busy`] at once instead of piling up
+/// threads. The flag clears when the stuck call finally returns.
+pub fn bounded<T, F>(
+    busy: &'static std::sync::atomic::AtomicBool,
+    timeout: std::time::Duration,
+    thread_name: &str,
+    f: F,
+) -> Bounded<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    use std::sync::atomic::Ordering;
+    if busy.swap(true, Ordering::AcqRel) {
+        return Bounded::Busy;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let spawned = std::thread::Builder::new()
+        .name(thread_name.to_string())
+        .spawn(move || {
+            let v = f();
+            busy.store(false, Ordering::Release);
+            let _ = tx.send(v);
+        });
+    if spawned.is_err() {
+        busy.store(false, Ordering::Release);
+        return Bounded::TimedOut;
+    }
+    match rx.recv_timeout(timeout) {
+        Ok(v) => Bounded::Done(v),
+        Err(_) => Bounded::TimedOut,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,5 +930,55 @@ mod tests {
         let done = finished(&t.observe(&obs(160 * S, PlayerState::Playing, Some(track(B, None)), Some(0))));
         assert_eq!(done[0].played_ms, 40_000);
         assert_eq!(done[0].status(false), PlayStatus::Partial);
+    }
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::channel;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_quick_call_returns_its_value_and_frees_the_slot() {
+        static BUSY: AtomicBool = AtomicBool::new(false);
+        let r = bounded(&BUSY, Duration::from_secs(2), "t", || 7);
+        assert_eq!(r, Bounded::Done(7));
+        assert!(!BUSY.load(Ordering::Acquire));
+        assert_eq!(bounded(&BUSY, Duration::from_secs(2), "t", || 8), Bounded::Done(8));
+    }
+
+    #[test]
+    fn a_hanging_call_times_out_and_blocks_no_one() {
+        static BUSY: AtomicBool = AtomicBool::new(false);
+        static STARTED: AtomicUsize = AtomicUsize::new(0);
+        let (release_tx, release_rx) = channel::<()>();
+        let t0 = Instant::now();
+        let r = bounded(&BUSY, Duration::from_millis(100), "t", move || {
+            STARTED.fetch_add(1, Ordering::SeqCst);
+            let _ = release_rx.recv();
+            1
+        });
+        assert_eq!(r, Bounded::TimedOut);
+        assert!(t0.elapsed() < Duration::from_secs(2), "the caller came back");
+
+        // While it hangs, further calls neither wait nor start a thread.
+        let t1 = Instant::now();
+        let again = bounded(&BUSY, Duration::from_secs(5), "t", || {
+            STARTED.fetch_add(1, Ordering::SeqCst);
+            2
+        });
+        assert_eq!(again, Bounded::Busy);
+        assert!(t1.elapsed() < Duration::from_millis(500));
+        assert_eq!(STARTED.load(Ordering::SeqCst), 1);
+
+        // Once the stuck call returns, the next one runs normally.
+        release_tx.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while BUSY.load(Ordering::Acquire) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(bounded(&BUSY, Duration::from_secs(2), "t", || 3), Bounded::Done(3));
     }
 }

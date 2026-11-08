@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.244.0] — 2026-11-08
+
+### Fixed
+- **The Spotify history records again on macOS 27.** macOS 27's Automation permission check (`AEDeterminePermissionToAutomateTarget`, seen on 27.2; nothing was saved since late October) can hang forever while Spotify is running, and it took the recorder thread with it, so no plays were saved. The check now runs on a helper thread with a 1.5 s limit and falls back to the last known permission.
+
+### Added
+- **Pasteboard access is logged at start.** Inspector writes the system's pasteboard access setting for it (`default`, `ask`, `always allow`, `always deny`) to the log, so a history that stops because the system blocks clipboard reads can be told apart from a bug. macOS 27.2 removed the developer switch for the new pasteboard privacy alert.
+- **macOS 27 compatibility notes** (`docs/macos-27.md`): what was checked on 27.2, the fixes and the remaining risks. The parsers for `pmset` and `nettop` are now tested against real macOS 27.2 output.
+
 ## [0.243.0] — 2026-11-06
 
 ### Added

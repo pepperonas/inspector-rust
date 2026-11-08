@@ -591,6 +591,8 @@ pub fn run(context: tauri::Context<Wry>) {
             }
             boom::apply(&db_handle);
 
+            #[cfg(target_os = "macos")]
+            clipboard_watcher::log_pasteboard_access();
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),

@@ -232,6 +232,12 @@ Timestamps are ISO 8601 with the offset in force at that moment
   ("Inspector Rust wants to control Spotify"). Inspector checks the state with
   `AEDeterminePermissionToAutomateTarget` *without* prompting, so the
   background recorder never asks on its own.
+- **macOS 27 (seen on 27.2):** that check can hang forever while Spotify is running (also
+  outside Inspector — Finder answers in 30 ms). Inspector waits at most 1.5 s
+  for it on a helper thread and otherwise uses the last state an AppleScript
+  call learned. Before v0.244.0 the hang stopped the recorder thread, so no
+  plays were saved. After an app start the reconcile query only runs again
+  once a `spotify` command has worked; the history itself never needs it.
 - Denied by mistake: System Settings → Privacy & Security → Automation →
   Inspector Rust → Spotify (the panel has a button), or reset with
   `tccutil reset AppleEvents io.celox.inspector-rust`.

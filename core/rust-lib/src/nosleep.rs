@@ -190,6 +190,40 @@ AC Power:\n\
         assert_eq!(battery, Some(1));
     }
 
+    /// Real `pmset -g custom` capture on macOS 27.2 (26B123, 2026-11-08):
+    /// same two sections, keys in a different order, extra keys
+    /// (`hibernatefile` with a path value, `lessbright`, `womp`, …).
+    const REAL_27_2: &str = "Battery Power:\n\
+ Sleep On Power Button 1\n\
+ lowpowermode         0\n\
+ standby              1\n\
+ ttyskeepawake        1\n\
+ hibernatemode        3\n\
+ powernap             1\n\
+ hibernatefile        /var/vm/sleepimage\n\
+ displaysleep         5\n\
+ womp                 0\n\
+ networkoversleep     0\n\
+ sleep                1\n\
+ lessbright           1\n\
+ tcpkeepalive         1\n\
+ disksleep            10\n\
+AC Power:\n\
+ Sleep On Power Button 1\n\
+ lowpowermode         0\n\
+ standby              1\n\
+ hibernatefile        /var/vm/sleepimage\n\
+ displaysleep         10\n\
+ womp                 1\n\
+ sleep                0\n\
+ tcpkeepalive         1\n\
+ disksleep            10\n";
+
+    #[test]
+    fn parses_the_macos_27_2_capture() {
+        assert_eq!(parse_profile(REAL_27_2), (Some(0), Some(1)));
+    }
+
     #[test]
     fn the_exact_sleep_token_ignores_displaysleep_disksleep_and_power_button() {
         // A section with ONLY the decoys must yield no sleep value.

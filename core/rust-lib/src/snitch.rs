@@ -606,6 +606,26 @@ time interface state bytes_in bytes_out
         assert!(acts.iter().all(|a| a.pid != 500));
     }
 
+    /// Rows as `nettop -P -x -n -l 2` prints them on macOS 27.2 (2026-11-08):
+    /// the header grew to `… tc_class tc_mgt cc_algo P C R W arch`, process
+    /// names carry spaces (`Google Chrome H.1522`) and the rows are wide,
+    /// space-padded columns. Real capture; only the second Chrome sample's
+    /// bytes_in was raised by 4096 so the pair has a measurable delta.
+    #[test]
+    fn nettop_deltas_parse_the_macos_27_2_layout() {
+        let sample = "\
+time                                                                                                             interface         state        bytes_in       bytes_out   rx_dupe    rx_ooo     re-tx   rtt_avg   rcvsize    tx_win  tc_class    tc_mgt   cc_algo P C R W arch
+01:58:46.584364 apsd.637                                                                                                                            10441           49004         0       563      4344
+01:58:46.584379 Google Chrome H.1522                                                                                                             18820475         3220276        92         0     27075
+time                                                                                                             interface         state        bytes_in       bytes_out   rx_dupe    rx_ooo     re-tx   rtt_avg   rcvsize    tx_win  tc_class    tc_mgt   cc_algo P C R W arch
+01:58:47.582254 apsd.637                                                                                                                            10441           49004         0       563      4344
+01:58:47.582269 Google Chrome H.1522                                                                                                             18824571         3220276        92         0     27075";
+        let acts = parse_nettop_deltas(sample);
+        assert_eq!(acts.len(), 1, "apsd did not move, Chrome did: {acts:?}");
+        assert_eq!(acts[0].pid, 1522);
+        assert_eq!(acts[0].bytes_per_sec, 4096);
+    }
+
     #[test]
     fn nettop_deltas_ignores_a_pid_seen_only_once() {
         // A pid present in only one sample has no baseline+current pair → no

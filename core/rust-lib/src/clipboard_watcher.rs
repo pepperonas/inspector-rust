@@ -380,9 +380,74 @@ fn strip_html(html: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// What `NSPasteboard.accessBehavior` (macOS 15.4+) says about reading the
+/// general pasteboard. `None` = unknown raw value. Pure.
+///
+/// Why it is logged: macOS 15.4 introduced a pasteboard-privacy alert for
+/// programmatic reads, and macOS 27.2 removed its developer-preview switch
+/// (`EnablePasteboardPrivacyDeveloperPreview`). On 27.2 reads still work
+/// without an alert (verified 2026-11-08), but if Apple turns the alert on —
+/// or the user picks "Deny" in System Settings — the watcher reads nothing
+/// and the history silently stops. One log line at start makes that
+/// diagnosable.
+pub fn pasteboard_access_label(raw: i64) -> Option<&'static str> {
+    match raw {
+        0 => Some("default"),
+        1 => Some("ask"),
+        2 => Some("always allow"),
+        3 => Some("always deny"),
+        _ => None,
+    }
+}
+
+/// Log the general pasteboard's access behaviour once. Reading the property
+/// does not trigger the privacy alert; older systems without it are skipped.
+#[cfg(target_os = "macos")]
+pub fn log_pasteboard_access() {
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use objc2::{msg_send, sel};
+    // SAFETY: NSPasteboard is an AppKit class; the selector is checked with
+    // respondsToSelector before it is sent (macOS < 15.4 lacks it); the
+    // property is an NSInteger.
+    let raw: Option<i64> = unsafe {
+        let Some(cls) = AnyClass::get(c"NSPasteboard") else { return };
+        let pb: *mut AnyObject = msg_send![cls, generalPasteboard];
+        if pb.is_null() {
+            return;
+        }
+        let has: Bool = msg_send![pb, respondsToSelector: sel!(accessBehavior)];
+        if !has.as_bool() {
+            return;
+        }
+        let v: isize = msg_send![pb, accessBehavior];
+        Some(v as i64)
+    };
+    let Some(raw) = raw else { return };
+    match pasteboard_access_label(raw) {
+        Some("always deny") => tracing::warn!(
+            "clipboard: pasteboard access is set to \"always deny\" — nothing will be captured \
+             (System Settings → Privacy & Security)"
+        ),
+        Some(label) => tracing::info!("clipboard: pasteboard access behaviour = {label}"),
+        None => tracing::info!("clipboard: pasteboard access behaviour = unknown ({raw})"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{is_excluded_app, preview_text, strip_html, strip_rtf, text_fits, WatcherState};
+    use super::{is_excluded_app, pasteboard_access_label, preview_text, strip_html, strip_rtf, text_fits, WatcherState};
+
+    #[test]
+    fn pasteboard_access_values_match_appkit() {
+        // NSPasteboardAccessBehavior in the macOS 27.2 SDK: Default 0, Ask 1,
+        // AlwaysAllow 2, AlwaysDeny 3.
+        assert_eq!(pasteboard_access_label(0), Some("default"));
+        assert_eq!(pasteboard_access_label(1), Some("ask"));
+        assert_eq!(pasteboard_access_label(2), Some("always allow"));
+        assert_eq!(pasteboard_access_label(3), Some("always deny"));
+        assert_eq!(pasteboard_access_label(4), None);
+        assert_eq!(pasteboard_access_label(-1), None);
+    }
 
     #[test]
     fn every_clipboard_change_supersedes_a_pending_auto_clear() {

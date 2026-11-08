@@ -30,13 +30,26 @@ export type Tool =
   | "spotlight"
   | "emoji";
 
+import { defaultBend } from "./editor-arrows";
+
 export type Point = { x: number; y: number };
+
+/** Arrow look. `classic` is the pre-stage-1 arrow and the default. */
+export type ArrowStyle = "classic" | "bold" | "curved" | "marker";
+/** Rect/ellipse fill: `tint` = outline plus a light fill. */
+export type FillMode = "outline" | "filled" | "tint";
+export type TextStyle = "plain" | "outline" | "pill" | "box";
+
+/** Styles whose arrow is a curve through a control point. */
+export function isBentStyle(s: ArrowStyle | undefined): boolean {
+  return s === "curved" || s === "marker";
+}
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /** Resize-handle positions. Box-like shapes expose the eight compass
  *  handles; arrow/line expose their two endpoints; text/step/emoji a single
  *  bottom-right scale handle; pen the four bbox corners. */
-export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "start" | "end";
+export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w" | "start" | "end" | "mid";
 
 /** The live drawing style the toolbar holds. Applied to a new annotation at
  *  commit time, and to the selected annotation when a control changes. */
@@ -48,6 +61,9 @@ export type Style = {
   shadow: boolean;
   /** Font/badge/emoji size for text/step/emoji. */
   fontSize: number;
+  arrowStyle: ArrowStyle;
+  fill: FillMode;
+  textStyle: TextStyle;
 };
 
 type WithId = { id: string };
@@ -61,6 +77,11 @@ export type ArrowAnnotation = WithId & AnnotationCommon & Styled & {
   y1: number;
   x2: number;
   y2: number;
+  /** Absent = `classic` (documents from before stage 1). */
+  style?: ArrowStyle;
+  /** Quadratic control point for `curved`/`marker`; absent = straight. */
+  cx?: number;
+  cy?: number;
 };
 export type LineAnnotation = WithId & AnnotationCommon & Styled & {
   type: "line";
@@ -75,6 +96,8 @@ export type RectAnnotation = WithId & AnnotationCommon & Styled & {
   y: number;
   w: number;
   h: number;
+  /** Absent = `outline`. */
+  fill?: FillMode;
 };
 export type EllipseAnnotation = WithId & AnnotationCommon & Styled & {
   type: "ellipse";
@@ -82,6 +105,8 @@ export type EllipseAnnotation = WithId & AnnotationCommon & Styled & {
   y: number;
   w: number;
   h: number;
+  /** Absent = `outline`. */
+  fill?: FillMode;
 };
 export type HighlightAnnotation = WithId & {
   type: "highlight";
@@ -114,6 +139,8 @@ export type TextAnnotation = WithId & Styled & {
   text: string;
   color: string;
   size: number;
+  /** Absent = `plain`. */
+  textStyle?: TextStyle;
 };
 /** Monotonically-numbered badge (CleanShot's signature feature). */
 export type StepAnnotation = WithId & Styled & {
@@ -190,10 +217,13 @@ export const COLOR_PRESETS = ["#ef4444", "#facc15", "#22c55e", "#3b82f6", "#a855
 
 export const DEFAULT_STYLE: Style = {
   color: COLOR_PRESETS[0],
-  width: 4,
+  width: 6,
   opacity: 1,
   shadow: false,
   fontSize: 28,
+  arrowStyle: "classic",
+  fill: "outline",
+  textStyle: "plain",
 };
 
 /** Normalise a drag into a top-left-anchored rect (always non-negative w/h). */
@@ -228,17 +258,24 @@ export function makeDragAnnotation(
 ): Annotation | null {
   const { color, width, opacity, shadow } = style;
   switch (tool) {
-    case "arrow":
-      return { id, type: "arrow", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, width, opacity, shadow };
+    case "arrow": {
+      const arrow: ArrowAnnotation = { id, type: "arrow", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, width, opacity, shadow, style: style.arrowStyle };
+      if (isBentStyle(style.arrowStyle)) {
+        const c = defaultBend(start.x, start.y, end.x, end.y);
+        arrow.cx = c.x;
+        arrow.cy = c.y;
+      }
+      return arrow;
+    }
     case "line":
       return { id, type: "line", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, width, opacity, shadow };
     case "rect": {
       const r = dragRect(start, end);
-      return { id, type: "rect", ...r, color, width, opacity, shadow };
+      return { id, type: "rect", ...r, color, width, opacity, shadow, fill: style.fill };
     }
     case "ellipse": {
       const r = dragRect(start, end);
-      return { id, type: "ellipse", ...r, color, width, opacity, shadow };
+      return { id, type: "ellipse", ...r, color, width, opacity, shadow, fill: style.fill };
     }
     case "highlight": {
       const r = dragRect(start, end);
@@ -473,6 +510,22 @@ export function restyleAnnotation(a: Annotation, patch: Partial<Style>): Annotat
   if (patch.opacity !== undefined && hasOpacity) out.opacity = patch.opacity;
   if (patch.shadow !== undefined && hasShadow) out.shadow = patch.shadow;
   if (patch.fontSize !== undefined && hasFont) out.size = patch.fontSize;
+  if (patch.fill !== undefined && (a.type === "rect" || a.type === "ellipse")) (out as RectAnnotation).fill = patch.fill;
+  if (patch.textStyle !== undefined && a.type === "text") (out as TextAnnotation).textStyle = patch.textStyle;
+  if (patch.arrowStyle !== undefined && a.type === "arrow") {
+    const arrow = out as ArrowAnnotation;
+    arrow.style = patch.arrowStyle;
+    if (isBentStyle(patch.arrowStyle)) {
+      if (arrow.cx === undefined || arrow.cy === undefined) {
+        const c = defaultBend(arrow.x1, arrow.y1, arrow.x2, arrow.y2);
+        arrow.cx = c.x;
+        arrow.cy = c.y;
+      }
+    } else {
+      delete arrow.cx;
+      delete arrow.cy;
+    }
+  }
   return out as Annotation;
 }
 
@@ -485,6 +538,11 @@ export function reflowSteps(annotations: ReadonlyArray<Annotation>): Annotation[
 /** Normalise a box-like annotation's rect (post-resize, when w/h may be
  *  negative). Non-box annotations are returned unchanged. */
 export function normalizeAnnotation(a: Annotation): Annotation {
+  if (a.type === "arrow") return { ...a, style: a.style ?? "classic" };
+  if (a.type === "text") return { ...a, textStyle: a.textStyle ?? "plain" };
+  if (a.type === "rect" || a.type === "ellipse") {
+    return { ...a, ...normRect({ x: a.x, y: a.y, w: a.w, h: a.h }), fill: a.fill ?? "outline" };
+  }
   if (isBox(a)) return { ...a, ...normRect({ x: a.x, y: a.y, w: a.w, h: a.h }) };
   return a;
 }

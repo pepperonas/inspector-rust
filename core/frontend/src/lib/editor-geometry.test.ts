@@ -13,6 +13,7 @@ import {
   restyleAnnotation,
   reflowSteps,
   normalizeAnnotation,
+  DEFAULT_STYLE,
   type Annotation,
   type Style,
 } from "./editor-geometry";
@@ -23,6 +24,9 @@ const S = (over: Partial<Style> = {}): Style => ({
   opacity: 1,
   shadow: false,
   fontSize: 28,
+  arrowStyle: "classic",
+  fill: "outline",
+  textStyle: "plain",
   ...over,
 });
 
@@ -56,6 +60,7 @@ describe("makeDragAnnotation", () => {
       width: 4,
       opacity: 1,
       shadow: false,
+      style: "classic",
     });
     expect(makeDragAnnotation("line", a, b, S(), "l1")).toMatchObject({ type: "line", x2: 30 });
   });
@@ -335,8 +340,58 @@ describe("normRect / normalizeAnnotation", () => {
       normalizeAnnotation({ id: "r", type: "rect", x: 10, y: 10, w: -5, h: -5, color: "#f", width: 2 }),
     ).toMatchObject({ x: 5, y: 5, w: 5, h: 5 });
   });
-  it("normalizeAnnotation leaves an arrow unchanged", () => {
+  it("normalizeAnnotation leaves an arrow's geometry unchanged (only names its style)", () => {
     const arrow: Annotation = { id: "a", type: "arrow", x1: 5, y1: 5, x2: 0, y2: 0, color: "#f", width: 2 };
-    expect(normalizeAnnotation(arrow)).toEqual(arrow);
+    expect(normalizeAnnotation(arrow)).toEqual({ ...arrow, style: "classic" });
+  });
+});
+
+describe("style fields (stage 1)", () => {
+  it("old annotations keep their look", () => {
+    const arrow = normalizeAnnotation({ id: "a", type: "arrow", x1: 0, y1: 0, x2: 10, y2: 0, color: "#f00", width: 4 } as Annotation);
+    expect(arrow).toMatchObject({ style: "classic" });
+    expect("cx" in arrow).toBe(false);
+    const rect = normalizeAnnotation({ id: "r", type: "rect", x: 0, y: 0, w: 5, h: 5, color: "#f00", width: 4 } as Annotation);
+    expect(rect).toMatchObject({ fill: "outline" });
+    const ell = normalizeAnnotation({ id: "e", type: "ellipse", x: 0, y: 0, w: 5, h: 5, color: "#f00", width: 4 } as Annotation);
+    expect(ell).toMatchObject({ fill: "outline" });
+    const text = normalizeAnnotation({ id: "t", type: "text", x: 0, y: 0, text: "hi", color: "#f00", size: 20 } as Annotation);
+    expect(text).toMatchObject({ textStyle: "plain" });
+  });
+
+  it("drag arrow uses the style and a curved one starts bent", () => {
+    const a = makeDragAnnotation("arrow", { x: 0, y: 0 }, { x: 100, y: 0 }, S({ arrowStyle: "curved" }), "a");
+    expect(a).toMatchObject({ type: "arrow", style: "curved" });
+    const c = a as Extract<Annotation, { type: "arrow" }>;
+    expect(typeof c.cx).toBe("number");
+    expect(Math.abs(c.cy ?? 0)).toBeGreaterThan(1);
+  });
+
+  it("drag rect and ellipse take the fill mode", () => {
+    expect(makeDragAnnotation("rect", { x: 0, y: 0 }, { x: 9, y: 9 }, S({ fill: "tint" }), "r")).toMatchObject({ fill: "tint" });
+    expect(makeDragAnnotation("ellipse", { x: 0, y: 0 }, { x: 9, y: 9 }, S({ fill: "filled" }), "e")).toMatchObject({ fill: "filled" });
+  });
+
+  it("restyle switches arrow style both ways", () => {
+    const a = makeDragAnnotation("arrow", { x: 0, y: 0 }, { x: 100, y: 0 }, S(), "a")!;
+    const curved = restyleAnnotation(a, { arrowStyle: "curved" }) as Extract<Annotation, { type: "arrow" }>;
+    expect(curved.style).toBe("curved");
+    expect(typeof curved.cx).toBe("number");
+    const bold = restyleAnnotation(curved, { arrowStyle: "bold" }) as Extract<Annotation, { type: "arrow" }>;
+    expect(bold.style).toBe("bold");
+    expect(bold.cx).toBeUndefined();
+    expect(bold.cy).toBeUndefined();
+  });
+
+  it("restyle applies fill to shapes and textStyle to text only", () => {
+    const r = makeDragAnnotation("rect", { x: 0, y: 0 }, { x: 9, y: 9 }, S(), "r")!;
+    expect(restyleAnnotation(r, { fill: "filled" })).toMatchObject({ fill: "filled" });
+    const t: Annotation = { id: "t", type: "text", x: 0, y: 0, text: "x", color: "#f00", size: 20 };
+    expect(restyleAnnotation(t, { textStyle: "pill" })).toMatchObject({ textStyle: "pill" });
+    expect(restyleAnnotation(r, { textStyle: "pill" })).not.toHaveProperty("textStyle");
+  });
+
+  it("the default arrow is no longer thin", () => {
+    expect(DEFAULT_STYLE.width).toBe(6);
   });
 });

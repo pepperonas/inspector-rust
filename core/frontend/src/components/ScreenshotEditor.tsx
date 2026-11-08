@@ -33,6 +33,7 @@ import {
 } from "../lib/ipc";
 import {
   COLOR_PRESETS,
+  DEFAULT_STYLE,
   EMPTY_DOC,
   boundsOf,
   clampRectToImage,
@@ -136,7 +137,7 @@ export function ScreenshotEditor() {
   // Background/padding wrapper. Component state (a presentation setting, not an
   // undoable drawing action); reset when the screenshot changes.
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
-  const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize };
+  const styleObj: Style = { ...DEFAULT_STYLE, color, width: strokeWidth, opacity, shadow, fontSize };
 
   // Undo/redo history over the whole document.
   const [hist, dispatch] = useReducer(

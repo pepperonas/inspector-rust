@@ -114,6 +114,11 @@ function mapAnnotation(a: Annotation, W: number, H: number, op: OrientOp): Annot
       const c = m(a.x, a.y);
       return { ...a, x: c.x, y: c.y };
     }
+    case "image": {
+      // Pictures stay upright: only the centre follows the turn.
+      const c = m(a.x + a.w / 2, a.y + a.h / 2);
+      return { ...a, x: c.x - a.w / 2, y: c.y - a.h / 2 };
+    }
     case "text": {
       const b = boundsOf(a);
       const c = m(b.x + b.w / 2, b.y + b.h / 2);

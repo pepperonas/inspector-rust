@@ -175,6 +175,18 @@ export type SpotlightAnnotation = WithId & {
   /** Outside-dim strength 0..1 (default 0.6). */
   dim?: number;
 };
+/** A second picture on the canvas (pasted, dropped or picked from a file).
+ *  `src` is an inline data URL so the document stays self-contained. */
+export type ImageAnnotation = WithId & {
+  type: "image";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  src: string;
+  opacity?: number;
+  shadow?: boolean;
+};
 export type Annotation =
   | ArrowAnnotation
   | LineAnnotation
@@ -187,7 +199,8 @@ export type Annotation =
   | StepAnnotation
   | PenAnnotation
   | EmojiAnnotation
-  | SpotlightAnnotation;
+  | SpotlightAnnotation
+  | ImageAnnotation;
 
 /** Backdrop + padding spec (CleanShot-style "beautiful background"). The
  *  padding/radius/shadow fields are in canvas (image) pixels. Filled by the
@@ -321,7 +334,7 @@ export function nextStepNumber(annotations: ReadonlyArray<Annotation>): number {
 // ── Object-editor geometry ──────────────────────────────────────────────────
 
 /** Box-like annotations carry an {x,y,w,h} rect. */
-type BoxLike = RectAnnotation | EllipseAnnotation | HighlightAnnotation | BlurAnnotation | RedactAnnotation | SpotlightAnnotation;
+type BoxLike = RectAnnotation | EllipseAnnotation | HighlightAnnotation | BlurAnnotation | RedactAnnotation | SpotlightAnnotation | ImageAnnotation;
 function isBox(a: Annotation): a is BoxLike {
   return (
     a.type === "rect" ||
@@ -329,7 +342,8 @@ function isBox(a: Annotation): a is BoxLike {
     a.type === "highlight" ||
     a.type === "blur" ||
     a.type === "redact" ||
-    a.type === "spotlight"
+    a.type === "spotlight" ||
+    a.type === "image"
   );
 }
 
@@ -360,6 +374,7 @@ export function boundsOf(a: Annotation): Rect {
     case "blur":
     case "redact":
     case "spotlight":
+    case "image":
       return normRect({ x: a.x, y: a.y, w: a.w, h: a.h });
     case "text": {
       const w = Math.max(a.size, a.text.length * a.size * 0.6);
@@ -496,6 +511,20 @@ export function resizeAnnotation(a: Annotation, handle: Handle, dx: number, dy: 
     if (!isFinite(sx) || !isFinite(sy)) return a;
     return { ...a, points: a.points.map((p) => ({ x: anchorX + (p.x - anchorX) * sx, y: anchorY + (p.y - anchorY) * sy })) };
   }
+  if (a.type === "image" && handle.length === 2) {
+    // A corner keeps the picture's shape: scale around the opposite corner by
+    // the larger of the two relative pulls.
+    const b = normRect(a);
+    if (b.w <= 0 || b.h <= 0) return a;
+    const sx = (handle.includes("w") ? b.w - dx : b.w + dx) / b.w;
+    const sy = (handle.includes("n") ? b.h - dy : b.h + dy) / b.h;
+    const k = Math.abs(sx - 1) >= Math.abs(sy - 1) ? sx : sy;
+    const w = Math.max(4, b.w * k);
+    const h = Math.max(4, b.h * k);
+    const x = handle.includes("w") ? b.x + b.w - w : b.x;
+    const y = handle.includes("n") ? b.y + b.h - h : b.y;
+    return { ...a, x, y, w, h };
+  }
   // Box-like: adjust the edges the handle touches.
   let { x, y, w, h } = a;
   if (handle.includes("w")) {
@@ -522,8 +551,8 @@ export function restyleAnnotation(a: Annotation, patch: Partial<Style>): Annotat
   const hasColor =
     a.type === "arrow" || a.type === "line" || a.type === "rect" || a.type === "ellipse" || a.type === "text" || a.type === "step" || a.type === "pen";
   const hasWidth = a.type === "arrow" || a.type === "line" || a.type === "rect" || a.type === "ellipse" || a.type === "pen";
-  const hasOpacity = hasColor || a.type === "emoji";
-  const hasShadow = hasColor || a.type === "emoji";
+  const hasOpacity = hasColor || a.type === "emoji" || a.type === "image";
+  const hasShadow = hasColor || a.type === "emoji" || a.type === "image";
   const hasFont = a.type === "text" || a.type === "step" || a.type === "emoji";
   if (patch.color !== undefined && hasColor) out.color = patch.color;
   if (patch.width !== undefined && hasWidth) out.width = patch.width;

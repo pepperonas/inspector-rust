@@ -101,6 +101,7 @@ mod ffmpeg_util;
 mod display_rects;
 mod screen_recording;
 mod screenshot_editor;
+mod editor_project;
 mod screenshot_preview;
 mod sec;
 mod seed;
@@ -337,6 +338,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(expander_state);
             app.manage(popup_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
+            app.manage(editor_project::ReopenState::default());
             app.manage(wakelock::WakelockState::default());
             app.manage(cleaner::PlanStore::default());
             #[cfg(target_os = "macos")]
@@ -910,6 +912,11 @@ pub fn run(context: tauri::Context<Wry>) {
             screenshot_preview::get_pin_image,
             screenshot_preview::close_pin,
             screenshot_editor::editor_save,
+            editor_project::editor_open_clip,
+            editor_project::editor_open_file,
+            editor_project::editor_take_project,
+            editor_project::editor_insert_image_file,
+            editor_project::editor_clipboard_image,
             screenshot_editor::editor_copy,
             screenshot_editor::editor_cancel,
             screenshot_editor::set_editor_size,

@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.248.0] — 2026-11-08
+
+### Added
+- **Put a second picture on a screenshot.** In the editor, press ⌘V to paste a picture from the clipboard, drop a picture file onto the window, or use the new "Insert picture" button in the sidebar. The picture lands in the middle, at most half the size of the screenshot. You can move it and resize it; the corner handles keep its shape. Opacity and shadow work too, and it stays upright when you turn the screenshot.
+- **Reopen a screenshot for editing.** Image clips in the history, image files and Finder-selected images now have an "Open in editor" button. When you open a picture the editor saved earlier, it comes back with its arrows, boxes, text, crop, rotation and background still editable. This works from the history clip and from the PNG in Downloads. The original capture and the elements are kept for the 40 most recent saves.
+
 ## [0.247.0] — 2026-11-08
 
 ### Added

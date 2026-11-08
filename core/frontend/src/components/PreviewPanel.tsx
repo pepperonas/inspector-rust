@@ -37,6 +37,8 @@ import {
   commitTransformedText,
   cutOutImageEntry,
   cutOutImageFile,
+  editorOpenClip,
+  editorOpenFile,
   getClip,
   imageChromaticity,
   qrCopyPng,
@@ -1284,6 +1286,7 @@ export function PreviewPanel({
             )}
           </div>
         </div>
+        {entry.data.is_image && <EditImageButton source={{ kind: "file", path: entry.data.path }} />}
       </div>
     );
   }
@@ -1335,6 +1338,7 @@ export function PreviewPanel({
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
           <ImagePreview entryId={clip.id} inline={clip.content_data} />
         </div>
+        <EditImageButton source={{ kind: "entry", entryId: clip.id }} />
         <CutoutButton source={{ kind: "entry", entryId: clip.id }} />
         <SaveImageButton entryId={clip.id} />
         <RecolorToolbar entryId={clip.id} />
@@ -1362,6 +1366,7 @@ export function PreviewPanel({
             </div>
           ))}
         </div>
+        {cutoutTarget && <EditImageButton source={{ kind: "file", path: cutoutTarget }} />}
         {cutoutTarget && <CutoutButton source={{ kind: "file", path: cutoutTarget }} />}
       </div>
     );
@@ -2048,6 +2053,39 @@ function CutoutButton({ source }: { source: CutoutSource }) {
       )}
       {error && (
         <span className="ml-auto text-[11px] text-red-400" title={error}>
+          {t("common.failed_short")}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Open-in-editor button (image entries and image files) ───────────────────
+
+/** Opens the picture in the screenshot editor. A result the editor saved
+ *  earlier comes back with its arrows, boxes and text still movable. */
+function EditImageButton({ source }: { source: CutoutSource }) {
+  const [error, setError] = useState<string | null>(null);
+  const sourceKey = source.kind === "entry" ? `e:${source.entryId}` : `f:${source.path}`;
+  useEffect(() => setError(null), [sourceKey]);
+  const run = () => {
+    setError(null);
+    const p = source.kind === "entry" ? editorOpenClip(source.entryId) : editorOpenFile(source.path);
+    p.catch((e) => setError(String(e)));
+  };
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+      <button
+        onClick={run}
+        title={t("editimg.title")}
+        data-testid="edit-image"
+        className="md3-press flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] hover:opacity-90"
+      >
+        <Pencil size={12} />
+        {t("editimg.label")}
+      </button>
+      {error && (
+        <span className="ml-auto truncate text-[11px] text-red-400" title={error}>
           {t("common.failed_short")}
         </span>
       )}

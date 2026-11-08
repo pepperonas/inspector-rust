@@ -3,6 +3,7 @@
 //! duplicate/paste/remove. The component wires pointer and keys to these.
 
 import { distToArrow } from "./editor-arrows";
+import { scaleImage } from "./editor-image";
 import { styleFor, type EditorPrefs } from "./editor-prefs";
 import {
   boundsOf,
@@ -215,5 +216,6 @@ export function resizeBy(a: Annotation, dir: 1 | -1): Annotation {
   if (a.type === "text" || a.type === "step" || a.type === "emoji") {
     return { ...a, size: Math.min(200, Math.max(8, a.size + 2 * dir)) };
   }
+  if (a.type === "image") return scaleImage(a, dir > 0 ? 1.05 : 1 / 1.05);
   return a;
 }

@@ -169,6 +169,7 @@ pub fn editor_save(
     app: AppHandle,
     pending: tauri::State<'_, PendingScreenshot>,
     png_b64: String,
+    project: Option<String>,
 ) -> Result<String, String> {
     use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
 
@@ -222,6 +223,18 @@ pub fn editor_save(
             },
         );
         let _ = app.emit("clipboard-changed", ());
+    }
+
+    // Keep the original capture + the editable document, so this result can
+    // be reopened with its elements still movable. Before the pending entry
+    // is replaced: that deletes the original temp capture.
+    if let Some(doc) = project.as_deref() {
+        let source = pending.inner().current.lock().as_ref().map(|p| p.path.clone());
+        if let (Some(dir), Some(src)) = (crate::editor_project::projects_dir(), source) {
+            if let Err(e) = crate::editor_project::store(&dir, &bytes, &src, doc) {
+                tracing::warn!("keep editor project: {e}");
+            }
+        }
     }
 
     // Replace the pending entry with the edited file so the preview

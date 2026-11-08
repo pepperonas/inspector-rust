@@ -857,6 +857,23 @@ ${SHOT_LINES.map((l) => `<text x='${l.x}' y='${l.y}' font-family='Menlo' font-si
 <rect x='640' y='470' width='180' height='52' rx='12' fill='#2563eb'/>
 <text x='730' y='503' font-family='Helvetica' font-size='18' text-anchor='middle' fill='#fff'>Save changes</text></svg>`);
 let mockEditorPrefs: string | null = null;
+/** An invented raster picture for "insert picture" (a logo-ish card). */
+function mockPicture(): string {
+  const c = document.createElement("canvas");
+  c.width = 320;
+  c.height = 200;
+  const x = c.getContext("2d");
+  if (!x) return "";
+  const g = x.createLinearGradient(0, 0, 320, 200);
+  g.addColorStop(0, "#f97316");
+  g.addColorStop(1, "#db2777");
+  x.fillStyle = g;
+  x.fillRect(0, 0, 320, 200);
+  x.fillStyle = "#fff";
+  x.font = "bold 34px Helvetica";
+  x.fillText("Northwind", 40, 112);
+  return c.toDataURL("image/png");
+}
 
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
@@ -866,6 +883,23 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "set_editor_prefs": mockEditorPrefs = String(args.json ?? ""); return null;
     case "set_editor_size": return null;
     case "editor_ocr_words": return shotOcrJson();
+    case "editor_clipboard_image": return mockPicture();
+    case "editor_insert_image_file": return mockPicture();
+    case "editor_take_project":
+      return new URLSearchParams(window.location.search).has("project")
+        ? JSON.stringify({
+            version: 1,
+            doc: {
+              annotations: [
+                { id: "a3", type: "arrow", x1: 120, y1: 120, x2: 380, y2: 260, color: "#ef4444", width: 6, style: "classic" },
+                { id: "a4", type: "image", x: 560, y: 60, w: 240, h: 150, src: mockPicture() },
+              ],
+              crop: null,
+              background: null,
+            },
+            background: { kind: "gradient", color: "#6366f1", color2: "#ec4899", padding: 48, radius: 14, shadow: true },
+          })
+        : null;
     // ── boot ──────────────────────────────────────────────────────────────
     case "get_animation_stage": return "reduced";
     case "get_crt_animation": return { ms: 0, min: 80, max: 900, default_ms: 250 };

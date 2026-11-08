@@ -123,8 +123,34 @@ export function screenshotPreviewEdit(): Promise<void> {
 /** Save the annotated PNG (base64 from canvas.toDataURL). Backend
  *  writes to ~/Downloads with `<App>-<ts>-edited.png`, pushes to
  *  clipboard + history, closes the editor, re-shows the preview. */
-export function editorSave(pngB64: string): Promise<string> {
-  return invoke("editor_save", { pngB64 });
+export function editorSave(pngB64: string, project?: string): Promise<string> {
+  return invoke("editor_save", { pngB64, project: project ?? null });
+}
+
+/** Open a history picture in the screenshot editor (with its saved
+ *  elements when it is a result the editor wrote). */
+export function editorOpenClip(id: number): Promise<void> {
+  return invoke("editor_open_clip", { id });
+}
+
+/** Open a picture file in the screenshot editor. */
+export function editorOpenFile(path: string): Promise<void> {
+  return invoke("editor_open_file", { path });
+}
+
+/** The saved document for the capture the editor shows, once. */
+export function editorTakeProject(): Promise<string | null> {
+  return invoke("editor_take_project");
+}
+
+/** A picture file to place on the canvas, as a PNG data URL. */
+export function editorInsertImageFile(path: string): Promise<string> {
+  return invoke("editor_insert_image_file", { path });
+}
+
+/** The picture on the clipboard as a PNG data URL, or null. */
+export function editorClipboardImage(): Promise<string | null> {
+  return invoke("editor_clipboard_image");
 }
 
 /** Copy the *edited* canvas (base64 PNG) straight to the clipboard —

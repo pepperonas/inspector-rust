@@ -17,6 +17,7 @@ import {
   Hash,
   Highlighter,
   Image as ImageIcon,
+  ImagePlus,
   Minus,
   MousePointer2,
   PenTool,
@@ -31,9 +32,12 @@ import {
 } from "lucide-react";
 import {
   editorCancel,
+  editorClipboardImage,
   editorCopy,
+  editorInsertImageFile,
   editorOcrWords,
   editorSave,
+  editorTakeProject,
   getEditorPrefs,
   getPendingScreenshotDataUrl,
   setEditorPrefs,
@@ -83,6 +87,8 @@ import {
   type Tool,
 } from "../lib/editor-geometry";
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
+import { isSafeImageSrc, placeImage } from "../lib/editor-image";
+import { parseProject, serializeProject } from "../lib/editor-project";
 import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
 import {
@@ -269,6 +275,15 @@ export function ScreenshotEditor() {
   // Background/padding wrapper. Component state (a presentation setting, not an
   // undoable drawing action); reset when the screenshot changes.
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
+  // Bumped when a placed picture finishes decoding, so the canvas redraws.
+  const [pictureTick, setPictureTick] = useState(0);
+  useEffect(() => {
+    const f = () => setPictureTick((n) => n + 1);
+    pictureListeners.add(f);
+    return () => {
+      pictureListeners.delete(f);
+    };
+  }, []);
   const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize, arrowStyle, fill, textStyle };
 
   // Undo/redo history over the whole document.
@@ -473,6 +488,20 @@ export function ScreenshotEditor() {
       imgRef.current = img;
       setImgReady(true);
       runOcr();
+      // A result the editor saved earlier comes back with its elements.
+      void editorTakeProject()
+        .then((json) => {
+          const project = json ? parseProject(json) : null;
+          if (!project) return;
+          for (const a of project.doc.annotations) {
+            const n = /^a(\d+)$/.exec(a.id);
+            if (n) idRef.current = Math.max(idRef.current, Number(n[1]));
+          }
+          dispatch({ type: "reset", present: project.doc });
+          setBackground(project.background);
+          setSelectedIds([]);
+        })
+        .catch(() => undefined);
     };
     img.onerror = (e) => console.error("editor: screenshot image failed to load", e);
     img.src = dataUrl;
@@ -562,7 +591,61 @@ export function ScreenshotEditor() {
       if (crop && (crop.w > 0 || crop.h > 0)) drawCropChrome(ctx, crop, W, H, px);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hist, interaction, selectedIds, tool, color, strokeWidth, opacity, shadow, fontSize, background, imgReady, fitCanvas, pxRatio]);
+  }, [hist, interaction, selectedIds, tool, color, strokeWidth, opacity, shadow, fontSize, background, imgReady, fitCanvas, pxRatio, pictureTick]);
+
+  // ── A second picture on the canvas ─────────────────────────────────
+  const insertPicture = useCallback(
+    (src: string) => {
+      const img = orientedSource(imgRef.current, orient);
+      if (!img || !isSafeImageSrc(src)) return;
+      const probe = new Image();
+      probe.onload = () => {
+        const crop = hist.present.crop && hist.present.crop.w >= 1 && hist.present.crop.h >= 1 ? hist.present.crop : null;
+        const area = crop ?? { x: 0, y: 0, w: srcW(img), h: srcH(img) };
+        const r = placeImage(area.w, area.h, probe.naturalWidth, probe.naturalHeight);
+        const id = nextId();
+        pictureCache.set(src, probe);
+        commitAnns([...hist.present.annotations, { id, type: "image", x: area.x + r.x, y: area.y + r.y, w: r.w, h: r.h, src }]);
+        setSelectedIds([id]);
+        setTool("select");
+      };
+      probe.onerror = () => console.error("editor: picture failed to decode");
+      probe.src = src;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orient, hist.present, commitAnns],
+  );
+  const insertRef = useRef(insertPicture);
+  useEffect(() => {
+    insertRef.current = insertPicture;
+  }, [insertPicture]);
+  const insertFile = useCallback((path: string) => {
+    void editorInsertImageFile(path)
+      .then((url) => insertRef.current(url))
+      .catch((err) => console.error("editor: insert picture", err));
+  }, []);
+  const pickPicture = useCallback(async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "heic"] }],
+    }).catch(() => null);
+    if (typeof picked === "string") insertFile(picked);
+  }, [insertFile]);
+  // Pictures dropped onto the editor land on the canvas.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    void getCurrentWebviewWindow()
+      .onDragDropEvent((ev) => {
+        if (ev.payload.type !== "drop") return;
+        for (const p of ev.payload.paths) if (/\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i.test(p)) insertFile(p);
+      })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, [insertFile]);
 
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
@@ -589,13 +672,13 @@ export function ScreenshotEditor() {
     if (!dataUrl) return;
     setSaving(true);
     try {
-      await editorSave(dataUrl);
+      await editorSave(dataUrl, serializeProject(hist.present, background));
     } catch (e) {
       console.error("editor save failed", e);
     } finally {
       setSaving(false);
     }
-  }, [saving, exportDataUrl]);
+  }, [saving, exportDataUrl, hist.present, background]);
   const cancel = useCallback(() => {
     void editorCancel().catch(() => undefined);
   }, []);
@@ -714,6 +797,12 @@ export function ScreenshotEditor() {
           commitAnns(r.annotations);
           setSelectedIds(r.ids);
         }
+      } else if (mod && !e.altKey && e.code === "KeyV") {
+        // ⌘V: place the picture on the clipboard (⌥⌘V pastes elements).
+        e.preventDefault();
+        void editorClipboardImage()
+          .then((url) => url && insertPicture(url))
+          .catch((err) => console.error("editor: clipboard picture", err));
       } else if (mod && e.key.toLowerCase() === "c") {
         e.preventDefault();
         void copy();
@@ -1067,6 +1156,7 @@ export function ScreenshotEditor() {
           background={background}
           setBackground={setBackground}
           onReorient={reorient}
+          onInsertPicture={() => void pickPicture()}
           aspect={aspect}
           onAspect={chooseAspect}
           variantKind={variantKind}
@@ -1305,6 +1395,7 @@ function Toolbar({
   background,
   setBackground,
   onReorient,
+  onInsertPicture,
   aspect,
   onAspect,
   variantKind,
@@ -1333,6 +1424,7 @@ function Toolbar({
   background: BackgroundSpec | null;
   setBackground: (b: BackgroundSpec | null) => void;
   onReorient: (op: OrientOp) => void;
+  onInsertPicture: () => void;
   aspect: AspectId;
   onAspect: (id: AspectId) => void;
   variantKind: "arrow" | "fill" | "text" | null;
@@ -1472,6 +1564,15 @@ function Toolbar({
             </button>
           ))}
         </div>
+        <button
+          onClick={onInsertPicture}
+          title={t("shot.insert_picture")}
+          aria-label={t("shot.insert_picture")}
+          data-testid="insert-picture"
+          className="flex h-8 w-[4.25rem] items-center justify-center rounded-md border border-[var(--color-border)] hover:bg-[var(--color-bg)]"
+        >
+          <ImagePlus size={15} />
+        </button>
         {tool === "crop" && (
           <div className="mt-1 flex w-full flex-col items-center gap-0.5" role="group" aria-label={t("shot.aspect")}>
             {ASPECTS.map((a) => (
@@ -1765,6 +1866,11 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: Ed
       ctx.textBaseline = "middle";
       ctx.fillText(a.char, a.x, a.y);
       break;
+    case "image": {
+      const pic = pictureFor(a.src);
+      if (pic) ctx.drawImage(pic, a.x, a.y, a.w, a.h);
+      break;
+    }
     case "spotlight":
       // Only the in-progress drag preview reaches here (committed spotlights
       // are drawn as the dim-with-hole layer in drawSceneContent). Show a
@@ -1777,6 +1883,22 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: Ed
       break;
   }
   ctx.restore();
+}
+
+/** Decoded pictures placed on the canvas, by source. A picture that is still
+ *  decoding is skipped once; its load tells the editor to redraw. */
+const pictureCache = new Map<string, HTMLImageElement>();
+const pictureListeners = new Set<() => void>();
+function pictureFor(src: string): HTMLImageElement | null {
+  if (!isSafeImageSrc(src)) return null;
+  let el = pictureCache.get(src);
+  if (!el) {
+    el = new Image();
+    el.onload = () => pictureListeners.forEach((f) => f());
+    el.src = src;
+    pictureCache.set(src, el);
+  }
+  return el.complete && el.naturalWidth > 0 ? el : null;
 }
 
 /** The image the editor draws from: the captured screenshot, or a canvas

@@ -29,10 +29,12 @@ document automatic detection of secrets — that is where we go further.
   all, one undo step. A finding already covered by a redact block is skipped, so
   pressing it twice adds nothing. A short message says what was found
   ("3 Stellen: 2 E-Mail, 1 Telefon") or that nothing was found.
-- **G3 Snap to text.** With the highlighter or the redactor, a drag that covers
+- **G3 Snap to text.** With the highlighter, a drag that covers
   words becomes boxes tight around those words, one per line (one undo step). A
   drag that covers no word stays a plain rectangle, as today. Holding ⌥ while
-  releasing keeps the plain rectangle.
+  releasing keeps the plain rectangle. **Redactions never snap** (changed after a
+  security review): a box fitted to the words would uncover anything else the drag
+  covered — a signature, a photo, a QR code — without the user noticing.
 - Recognition starts in the background when the editor opens, so snapping and the
   button are instant afterwards; while it runs, the button says it is reading.
 

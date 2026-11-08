@@ -236,11 +236,13 @@ export function summarizeFindings(fs: Finding[]): [FindingKind, number][] {
   return order.map((k) => [k, n.get(k)!] as [FindingKind, number]).sort((a, b) => b[1] - a[1]);
 }
 
-/** A freshly drawn highlight or redaction over words becomes one tight box
- *  per line (same style, fresh ids). Anything else — another shape, or a drag
- *  over no word — comes back unchanged as `[a]`. */
+/** A freshly drawn highlight over words becomes one tight box per line (same
+ *  style, fresh ids). Anything else — another shape, or a drag over no word —
+ *  comes back unchanged as `[a]`. A redaction NEVER snaps: a box fitted to the
+ *  words would uncover whatever else the drag covered (a signature, a photo,
+ *  a QR code) without the user noticing. */
 export function snapDrawn(a: Annotation, lines: OcrLine[], W: number, H: number, nextId: () => string): Annotation[] {
-  if (a.type !== "highlight" && a.type !== "redact") return [a];
+  if (a.type !== "highlight") return [a];
   const rects = snapRectToWords(lines, { x: a.x, y: a.y, w: a.w, h: a.h }, W, H);
   if (rects.length === 0) return [a];
   return rects.map((r) => ({ ...a, id: nextId(), x: r.x, y: r.y, w: r.w, h: r.h }));

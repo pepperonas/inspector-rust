@@ -10,7 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 - **Redact sensitive text with one click (macOS).** "Redact sensitive" in the screenshot editor finds e-mail addresses, phone numbers, IBANs (checksum-verified), card numbers (Luhn-checked), API keys and passwords, IP addresses and links that carry a token, and covers each with a black box. The new boxes are selected, so an unwanted one is one Delete away; pressing it again adds nothing twice. The text is read when the editor opens, so it is ready by the time you click.
-- **Highlighter and redaction snap to the text.** A drag over words becomes boxes that fit those words exactly, one per line. Hold ⌥ while releasing to keep a free rectangle.
+- **The highlighter snaps to the text.** A drag over words becomes boxes that fit those words exactly, one per line. Hold ⌥ while releasing to keep a free rectangle. A redaction you draw yourself stays exactly as large as you drew it.
 
 ### Changed
 - **The text recognition helper got an update**, so the first recognition after installing this version takes about a minute once while macOS prepares its text model; the background warm-up at launch usually absorbs it.

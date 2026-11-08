@@ -880,7 +880,8 @@ export function ScreenshotEditor() {
       const end = toCanvasCoords(e);
       const a = makeDragAnnotation(tool, interaction.start, end, styleObj, nextId());
       if (a && !isDegenerate(a)) {
-        // Highlighter/redactor snap to the words under the drag (⌥ = keep the rectangle).
+        // The highlighter snaps to the words under the drag (⌥ = keep the rectangle);
+        // a redaction never shrinks to the words (see snapDrawn).
         const img = imgRef.current;
         const made =
           ocr.s === "ready" && img && !e.altKey

@@ -224,9 +224,9 @@ describe("snapDrawn", () => {
     expect(out.map((a) => a.id)).toEqual(["t1", "t2"]);
   });
 
-  it("snaps a redaction too", () => {
-    const rd: Annotation = { id: "a1", type: "redact", x: 120, y: 40, w: 200, h: 40 };
-    expect(snapDrawn(rd, lines, 1000, 500, ids())).toHaveLength(1);
+  it("never snaps a redaction: a tighter box would uncover what the drag also covered", () => {
+    const rd: Annotation = { id: "a1", type: "redact", x: 120, y: 40, w: 200, h: 130 };
+    expect(snapDrawn(rd, lines, 1000, 500, ids())).toEqual([rd]);
   });
 
   it("keeps other shapes and drags over no word unchanged", () => {

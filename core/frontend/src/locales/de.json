@@ -3299,6 +3299,8 @@
   "shot.crop": "Zuschneiden",
   "shot.shadow": "Schlagschatten",
   "shot.size": "Größe",
+  "shot.pin_color": "Aktuelle Farbe als Favorit merken",
+  "shot.favorite_hint": "Klick verwendet, Rechtsklick entfernt",
   "shot.arrow_style": "Pfeilstil",
   "shot.arrow_classic": "Klassisch",
   "shot.arrow_bold": "Kräftig",

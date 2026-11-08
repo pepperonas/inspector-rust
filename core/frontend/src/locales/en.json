@@ -3299,6 +3299,8 @@
   "shot.crop": "Crop",
   "shot.shadow": "Drop shadow",
   "shot.size": "Size",
+  "shot.pin_color": "Pin the current colour as a favourite",
+  "shot.favorite_hint": "click to use, right-click to remove",
   "shot.arrow_style": "Arrow style",
   "shot.arrow_classic": "Classic",
   "shot.arrow_bold": "Bold",

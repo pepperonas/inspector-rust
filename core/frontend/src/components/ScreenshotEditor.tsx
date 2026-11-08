@@ -28,9 +28,22 @@ import {
   editorCancel,
   editorCopy,
   editorSave,
+  getEditorPrefs,
   getPendingScreenshotDataUrl,
+  setEditorPrefs,
   setEditorSize,
 } from "../lib/ipc";
+import {
+  DEFAULT_PREFS,
+  addFavorite,
+  parsePrefs,
+  rememberStyle,
+  removeFavorite,
+  serializePrefs,
+  styleFor,
+  withLastTool,
+  type EditorPrefs,
+} from "../lib/editor-prefs";
 import {
   COLOR_PRESETS,
   DEFAULT_STYLE,
@@ -154,13 +167,71 @@ export function ScreenshotEditor() {
   // selection (see applyStyle). opacity/shadow/fontSize controls arrive in
   // later phases; the state exists now because new annotations carry them.
   const [color, setColor] = useState<string>(COLOR_PRESETS[0]);
-  const [strokeWidth, setStrokeWidth] = useState<number>(4);
+  const [strokeWidth, setStrokeWidth] = useState<number>(DEFAULT_STYLE.width);
   const [opacity, setOpacity] = useState<number>(1);
   const [shadow, setShadow] = useState<boolean>(false);
   const [arrowStyle, setArrowStyle] = useState<ArrowStyle>(DEFAULT_STYLE.arrowStyle);
   const [fill, setFill] = useState<FillMode>(DEFAULT_STYLE.fill);
   const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_STYLE.textStyle);
-  const [fontSize, setFontSize] = useState<number>(28);
+  const [fontSize, setFontSize] = useState<number>(DEFAULT_STYLE.fontSize);
+
+  // ── Remembered settings (per tool, last tool, favourite colours) ──
+  const prefsRef = useRef<EditorPrefs>(DEFAULT_PREFS);
+  const [prefsReady, setPrefsReady] = useState(false);
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const saveTimerRef = useRef<number | undefined>(undefined);
+  const savePrefs = useCallback((p: EditorPrefs) => {
+    prefsRef.current = p;
+    window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = undefined;
+      void setEditorPrefs(serializePrefs(p)).catch((e) => console.error("editor: saving settings failed", e));
+    }, 400);
+  }, []);
+  const loadStyle = useCallback((st: Style) => {
+    setColor(st.color);
+    setStrokeWidth(st.width);
+    setOpacity(st.opacity);
+    setShadow(st.shadow);
+    setFontSize(st.fontSize);
+    setArrowStyle(st.arrowStyle);
+    setFill(st.fill);
+    setTextStyle(st.textStyle);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    getEditorPrefs()
+      .then((json) => {
+        if (!alive) return;
+        const p = parsePrefs(json);
+        prefsRef.current = p;
+        setFavorites(p.favorites);
+        setTool(p.lastTool);
+        loadStyle(styleFor(p, p.lastTool));
+      })
+      .catch((e) => console.error("editor: reading settings failed", e))
+      .finally(() => alive && setPrefsReady(true));
+    return () => {
+      alive = false;
+    };
+  }, [loadStyle]);
+  // Write a pending save right away when the editor closes.
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current !== undefined) {
+        window.clearTimeout(saveTimerRef.current);
+        void setEditorPrefs(serializePrefs(prefsRef.current)).catch(() => undefined);
+      }
+    },
+    [],
+  );
+  // Switching tools brings back that tool's remembered style.
+  useEffect(() => {
+    if (!prefsReady) return;
+    const p = withLastTool(prefsRef.current, tool);
+    if (p !== prefsRef.current) savePrefs(p);
+    if (tool !== "select" && tool !== "crop") loadStyle(styleFor(p, tool));
+  }, [tool, prefsReady, savePrefs, loadStyle]);
   const [emoji, setEmoji] = useState<string>(EMOJIS[0]);
   // Background/padding wrapper. Component state (a presentation setting, not an
   // undoable drawing action); reset when the screenshot changes.
@@ -411,35 +482,61 @@ export function ScreenshotEditor() {
   // Changing a style control also restyles the current selection.
   const applyColor = (c: string) => {
     setColor(c);
+    remember({ color: c });
     commitMapSelected((a) => restyleAnnotation(a, { color: c }));
   };
   const applyWidth = (w: number) => {
     setStrokeWidth(w);
+    remember({ width: w });
     commitMapSelected((a) => restyleAnnotation(a, { width: w }));
   };
   const applyOpacity = (o: number) => {
     setOpacity(o);
+    remember({ opacity: o });
     commitMapSelected((a) => restyleAnnotation(a, { opacity: o }));
   };
   const applyFontSize = (n: number) => {
     setFontSize(n);
+    remember({ fontSize: n });
     commitMapSelected((a) => restyleAnnotation(a, { fontSize: n }));
   };
   const applyShadow = (on: boolean) => {
     setShadow(on);
+    remember({ shadow: on });
     commitMapSelected((a) => restyleAnnotation(a, { shadow: on }));
   };
   const applyArrowStyle = (v: ArrowStyle) => {
     setArrowStyle(v);
+    remember({ arrowStyle: v });
     commitMapSelected((a) => restyleAnnotation(a, { arrowStyle: v }));
   };
   const applyFill = (v: FillMode) => {
     setFill(v);
+    remember({ fill: v });
     commitMapSelected((a) => restyleAnnotation(a, { fill: v }));
   };
   const applyTextStyle = (v: TextStyle) => {
     setTextStyle(v);
+    remember({ textStyle: v });
     commitMapSelected((a) => restyleAnnotation(a, { textStyle: v }));
+  };
+  /** Store a style change for the tool it belongs to: the one selected
+   *  element's kind, else the active tool. Called by user actions only. */
+  const remember = (patch: Partial<Style>) => {
+    const one = selectedId ? annById(selectedId) : undefined;
+    const target = (one ? one.type : tool) as Tool;
+    const p = rememberStyle(prefsRef.current, target, patch);
+    if (p !== prefsRef.current) savePrefs(p);
+  };
+  const pinColor = (c: string) => {
+    const p = addFavorite(prefsRef.current, c);
+    setFavorites(p.favorites);
+    savePrefs(p);
+  };
+  const unpinColor = (c: string) => {
+    const p = removeFavorite(prefsRef.current, c);
+    setFavorites(p.favorites);
+    savePrefs(p);
   };
   /** Which style variants the sidebar offers: those of the one selected
    *  element, else those of the active tool. */
@@ -501,7 +598,11 @@ export function ScreenshotEditor() {
         e.preventDefault();
         const dir = e.key === "-" ? -1 : 1;
         if (selectedIds.length > 0) commitMapSelected((a) => resizeBy(a, dir));
-        else setStrokeWidth((w) => Math.min(24, Math.max(2, w + dir)));
+        else {
+          const w = Math.min(24, Math.max(2, strokeWidth + dir));
+          setStrokeWidth(w);
+          remember({ width: w });
+        }
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.length > 0) {
         e.preventDefault();
         commitRemove(selectedIds);
@@ -813,6 +914,9 @@ export function ScreenshotEditor() {
           background={background}
           setBackground={setBackground}
           variantKind={variantKind}
+          favorites={favorites}
+          onPin={() => pinColor(color)}
+          onUnpin={unpinColor}
           arrowStyle={arrowStyle}
           setArrowStyle={applyArrowStyle}
           fill={fill}
@@ -1031,6 +1135,9 @@ function Toolbar({
   background,
   setBackground,
   variantKind,
+  favorites,
+  onPin,
+  onUnpin,
   arrowStyle,
   setArrowStyle,
   fill,
@@ -1053,6 +1160,9 @@ function Toolbar({
   background: BackgroundSpec | null;
   setBackground: (b: BackgroundSpec | null) => void;
   variantKind: "arrow" | "fill" | "text" | null;
+  favorites: string[];
+  onPin: () => void;
+  onUnpin: (c: string) => void;
   arrowStyle: ArrowStyle;
   setArrowStyle: (v: ArrowStyle) => void;
   fill: FillMode;
@@ -1100,6 +1210,33 @@ function Toolbar({
           title={t("shot.custom_color")}
           className="h-5 w-5 cursor-pointer rounded-full border-2 border-dashed border-[var(--color-border)] bg-transparent p-0"
         />
+      </div>
+
+      {/* Favourite colours: click uses, right-click (or ⌥-click) removes. */}
+      <div className="mt-1 grid grid-cols-2 place-items-center gap-1.5">
+        {favorites.map((c) => (
+          <button
+            key={c}
+            onClick={(e) => (e.altKey ? onUnpin(c) : setColor(c))}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onUnpin(c);
+            }}
+            title={`${c} — ${t("shot.favorite_hint")}`}
+            className={
+              "h-5 w-5 rounded-md border-2 " +
+              (color === c ? "border-[var(--color-accent)] scale-110" : "border-[var(--color-border)]")
+            }
+            style={{ backgroundColor: c }}
+          />
+        ))}
+        <button
+          onClick={onPin}
+          title={t("shot.pin_color")}
+          className="flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] text-[12px] leading-none text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
+        >
+          +
+        </button>
       </div>
 
       {variantKind === "arrow" && (

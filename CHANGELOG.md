@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.249.0] — 2026-11-08
+
+### Added
+- **Alignment guides in the screenshot editor.** While you move elements, their edges and centre snap to the edges and centres of other elements and of the screenshot, and a dashed pink line shows what they lined up with. Hold ⌘ to place freely; with ⇧ the snapping only works along the axis you are moving on.
+
 ## [0.248.0] — 2026-11-08
 
 ### Added

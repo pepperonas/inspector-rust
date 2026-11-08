@@ -88,6 +88,7 @@ import {
 } from "../lib/editor-geometry";
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
 import { isSafeImageSrc, placeImage } from "../lib/editor-image";
+import { snapMove, type Guide } from "../lib/editor-guides";
 import { parseProject, serializeProject } from "../lib/editor-project";
 import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
@@ -163,7 +164,7 @@ type Interaction =
   /** Moves the whole selection. `cycle`: the press landed on an element that
    *  was already selected — if it ends without moving, the click moves on to
    *  the next element underneath instead. */
-  | { kind: "move"; ids: string[]; startPt: Point; orig: Annotation[]; live: Annotation[]; cycle: boolean }
+  | { kind: "move"; ids: string[]; startPt: Point; orig: Annotation[]; live: Annotation[]; cycle: boolean; guides?: Guide[] }
   /** Select-tool drag on empty canvas; `base` = selection kept with Shift. */
   | { kind: "marquee"; start: Point; current: Point; base: string[] }
   | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation }
@@ -582,6 +583,7 @@ export function ScreenshotEditor() {
         for (const a of sel) drawSelection(c, a, px, sel.length === 1);
       }
       if (interaction && interaction.kind === "marquee") drawMarquee(c, dragRect(interaction.start, interaction.current), px);
+      if (interaction && interaction.kind === "move" && interaction.guides?.length) drawGuides(c, interaction.guides, srcW(img), srcH(img), px);
     });
 
     // Crop chrome (dim outside + border) — only in the bg-off view (full image,
@@ -1003,7 +1005,24 @@ export function ScreenshotEditor() {
       setInteraction({ ...interaction, current: p });
     } else if (interaction.kind === "move") {
       const d = axisLock(p.x - interaction.startPt.x, p.y - interaction.startPt.y, e.shiftKey);
-      setInteraction({ ...interaction, live: interaction.orig.map((a) => moveAnnotation(a, d.dx, d.dy)) });
+      // Alignment guides: edges and centres snap to other elements and to the
+      // screenshot (⌘ held = place freely).
+      const img = orientedSource(imgRef.current, orient);
+      let { dx, dy } = d;
+      let guides: Guide[] = [];
+      if (img && !e.metaKey && interaction.orig.length > 0) {
+        const own = interaction.orig.map(boundsOf);
+        const x0 = Math.min(...own.map((r) => r.x));
+        const y0 = Math.min(...own.map((r) => r.y));
+        const moving = { x: x0, y: y0, w: Math.max(...own.map((r) => r.x + r.w)) - x0, h: Math.max(...own.map((r) => r.y + r.h)) - y0 };
+        const targets = [
+          { x: 0, y: 0, w: srcW(img), h: srcH(img) },
+          ...annotations.filter((a) => !interaction.ids.includes(a.id)).map(boundsOf),
+        ];
+        const free = e.shiftKey ? { x: d.dx !== 0, y: d.dy !== 0 } : { x: true, y: true };
+        ({ dx, dy, guides } = snapMove(moving, targets, d.dx, d.dy, 6 * pxRatio(), free));
+      }
+      setInteraction({ ...interaction, guides, live: interaction.orig.map((a) => moveAnnotation(a, dx, dy)) });
     } else if (interaction.kind === "marquee") {
       setInteraction({ ...interaction, current: p });
     } else if (interaction.kind === "resize") {
@@ -2066,6 +2085,25 @@ function drawCropChrome(ctx: CanvasRenderingContext2D, crop: Rect, W: number, H:
 
 /** Dashed outline + square handles around the selected annotation. Sizes are
  *  scaled by `px` (canvas→CSS ratio) so they read consistently on Retina. */
+function drawGuides(ctx: CanvasRenderingContext2D, guides: Guide[], w: number, h: number, px: number) {
+  ctx.save();
+  ctx.strokeStyle = "#ec4899";
+  ctx.lineWidth = 1 * px;
+  ctx.setLineDash([4 * px, 3 * px]);
+  ctx.beginPath();
+  for (const g of guides) {
+    if (g.axis === "x") {
+      ctx.moveTo(g.at, 0);
+      ctx.lineTo(g.at, h);
+    } else {
+      ctx.moveTo(0, g.at);
+      ctx.lineTo(w, g.at);
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawMarquee(ctx: CanvasRenderingContext2D, r: Rect, px: number) {
   ctx.save();
   ctx.fillStyle = "rgba(59,130,246,0.12)";

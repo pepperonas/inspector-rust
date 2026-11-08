@@ -30,7 +30,7 @@ export type Tool =
   | "spotlight"
   | "emoji";
 
-import { defaultBend } from "./editor-arrows";
+import { arrowApex, arrowExtent, arrowHasBend, defaultBend, distToArrow } from "./editor-arrows";
 
 export type Point = { x: number; y: number };
 
@@ -340,7 +340,14 @@ function distToSegment(p: Point, v: Point, w: Point): number {
 /** Axis-aligned bounding box of an annotation, normalised (w,h ≥ 0). */
 export function boundsOf(a: Annotation): Rect {
   switch (a.type) {
-    case "arrow":
+    case "arrow": {
+      const pts = arrowExtent(a);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const x = Math.min(...xs);
+      const y = Math.min(...ys);
+      return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    }
     case "line":
       return normRect({ x: a.x1, y: a.y1, w: a.x2 - a.x1, h: a.y2 - a.y1 });
     case "rect":
@@ -374,6 +381,7 @@ export function boundsOf(a: Annotation): Rect {
 function hitOne(a: Annotation, p: Point, tol: number): boolean {
   switch (a.type) {
     case "arrow":
+      return distToArrow(a, p) <= tol + a.width / 2;
     case "line":
       return distToSegment(p, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= tol + a.width / 2;
     case "pen": {
@@ -421,10 +429,15 @@ function eightHandles(b: Rect): { pos: Handle; x: number; y: number }[] {
 /** Resize handles for the selection UI, in canvas coords. */
 export function handlesFor(a: Annotation): { pos: Handle; x: number; y: number }[] {
   if (a.type === "arrow" || a.type === "line") {
-    return [
+    const ends: { pos: Handle; x: number; y: number }[] = [
       { pos: "start", x: a.x1, y: a.y1 },
       { pos: "end", x: a.x2, y: a.y2 },
     ];
+    if (a.type === "arrow" && arrowHasBend(a)) {
+      const m = arrowApex(a);
+      ends.push({ pos: "mid", x: m.x, y: m.y });
+    }
+    return ends;
   }
   if (a.type === "text" || a.type === "step" || a.type === "emoji") {
     const b = boundsOf(a);
@@ -444,7 +457,15 @@ export function handlesFor(a: Annotation): { pos: Handle; x: number; y: number }
 
 /** Translate an annotation by (dx,dy). Immutable. */
 export function moveAnnotation(a: Annotation, dx: number, dy: number): Annotation {
-  if (a.type === "arrow" || a.type === "line") {
+  if (a.type === "arrow") {
+    const moved = { ...a, x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy };
+    if (a.cx !== undefined && a.cy !== undefined) {
+      moved.cx = a.cx + dx;
+      moved.cy = a.cy + dy;
+    }
+    return moved;
+  }
+  if (a.type === "line") {
     return { ...a, x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy };
   }
   if (a.type === "pen") {
@@ -456,7 +477,17 @@ export function moveAnnotation(a: Annotation, dx: number, dy: number): Annotatio
 /** Resize an annotation by dragging `handle` by (dx,dy). Immutable. May
  *  produce a negative-w/h rect mid-drag; call `normalizeAnnotation` on commit. */
 export function resizeAnnotation(a: Annotation, handle: Handle, dx: number, dy: number): Annotation {
+  if (a.type === "arrow" && a.cx !== undefined && a.cy !== undefined) {
+    // The apex is half the control point's offset, so the control point moves
+    // twice the pointer delta; an endpoint drag shifts it by half the delta so
+    // the bend keeps its shape.
+    if (handle === "mid") return { ...a, cx: a.cx + 2 * dx, cy: a.cy + 2 * dy };
+    const c = { cx: a.cx + dx / 2, cy: a.cy + dy / 2 };
+    if (handle === "start") return { ...a, ...c, x1: a.x1 + dx, y1: a.y1 + dy };
+    return { ...a, ...c, x2: a.x2 + dx, y2: a.y2 + dy };
+  }
   if (a.type === "arrow" || a.type === "line") {
+    if (handle === "mid") return a;
     if (handle === "start") return { ...a, x1: a.x1 + dx, y1: a.y1 + dy };
     return { ...a, x2: a.x2 + dx, y2: a.y2 + dy };
   }

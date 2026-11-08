@@ -58,7 +58,6 @@ import {
   normalizeAnnotation,
   resizeAnnotation,
   restyleAnnotation,
-  styleOfAnnotation,
   canvasFont,
   type Annotation,
   type ArrowAnnotation,
@@ -86,9 +85,11 @@ import {
   marqueeIds,
   pasteClip,
   pickAt,
+  pressSelection,
   removeIds,
   reorder,
   resizeBy,
+  sidebarStyle,
 } from "../lib/editor-selection";
 import { t, useT } from "../lib/i18n";
 
@@ -187,7 +188,7 @@ export function ScreenshotEditor() {
     window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
       saveTimerRef.current = undefined;
-      void setEditorPrefs(serializePrefs(p)).catch((e) => console.error("editor: saving settings failed", e));
+      void setEditorPrefs(serializePrefs(prefsRef.current)).catch((e) => console.error("editor: saving settings failed", e));
     }, 400);
   }, []);
   const loadStyle = useCallback((st: Style) => {
@@ -232,8 +233,7 @@ export function ScreenshotEditor() {
     if (!prefsReady) return;
     const p = withLastTool(prefsRef.current, tool);
     if (p !== prefsRef.current) savePrefs(p);
-    if (tool !== "select" && tool !== "crop") loadStyle(styleFor(p, tool));
-  }, [tool, prefsReady, savePrefs, loadStyle]);
+  }, [tool, prefsReady, savePrefs]);
   const [emoji, setEmoji] = useState<string>(EMOJIS[0]);
   // Background/padding wrapper. Component state (a presentation setting, not an
   // undoable drawing action); reset when the screenshot changes.
@@ -378,23 +378,16 @@ export function ScreenshotEditor() {
     if (alive.length !== selectedIds.length) setSelectedIds(alive);
   }, [annotations, selectedIds]);
 
-  // Selecting exactly one element shows ITS style in the sidebar (not the
-  // tool's), so a control changes what is really there.
+  // The sidebar shows the one selected element's style, else the active
+  // tool's remembered style — so a selected element's colour never leaks
+  // into the next drawing.
   useEffect(() => {
+    if (!prefsReady) return;
     const one = selectedId ? hist.present.annotations.find((a) => a.id === selectedId) : undefined;
-    if (!one) return;
-    const st = styleOfAnnotation(one);
-    if (st.color !== undefined) setColor(st.color);
-    if (st.width !== undefined) setStrokeWidth(st.width);
-    if (st.opacity !== undefined) setOpacity(st.opacity);
-    if (st.shadow !== undefined) setShadow(st.shadow);
-    if (st.fontSize !== undefined) setFontSize(st.fontSize);
-    if (st.arrowStyle !== undefined) setArrowStyle(st.arrowStyle);
-    if (st.fill !== undefined) setFill(st.fill);
-    if (st.textStyle !== undefined) setTextStyle(st.textStyle);
-    // Only on a change of WHICH element is selected — not on every edit.
+    loadStyle(sidebarStyle(prefsRef.current, tool, one));
+    // Only when WHICH element is selected or the tool changes — not on edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, tool, prefsReady]);
   // ── Redraw on every state change ─────────────────────────────────
   useEffect(() => {
     if (!imgReady) return;
@@ -542,17 +535,21 @@ export function ScreenshotEditor() {
   /** Store a style change for the tool it belongs to: the one selected
    *  element's kind, else the active tool. Called by user actions only. */
   const remember = (patch: Partial<Style>) => {
+    // Before the stored settings are loaded a write would replace them.
+    if (!prefsReady) return;
     const one = selectedId ? annById(selectedId) : undefined;
     const target = (one ? one.type : tool) as Tool;
     const p = rememberStyle(prefsRef.current, target, patch);
     if (p !== prefsRef.current) savePrefs(p);
   };
   const pinColor = (c: string) => {
+    if (!prefsReady) return;
     const p = addFavorite(prefsRef.current, c);
     setFavorites(p.favorites);
     savePrefs(p);
   };
   const unpinColor = (c: string) => {
+    if (!prefsReady) return;
     const p = removeFavorite(prefsRef.current, c);
     setFavorites(p.favorites);
     savePrefs(p);
@@ -749,23 +746,12 @@ export function ScreenshotEditor() {
     const tol = 6 * pxRatio();
     const under = hitCandidates(annotations, p, tol).map((h) => h.id);
     if (under.length > 0) {
-      let next: string[];
-      let cycle = false;
-      if (e.shiftKey) {
-        // Shift-click toggles the element under the pointer.
-        const id = pickAt(annotations, p, null, tol)!;
-        next = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
-      } else if (under.some((id) => selectedIds.includes(id))) {
-        // Pressed on the current selection: drag it, or (if it stays a click)
-        // cycle to the next element underneath on mouse-up.
-        next = selectedIds;
-        cycle = true;
-      } else {
-        next = [pickAt(annotations, p, null, tol)!];
+      const press = pressSelection(selectedIds, under, pickAt(annotations, p, null, tol)!, e.shiftKey);
+      setSelectedIds(press.next);
+      const orig = annotations.filter((a) => press.next.includes(a.id));
+      if (press.move && orig.length > 0) {
+        setInteraction({ kind: "move", ids: press.next, startPt: p, orig, live: orig, cycle: press.cycle });
       }
-      setSelectedIds(next);
-      const orig = annotations.filter((a) => next.includes(a.id));
-      if (orig.length > 0) setInteraction({ kind: "move", ids: next, startPt: p, orig, live: orig, cycle });
       return;
     }
 

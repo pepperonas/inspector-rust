@@ -3,8 +3,12 @@
 //! duplicate/paste/remove. The component wires pointer and keys to these.
 
 import { distToArrow } from "./editor-arrows";
+import { styleFor, type EditorPrefs } from "./editor-prefs";
 import {
   boundsOf,
+  styleOfAnnotation,
+  type Style,
+  type Tool,
   distToSegment,
   moveAnnotation,
   reflowSteps,
@@ -168,6 +172,32 @@ export function duplicate(
 export function removeIds(anns: ReadonlyArray<Annotation>, ids: ReadonlyArray<string>): Annotation[] {
   const set = new Set(ids);
   return reflowSteps(anns.filter((a) => !set.has(a.id)));
+}
+
+/** What a mouse press on elements does to the selection. `under` = ids under
+ *  the pointer, `pick` = the best of them. A shift-press that REMOVES an
+ *  element never drags the rest (you weren't pointing at them). */
+export function pressSelection(
+  selected: ReadonlyArray<string>,
+  under: ReadonlyArray<string>,
+  pick: string,
+  shift: boolean,
+): { next: string[]; move: boolean; cycle: boolean } {
+  if (shift) {
+    if (selected.includes(pick)) return { next: selected.filter((id) => id !== pick), move: false, cycle: false };
+    return { next: [...selected, pick], move: true, cycle: false };
+  }
+  if (under.some((id) => selected.includes(id))) return { next: [...selected], move: true, cycle: true };
+  return { next: [pick], move: true, cycle: false };
+}
+
+/** What the sidebar shows: the one selected element's style (on top of its
+ *  tool's), else the active tool's remembered style. Tools without a style
+ *  (select, crop, blur…) fall back to the arrow's. */
+export function sidebarStyle(prefs: EditorPrefs, tool: Tool, selected: Annotation | undefined): Style {
+  if (selected) return { ...styleFor(prefs, selected.type as Tool), ...styleOfAnnotation(selected) };
+  const own = styleFor(prefs, tool);
+  return prefs.styles[tool as keyof EditorPrefs["styles"]] ? own : styleFor(prefs, "arrow");
 }
 
 /** Shift-drag: keep only the dominant axis. */

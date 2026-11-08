@@ -60,3 +60,17 @@ describe("editor-history", () => {
     expect(h).toEqual({ past: [], present: "z", future: [] });
   });
 });
+
+describe("editor-history — no empty steps", () => {
+  it("a commit that changes nothing adds no undo step", () => {
+    const doc = { annotations: [{ id: "a", x: 1 }], crop: null };
+    const h = historyReducer(initHistory(doc), { type: "commit", next: { annotations: [{ id: "a", x: 1 }], crop: null } });
+    expect(h.past).toHaveLength(0);
+    expect(h.present).toBe(doc);
+  });
+
+  it("a real change still adds one", () => {
+    const h = historyReducer(initHistory({ x: 1 }), { type: "commit", next: { x: 2 } });
+    expect(h.past).toHaveLength(1);
+  });
+});

@@ -354,8 +354,16 @@ export function boundsOf(a: Annotation): Rect {
     case "redact":
     case "spotlight":
       return normRect({ x: a.x, y: a.y, w: a.w, h: a.h });
-    case "text":
-      return { x: a.x, y: a.y - a.size / 2, w: Math.max(a.size, a.text.length * a.size * 0.6), h: a.size };
+    case "text": {
+      const w = Math.max(a.size, a.text.length * a.size * 0.6);
+      if (a.textStyle === "pill" || a.textStyle === "box") {
+        // Same padding as drawText's background shape.
+        const padX = a.size * 0.4;
+        const h = a.size * 1.35;
+        return { x: a.x - padX, y: a.y - h / 2, w: w + 2 * padX, h };
+      }
+      return { x: a.x, y: a.y - a.size / 2, w, h: a.size };
+    }
     case "step": {
       const r = a.size;
       return { x: a.x - r, y: a.y - r, w: 2 * r, h: 2 * r };

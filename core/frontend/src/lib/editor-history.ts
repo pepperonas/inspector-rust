@@ -26,6 +26,9 @@ export function historyReducer<T>(
 ): HistoryState<T> {
   switch (a.type) {
     case "commit": {
+      // An action that changes nothing (+ on a blur, ⌘] on the front element,
+      // a style the element ignores) must not cost the user an extra ⌘Z.
+      if (JSON.stringify(a.next) === JSON.stringify(s.present)) return s;
       const past = [...s.past, s.present];
       // Cap the past at `limit`, dropping the oldest entries.
       return { past: past.length > limit ? past.slice(past.length - limit) : past, present: a.next, future: [] };

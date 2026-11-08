@@ -6,11 +6,14 @@ import {
   marqueeIds,
   pasteClip,
   pickAt,
+  pressSelection,
   removeIds,
   reorder,
   resizeBy,
+  sidebarStyle,
 } from "./editor-selection";
-import type { Annotation } from "./editor-geometry";
+import { boundsOf, type Annotation } from "./editor-geometry";
+import { DEFAULT_PREFS, rememberStyle } from "./editor-prefs";
 
 const arrow = (id: string, x1: number, y1: number, x2: number, y2: number): Annotation => ({
   id, type: "arrow", x1, y1, x2, y2, color: "#f00", width: 6,
@@ -144,5 +147,52 @@ describe("axisLock and resizeBy", () => {
     expect(resizeBy(step("s", 1), 1)).toMatchObject({ size: 16 });
     const blur: Annotation = { id: "b", type: "blur", x: 0, y: 0, w: 5, h: 5, blockSize: 8 };
     expect(resizeBy(blur, 1)).toEqual(blur);
+  });
+});
+
+describe("pressSelection", () => {
+  it("a plain press on an unselected element selects it and starts a move", () => {
+    expect(pressSelection([], ["a", "b"], "a", false)).toEqual({ next: ["a"], move: true, cycle: false });
+  });
+  it("a press on the current selection keeps it and may cycle", () => {
+    expect(pressSelection(["a", "c"], ["a"], "a", false)).toEqual({ next: ["a", "c"], move: true, cycle: true });
+  });
+  it("shift-press adds and lets you drag the selection", () => {
+    expect(pressSelection(["c"], ["a"], "a", true)).toEqual({ next: ["c", "a"], move: true, cycle: false });
+  });
+  it("shift-press that removes an element never drags the rest", () => {
+    expect(pressSelection(["a", "c"], ["a"], "a", true)).toEqual({ next: ["c"], move: false, cycle: false });
+  });
+});
+
+describe("sidebarStyle", () => {
+  const prefs = rememberStyle(rememberStyle(DEFAULT_PREFS, "arrow", { color: "#ff0000", width: 8 }), "rect", { color: "#0000ff", width: 12 });
+  const blueRect: Annotation = { id: "r", type: "rect", x: 0, y: 0, w: 9, h: 9, color: "#123456", width: 12, fill: "filled" };
+
+  it("with nothing selected the sidebar shows the tool's remembered style", () => {
+    expect(sidebarStyle(prefs, "arrow", undefined)).toMatchObject({ color: "#ff0000", width: 8 });
+  });
+  it("with one element selected it shows that element's style", () => {
+    expect(sidebarStyle(prefs, "arrow", blueRect)).toMatchObject({ color: "#123456", width: 12, fill: "filled" });
+  });
+  it("after the selection ends the tool's style comes back (no leak)", () => {
+    sidebarStyle(prefs, "arrow", blueRect);
+    expect(sidebarStyle(prefs, "arrow", undefined)).toMatchObject({ color: "#ff0000", width: 8 });
+  });
+  it("select and crop keep the arrow's style as a neutral fallback", () => {
+    expect(sidebarStyle(prefs, "select", undefined)).toMatchObject({ color: "#ff0000" });
+  });
+});
+
+describe("text bounds follow the text style", () => {
+  it("a pill's bounds cover its padding and height", () => {
+    const plain: Annotation = { id: "t", type: "text", x: 100, y: 100, text: "Hi", color: "#fff", size: 20 };
+    const pill: Annotation = { ...plain, textStyle: "pill" } as Annotation;
+    const bp = boundsOf(plain);
+    const bq = boundsOf(pill);
+    expect(bq.x).toBeLessThan(bp.x);
+    expect(bq.h).toBeGreaterThan(bp.h);
+    // A click on the pill's left padding hits it.
+    expect(pickAt([pill], { x: 94, y: 100 }, null, 0)).toBe("t");
   });
 });

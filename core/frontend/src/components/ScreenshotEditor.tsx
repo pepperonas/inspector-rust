@@ -47,6 +47,10 @@ import {
   restyleAnnotation,
   type Annotation,
   type ArrowAnnotation,
+  type ArrowStyle,
+  type FillMode,
+  type TextAnnotation,
+  type TextStyle,
   type BackgroundSpec,
   type BlurAnnotation,
   type EditorDoc,
@@ -58,6 +62,7 @@ import {
   type Tool,
 } from "../lib/editor-geometry";
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
+import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
 import {
   axisLock,
@@ -152,12 +157,15 @@ export function ScreenshotEditor() {
   const [strokeWidth, setStrokeWidth] = useState<number>(4);
   const [opacity, setOpacity] = useState<number>(1);
   const [shadow, setShadow] = useState<boolean>(false);
+  const [arrowStyle, setArrowStyle] = useState<ArrowStyle>(DEFAULT_STYLE.arrowStyle);
+  const [fill, setFill] = useState<FillMode>(DEFAULT_STYLE.fill);
+  const [textStyle, setTextStyle] = useState<TextStyle>(DEFAULT_STYLE.textStyle);
   const [fontSize, setFontSize] = useState<number>(28);
   const [emoji, setEmoji] = useState<string>(EMOJIS[0]);
   // Background/padding wrapper. Component state (a presentation setting, not an
   // undoable drawing action); reset when the screenshot changes.
   const [background, setBackground] = useState<BackgroundSpec | null>(null);
-  const styleObj: Style = { ...DEFAULT_STYLE, color, width: strokeWidth, opacity, shadow, fontSize };
+  const styleObj: Style = { color, width: strokeWidth, opacity, shadow, fontSize, arrowStyle, fill, textStyle };
 
   // Undo/redo history over the whole document.
   const [hist, dispatch] = useReducer(
@@ -421,6 +429,28 @@ export function ScreenshotEditor() {
     setShadow(on);
     commitMapSelected((a) => restyleAnnotation(a, { shadow: on }));
   };
+  const applyArrowStyle = (v: ArrowStyle) => {
+    setArrowStyle(v);
+    commitMapSelected((a) => restyleAnnotation(a, { arrowStyle: v }));
+  };
+  const applyFill = (v: FillMode) => {
+    setFill(v);
+    commitMapSelected((a) => restyleAnnotation(a, { fill: v }));
+  };
+  const applyTextStyle = (v: TextStyle) => {
+    setTextStyle(v);
+    commitMapSelected((a) => restyleAnnotation(a, { textStyle: v }));
+  };
+  /** Which style variants the sidebar offers: those of the one selected
+   *  element, else those of the active tool. */
+  const variantKind = (() => {
+    const one = selectedId ? annById(selectedId) : undefined;
+    const kind = one ? one.type : tool;
+    if (kind === "arrow") return "arrow" as const;
+    if (kind === "rect" || kind === "ellipse") return "fill" as const;
+    if (kind === "text") return "text" as const;
+    return null;
+  })();
 
   // ── Hotkeys ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -569,7 +599,7 @@ export function ScreenshotEditor() {
       e.preventDefault();
       const v = textInput.value.trim();
       if (v.length > 0) {
-        commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow });
+        commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow, textStyle });
       }
       setTextInput(null);
       if (tool === "text") {
@@ -715,7 +745,7 @@ export function ScreenshotEditor() {
     if (!textInput) return;
     const v = textInput.value.trim();
     if (v.length > 0) {
-      commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow });
+      commitAppend({ id: nextId(), type: "text", x: textInput.x, y: textInput.y, text: v, color, size: fontSize, opacity, shadow, textStyle });
     }
     setTextInput(null);
   };
@@ -782,6 +812,13 @@ export function ScreenshotEditor() {
           setShadow={applyShadow}
           background={background}
           setBackground={setBackground}
+          variantKind={variantKind}
+          arrowStyle={arrowStyle}
+          setArrowStyle={applyArrowStyle}
+          fill={fill}
+          setFill={applyFill}
+          textStyle={textStyle}
+          setTextStyle={applyTextStyle}
         />
         <div
           ref={fitBoxRef}
@@ -863,6 +900,121 @@ function ToolBtn({
   );
 }
 
+type VariantOption<V extends string> = { value: V; label: () => string; icon: React.ReactNode };
+
+/** Small 24×24 previews of the four arrow styles (currentColor). */
+const ARROW_VARIANTS: VariantOption<ArrowStyle>[] = [
+  {
+    value: "classic",
+    label: () => t("shot.arrow_classic"),
+    icon: <svg viewBox="0 0 24 24" width="16" height="16"><polygon fill="currentColor" points="3,19.5 3.8,20.3 15,10.6 16.6,12.2 20,4 11.8,7.4 13.4,9" /></svg>,
+  },
+  {
+    value: "bold",
+    label: () => t("shot.arrow_bold"),
+    icon: <svg viewBox="0 0 24 24" width="16" height="16"><polygon fill="currentColor" points="2.5,19 5,21.5 14.5,12.5 17.5,15.5 21,3 8.5,6.5 11.5,9.5" /></svg>,
+  },
+  {
+    value: "curved",
+    label: () => t("shot.arrow_curved"),
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+        <path d="M3 18 Q 5 6 15 7" />
+        <polygon fill="currentColor" stroke="none" points="21,7 13.5,3.5 14,10.5" />
+      </svg>
+    ),
+  },
+  {
+    value: "marker",
+    label: () => t("shot.arrow_marker"),
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 19 C 6 12, 10 8, 20 6" />
+        <path d="M14 3 L 20 6 L 15.5 11" />
+      </svg>
+    ),
+  },
+];
+
+const FILL_VARIANTS: VariantOption<FillMode>[] = [
+  {
+    value: "outline",
+    label: () => t("shot.fill_outline"),
+    icon: <svg viewBox="0 0 24 24" width="16" height="16"><rect x="4" y="5" width="16" height="14" rx="1.5" fill="none" stroke="currentColor" strokeWidth="2.2" /></svg>,
+  },
+  {
+    value: "filled",
+    label: () => t("shot.fill_filled"),
+    icon: <svg viewBox="0 0 24 24" width="16" height="16"><rect x="4" y="5" width="16" height="14" rx="1.5" fill="currentColor" /></svg>,
+  },
+  {
+    value: "tint",
+    label: () => t("shot.fill_tint"),
+    icon: (
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <rect x="4" y="5" width="16" height="14" rx="1.5" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="2.2" />
+      </svg>
+    ),
+  },
+];
+
+const TEXT_VARIANTS: VariantOption<TextStyle>[] = [
+  { value: "plain", label: () => t("shot.text_plain"), icon: <span className="text-[13px] font-bold">A</span> },
+  {
+    value: "outline",
+    label: () => t("shot.text_outline"),
+    icon: <span className="text-[13px] font-bold" style={{ WebkitTextStroke: "1px currentColor", color: "transparent" }}>A</span>,
+  },
+  {
+    value: "pill",
+    label: () => t("shot.text_pill"),
+    icon: <span className="rounded-full bg-current px-1 text-[11px] font-bold leading-4"><span className="text-[var(--color-surface)]">A</span></span>,
+  },
+  {
+    value: "box",
+    label: () => t("shot.text_box"),
+    icon: <span className="rounded-[3px] bg-black/80 px-1 text-[11px] font-bold leading-4 text-white">A</span>,
+  },
+];
+
+/** A 2-column grid of icon buttons choosing one style variant. */
+function VariantGrid<V extends string>({
+  label,
+  value,
+  onPick,
+  options,
+}: {
+  label: string;
+  value: V;
+  onPick: (v: V) => void;
+  options: VariantOption<V>[];
+}) {
+  return (
+    <div className="mt-3 flex w-full flex-col items-center gap-1" role="radiogroup" aria-label={label}>
+      <span className="text-[9px] uppercase tracking-wide text-[var(--color-muted)]">{label}</span>
+      <div className="grid grid-cols-2 gap-1">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            role="radio"
+            aria-checked={o.value === value}
+            title={o.label()}
+            onClick={() => onPick(o.value)}
+            className={
+              "flex h-7 w-7 items-center justify-center rounded-md border " +
+              (o.value === value
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+            }
+          >
+            {o.icon}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Toolbar({
   tool,
   setTool,
@@ -878,6 +1030,13 @@ function Toolbar({
   setShadow,
   background,
   setBackground,
+  variantKind,
+  arrowStyle,
+  setArrowStyle,
+  fill,
+  setFill,
+  textStyle,
+  setTextStyle,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -893,6 +1052,13 @@ function Toolbar({
   setShadow: (on: boolean) => void;
   background: BackgroundSpec | null;
   setBackground: (b: BackgroundSpec | null) => void;
+  variantKind: "arrow" | "fill" | "text" | null;
+  arrowStyle: ArrowStyle;
+  setArrowStyle: (v: ArrowStyle) => void;
+  fill: FillMode;
+  setFill: (v: FillMode) => void;
+  textStyle: TextStyle;
+  setTextStyle: (v: TextStyle) => void;
 }) {
   useT();
   return (
@@ -935,6 +1101,14 @@ function Toolbar({
           className="h-5 w-5 cursor-pointer rounded-full border-2 border-dashed border-[var(--color-border)] bg-transparent p-0"
         />
       </div>
+
+      {variantKind === "arrow" && (
+        <VariantGrid label={t("shot.arrow_style")} value={arrowStyle} onPick={setArrowStyle} options={ARROW_VARIANTS} />
+      )}
+      {variantKind === "fill" && <VariantGrid label={t("shot.fill")} value={fill} onPick={setFill} options={FILL_VARIANTS} />}
+      {variantKind === "text" && (
+        <VariantGrid label={t("shot.text_style")} value={textStyle} onPick={setTextStyle} options={TEXT_VARIANTS} />
+      )}
 
       <SliderRow label={t("shot.size")} min={2} max={24} value={strokeWidth} suffix="px" onChange={setStrokeWidth} />
       <SliderRow
@@ -1184,17 +1358,25 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       ctx.stroke();
       break;
     case "rect":
-      ctx.strokeStyle = a.color;
-      ctx.lineWidth = a.width;
-      ctx.strokeRect(a.x, a.y, a.w, a.h);
-      break;
-    case "ellipse":
-      ctx.strokeStyle = a.color;
-      ctx.lineWidth = a.width;
+    case "ellipse": {
       ctx.beginPath();
-      ctx.ellipse(a.x + a.w / 2, a.y + a.h / 2, Math.abs(a.w / 2), Math.abs(a.h / 2), 0, 0, Math.PI * 2);
-      ctx.stroke();
+      if (a.type === "rect") ctx.rect(a.x, a.y, a.w, a.h);
+      else ctx.ellipse(a.x + a.w / 2, a.y + a.h / 2, Math.abs(a.w / 2), Math.abs(a.h / 2), 0, 0, Math.PI * 2);
+      const mode = a.fill ?? "outline";
+      if (mode !== "outline") {
+        ctx.save();
+        ctx.fillStyle = a.color;
+        if (mode === "tint") ctx.globalAlpha *= 0.18;
+        ctx.fill();
+        ctx.restore();
+      }
+      if (mode !== "filled") {
+        ctx.strokeStyle = a.color;
+        ctx.lineWidth = a.width;
+        ctx.stroke();
+      }
       break;
+    }
     case "highlight":
       ctx.fillStyle = a.color;
       ctx.globalAlpha = 0.35;
@@ -1211,10 +1393,7 @@ function drawAnnotation(ctx: CanvasRenderingContext2D, a: Annotation, source: HT
       drawStep(ctx, a);
       break;
     case "text":
-      ctx.fillStyle = a.color;
-      ctx.font = `bold ${a.size}px var(--font-sans, sans-serif)`;
-      ctx.textBaseline = "middle";
-      ctx.fillText(a.text, a.x, a.y);
+      drawText(ctx, a);
       break;
     case "pen":
       drawPen(ctx, a);
@@ -1399,7 +1578,8 @@ function drawSelection(ctx: CanvasRenderingContext2D, a: Annotation, px: number,
     ctx.strokeStyle = "#3b82f6";
     ctx.lineWidth = 1.5 * px;
     ctx.beginPath();
-    ctx.rect(h.x - s, h.y - s, s * 2, s * 2);
+    if (h.pos === "mid") ctx.arc(h.x, h.y, s * 1.2, 0, Math.PI * 2);
+    else ctx.rect(h.x - s, h.y - s, s * 2, s * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -1427,47 +1607,101 @@ function drawStep(
 /** A bold, dynamic arrow (CleanShot-X style): ONE filled shape — a shaft that
  *  tapers from a thin tail to the head base, flowing into a sharp triangular
  *  head. Drawn as a single rounded-join polygon so it reads clean at any size. */
-function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
-  const dx = a.x2 - a.x1;
-  const dy = a.y2 - a.y1;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return;
-  const ux = dx / len;
-  const uy = dy / len;
-  const px = -uy; // perpendicular
-  const py = ux;
-  const w = a.width;
-  // Proportions scale with the stroke width, capped relative to the length so
-  // short drags still look right.
-  const headLen = Math.min(len * 0.6, Math.max(18, w * 5.5));
-  const headHalf = headLen * 0.55; // head barb half-width (the wide part)
-  const shaftHalf = Math.min(Math.max(w * 1.0, 2), headHalf * 0.5); // half-width at the head base
-  const tailHalf = shaftHalf * 0.5; // taper down to a thinner tail
-  const tipX = a.x2;
-  const tipY = a.y2;
-  const baseX = tipX - ux * headLen;
-  const baseY = tipY - uy * headLen;
-  const pt = (bx: number, by: number, s: number) => [bx + px * s, by + py * s] as const;
-  ctx.save();
-  ctx.fillStyle = a.color;
-  ctx.lineJoin = "round";
+function polyPath(ctx: CanvasRenderingContext2D, pts: { x: number; y: number }[], close: boolean) {
   ctx.beginPath();
-  let q = pt(a.x1, a.y1, tailHalf);
-  ctx.moveTo(q[0], q[1]);
-  q = pt(baseX, baseY, shaftHalf);
-  ctx.lineTo(q[0], q[1]);
-  q = pt(baseX, baseY, headHalf);
-  ctx.lineTo(q[0], q[1]);
-  ctx.lineTo(tipX, tipY);
-  q = pt(baseX, baseY, -headHalf);
-  ctx.lineTo(q[0], q[1]);
-  q = pt(baseX, baseY, -shaftHalf);
-  ctx.lineTo(q[0], q[1]);
-  q = pt(a.x1, a.y1, -tailHalf);
-  ctx.lineTo(q[0], q[1]);
-  ctx.closePath();
-  ctx.fill();
-  ctx.restore();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  if (close) ctx.closePath();
+}
+
+/** Draw an arrow in its style (see `lib/editor-arrows.ts` for the geometry).
+ *  `bold` and `curved` carry a white rim for contrast on any background;
+ *  `bold` always casts a shadow. */
+function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
+  const style = a.style ?? "classic";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  if (style === "classic" || style === "bold") {
+    const pts = arrowOutline(a);
+    if (pts.length === 0) return;
+    if (style === "bold") {
+      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = Math.max(6, a.width * 1.2);
+      ctx.shadowOffsetY = 2;
+      polyPath(ctx, pts, true);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = Math.max(3, a.width * 0.8);
+      ctx.stroke();
+      ctx.shadowColor = "transparent";
+    }
+    polyPath(ctx, pts, true);
+    ctx.fillStyle = a.color;
+    ctx.fill();
+    return;
+  }
+  const shaft = arrowCurve(a);
+  const head = arrowHead(a);
+  if (style === "curved") {
+    polyPath(ctx, shaft, false);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = a.width + Math.max(3, a.width * 0.7);
+    ctx.stroke();
+    polyPath(ctx, [head.left, head.tip, head.right], true);
+    ctx.lineWidth = Math.max(3, a.width * 0.7);
+    ctx.stroke();
+    ctx.shadowColor = "transparent";
+    polyPath(ctx, shaft, false);
+    ctx.strokeStyle = a.color;
+    ctx.lineWidth = a.width;
+    ctx.stroke();
+    polyPath(ctx, [head.left, head.tip, head.right], true);
+    ctx.fillStyle = a.color;
+    ctx.fill();
+    return;
+  }
+  // marker: one felt-pen stroke + an open chevron.
+  ctx.strokeStyle = a.color;
+  ctx.lineWidth = a.width;
+  polyPath(ctx, shaft, false);
+  ctx.stroke();
+  polyPath(ctx, [head.left, head.tip, head.right], false);
+  ctx.stroke();
+}
+
+/** Perceived brightness 0..1 of a #rrggbb colour (for text on a pill). */
+function luminance(hex: string): number {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return 0;
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function drawText(ctx: CanvasRenderingContext2D, a: TextAnnotation) {
+  const style = a.textStyle ?? "plain";
+  ctx.font = `bold ${a.size}px var(--font-sans, sans-serif)`;
+  ctx.textBaseline = "middle";
+  if (style === "pill" || style === "box") {
+    const w = ctx.measureText(a.text).width;
+    const padX = a.size * 0.4;
+    const h = a.size * 1.35;
+    const box: Rect = { x: a.x - padX, y: a.y - h / 2, w: w + 2 * padX, h };
+    ctx.save();
+    roundRectPath(ctx, box, style === "pill" ? h / 2 : a.size * 0.22);
+    ctx.fillStyle = style === "pill" ? a.color : "rgba(0,0,0,0.72)";
+    ctx.fill();
+    ctx.restore();
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = style === "pill" ? (luminance(a.color) > 0.6 ? "#111111" : "#ffffff") : a.color;
+    ctx.fillText(a.text, a.x, a.y);
+    return;
+  }
+  if (style === "outline") {
+    ctx.lineJoin = "round";
+    ctx.lineWidth = Math.max(2, a.size * 0.16);
+    ctx.strokeStyle = luminance(a.color) > 0.35 ? "rgba(0,0,0,0.85)" : "rgba(255,255,255,0.9)";
+    ctx.strokeText(a.text, a.x, a.y);
+  }
+  ctx.fillStyle = a.color;
+  ctx.fillText(a.text, a.x, a.y);
 }
 
 function drawBlur(ctx: CanvasRenderingContext2D, a: BlurAnnotation, source: HTMLImageElement) {

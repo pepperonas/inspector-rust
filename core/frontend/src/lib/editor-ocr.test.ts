@@ -36,6 +36,7 @@ describe("findSensitive", () => {
     expect(kinds("password: hunter2")).toEqual([["secret", "hunter2"]]);
     expect(kinds("Passwort = Sommer2026!")).toEqual([["secret", "Sommer2026!"]]);
     expect(kinds("api_key=12345")).toEqual([["secret", "12345"]]);
+    expect(kinds('token: "abc123def", next')).toEqual([["secret", "abc123def"]]);
   });
 
   it("treats a long random token as a secret but not a commit hash or a plain word", () => {
@@ -201,5 +202,63 @@ describe("summarizeFindings", () => {
       ["email", 2],
       ["phone", 1],
     ]);
+  });
+});
+
+import { autoRedact, snapDrawn } from "./editor-ocr";
+import type { Annotation } from "./editor-geometry";
+
+const ids = () => {
+  let n = 0;
+  return () => `t${++n}`;
+};
+
+describe("snapDrawn", () => {
+  const lines = [line("one two three", 0.1), line("four five six", 0.3)];
+  const hl: Annotation = { id: "a1", type: "highlight", x: 120, y: 40, w: 200, h: 130, color: "#facc15" };
+
+  it("turns a highlight over words into one tight box per line, keeping its style", () => {
+    const out = snapDrawn(hl, lines, 1000, 500, ids());
+    expect(out).toHaveLength(2);
+    expect(out.every((a) => a.type === "highlight" && a.color === "#facc15")).toBe(true);
+    expect(out.map((a) => a.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("snaps a redaction too", () => {
+    const rd: Annotation = { id: "a1", type: "redact", x: 120, y: 40, w: 200, h: 40 };
+    expect(snapDrawn(rd, lines, 1000, 500, ids())).toHaveLength(1);
+  });
+
+  it("keeps other shapes and drags over no word unchanged", () => {
+    const rect: Annotation = { id: "a1", type: "rect", x: 120, y: 40, w: 200, h: 130, color: "#f00", width: 4, opacity: 1, shadow: false };
+    expect(snapDrawn(rect, lines, 1000, 500, ids())).toEqual([rect]);
+    const empty: Annotation = { ...hl, x: 600, y: 300, w: 50, h: 50 };
+    expect(snapDrawn(empty, lines, 1000, 500, ids())).toEqual([empty]);
+  });
+});
+
+describe("autoRedact", () => {
+  const lines = [line("Mail an ana@x.de jetzt"), line("Tel. +49 30 1234567", 0.3)];
+
+  it("adds one redaction per finding and reports what it found", () => {
+    const r = autoRedact([], lines, 1000, 500, ids());
+    expect(r.added.map((a) => a.type)).toEqual(["redact", "redact"]);
+    expect(r.findings.map((f) => f.kind)).toEqual(["email", "phone"]);
+    expect(r.alreadyCovered).toBe(0);
+    expect(r.fresh).toEqual(r.findings);
+  });
+
+  it("adds nothing for findings an existing redaction already covers", () => {
+    const first = autoRedact([], lines, 1000, 500, ids());
+    const again = autoRedact(first.added, lines, 1000, 500, ids());
+    expect(again.added).toEqual([]);
+    expect(again.alreadyCovered).toBe(2);
+    expect(again.fresh).toEqual([]);
+  });
+
+  it("does not count a highlight or a blur as covering", () => {
+    const first = autoRedact([], lines, 1000, 500, ids());
+    const asHighlights = first.added.map((a) => ({ ...a, type: "highlight", color: "#facc15" }) as Annotation);
+    expect(autoRedact(asHighlights, lines, 1000, 500, ids()).added).toHaveLength(2);
   });
 });

@@ -4812,5 +4812,19 @@
   "record.editor.effects.param.dim": "Abdunkeln",
   "record.editor.effects.param.intensity": "Intensität",
   "record.editor.effects.param.spacing": "Zeilenabstand",
-  "record.editor.effects.param.roll": "Laufender Balken"
+  "record.editor.effects.param.roll": "Laufender Balken",
+  "shot.redact_auto": "Sensibles schwärzen",
+  "shot.redact_auto_hint": "Deckt E-Mail-Adressen, Telefonnummern, IBANs, Kartennummern, API-Schlüssel, IP-Adressen und Links mit Token schwarz ab",
+  "shot.ocr_reading": "Liest Text…",
+  "shot.ocr_failed": "Texterkennung fehlgeschlagen — zum Wiederholen klicken ({error})",
+  "shot.redact_none": "Nichts Sensibles gefunden",
+  "shot.redact_all_covered": "Alles Gefundene ist schon abgedeckt",
+  "shot.redact_done": "{n} geschwärzt: {list}",
+  "shot.kind_email": "E-Mail",
+  "shot.kind_phone": "Telefon",
+  "shot.kind_iban": "IBAN",
+  "shot.kind_card": "Kartennummer",
+  "shot.kind_secret": "Schlüssel/Passwort",
+  "shot.kind_ip": "IP-Adresse",
+  "shot.kind_url": "Link mit Token"
 }

@@ -5,7 +5,7 @@
  * `ir-ocr` helper); its JSON comes in here.
  */
 
-import type { Rect } from "./editor-geometry";
+import type { Annotation, Rect } from "./editor-geometry";
 
 /** [x, y, w, h], normalised 0..1, origin top-left. */
 export type Box4 = [number, number, number, number];
@@ -50,7 +50,7 @@ export function parseOcrLines(json: string): OcrLine[] {
 const RE_URL = /https?:\/\/[^\s"'<>]+/g;
 const RE_URL_SECRET = /[?&#](?:access_token|id_token|token|api[_-]?key|apikey|key|secret|password|pass|pwd|sig|signature|auth|code)=/i;
 const RE_KV =
-  /\b(?:pass(?:wor[dt])?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|client[_-]?secret|auth)\s*[:=]\s*(["']?)(\S+?)\1(?=\s|$|[,;])/dgi;
+  /\b(?:pass(?:wor[dt])?|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|client[_-]?secret|auth)\s*[:=]\s*(["']?)(\S+?)\1(?=\s|$|[,;])/gi;
 const RE_PREFIX =
   /\b(?:sk-[A-Za-z0-9_-]{16,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|[pr]k_(?:live|test)_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|glpat-[A-Za-z0-9_-]{20,}|-----BEGIN[A-Z ]*PRIVATE KEY-----)/g;
 const RE_JWT = /eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,}/g;
@@ -113,8 +113,9 @@ export function findSensitive(s: string): Match[] {
     if (RE_URL_SECRET.test(m[0])) add("url-token", m.index, m.index + m[0].length);
   });
   each(RE_KV, s, (m) => {
-    const ix = m.indices?.[2];
-    if (ix) add("secret", ix[0], ix[1]);
+    // The value (group 2) is followed only by its closing quote (group 1).
+    const end = m.index + m[0].length - m[1].length;
+    add("secret", end - m[2].length, end);
   });
   each(RE_PREFIX, s, (m) => add("secret", m.index, m.index + m[0].length));
   each(RE_JWT, s, (m) => add("secret", m.index, m.index + m[0].length));
@@ -233,4 +234,44 @@ export function summarizeFindings(fs: Finding[]): [FindingKind, number][] {
     n.set(f.kind, (n.get(f.kind) ?? 0) + 1);
   }
   return order.map((k) => [k, n.get(k)!] as [FindingKind, number]).sort((a, b) => b[1] - a[1]);
+}
+
+/** A freshly drawn highlight or redaction over words becomes one tight box
+ *  per line (same style, fresh ids). Anything else — another shape, or a drag
+ *  over no word — comes back unchanged as `[a]`. */
+export function snapDrawn(a: Annotation, lines: OcrLine[], W: number, H: number, nextId: () => string): Annotation[] {
+  if (a.type !== "highlight" && a.type !== "redact") return [a];
+  const rects = snapRectToWords(lines, { x: a.x, y: a.y, w: a.w, h: a.h }, W, H);
+  if (rects.length === 0) return [a];
+  return rects.map((r) => ({ ...a, id: nextId(), x: r.x, y: r.y, w: r.w, h: r.h }));
+}
+
+/** `fresh`: the findings that got a new block (`added[i]` covers `fresh[i]`). */
+export type AutoRedact = { added: Annotation[]; findings: Finding[]; fresh: Finding[]; alreadyCovered: number };
+
+/** Redaction blocks for every sensitive finding not yet covered by an existing
+ *  redaction (a highlight or blur does not count — text stays readable). */
+export function autoRedact(
+  annotations: Annotation[],
+  lines: OcrLine[],
+  W: number,
+  H: number,
+  nextId: () => string,
+): AutoRedact {
+  const findings = detectFindings(lines, W, H);
+  const covers: Rect[] = annotations.filter((a) => a.type === "redact").map((a) => a as Rect & Annotation);
+  const added: Annotation[] = [];
+  const fresh: Finding[] = [];
+  let alreadyCovered = 0;
+  for (const f of findings) {
+    if (isCovered(f.rect, covers)) {
+      alreadyCovered++;
+      continue;
+    }
+    const a: Annotation = { id: nextId(), type: "redact", ...f.rect };
+    added.push(a);
+    fresh.push(f);
+    covers.push(f.rect);
+  }
+  return { added, findings, fresh, alreadyCovered };
 }

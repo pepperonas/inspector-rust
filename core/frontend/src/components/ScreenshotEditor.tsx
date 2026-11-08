@@ -19,6 +19,7 @@ import {
   Redo2,
   Smile,
   Square,
+  ShieldAlert,
   SquareSlash,
   Type,
   Undo2,
@@ -27,6 +28,7 @@ import {
 import {
   editorCancel,
   editorCopy,
+  editorOcrWords,
   editorSave,
   getEditorPrefs,
   getPendingScreenshotDataUrl,
@@ -78,6 +80,7 @@ import {
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
 import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
+import { autoRedact, parseOcrLines, snapDrawn, summarizeFindings, type FindingKind, type OcrLine } from "../lib/editor-ocr";
 import {
   axisLock,
   duplicate,
@@ -91,7 +94,17 @@ import {
   resizeBy,
   sidebarStyle,
 } from "../lib/editor-selection";
-import { t, useT } from "../lib/i18n";
+import { t, useT, type MessageKey } from "../lib/i18n";
+
+const KIND_LABEL: Record<FindingKind, MessageKey> = {
+  email: "shot.kind_email",
+  phone: "shot.kind_phone",
+  iban: "shot.kind_iban",
+  card: "shot.kind_card",
+  secret: "shot.kind_secret",
+  ip: "shot.kind_ip",
+  "url-token": "shot.kind_url",
+};
 
 /**
  * Screenshot annotation editor (mounted in the `screenshot-editor`
@@ -263,6 +276,34 @@ export function ScreenshotEditor() {
 
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Text recognition of the source image (word boxes) for snapping and
+  // auto-redaction; started when an image loads. `gen` drops the answer for a
+  // screenshot that has been replaced meanwhile.
+  const [ocr, setOcr] = useState<
+    { s: "idle" } | { s: "loading" } | { s: "ready"; lines: OcrLine[] } | { s: "error"; msg: string } | { s: "unsupported" }
+  >({ s: "idle" });
+  const ocrGen = useRef(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | undefined>(undefined);
+  const runOcr = useCallback(() => {
+    const gen = ++ocrGen.current;
+    setOcr({ s: "loading" });
+    editorOcrWords()
+      .then((json) => {
+        if (gen === ocrGen.current) setOcr({ s: "ready", lines: parseOcrLines(json) });
+      })
+      .catch((e: unknown) => {
+        if (gen !== ocrGen.current) return;
+        const msg = String(e);
+        setOcr(msg.includes("ocr.words_unsupported") ? { s: "unsupported" } : { s: "error", msg });
+      });
+  }, []);
+  const showNotice = useCallback((text: string) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4500);
+  }, []);
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const fitBoxRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(0);
   const nextId = () => `a${++idRef.current}`;
@@ -312,6 +353,32 @@ export function ScreenshotEditor() {
     },
     [commitAnns, annotations, selectedIds],
   );
+  /** Cover every sensitive finding (e-mail, phone, IBAN, keys …) with a
+   *  redaction block — one undo step; the new blocks end up selected. */
+  const redactSensitive = useCallback(() => {
+    const img = imgRef.current;
+    if (ocr.s === "error" || ocr.s === "idle") {
+      runOcr();
+      return;
+    }
+    if (ocr.s !== "ready" || !img) return;
+    const r = autoRedact(annotations, ocr.lines, img.naturalWidth, img.naturalHeight, () => `a${++idRef.current}`);
+    if (r.added.length > 0) {
+      commitAnns([...annotations, ...r.added]);
+      setSelectedIds(r.added.map((a) => a.id));
+    }
+    if (r.findings.length === 0) showNotice(t("shot.redact_none"));
+    else if (r.added.length === 0) showNotice(t("shot.redact_all_covered"));
+    else
+      showNotice(
+        t("shot.redact_done", {
+          n: r.added.length,
+          list: summarizeFindings(r.fresh)
+            .map(([k, n]) => `${n} ${t(KIND_LABEL[k])}`)
+            .join(", "),
+        }),
+      );
+  }, [ocr, annotations, runOcr, commitAnns, showNotice]);
   const commitCrop = useCallback(
     (crop: Rect | null) => dispatch({ type: "commit", next: { ...hist.present, crop } }),
     [hist.present],
@@ -353,10 +420,11 @@ export function ScreenshotEditor() {
     img.onload = () => {
       imgRef.current = img;
       setImgReady(true);
+      runOcr();
     };
     img.onerror = (e) => console.error("editor: screenshot image failed to load", e);
     img.src = dataUrl;
-  }, []);
+  }, [runOcr]);
 
   useEffect(() => {
     void loadImage();
@@ -812,8 +880,14 @@ export function ScreenshotEditor() {
       const end = toCanvasCoords(e);
       const a = makeDragAnnotation(tool, interaction.start, end, styleObj, nextId());
       if (a && !isDegenerate(a)) {
-        commitAppend(a);
-        setSelectedId(a.id);
+        // Highlighter/redactor snap to the words under the drag (⌥ = keep the rectangle).
+        const img = imgRef.current;
+        const made =
+          ocr.s === "ready" && img && !e.altKey
+            ? snapDrawn(a, ocr.lines, img.naturalWidth, img.naturalHeight, nextId)
+            : [a];
+        commitAnns([...annotations, ...made]);
+        setSelectedIds(made.map((m) => m.id));
       }
     } else if (interaction.kind === "resize") {
       commitReplace(interaction.id, normalizeAnnotation(interaction.live));
@@ -868,6 +942,24 @@ export function ScreenshotEditor() {
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
         <span className="text-[12px] font-semibold text-[var(--color-muted)]">{t("shot.edit")}</span>
         <div className="flex items-center gap-1">
+          {notice && (
+            <span role="status" className="md3-success-pop mr-1 max-w-[380px] truncate text-[11px] text-[var(--color-muted)]" title={notice}>
+              {notice}
+            </span>
+          )}
+          {ocr.s !== "unsupported" && (
+            <button
+              onClick={redactSensitive}
+              disabled={ocr.s === "loading"}
+              title={ocr.s === "error" ? t("shot.ocr_failed", { error: ocr.msg }) : t("shot.redact_auto_hint")}
+              className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-60"
+            >
+              <span className="flex items-center gap-1">
+                <ShieldAlert size={12} /> {ocr.s === "loading" ? t("shot.ocr_reading") : t("shot.redact_auto")}
+              </span>
+            </button>
+          )}
+          <div className="mx-1 h-5 w-px bg-[var(--color-border)]" />
           <IconButton onClick={undo} disabled={!canUndo(hist)} title={t("shot.undo_z")}>
             <Undo2 size={14} />
           </IconButton>

@@ -4812,5 +4812,19 @@
   "record.editor.effects.param.dim": "Dimming",
   "record.editor.effects.param.intensity": "Intensity",
   "record.editor.effects.param.spacing": "Line spacing",
-  "record.editor.effects.param.roll": "Rolling band"
+  "record.editor.effects.param.roll": "Rolling band",
+  "shot.redact_auto": "Redact sensitive",
+  "shot.redact_auto_hint": "Covers e-mail addresses, phone numbers, IBANs, card numbers, API keys, IP addresses and links with tokens with black boxes",
+  "shot.ocr_reading": "Reading text…",
+  "shot.ocr_failed": "Text recognition failed — click to try again ({error})",
+  "shot.redact_none": "Nothing sensitive found",
+  "shot.redact_all_covered": "Everything found is already covered",
+  "shot.redact_done": "{n} redacted: {list}",
+  "shot.kind_email": "e-mail",
+  "shot.kind_phone": "phone",
+  "shot.kind_iban": "IBAN",
+  "shot.kind_card": "card number",
+  "shot.kind_secret": "key/password",
+  "shot.kind_ip": "IP address",
+  "shot.kind_url": "link with token"
 }

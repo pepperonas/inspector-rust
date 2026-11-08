@@ -820,6 +820,30 @@ const edThumb = (i: number) =>
   encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='90'><rect width='160' height='90' fill='hsl(${210 + i * 7},45%,${30 + (i % 4) * 4}%)'/><rect x='20' y='15' width='120' height='60' rx='4' fill='#eef'/></svg>`);
 
 /** Invented screenshot for the screenshot editor (a plain settings window). */
+/** Invented text on the mock screenshot, plus fake OCR word boxes for it
+ *  (Menlo 14 px: 8.43 px per character, glyphs ~11 px tall). */
+const SHOT_LINES = [
+  { x: 64, y: 252, text: "Kontakt: ana.lima@northwind.example" },
+  { x: 64, y: 282, text: "Telefon: +49 30 5550 1234" },
+  { x: 64, y: 312, text: "IBAN DE89 3704 0044 0532 0130 00" },
+  { x: 64, y: 342, text: "API key: sk-proj-Demo0123456789abcdefXYZ" },
+  { x: 64, y: 372, text: "Server 203.0.113.42 läuft" },
+  { x: 64, y: 402, text: "Notiz: alles andere ist harmlos" },
+];
+function shotOcrJson(): string {
+  const W = 960, H = 600, cw = 8.43, top = 11;
+  return JSON.stringify(
+    SHOT_LINES.map((l) => {
+      const words = [...l.text.matchAll(/\S+/g)].map((m) => ({
+        s: m.index!,
+        e: m.index! + m[0].length,
+        b: [(l.x + m.index! * cw) / W, (l.y - top) / H, (m[0].length * cw) / W, (top + 3) / H],
+      }));
+      return { t: l.text, b: [l.x / W, (l.y - top) / H, (l.text.length * cw) / W, (top + 3) / H], w: words };
+    }),
+  );
+}
+
 const SHOT_SVG =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='960' height='600'>
@@ -829,7 +853,7 @@ const SHOT_SVG =
 <rect x='40' y='80' width='300' height='16' rx='4' fill='#d1d5db'/><rect x='40' y='112' width='520' height='12' rx='4' fill='#e5e7eb'/>
 <rect x='40' y='134' width='460' height='12' rx='4' fill='#e5e7eb'/><rect x='40' y='156' width='380' height='12' rx='4' fill='#e5e7eb'/>
 <rect x='40' y='210' width='420' height='220' rx='10' fill='#ffffff' stroke='#e5e7eb'/>
-<rect x='64' y='240' width='200' height='12' rx='4' fill='#d1d5db'/><rect x='64' y='270' width='360' height='10' rx='4' fill='#e5e7eb'/>
+${SHOT_LINES.map((l) => `<text x='${l.x}' y='${l.y}' font-family='Menlo' font-size='14' fill='#374151'>${l.text}</text>`).join("")}
 <rect x='640' y='470' width='180' height='52' rx='12' fill='#2563eb'/>
 <text x='730' y='503' font-family='Helvetica' font-size='18' text-anchor='middle' fill='#fff'>Save changes</text></svg>`);
 let mockEditorPrefs: string | null = null;
@@ -841,6 +865,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_editor_prefs": return mockEditorPrefs;
     case "set_editor_prefs": mockEditorPrefs = String(args.json ?? ""); return null;
     case "set_editor_size": return null;
+    case "editor_ocr_words": return shotOcrJson();
     // ── boot ──────────────────────────────────────────────────────────────
     case "get_animation_stage": return "reduced";
     case "get_crt_animation": return { ms: 0, min: 80, max: 900, default_ms: 250 };

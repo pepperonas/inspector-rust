@@ -140,6 +140,17 @@ export function setEditorSize(width: number, height: number): Promise<void> {
   return invoke("set_editor_size", { width, height });
 }
 
+/** The screenshot editor's remembered styles as JSON (`null` before the
+ *  first save). Parsed by `lib/editor-prefs.ts`. */
+export function getEditorPrefs(): Promise<string | null> {
+  return invoke("get_editor_prefs");
+}
+
+/** Save the screenshot editor's remembered styles (JSON object). */
+export function setEditorPrefs(json: string): Promise<void> {
+  return invoke("set_editor_prefs", { json });
+}
+
 /** Cancel: close the editor, re-show the preview with the original
  *  (unedited) capture. */
 export function editorCancel(): Promise<void> {

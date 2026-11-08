@@ -61,6 +61,44 @@ fn saved_editor_size(app: &AppHandle) -> (f64, f64) {
     }
 }
 
+/// Settings key: the editor's remembered styles (one per tool), last tool
+/// and favourite colours, as JSON written by the frontend
+/// (`lib/editor-prefs.ts`, which also parses it tolerantly). A preference, so
+/// device sync carries it between Macs — unlike the window size.
+const KEY_EDITOR_PREFS: &str = "screenshot.editor_styles";
+
+/// Upper bound for the stored JSON; the real value is well under 4 KiB.
+const MAX_PREFS_BYTES: usize = 16 * 1024;
+
+fn load_prefs(db: &crate::db::DbHandle) -> Result<Option<String>, String> {
+    crate::settings::get(db, KEY_EDITOR_PREFS).map_err(|e| e.to_string())
+}
+
+/// Store the prefs JSON. Only a JSON object within the size cap is accepted,
+/// so a broken frontend can't fill the settings table with junk.
+fn store_prefs(db: &crate::db::DbHandle, json: &str) -> Result<(), String> {
+    if json.len() > MAX_PREFS_BYTES {
+        return Err(format!("editor prefs too large ({} bytes)", json.len()));
+    }
+    match serde_json::from_str::<serde_json::Value>(json) {
+        Ok(serde_json::Value::Object(_)) => {}
+        _ => return Err("editor prefs must be a JSON object".into()),
+    }
+    crate::settings::set(db, KEY_EDITOR_PREFS, json).map_err(|e| e.to_string())
+}
+
+/// The editor's remembered styles, or `None` before the first save.
+#[tauri::command]
+pub fn get_editor_prefs(db: tauri::State<'_, crate::db::DbHandle>) -> Result<Option<String>, String> {
+    load_prefs(&db)
+}
+
+/// Save the editor's remembered styles (debounced by the editor).
+#[tauri::command]
+pub fn set_editor_prefs(db: tauri::State<'_, crate::db::DbHandle>, json: String) -> Result<(), String> {
+    store_prefs(&db, &json)
+}
+
 /// Persist the editor window size (logical px). Called from the editor's
 /// resize listener (debounced) so the next open restores it.
 #[tauri::command]
@@ -231,6 +269,41 @@ pub fn editor_cancel(app: AppHandle) -> Result<(), String> {
         let _ = win.show();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod prefs_tests {
+    use super::{load_prefs, store_prefs, KEY_EDITOR_PREFS, MAX_PREFS_BYTES};
+    use crate::db::DbHandle;
+    use parking_lot::Mutex;
+    use rusqlite::Connection;
+    use std::sync::Arc;
+
+    fn test_db() -> DbHandle {
+        let db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        crate::settings::init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn get_returns_what_set_stored() {
+        let db = test_db();
+        assert_eq!(load_prefs(&db).unwrap(), None);
+        store_prefs(&db, r#"{"version":1,"lastTool":"rect"}"#).unwrap();
+        assert_eq!(load_prefs(&db).unwrap().as_deref(), Some(r#"{"version":1,"lastTool":"rect"}"#));
+        assert_eq!(KEY_EDITOR_PREFS, "screenshot.editor_styles");
+    }
+
+    #[test]
+    fn set_rejects_oversized_and_non_object() {
+        let db = test_db();
+        assert!(store_prefs(&db, "not json").is_err());
+        assert!(store_prefs(&db, "[1,2]").is_err());
+        assert!(store_prefs(&db, "\"x\"").is_err());
+        let big = format!(r#"{{"pad":"{}"}}"#, "x".repeat(MAX_PREFS_BYTES));
+        assert!(store_prefs(&db, &big).is_err());
+        assert_eq!(load_prefs(&db).unwrap(), None, "nothing rejected was stored");
+    }
 }
 
 #[cfg(test)]

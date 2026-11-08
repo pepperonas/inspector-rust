@@ -328,6 +328,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn screenshot_editor_styles_travel() {
+        // Remembered editor styles are a preference: they follow the user to
+        // every Mac (the window size stays local).
+        assert!(syncable("screenshot.editor_styles"));
+        assert!(!syncable("screenshot.editor_size"));
+    }
+
+    #[test]
     fn machine_keys_stay_home() {
         for k in [
             "devicesync.folder",

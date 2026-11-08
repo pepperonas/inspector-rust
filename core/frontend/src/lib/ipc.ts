@@ -146,6 +146,13 @@ export function getEditorPrefs(): Promise<string | null> {
   return invoke("get_editor_prefs");
 }
 
+/** Text lines with word boxes of the screenshot being edited — the OCR
+ *  helper's JSON, parsed by `lib/editor-ocr.ts::parseOcrLines`. Rejects with
+ *  `ocr.words_unsupported` off macOS. */
+export function editorOcrWords(): Promise<string> {
+  return invoke("editor_ocr_words");
+}
+
 /** Save the screenshot editor's remembered styles (JSON object). */
 export function setEditorPrefs(json: string): Promise<void> {
   return invoke("set_editor_prefs", { json });

@@ -99,6 +99,25 @@ pub fn set_editor_prefs(db: tauri::State<'_, crate::db::DbHandle>, json: String)
     store_prefs(&db, &json)
 }
 
+/// Text lines with word boxes of the screenshot being edited (the source
+/// PNG, not the annotations), as the OCR helper's JSON — see
+/// `ocr::words_json`. Runs off the main thread: recognition can take
+/// seconds (and ~70 s on a cold model).
+#[tauri::command]
+pub async fn editor_ocr_words(app: AppHandle) -> Result<String, String> {
+    let path = {
+        let state = app.state::<PendingScreenshot>();
+        let cur = state.inner().current.lock();
+        cur.as_ref().map(|p| p.path.clone()).ok_or_else(|| "no screenshot".to_string())?
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let png = std::fs::read(&path).map_err(|e| format!("read screenshot: {e}"))?;
+        crate::ocr::words_json(&png).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Persist the editor window size (logical px). Called from the editor's
 /// resize listener (debounced) so the next open restores it.
 #[tauri::command]

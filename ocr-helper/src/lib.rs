@@ -12,6 +12,8 @@
 //! Wire format (both directions): one tag byte, a u32 little-endian length,
 //! then that many bytes. Requests: `A` (accurate) or `F` (fast) + PNG bytes.
 //! Replies: `T` + UTF-8 text, or `E` + UTF-8 error message.
+//! `W` + PNG asks for every line with the box of every word; the reply is
+//! `J` + a JSON array (see [`lines_json`]).
 
 use std::io::{Read, Write};
 
@@ -28,6 +30,118 @@ pub const REQ_ACCURATE: u8 = b'A';
 pub const REQ_FAST: u8 = b'F';
 pub const REPLY_TEXT: u8 = b'T';
 pub const REPLY_ERROR: u8 = b'E';
+/// Request: recognise and return word positions (accurate level).
+pub const REQ_WORDS: u8 = b'W';
+/// Reply to [`REQ_WORDS`]: JSON from [`lines_json`].
+pub const REPLY_JSON: u8 = b'J';
+
+/// A box in normalised image coordinates (0..1), origin TOP-left.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OcrBox {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl OcrBox {
+    /// Vision reports normalised boxes with the origin BOTTOM-left.
+    pub fn from_vision(x: f64, y: f64, w: f64, h: f64) -> OcrBox {
+        OcrBox { x, y: 1.0 - (y + h), w, h }
+    }
+}
+
+/// One whitespace-separated word: its range in the line's text in UTF-16
+/// code units (what Vision's NSRange and JavaScript strings both use).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrWord {
+    pub start: usize,
+    pub end: usize,
+    pub bbox: OcrBox,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OcrLine {
+    pub text: String,
+    pub bbox: OcrBox,
+    pub words: Vec<OcrWord>,
+}
+
+/// UTF-16 ranges of the whitespace-separated tokens of `s`.
+pub fn token_ranges_utf16(s: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    let mut start: Option<usize> = None;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if let Some(st) = start.take() {
+                out.push((st, pos));
+            }
+        } else if start.is_none() {
+            start = Some(pos);
+        }
+        pos += c.len_utf16();
+    }
+    if let Some(st) = start {
+        out.push((st, pos));
+    }
+    out
+}
+
+fn json_num(v: f64) -> String {
+    if !v.is_finite() {
+        return "0".to_string();
+    }
+    let s = format!("{v}");
+    s
+}
+
+fn json_str(s: &str, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn json_box(b: &OcrBox, out: &mut String) {
+    out.push_str(&format!("[{},{},{},{}]", json_num(b.x), json_num(b.y), json_num(b.w), json_num(b.h)));
+}
+
+/// `[{"t":text,"b":[x,y,w,h],"w":[{"s":start,"e":end,"b":[…]}]}]`.
+/// Hand-written because this crate stays dependency-free (see Cargo.toml).
+pub fn lines_json(lines: &[OcrLine]) -> String {
+    let mut out = String::from("[");
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"t\":");
+        json_str(&line.text, &mut out);
+        out.push_str(",\"b\":");
+        json_box(&line.bbox, &mut out);
+        out.push_str(",\"w\":[");
+        for (j, w) in line.words.iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!("{{\"s\":{},\"e\":{},\"b\":", w.start, w.end));
+            json_box(&w.bbox, &mut out);
+            out.push('}');
+        }
+        out.push_str("]}");
+    }
+    out.push(']');
+    out
+}
 
 /// Largest frame accepted. A full 6K screen as PNG is well below this.
 pub const MAX_FRAME: usize = 64 * 1024 * 1024;
@@ -62,6 +176,15 @@ pub fn read_frame(r: &mut impl Read) -> std::io::Result<Option<(u8, Vec<u8>)>> {
 
 /// Answer one request frame.
 fn answer(tag: u8, png: &[u8]) -> (u8, Vec<u8>) {
+    if tag == REQ_WORDS {
+        if png.is_empty() {
+            return (REPLY_ERROR, b"empty image data".to_vec());
+        }
+        return match recognize_words(png) {
+            Ok(lines) => (REPLY_JSON, lines_json(&lines).into_bytes()),
+            Err(e) => (REPLY_ERROR, e.into_bytes()),
+        };
+    }
     let level = match tag {
         REQ_ACCURATE => Level::Accurate,
         REQ_FAST => Level::Fast,
@@ -84,6 +207,11 @@ pub fn serve(input: &mut impl Read, output: &mut impl Write) {
             return;
         }
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn recognize_words(_png_bytes: &[u8]) -> Result<Vec<OcrLine>, String> {
+    Err("Vision OCR is only available on macOS".to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -139,6 +267,54 @@ unsafe fn use_cpu(request: *mut objc2::runtime::AnyObject) {
 
 #[cfg(target_os = "macos")]
 pub fn recognize(png_bytes: &[u8], level: Level) -> Result<String, String> {
+    let lines = recognize_lines(png_bytes, level, false)?;
+    Ok(lines.into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n"))
+}
+
+/// Every recognised line with the box of each of its words.
+#[cfg(target_os = "macos")]
+pub fn recognize_words(png_bytes: &[u8]) -> Result<Vec<OcrLine>, String> {
+    recognize_lines(png_bytes, Level::Accurate, true)
+}
+
+/// `CGRect` / `NSRange` as Vision returns and takes them.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VnRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl objc2::Encode for VnRect {
+    const ENCODING: objc2::Encoding = objc2::Encoding::Struct(
+        "CGRect",
+        &[
+            objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]),
+            objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]),
+        ],
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VnRange {
+    location: usize,
+    length: usize,
+}
+
+#[cfg(target_os = "macos")]
+unsafe impl objc2::Encode for VnRange {
+    const ENCODING: objc2::Encoding =
+        objc2::Encoding::Struct("_NSRange", &[usize::ENCODING, usize::ENCODING]);
+}
+
+#[cfg(target_os = "macos")]
+fn recognize_lines(png_bytes: &[u8], level: Level, with_boxes: bool) -> Result<Vec<OcrLine>, String> {
     use objc2::msg_send;
     use objc2::rc::autoreleasepool;
     use objc2::runtime::AnyObject;
@@ -156,7 +332,7 @@ pub fn recognize(png_bytes: &[u8], level: Level) -> Result<String, String> {
     autoreleasepool(|_| unsafe {
         let mut handler: *mut AnyObject = std::ptr::null_mut();
         let mut request: *mut AnyObject = std::ptr::null_mut();
-        let result = recognize_in_pool(png_bytes, level, &mut handler, &mut request);
+        let result = recognize_in_pool(png_bytes, level, with_boxes, &mut handler, &mut request);
         if !request.is_null() {
             let _: () = msg_send![request, release];
         }
@@ -174,9 +350,10 @@ pub fn recognize(png_bytes: &[u8], level: Level) -> Result<String, String> {
 unsafe fn recognize_in_pool(
     png_bytes: &[u8],
     level: Level,
+    with_boxes: bool,
     handler_out: &mut *mut objc2::runtime::AnyObject,
     request_out: &mut *mut objc2::runtime::AnyObject,
-) -> Result<String, String> {
+) -> Result<Vec<OcrLine>, String> {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
     use std::ffi::c_void;
@@ -257,10 +434,10 @@ unsafe fn recognize_in_pool(
         // ── 5. Drain results ─────────────────────────────────────────
         let results: *mut AnyObject = msg_send![request, results];
         if results.is_null() {
-            return Ok(String::new());
+            return Ok(Vec::new());
         }
         let count: usize = msg_send![results, count];
-        let mut lines: Vec<String> = Vec::with_capacity(count);
+        let mut lines: Vec<OcrLine> = Vec::with_capacity(count);
         for i in 0..count {
             let observation: *mut AnyObject = msg_send![results, objectAtIndex: i];
             let candidates: *mut AnyObject = msg_send![observation, topCandidates: 1usize];
@@ -273,11 +450,30 @@ unsafe fn recognize_in_pool(
             }
             let candidate: *mut AnyObject = msg_send![candidates, objectAtIndex: 0usize];
             let text_ns: *mut AnyObject = msg_send![candidate, string];
-            if let Some(s) = nsstring_to_rust(text_ns) {
-                lines.push(s);
+            let Some(text) = nsstring_to_rust(text_ns) else {
+                continue;
+            };
+            if !with_boxes {
+                lines.push(OcrLine { text, bbox: OcrBox { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }, words: Vec::new() });
+                continue;
             }
+            let r: VnRect = msg_send![observation, boundingBox];
+            let bbox = OcrBox::from_vision(r.x, r.y, r.w, r.h);
+            let mut words = Vec::new();
+            for (start, end) in token_ranges_utf16(&text) {
+                let range = VnRange { location: start, length: end - start };
+                let mut err: *mut AnyObject = std::ptr::null_mut();
+                let rect_obs: *mut AnyObject =
+                    msg_send![candidate, boundingBoxForRange: range, error: &mut err];
+                if rect_obs.is_null() {
+                    continue;
+                }
+                let wr: VnRect = msg_send![rect_obs, boundingBox];
+                words.push(OcrWord { start, end, bbox: OcrBox::from_vision(wr.x, wr.y, wr.w, wr.h) });
+            }
+            lines.push(OcrLine { text, bbox, words });
         }
-        Ok(lines.join("\n"))
+        Ok(lines)
     }
 }
 
@@ -350,5 +546,73 @@ mod tests {
         assert!(String::from_utf8(b1).unwrap().contains("unknown request"));
         assert_eq!(b2, b"empty image data");
         assert_eq!(read_frame(&mut r).unwrap(), None);
+    }
+
+    #[test]
+    fn tokens_are_whitespace_separated_utf16_ranges() {
+        assert_eq!(token_ranges_utf16("ab  cd"), vec![(0, 2), (4, 6)]);
+        assert_eq!(token_ranges_utf16("  x "), vec![(2, 3)]);
+        assert_eq!(token_ranges_utf16(""), Vec::<(usize, usize)>::new());
+        // "€" is one UTF-16 unit, "😀" is two — offsets must match JS indexing.
+        assert_eq!(token_ranges_utf16("€1 😀a b"), vec![(0, 2), (3, 6), (7, 8)]);
+        assert_eq!(token_ranges_utf16("Größe\tTab"), vec![(0, 5), (6, 9)]);
+    }
+
+    #[test]
+    fn vision_boxes_are_flipped_to_a_top_left_origin() {
+        let b = OcrBox::from_vision(0.1, 0.7, 0.4, 0.2);
+        assert!((b.x - 0.1).abs() < 1e-9 && (b.w - 0.4).abs() < 1e-9);
+        assert!((b.y - 0.1).abs() < 1e-9, "top = 1 - (0.7 + 0.2)");
+        assert!((b.h - 0.2).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lines_encode_as_json_with_escaped_text() {
+        let line = OcrLine {
+            text: "a\"b\\c\n\u{1}ü".to_string(),
+            bbox: OcrBox { x: 0.5, y: 0.25, w: 0.125, h: 0.0625 },
+            words: vec![OcrWord { start: 0, end: 3, bbox: OcrBox { x: 0.0, y: 1.0, w: 0.5, h: 0.5 } }],
+        };
+        assert_eq!(
+            lines_json(&[line]),
+            r#"[{"t":"a\"b\\c\n\u0001ü","b":[0.5,0.25,0.125,0.0625],"w":[{"s":0,"e":3,"b":[0,1,0.5,0.5]}]}]"#
+        );
+        assert_eq!(lines_json(&[]), "[]");
+    }
+
+    #[test]
+    fn non_finite_numbers_never_reach_the_json() {
+        let line = OcrLine { text: String::new(), bbox: OcrBox { x: f64::NAN, y: f64::INFINITY, w: 0.0, h: 0.0 }, words: vec![] };
+        assert_eq!(lines_json(&[line]), r#"[{"t":"","b":[0,0,0,0],"w":[]}]"#);
+    }
+
+    #[test]
+    fn the_words_request_refuses_empty_data_like_the_text_request() {
+        let mut input = Vec::new();
+        write_frame(&mut input, REQ_WORDS, b"").unwrap();
+        let mut out = Vec::new();
+        serve(&mut &input[..], &mut out);
+        assert_eq!(read_frame(&mut &out[..]).unwrap(), Some((REPLY_ERROR, b"empty image data".to_vec())));
+    }
+
+    /// Live: `cargo test --release -p ir-ocr-helper -- --ignored --nocapture`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn live_word_boxes_lie_inside_their_line() {
+        let png = include_bytes!("../../core/rust-lib/assets/ocr_warmup.png");
+        let lines = recognize_words(png).expect("vision");
+        assert!(!lines.is_empty(), "the warm-up image has text");
+        for l in &lines {
+            println!("{:?} {:?}", l.text, l.bbox);
+            assert_eq!(l.words.len(), token_ranges_utf16(&l.text).len(), "one box per word");
+            for w in &l.words {
+                println!("   {:?} {:?}", &l.text.encode_utf16().collect::<Vec<_>>()[w.start..w.end].len(), w.bbox);
+                assert!(w.bbox.x >= l.bbox.x - 0.02 && w.bbox.x + w.bbox.w <= l.bbox.x + l.bbox.w + 0.02);
+                assert!(w.bbox.y >= -0.01 && w.bbox.y + w.bbox.h <= 1.01);
+            }
+        }
+        let text = recognize(png, Level::Accurate).unwrap();
+        assert_eq!(text, lines.iter().map(|l| l.text.clone()).collect::<Vec<_>>().join("\n"));
     }
 }

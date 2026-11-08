@@ -23,6 +23,41 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String> {
     recognize_impl(png_bytes, Level::Accurate)
 }
 
+/// Sentinel: word positions need Vision (macOS).
+pub const ERR_WORDS_UNSUPPORTED: &str = "ocr.words_unsupported";
+
+/// Every recognised line with the box of each word, as the helper's JSON
+/// (`ir_ocr_helper::lines_json`: normalised, top-left origin, UTF-16 word
+/// ranges). Used by the screenshot editor to redact/highlight text.
+pub fn words_json(png_bytes: &[u8]) -> Result<String> {
+    if png_bytes.is_empty() {
+        anyhow::bail!("empty image data");
+    }
+    words_impl(png_bytes)
+}
+
+#[cfg(target_os = "macos")]
+fn words_impl(png_bytes: &[u8]) -> Result<String> {
+    let Some(path) = helper::path() else {
+        return ir_ocr_helper::recognize_words(png_bytes)
+            .map(|l| ir_ocr_helper::lines_json(&l))
+            .map_err(anyhow::Error::msg);
+    };
+    let ask = || helper::request(&path, ir_ocr_helper::REQ_WORDS, png_bytes, ir_ocr_helper::REPLY_JSON);
+    match ask() {
+        Ok(json) => Ok(json),
+        Err(first) => {
+            tracing::warn!("ocr: helper failed on words ({first}) — retrying with a fresh helper");
+            ask().map_err(anyhow::Error::msg)
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn words_impl(_png_bytes: &[u8]) -> Result<String> {
+    anyhow::bail!(ERR_WORDS_UNSUPPORTED)
+}
+
 /// A tiny image with a few words. Recognising it makes the OS load the text
 /// model before the real request needs it.
 const WARMUP_PNG: &[u8] = include_bytes!("../assets/ocr_warmup.png");
@@ -153,19 +188,25 @@ mod helper {
     /// Send one image. Any failure — I/O or an error reply — drops the
     /// helper, so the next call (the caller's retry) starts a fresh one.
     pub fn recognize(path: &Path, png: &[u8], level: ir_ocr_helper::Level) -> Result<String, String> {
+        let tag = match level {
+            ir_ocr_helper::Level::Accurate => ir_ocr_helper::REQ_ACCURATE,
+            ir_ocr_helper::Level::Fast => ir_ocr_helper::REQ_FAST,
+        };
+        request(path, tag, png, ir_ocr_helper::REPLY_TEXT)
+    }
+
+    /// One request/reply. `ok` is the reply tag that carries the answer;
+    /// anything else is an error.
+    pub fn request(path: &Path, tag: u8, png: &[u8], ok: u8) -> Result<String, String> {
         let mut guard = HELPER.lock().unwrap_or_else(|e| e.into_inner());
         if guard.is_none() {
             *guard = Some(spawn(path)?);
         }
         let run = guard.as_mut().expect("just set");
-        let tag = match level {
-            ir_ocr_helper::Level::Accurate => ir_ocr_helper::REQ_ACCURATE,
-            ir_ocr_helper::Level::Fast => ir_ocr_helper::REQ_FAST,
-        };
         let reply = ir_ocr_helper::write_frame(&mut run.stdin, tag, png)
             .and_then(|_| ir_ocr_helper::read_frame(&mut run.stdout));
         let result = match reply {
-            Ok(Some((ir_ocr_helper::REPLY_TEXT, body))) => {
+            Ok(Some((t, body))) if t == ok => {
                 String::from_utf8(body).map_err(|_| "helper sent invalid UTF-8".to_string())
             }
             Ok(Some((_, body))) => Err(String::from_utf8_lossy(&body).into_owned()),
@@ -394,6 +435,15 @@ mod helper_tests {
         let _ = helper::recognize(&ok, b"png", lvl); // retire the exited one
         assert_eq!(helper::recognize(&err, b"png", lvl).unwrap_err(), "boom");
         assert_eq!(helper::recognize(&ok, b"png", lvl).unwrap(), "hello");
+        // Words: a JSON reply is the answer; a text reply to a words request
+        // is not (wrong tag = error, slot dropped like any other failure).
+        let json = one_shot(&dir, "json", r"J\002\000\000\000[]");
+        let _ = helper::recognize(&ok, b"png", lvl); // retire the exited one
+        let (w, j) = (ir_ocr_helper::REQ_WORDS, ir_ocr_helper::REPLY_JSON);
+        assert_eq!(helper::request(&json, w, b"png", j).unwrap(), "[]");
+        let _ = helper::request(&json, w, b"png", j);
+        assert!(helper::request(&ok, w, b"png", j).is_err(), "T reply to a W request");
+        assert_eq!(helper::request(&json, w, b"png", j).unwrap(), "[]");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -410,6 +460,9 @@ mod helper_tests {
             println!("run {i}: {} ms", t.elapsed().as_millis());
             assert!(text.to_lowercase().contains("warm"), "got {text:?}");
         }
+        let json = helper::request(&bin, ir_ocr_helper::REQ_WORDS, super::WARMUP_PNG, ir_ocr_helper::REPLY_JSON).unwrap();
+        println!("{json}");
+        assert!(json.starts_with("[{\"t\":") && json.contains("\"w\":[{"), "got {json}");
     }
 }
 

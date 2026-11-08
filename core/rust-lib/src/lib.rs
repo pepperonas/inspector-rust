@@ -915,6 +915,7 @@ pub fn run(context: tauri::Context<Wry>) {
             screenshot_editor::set_editor_size,
             screenshot_editor::get_editor_prefs,
             screenshot_editor::set_editor_prefs,
+            screenshot_editor::editor_ocr_words,
             commands::eyedropper_to_clipboard,
             commands::resize_clipboard_image,
             commands::optimize_clipboard_image,

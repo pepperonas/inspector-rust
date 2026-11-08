@@ -30,7 +30,8 @@ export type Tool =
   | "spotlight"
   | "emoji";
 
-import { arrowApex, arrowExtent, arrowHasBend, defaultBend, distToArrow } from "./editor-arrows";
+import { arrowApex, arrowExtent, arrowHasBend, defaultBend } from "./editor-arrows";
+import { pickAt } from "./editor-selection";
 
 export type Point = { x: number; y: number };
 
@@ -325,11 +326,7 @@ function isBox(a: Annotation): a is BoxLike {
   );
 }
 
-function pointInRect(p: Point, r: Rect, tol: number): boolean {
-  return p.x >= r.x - tol && p.x <= r.x + r.w + tol && p.y >= r.y - tol && p.y <= r.y + r.h + tol;
-}
-
-function distToSegment(p: Point, v: Point, w: Point): number {
+export function distToSegment(p: Point, v: Point, w: Point): number {
   const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
   if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
   let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
@@ -378,38 +375,15 @@ export function boundsOf(a: Annotation): Rect {
   }
 }
 
-function hitOne(a: Annotation, p: Point, tol: number): boolean {
-  switch (a.type) {
-    case "arrow":
-      return distToArrow(a, p) <= tol + a.width / 2;
-    case "line":
-      return distToSegment(p, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= tol + a.width / 2;
-    case "pen": {
-      if (a.points.length === 1) return Math.hypot(p.x - a.points[0].x, p.y - a.points[0].y) <= tol + a.width / 2;
-      for (let i = 1; i < a.points.length; i++) {
-        if (distToSegment(p, a.points[i - 1], a.points[i]) <= tol + a.width / 2) return true;
-      }
-      return false;
-    }
-    case "step":
-      return Math.hypot(p.x - a.x, p.y - a.y) <= a.size + tol;
-    default:
-      return pointInRect(p, boundsOf(a), tol);
-  }
-}
-
-/** The id of the top-most annotation under `p` (iterating newest-first), or
- *  `null`. `tol` widens thin shapes (lines/arrows/pen) and box edges so they
- *  are grabbable. */
+/** The id of the element a click at `p` means (see `editor-selection`
+ *  `pickAt` for the ranking: closest stroke, then smallest area, then newest;
+ *  outlined shapes only by their edge). `null` if nothing is hit. */
 export function hitTest(
   annotations: ReadonlyArray<Annotation>,
   p: Point,
   tol = 6,
 ): string | null {
-  for (let i = annotations.length - 1; i >= 0; i--) {
-    if (hitOne(annotations[i], p, tol)) return annotations[i].id;
-  }
-  return null;
+  return pickAt(annotations, p, null, tol);
 }
 
 function eightHandles(b: Rect): { pos: Handle; x: number; y: number }[] {

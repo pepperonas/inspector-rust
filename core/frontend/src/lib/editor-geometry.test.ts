@@ -201,9 +201,9 @@ describe("hitTest", () => {
     expect(hitTest([line], { x: 50, y: 3 })).toBe("l");
     expect(hitTest([line], { x: 50, y: 40 })).toBeNull();
   });
-  it("returns the top-most (last-drawn) annotation when they overlap", () => {
-    const lower: Annotation = { id: "lo", type: "rect", x: 0, y: 0, w: 50, h: 50, color: "#f", width: 2 };
-    const upper: Annotation = { id: "up", type: "rect", x: 10, y: 10, w: 50, h: 50, color: "#f", width: 2 };
+  it("between equally large filled shapes the last-drawn wins", () => {
+    const lower: Annotation = { id: "lo", type: "rect", x: 0, y: 0, w: 50, h: 50, color: "#f", width: 2, fill: "filled" };
+    const upper: Annotation = { id: "up", type: "rect", x: 10, y: 10, w: 50, h: 50, color: "#f", width: 2, fill: "filled" };
     expect(hitTest([lower, upper], { x: 20, y: 20 })).toBe("up");
   });
 });

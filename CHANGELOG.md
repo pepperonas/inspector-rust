@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.245.0] — 2026-11-08
+
+### Added
+- **Four arrow styles in the screenshot editor.** Classic stays the default; Bold (broader, white rim and shadow), Curved (bend it with the round handle in the middle) and Marker (hand-drawn, open head) are one click away in the sidebar. A fresh arrow starts at width 6 instead of 4.
+- **The editor remembers your settings.** Each tool keeps its own colour, width, style, opacity, shadow and text size; the last tool and pinned favourite colours come back on the next open, and device sync carries them to your other Macs.
+- **Multi-select and layer order.** Shift-click adds or removes an element, dragging on empty canvas with the select tool draws a selection box, ⌘] / ⌘[ move forward or backward, ⌘⇧] / ⌘⇧[ to the front or back. ⌘D duplicates, ⌥⌘C / ⌥⌘V copy and paste elements (⌘C still copies the whole image), Shift while moving locks the axis, + and − change the size.
+- **Fill and text styles.** Rectangles and ellipses can be outlined, filled or outlined with a light fill; text can be plain, outlined, on a pill or on a dark box.
+
+### Fixed
+- **Selection picks what you point at.** An outlined rectangle drawn around an arrow no longer swallows every click inside it: outlined shapes are picked by their edge, the closer or smaller element wins, and clicking the same spot again moves on to the element underneath.
+- **Text, emoji and step numbers are drawn at their real size.** The canvas ignored the font and always used 10 px.
+- **Typing goes into a new text field right away.** It never got the keyboard focus, so the letters triggered tool shortcuts until you clicked into the field.
+- **With one element selected, the sidebar shows that element's style** instead of the tool's.
+
 ## [0.244.0] — 2026-11-08
 
 ### Fixed

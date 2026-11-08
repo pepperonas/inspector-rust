@@ -1071,7 +1071,7 @@ const FILL_VARIANTS: VariantOption<FillMode>[] = [
 ];
 
 const TEXT_VARIANTS: VariantOption<TextStyle>[] = [
-  { value: "plain", label: () => t("shot.text_plain"), icon: <span className="text-[13px] font-bold">A</span> },
+  { value: "plain", label: () => t("shot.text_plain"), icon: <span style={{ fontSize: 13, fontWeight: 700 }}>A</span> },
   {
     value: "outline",
     label: () => t("shot.text_outline"),
@@ -1086,12 +1086,18 @@ const TEXT_VARIANTS: VariantOption<TextStyle>[] = [
   {
     value: "pill",
     label: () => t("shot.text_pill"),
-    icon: <span className="rounded-full bg-current px-1 text-[11px] font-bold leading-4"><span className="text-[var(--color-surface)]">A</span></span>,
+    icon: (
+      <span style={{ borderRadius: 999, background: "currentColor", padding: "0 4px", fontSize: 11, fontWeight: 700, lineHeight: "16px" }}>
+        <span style={{ color: "var(--color-surface)" }}>A</span>
+      </span>
+    ),
   },
   {
     value: "box",
     label: () => t("shot.text_box"),
-    icon: <span className="rounded-[3px] bg-black/80 px-1 text-[11px] font-bold leading-4 text-white">A</span>,
+    icon: (
+      <span style={{ borderRadius: 3, background: "rgba(0,0,0,0.8)", color: "#fff", padding: "0 4px", fontSize: 11, fontWeight: 700, lineHeight: "16px" }}>A</span>
+    ),
   },
 ];
 
@@ -1109,7 +1115,9 @@ function VariantGrid<V extends string>({
 }) {
   return (
     <div className="mt-3 flex w-full flex-col items-center gap-1" role="radiogroup" aria-label={label}>
-      <span className="text-center text-[9px] uppercase leading-tight tracking-wide text-[var(--color-muted)]">{label}</span>
+      <span className="text-center uppercase text-[var(--color-muted)]" style={{ fontSize: 9, lineHeight: 1.2, letterSpacing: "0.05em" }}>
+        {label}
+      </span>
       <div className="flex flex-col gap-1">
         {options.map((o) => (
           <button
@@ -1119,7 +1127,7 @@ function VariantGrid<V extends string>({
             title={o.label()}
             onClick={() => onPick(o.value)}
             className={
-              "flex h-7 w-8 items-center justify-center rounded-md border " +
+              "flex h-8 w-8 items-center justify-center rounded-md border " +
               (o.value === value
                 ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
                 : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
@@ -1247,7 +1255,8 @@ function Toolbar({
         <button
           onClick={onPin}
           title={t("shot.pin_color")}
-          className="flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] text-[12px] leading-none text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
+          className="flex h-5 w-5 items-center justify-center rounded-md border border-dashed border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-bg)]"
+          style={{ fontSize: 12, lineHeight: 1 }}
         >
           +
         </button>

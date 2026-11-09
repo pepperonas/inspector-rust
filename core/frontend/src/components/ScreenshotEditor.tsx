@@ -87,8 +87,8 @@ import {
   type Tool,
 } from "../lib/editor-geometry";
 import { sceneLayout, toImagePoint, type SceneLayout } from "../lib/editor-background";
-import { isSafeImageSrc, placeImage } from "../lib/editor-image";
-import { snapMove, type Guide } from "../lib/editor-guides";
+import { blurNeedsLayer, isSafeImageSrc, placeImage } from "../lib/editor-image";
+import { resizeAnchors, snapMove, snapResize, type Guide } from "../lib/editor-guides";
 import { parseProject, serializeProject } from "../lib/editor-project";
 import { arrowCurve, arrowHead, arrowOutline } from "../lib/editor-arrows";
 import { canRedo, canUndo, historyReducer, initHistory } from "../lib/editor-history";
@@ -167,7 +167,7 @@ type Interaction =
   | { kind: "move"; ids: string[]; startPt: Point; orig: Annotation[]; live: Annotation[]; cycle: boolean; guides?: Guide[] }
   /** Select-tool drag on empty canvas; `base` = selection kept with Shift. */
   | { kind: "marquee"; start: Point; current: Point; base: string[] }
-  | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation }
+  | { kind: "resize"; id: string; handle: Handle; startPt: Point; orig: Annotation; live: Annotation; guides?: Guide[] }
   | { kind: "pen"; points: Point[] }
   | { kind: "crop"; start: Point; current: Point }
   | null;
@@ -583,7 +583,7 @@ export function ScreenshotEditor() {
         for (const a of sel) drawSelection(c, a, px, sel.length === 1);
       }
       if (interaction && interaction.kind === "marquee") drawMarquee(c, dragRect(interaction.start, interaction.current), px);
-      if (interaction && interaction.kind === "move" && interaction.guides?.length) drawGuides(c, interaction.guides, srcW(img), srcH(img), px);
+      if (interaction && (interaction.kind === "move" || interaction.kind === "resize") && interaction.guides?.length) drawGuides(c, interaction.guides, srcW(img), srcH(img), px);
     });
 
     // Crop chrome (dim outside + border) — only in the bg-off view (full image,
@@ -614,7 +614,6 @@ export function ScreenshotEditor() {
       probe.onerror = () => console.error("editor: picture failed to decode");
       probe.src = src;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [orient, hist.present, commitAnns],
   );
   const insertRef = useRef(insertPicture);
@@ -1026,7 +1025,20 @@ export function ScreenshotEditor() {
     } else if (interaction.kind === "marquee") {
       setInteraction({ ...interaction, current: p });
     } else if (interaction.kind === "resize") {
-      setInteraction({ ...interaction, live: resizeAnnotation(interaction.orig, interaction.handle, p.x - interaction.startPt.x, p.y - interaction.startPt.y) });
+      // The dragged edge (or line end) snaps like a move does (⌘ = freely).
+      let dx = p.x - interaction.startPt.x;
+      let dy = p.y - interaction.startPt.y;
+      let guides: Guide[] = [];
+      const img = orientedSource(imgRef.current, orient);
+      const anchors = resizeAnchors(interaction.orig, interaction.handle);
+      if (img && anchors && !e.metaKey) {
+        const targets = [
+          { x: 0, y: 0, w: srcW(img), h: srcH(img) },
+          ...annotations.filter((a) => a.id !== interaction.id).map(boundsOf),
+        ];
+        ({ dx, dy, guides } = snapResize(anchors, targets, dx, dy, 6 * pxRatio()));
+      }
+      setInteraction({ ...interaction, guides, live: resizeAnnotation(interaction.orig, interaction.handle, dx, dy) });
     } else if (interaction.kind === "pen") {
       setInteraction({ ...interaction, points: [...interaction.points, p] });
     } else if (interaction.kind === "crop") {
@@ -1954,8 +1966,19 @@ function orientedSource(img: HTMLImageElement | null, orient: Orient | undefined
  *  caller owns clearing + any crop/background transform + clip). Shared by the
  *  on-screen redraw and the offscreen export so the baked PNG is always clean. */
 function drawSceneContent(ctx: CanvasRenderingContext2D, img: EditorSource, list: Annotation[]) {
-  ctx.drawImage(img, 0, 0);
-  for (const a of list) if (a.type !== "spotlight") drawAnnotation(ctx, a, img);
+  const layer = blurNeedsLayer(list) ? composeLayer(img) : null;
+  if (layer) {
+    // A blur reads the pixels BELOW it: compose the content on its own canvas
+    // so each blur samples the screenshot plus every element drawn before it.
+    const lctx = layer.getContext("2d");
+    if (lctx) {
+      for (const a of list) if (a.type !== "spotlight") drawAnnotation(lctx, a, layer);
+      ctx.drawImage(layer, 0, 0);
+    }
+  } else {
+    ctx.drawImage(img, 0, 0);
+    for (const a of list) if (a.type !== "spotlight") drawAnnotation(ctx, a, img);
+  }
 
   // Spotlight: a dim layer over the whole image with a transparent hole for
   // each spotlight rect, composited on top so the focused region shows at full
@@ -1975,6 +1998,16 @@ function drawSceneContent(ctx: CanvasRenderingContext2D, img: EditorSource, list
       ctx.drawImage(layer, 0, 0);
     }
   }
+}
+
+/** One reused canvas holding the screenshot, the base for composed blurs. */
+let blurLayer: HTMLCanvasElement | null = null;
+function composeLayer(img: EditorSource): HTMLCanvasElement {
+  const c = blurLayer ?? (blurLayer = document.createElement("canvas"));
+  c.width = srcW(img); // also clears it
+  c.height = srcH(img);
+  c.getContext("2d")?.drawImage(img, 0, 0);
+  return c;
 }
 
 /** Fill the backdrop (solid or diagonal gradient) behind a padded screenshot. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Annotation, ImageAnnotation } from "./editor-geometry";
 import { boundsOf, hitTest, moveAnnotation, normalizeAnnotation, resizeAnnotation, restyleAnnotation, styleOfAnnotation } from "./editor-geometry";
-import { isSafeImageSrc, placeImage, scaleImage } from "./editor-image";
+import { blurNeedsLayer, isSafeImageSrc, placeImage, scaleImage } from "./editor-image";
 import { resizeBy } from "./editor-selection";
 import { transformDoc } from "./editor-transform";
 
@@ -89,5 +89,19 @@ describe("image annotation", () => {
     // centre (200,100) turned clockwise in a 400x200 image → (100,200)
     expect(r.x + r.w / 2).toBeCloseTo(100);
     expect(r.y + r.h / 2).toBeCloseTo(200);
+  });
+});
+
+describe("blurNeedsLayer", () => {
+  const blur: Annotation = { id: "b", type: "blur", x: 0, y: 0, w: 10, h: 10, blockSize: 8 } as Annotation;
+  const spot: Annotation = { id: "s", type: "spotlight", x: 0, y: 0, w: 10, h: 10 } as Annotation;
+  it("is needed only when a blur has something drawn under it", () => {
+    expect(blurNeedsLayer([])).toBe(false);
+    expect(blurNeedsLayer([blur])).toBe(false);
+    expect(blurNeedsLayer([blur, img])).toBe(false);
+    expect(blurNeedsLayer([img, blur])).toBe(true);
+  });
+  it("ignores spotlights, which are drawn last anyway", () => {
+    expect(blurNeedsLayer([spot, blur])).toBe(false);
   });
 });

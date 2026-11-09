@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.250.0] — 2026-11-10
+
+### Added
+- **Resizing snaps too.** While you drag a handle in the screenshot editor, the edge you are pulling (or the end of a line or arrow) snaps to the edges and centres of other elements and of the screenshot, with the same pink guide line as when moving. Hold ⌘ to resize freely. Text size, an arrow's bend and the corners of a placed picture don't snap, because those handles don't move an edge.
+
+### Fixed
+- **A blur now hides what lies under it.** A blur over a placed picture, an arrow or text used to show the screenshot pixels behind them instead of blurring them. It now blurs everything that is drawn below it; elements drawn on top of a blur stay sharp.
+
 ## [0.249.0] — 2026-11-08
 
 ### Added

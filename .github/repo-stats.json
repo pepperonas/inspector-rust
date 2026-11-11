@@ -11,14 +11,14 @@
   "modules": 116,
   "crates": 901,
   "ipc": 578,
-  "components": 122,
-  "suites": 415,
+  "components": 123,
+  "suites": 417,
   "tables": 29,
   "events": 73,
   "completion": 25,
-  "frontendModules": 146,
+  "frontendModules": 147,
   "hidden": 11,
   "hotkeys": 15,
-  "releases": 624,
+  "releases": 625,
   "settings": 48
 }

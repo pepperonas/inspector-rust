@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.253.1] — 2026-11-11
+
+### Fixed
+- **`settings <section>` reaches sections that are still loading.** A deep link such as `settings auto-backup` looked for its target once, right when the Settings tab opened; sections that render only after their state has loaded were not there yet, so nothing happened. The jump now waits for the section to appear.
+- **Backup and device-sync passwords show whether they are saved.** The password row gave no sign of success or failure. It now shows a green check with "Password saved" once a password is stored (read back from the keychain), an amber "No password saved yet" otherwise, and an error if saving failed. Enter saves, Save is disabled while the field is empty, and "Remove" deletes a stored password.
+
 ## [0.253.0] — 2026-11-11
 
 ### Added

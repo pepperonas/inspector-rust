@@ -239,6 +239,8 @@ import {
 } from "../lib/motion-stage";
 import { MEME_ENABLED } from "../lib/meme";
 import { Md2pdfSection } from "./Md2pdfSection";
+import { PasswordField } from "./PasswordField";
+import { whenElement } from "../lib/when-element";
 import { SETTINGS_CATEGORIES } from "../lib/settings-sections";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
@@ -274,6 +276,41 @@ interface Props {
   jumpTo?: { id: string; nonce: number } | null;
 }
 
+/** How long a deep link waits for a section that is still loading. */
+const JUMP_WAIT_MS = 3000;
+
+/** Scroll `el` into view, keep it there while the layout settles, flash it.
+ *  Returns the cleanup. */
+function jumpToSection(el: HTMLElement, root: HTMLElement | null): () => void {
+  // The jump fires on mount, while the sections above still load their
+  // state — they grow afterwards and push the target down (a deep link
+  // to "sync" stopped in the window palette). So jump instantly and keep
+  // the target pinned while the layout settles, until the user scrolls.
+  const pin = () => el.scrollIntoView({ behavior: "auto", block: "start" });
+  pin();
+  let pinning = true;
+  const release = () => {
+    pinning = false;
+  };
+  const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+    if (pinning) pin();
+  });
+  if (root) {
+    for (const child of root.children) ro?.observe(child);
+  }
+  const userInput = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+  for (const ev of userInput) root?.addEventListener(ev, release, { passive: true });
+  const stop = window.setTimeout(release, 1200);
+  el.classList.add("settings-jump-highlight");
+  const flash = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
+  return () => {
+    window.clearTimeout(flash);
+    window.clearTimeout(stop);
+    ro?.disconnect();
+    for (const ev of userInput) root?.removeEventListener(ev, release);
+  };
+}
+
 export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -281,36 +318,12 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   // flash a highlight ring. Re-triggers on every jump via the nonce.
   useEffect(() => {
     if (!jumpTo) return;
-    const el = document.getElementById(`settings-${jumpTo.id}`);
-    if (!el) return;
-    // The jump fires on mount, while the sections above still load their
-    // state — they grow afterwards and push the target down (a deep link
-    // to "sync" stopped in the window palette). So jump instantly and keep
-    // the target pinned while the layout settles, until the user scrolls.
-    const root = scrollRef.current;
-    const pin = () => el.scrollIntoView({ behavior: "auto", block: "start" });
-    pin();
-    let pinning = true;
-    const release = () => {
-      pinning = false;
-    };
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
-      if (pinning) pin();
-    });
-    if (root) {
-      for (const child of root.children) ro?.observe(child);
-    }
-    const userInput = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
-    for (const ev of userInput) root?.addEventListener(ev, release, { passive: true });
-    const stop = window.setTimeout(release, 1200);
-    el.classList.add("settings-jump-highlight");
-    const flash = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
-    return () => {
-      window.clearTimeout(flash);
-      window.clearTimeout(stop);
-      ro?.disconnect();
-      for (const ev of userInput) root?.removeEventListener(ev, release);
-    };
+    // Several sections render nothing until their state has loaded
+    // (`settings auto-backup` found no anchor and did not jump at all), so
+    // the target is waited for.
+    return whenElement(`settings-${jumpTo.id}`, scrollRef.current ?? document.body, JUMP_WAIT_MS, (el) =>
+      jumpToSection(el, scrollRef.current),
+    );
   }, [jumpTo]);
 
   const [cfg, setCfg] = useState<ExpanderConfig | null>(null);
@@ -4073,7 +4086,6 @@ function DeviceSyncSection() {
   const t = useT();
   const [cfg, setCfg] = useState<DeviceSyncConfig | null>(null);
   const [status, setStatus] = useState<DeviceSyncStatus | null>(null);
-  const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -4122,27 +4134,16 @@ function DeviceSyncSection() {
         label={t("common.password")}
         help={t("set.ds.pass_help")}
       >
-        <div className="flex gap-2">
-          <input
-            type="password"
-            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-            placeholder={status?.has_passphrase ? t("common.stored") : t("set.ds.none_yet")}
-            value={pass}
-            onChange={(e) => setPass(e.target.value)}
-          />
-          <button
-            type="button"
-            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
-            onClick={() => {
-              void setDeviceSyncPassphrase(pass).then(() => {
-                setPass("");
-                refresh();
-              });
-            }}
-          >
-            {t("common.save")}
-          </button>
-        </div>
+        <PasswordField
+          testId="device-sync-password"
+          stored={!!status?.has_passphrase}
+          onSave={async (password) => {
+            await setDeviceSyncPassphrase(password);
+            const next = await getDeviceSyncStatus();
+            setStatus(next);
+            return next.has_passphrase;
+          }}
+        />
       </Row>
 
       <Row
@@ -4201,7 +4202,6 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
   const t = useT();
   const [cfg, setCfg] = useState<AutoBackupConfig | null>(null);
   const [status, setStatus] = useState<AutoBackupStatus | null>(null);
-  const [pass, setPass] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -4343,22 +4343,16 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
           label={t("set.ab.password")}
           help={t("set.ab.password_help")}
         >
-          <div className="flex gap-2">
-            <input
-              type="password"
-              className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
-              placeholder={status?.has_password ? t("common.stored") : t("set.ds.none_yet")}
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
-            <button
-              type="button"
-              className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
-              onClick={() => void setAutoBackupPassword(pass).then(() => { setPass(""); refresh(); })}
-            >
-              {t("common.save")}
-            </button>
-          </div>
+          <PasswordField
+            testId="auto-backup-password"
+            stored={!!status?.has_password}
+            onSave={async (password) => {
+              await setAutoBackupPassword(password);
+              const next = await getAutoBackupStatus();
+              setStatus(next);
+              return next.has_password;
+            }}
+          />
         </Row>
       )}
 

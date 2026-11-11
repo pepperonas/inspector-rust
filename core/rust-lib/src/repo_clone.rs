@@ -141,7 +141,6 @@ pub fn default_clone_dir(
     downloads.map(Path::to_path_buf)
 }
 
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const KEYRING_USER: &str = "github-token-v1";
 
 pub fn cache_root() -> Option<PathBuf> {
@@ -450,27 +449,15 @@ pub fn gh_token() -> Option<String> {
 
 /// The personal access token from Settings (keychain).
 pub fn stored_token() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()?
-        .get_password()
-        .ok()
-        .filter(|t| !t.trim().is_empty())
+    crate::secrets::get(KEYRING_USER)
 }
 
 pub fn set_stored_token(t: &str) -> Result<(), String> {
-    let e = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
-    if t.trim().is_empty() {
-        let _ = e.delete_credential();
-        return Ok(());
-    }
-    e.set_password(t.trim()).map_err(|e| e.to_string())
+    crate::secrets::set(KEYRING_USER, t.trim())
 }
 
 pub fn has_stored_token() -> bool {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .is_some_and(|t| !t.trim().is_empty())
+    stored_token().is_some()
 }
 
 #[cfg(test)]

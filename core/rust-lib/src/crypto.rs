@@ -53,7 +53,6 @@ const PREFIX: &str = "v1:";
 const NONCE_LEN: usize = 12;
 const KEY_LEN: usize = 32;
 
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const KEYRING_USER: &str = "history-db-key-v1";
 const KEYFILE_NAME: &str = ".dbkey";
 
@@ -264,15 +263,11 @@ fn load_or_create_key(data_dir: &Path) -> Result<[u8; KEY_LEN]> {
 }
 
 fn read_keychain() -> KeyLookup {
-    let entry = match keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
-        Ok(e) => e,
-        Err(e) => return KeyLookup::Failed(format!("entry: {e}")),
-    };
-    let secret = match entry.get_password() {
-        Ok(s) => s,
+    let secret = match crate::secrets::lookup(KEYRING_USER) {
+        crate::secrets::Lookup::Found(s) => s,
         // The ONLY answer that means "there is nothing here".
-        Err(keyring::Error::NoEntry) => return KeyLookup::Absent,
-        Err(e) => return KeyLookup::Failed(e.to_string()),
+        crate::secrets::Lookup::Absent => return KeyLookup::Absent,
+        crate::secrets::Lookup::Failed(why) => return KeyLookup::Failed(why),
     };
     decode_key(secret.as_bytes(), "keychain value")
 }
@@ -292,13 +287,7 @@ fn decode_key(raw: &[u8], what: &str) -> KeyLookup {
 }
 
 fn write_keychain(key: &[u8; KEY_LEN]) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .context("keyring entry create failed")?;
-    let encoded = B64.encode(key);
-    entry
-        .set_password(&encoded)
-        .context("keyring set_password failed")?;
-    Ok(())
+    crate::secrets::set(KEYRING_USER, &B64.encode(key)).map_err(|e| anyhow!(e))
 }
 
 fn keyfile_path(data_dir: &Path) -> std::path::PathBuf {

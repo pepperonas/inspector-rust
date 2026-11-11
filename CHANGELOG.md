@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.254.0] — 2026-11-12
+
+### Fixed
+- **Passwords and tokens are really stored in the keychain.** On macOS and Windows the app never wrote to the system keychain: a saved secret lived in memory only and was gone at once, although saving reported success. Affected were the backup password (so encrypted automatic backups never ran), the device-sync password, the GitHub sign-in and access token, and the keys of the AI providers. They are now stored in the macOS Keychain / Windows Credential Manager, and saving only counts when the value can be read back. Secrets entered before this version have to be entered once more. The database key was not affected (it has always had its key file); it is now also kept in the keychain. On Linux secrets still last only until the app quits.
+
 ## [0.253.1] — 2026-11-11
 
 ### Fixed

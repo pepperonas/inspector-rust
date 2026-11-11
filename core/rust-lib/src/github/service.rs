@@ -30,7 +30,6 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const OAUTH_USER: &str = "github-oauth-v1";
 
 /// Public client id of the Inspector Rust OAuth app (device flow enabled).
@@ -86,15 +85,8 @@ pub enum TokenSource {
     Gh,
 }
 
-fn oauth_entry() -> Option<keyring::Entry> {
-    keyring::Entry::new(KEYRING_SERVICE, OAUTH_USER).ok()
-}
-
 fn oauth_token() -> Option<String> {
-    oauth_entry()?
-        .get_password()
-        .ok()
-        .filter(|t| !t.trim().is_empty())
+    crate::secrets::get(OAUTH_USER)
 }
 
 /// The first token that exists, in the documented order.
@@ -524,12 +516,7 @@ fn poll_loop(
             PollResult::Pending => {}
             PollResult::SlowDown(n) => interval_s = n,
             PollResult::Token { token, .. } => {
-                let saved = oauth_entry()
-                    .ok_or_else(|| "keychain".to_string())
-                    .and_then(|e| {
-                        e.set_password(token.trim())
-                            .map_err(|_| "github.keychain".to_string())
-                    });
+                let saved = crate::secrets::set(OAUTH_USER, token.trim()).map_err(|_| "github.keychain".to_string());
                 match saved {
                     Ok(()) => {
                         finish(gen, DeviceView::Idle);
@@ -584,9 +571,7 @@ pub fn device_cancel() {
 /// data); a PAT or `gh` login, if present, still connects — the status says so.
 pub fn disconnect(db: &DbHandle) {
     device_cancel();
-    if let Some(e) = oauth_entry() {
-        let _ = e.delete_credential();
-    }
+    crate::secrets::delete(OAUTH_USER);
     let _ = settings::delete(db, K_ERROR);
     emit();
 }

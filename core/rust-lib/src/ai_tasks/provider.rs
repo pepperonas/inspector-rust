@@ -13,7 +13,6 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 /// Keychain service shared with the rest of the app (see `crypto.rs`).
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 /// Answer length cap — a script generator never needs more.
 const MAX_TOKENS: u32 = 8192;
@@ -82,21 +81,11 @@ impl ProviderId {
 
 pub fn set_key(p: ProviderId, key: &str) -> Result<(), String> {
     let account = p.key_account().ok_or("Dieser Anbieter braucht keinen Schlüssel.")?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
-    let key = key.trim();
-    if key.is_empty() {
-        let _ = entry.delete_credential();
-        return Ok(());
-    }
-    entry.set_password(key).map_err(|e| format!("Schlüsselbund: {e}"))
+    crate::secrets::set(account, key.trim()).map_err(|e| format!("Schlüsselbund: {e}"))
 }
 
 pub fn get_key(p: ProviderId) -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, p.key_account()?)
-        .ok()?
-        .get_password()
-        .ok()
-        .filter(|k| !k.trim().is_empty())
+    crate::secrets::get(p.key_account()?)
 }
 
 /// Last four characters, for "a key is stored" in the UI — never the key.

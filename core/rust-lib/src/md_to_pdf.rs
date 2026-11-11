@@ -573,7 +573,7 @@ pub struct Flags {
 /// (spaces kept). Pure.
 pub fn split_flags(arg: &str) -> Flags {
     let mut f = Flags::default();
-    let mut take = |w: &str, f: &mut Flags| match w.to_ascii_lowercase().as_str() {
+    let take = |w: &str, f: &mut Flags| match w.to_ascii_lowercase().as_str() {
         "--dark" | "--dunkel" => {
             f.dark = true;
             true
@@ -613,6 +613,7 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
     build_document(md, base, false).html
 }
 
+#[cfg(test)]
 pub fn build_document(md: &str, base: Option<&Path>, dark: bool) -> Document {
     build_document_with(md, base, &RenderOpts { dark, ..Default::default() })
 }

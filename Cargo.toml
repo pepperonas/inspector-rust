@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "ocr-helper", "win/src-tauri", "macos/src-tauri", "linux/src-tauri", "vendor/openscreen-compositor", "record-render-protocol", "record-render", "transcribe-protocol", "transcribe-core", "transcribe-helper", "record-cli"]
 
 [workspace.package]
-version = "0.253.1"
+version = "0.254.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -36,7 +36,9 @@ rand = "0.8"
 argon2 = "0.5"
 # OS keychain-backed key storage. macOS Keychain / Windows Credential
 # Manager / Linux Secret Service — single API, transparent fallback.
-keyring = "3"
+# The platform features are what make it store anything at all — without
+# them keyring keeps secrets in memory only (see core/rust-lib/src/secrets.rs).
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 # OS integration
 clipboard-rs = "0.2"

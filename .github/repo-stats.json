@@ -12,13 +12,13 @@
   "crates": 901,
   "ipc": 578,
   "components": 123,
-  "suites": 417,
+  "suites": 418,
   "tables": 29,
   "events": 73,
   "completion": 25,
   "frontendModules": 147,
   "hidden": 11,
   "hotkeys": 15,
-  "releases": 625,
+  "releases": 626,
   "settings": 48
 }

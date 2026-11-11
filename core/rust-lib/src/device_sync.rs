@@ -76,7 +76,6 @@ pub const KEY_LAST_HASH: &str = "devicesync.last_hash";
 
 /// Keychain slot for the shared passphrase. Same service as the DB key
 /// (`crate::crypto`); the passphrase is per-device-entered, never synced.
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const KEYRING_USER: &str = "device-sync-passphrase-v1";
 
 const INTERVAL_SECS: u64 = 120;
@@ -180,27 +179,14 @@ fn new_device_id() -> String {
 
 // ── Passphrase (keychain, per device) ────────────────────────────────────────
 
+/// An empty passphrase removes the stored one and the sync stops running
+/// (see `should_run`) — encryption cannot be switched off.
 pub fn set_passphrase(pass: &str) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .context("keyring entry create failed")?;
-    if pass.is_empty() {
-        // Deleting is how the user turns encryption off — which we do not
-        // allow, so an empty passphrase simply removes the stored one and the
-        // sync stops running (see `should_run`).
-        let _ = entry.delete_credential();
-        return Ok(());
-    }
-    entry
-        .set_password(pass)
-        .context("keyring set_password failed")
+    crate::secrets::set(KEYRING_USER, pass).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn get_passphrase() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()?
-        .get_password()
-        .ok()
-        .filter(|p| !p.is_empty())
+    crate::secrets::get(KEYRING_USER)
 }
 
 // ── Pure decisions ───────────────────────────────────────────────────────────

@@ -47,7 +47,6 @@ pub const KEY_LAST_HASH: &str = "autobackup.last_hash";
 /// Keychain slot for the backup password. Same service as the DB key
 /// (`crate::crypto`) + device sync; the password is entered per device, never
 /// written to a file or the settings table.
-const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const KEYRING_USER: &str = "auto-backup-password-v1";
 
 /// Base worker tick. The configured interval is honoured via [`due`]; the tick
@@ -427,21 +426,11 @@ fn bstr(b: bool) -> &'static str {
 }
 
 pub fn set_password(pass: &str) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .context("keyring entry create failed")?;
-    if pass.is_empty() {
-        let _ = entry.delete_credential();
-        return Ok(());
-    }
-    entry.set_password(pass).context("keyring set_password failed")
+    crate::secrets::set(KEYRING_USER, pass).map_err(|e| anyhow::anyhow!(e))
 }
 
 pub fn get_password() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
-        .ok()?
-        .get_password()
-        .ok()
-        .filter(|p| !p.is_empty())
+    crate::secrets::get(KEYRING_USER)
 }
 
 pub fn get_status(db: &DbHandle) -> Result<AutoBackupStatus> {

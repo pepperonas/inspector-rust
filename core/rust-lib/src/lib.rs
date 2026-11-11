@@ -106,6 +106,7 @@ mod screenshot_preview;
 mod sec;
 mod seed;
 mod settings;
+mod secrets;
 mod settings_sync;
 mod shazam;
 mod shell_alias;

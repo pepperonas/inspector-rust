@@ -115,9 +115,11 @@ impl Stream {
         };
         let lang_static: &'static str = if lang == "en" { "en" } else { "de" };
 
-        let mut p = match opts.kind {
-            JobKind::Final => FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 }),
-            JobKind::Hypothesis => FullParams::new(SamplingStrategy::Greedy { best_of: 1 }),
+        let fast = opts.kind == JobKind::Hypothesis && !opts.careful;
+        let mut p = if fast {
+            FullParams::new(SamplingStrategy::Greedy { best_of: 1 })
+        } else {
+            FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 })
         };
         p.set_n_threads(threads as i32);
         p.set_language(Some(lang_static));
@@ -128,7 +130,7 @@ impl Stream {
         p.set_print_timestamps(false);
         p.set_suppress_blank(true);
         p.set_no_context(true);
-        if opts.kind == JobKind::Hypothesis {
+        if fast {
             p.set_single_segment(true);
             p.set_audio_ctx(hypothesis_audio_ctx(samples.len()));
             p.set_temperature_inc(0.0);
@@ -302,7 +304,7 @@ mod tests {
     }
 
     fn opts(kind: JobKind, lang: Lang) -> DecodeOpts {
-        DecodeOpts { kind, lang, last_lang: None, prompt: String::new(), threads: 4 }
+        DecodeOpts { kind, lang, last_lang: None, prompt: String::new(), threads: 4, careful: false }
     }
 
     pub fn recall(got: &str, want: &str) -> f32 {

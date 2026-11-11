@@ -258,8 +258,11 @@ Since v0.233.0 the audio, VAD, segmentation and Whisper run in the `ir-transcrib
 (deleted in `finish`), `keep_audio` false, dedupe off, model + mic device from the
 meeting config. The app keeps: `LiveJob` (pure `apply(&Event)`: `Started` → Recording,
 `Hypothesis` → `partial` (stable + pending; older than the last final = ignored),
-`Final`/`Dropped` commit/clear, `Level` → meter), `result_text` (catalogue lyrics beat
-the transcript), Shazam (`recognize_due` → `Command::Window{source, 10}` → `Event::Window`
+`Final`/`Dropped` commit/clear, `Level` → meter), `result_text` (always the transcript since v0.251.0 —
+catalogue lyrics are copied only by the song row's button, `SongInfo::lyrics_clip`;
+the song is published before its lyrics are fetched, and Stop no longer waits for a
+running recognition), Shazam (`recognize_due` from `RECOGNIZE_MIN` 5 s, every 5 s →
+`Command::Window{source, recognize_secs}` → `Event::Window`
 → `decode_window` → `window_has_sound` → `spawn_recognize`), ducking (opt-in
 `transcribe.duck_audio`, restored on exit). The pure `step(&Event, source, started)`
 decides the loop: an `Error` before `Started` fails the start, a lost **microphone**
@@ -270,7 +273,7 @@ accurate pass** any more (large-v3-turbo is the accurate model; `final_text` sta
 wire format, always null). Busy both ways with meeting and the file job. Gone with
 Python: the app's own segmenter, `live.py`, `system_audio.rs` (the helper has its own
 SCK fallback), `prompt_tail`, the accurate pass and its tests. Enter on a RECORDING
-dictation stops it before the argument is read (source-pinned). ⚠️ **Music modes cut by loudness, not by the speech VAD (v0.250.1):** Silero scores singing over instruments as no speech, so `--room`/`--song` produced 1–2-s scraps with long holes (measured: 8 fragments in 110 s of a rock song) and the scraps echoed the PROMPT (previous text) back. `vad::music_probs` sets every frame above `MUSIC_RMS` (0.006) to speech when `pipeline::is_music(mode)`, and `prompt_for` gives music finals no prompt. Probe: scratch script driving `ir-transcribe` in mode `room` while `afplay` plays a song — lag 2–4 s per 20-s final.
+dictation stops it before the argument is read (source-pinned). ⚠️ **Music modes cut by loudness, not by the speech VAD (v0.250.1):** Silero scores singing over instruments as no speech, so `--room`/`--song` produced 1–2-s scraps with long holes (measured: 8 fragments in 110 s of a rock song) and the scraps echoed the PROMPT (previous text) back. `vad::music_probs` sets every frame above `MUSIC_RMS` (0.006) to speech when `pipeline::is_music(mode)`, and `prompt_for` gives music finals no prompt. Probe: scratch script driving `ir-transcribe` in mode `room` while `afplay` plays a song — lag 2–4 s per 20-s final. **Music previews are decoded like finals (v0.251.0, `DecodeOpts::careful`, `pipeline::preview_plan`: every 2 s over the whole open piece):** the greedy + reduced-`audio_ctx` preview looped on music (1.5 s per try, rejected as `loop`/`low_confidence`, and a final waited behind it), so text showed only once per piece. `IR_TRANSCRIBE_TIMING=1` prints one stderr line per decode.
 
 ### meeting — live transcription MIC + SYS (`transcribe-core/`, `transcribe-helper/`, `transcribe-protocol/`, `meeting.rs`, `meeting_ui.rs`, `ticker.rs`, `transcribe_client.rs`, v0.233.0, Apple Silicon) — reference: `docs/meeting.md`
 

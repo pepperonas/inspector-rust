@@ -135,6 +135,22 @@ pub struct SongInfo {
     pub cover_url: String,
     /// The catalogue lyrics (lrclib); None = the song has none there.
     pub lyrics: Option<String>,
+    /// The lyrics as the panel's button copies them ("Title – Artist", blank
+    /// line, lyrics).
+    pub lyrics_clip: Option<String>,
+    /// The catalogue is still being asked.
+    pub lyrics_loading: bool,
+}
+
+impl SongInfo {
+    /// Put the catalogue's answer in. Blank lyrics count as none. Pure.
+    pub fn with_lyrics(mut self, lyrics: Option<String>) -> Self {
+        let lyrics = lyrics.filter(|l| !l.trim().is_empty());
+        self.lyrics_clip = lyrics.as_deref().map(|l| crate::shazam::lyrics_clip_text(&self.title, &self.artist, l));
+        self.lyrics = lyrics;
+        self.lyrics_loading = false;
+        self
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -273,19 +289,11 @@ impl LiveJob {
         join(&self.committed, &self.partial)
     }
 
-    /// The catalogue lyrics of the recognised song, if any.
-    fn catalogue_lyrics(&self) -> Option<&str> {
-        self.song.as_ref()?.lyrics.as_deref().filter(|l| !l.trim().is_empty())
-    }
-
-    /// What ends up in the clipboard: a recognised song's catalogue lyrics
-    /// (exact, unlike anything Whisper hears through music), else the
-    /// transcript.
+    /// What ends up in the clipboard when the session stops: what was
+    /// heard. A recognised song's catalogue lyrics never replace it — the
+    /// panel offers them on a button (`SongInfo::lyrics_clip`).
     pub fn result_text(&self) -> String {
-        match (&self.song, self.catalogue_lyrics()) {
-            (Some(song), Some(lyrics)) => crate::shazam::lyrics_clip_text(&song.title, &song.artist, lyrics),
-            _ => self.transcript_text(),
-        }
+        self.transcript_text()
     }
 }
 
@@ -300,13 +308,21 @@ pub struct LiveDone {
 
 // ── Song recognition ────────────────────────────────────────────────────────
 
-/// Audio sent to Shazam per attempt.
+/// Audio sent to Shazam per attempt, at most.
 pub const RECOGNIZE_WINDOW: usize = RATE * 10;
+/// The first attempts go out earlier, with what there is.
+pub const RECOGNIZE_MIN: usize = RATE * 5;
 /// Pause between attempts. Through the microphone one window in three
 /// matched in the 2026-10-22 measurement, so a miss is normal — try again.
-pub const RECOGNIZE_EVERY_MS: u64 = 8_000;
+pub const RECOGNIZE_EVERY_MS: u64 = 5_000;
 /// Give up after this many attempts (~2 minutes of trying).
-pub const RECOGNIZE_MAX_TRIES: u32 = 15;
+pub const RECOGNIZE_MAX_TRIES: u32 = 24;
+
+/// Seconds of audio to ask the helper for: everything so far, up to the
+/// full window. Pure.
+pub fn recognize_secs(recorded: usize) -> u32 {
+    (recorded.min(RECOGNIZE_WINDOW) / RATE) as u32
+}
 
 /// Whether to send the next window to Shazam now. Pure.
 pub fn recognize_due(
@@ -321,7 +337,7 @@ pub fn recognize_due(
         && !matched
         && !in_flight
         && tries < RECOGNIZE_MAX_TRIES
-        && recorded >= RECOGNIZE_WINDOW
+        && recorded >= RECOGNIZE_MIN
         && since_last_ms.is_none_or(|ms| ms >= RECOGNIZE_EVERY_MS)
 }
 
@@ -556,11 +572,16 @@ fn spawn_recognize(app: tauri::AppHandle, id: u64, window: Vec<i16>, flag: Arc<A
                         let _ = crate::shazam::history_insert(&db, &m);
                     }
                 }
-                let lyrics = crate::shazam::fetch_lyrics(&m.artist, &m.title).ok().flatten();
-                tracing::info!("transcribe song: recognised (lyrics: {})", lyrics.is_some());
-                let info = SongInfo { title: m.title, artist: m.artist, cover_url: m.cover_url, lyrics };
+                // The song shows at once; its lyrics follow when the catalogue answers.
+                let info = SongInfo { title: m.title, artist: m.artist, cover_url: m.cover_url, lyrics_loading: true, ..Default::default() };
                 if let Some(job) = JOB.lock().as_mut().filter(|j| j.id == id) {
-                    job.song = Some(info);
+                    job.song = Some(info.clone());
+                }
+                publish(&app);
+                let lyrics = crate::shazam::fetch_lyrics(&info.artist, &info.title).ok().flatten();
+                tracing::info!("transcribe song: recognised (lyrics: {})", lyrics.is_some());
+                if let Some(job) = JOB.lock().as_mut().filter(|j| j.id == id) {
+                    job.song = Some(info.with_lyrics(lyrics));
                 }
                 publish(&app);
             }
@@ -715,7 +736,7 @@ fn session(
             {
                 window_asked = true;
                 last_recognize = Some(Instant::now());
-                let secs = (RECOGNIZE_WINDOW / RATE) as u32;
+                let secs = recognize_secs(recorded);
                 let _ = crate::transcribe_client::send(&Command::Window { source: source.capture(), secs });
             }
         } else if begun.elapsed() > Duration::from_secs(120) && stop_sent.is_none() {
@@ -736,11 +757,6 @@ fn session(
                 publish(app);
             }
             let _ = crate::transcribe_client::send(&Command::Stop);
-            // A recognition still on the wire may bring the exact lyrics.
-            let wait = Instant::now() + Duration::from_secs(15);
-            while recognizing.load(Ordering::SeqCst) && Instant::now() < wait && !CANCEL.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(100));
-            }
         }
         if stop_sent.is_some_and(|t| t.elapsed() > STOP_WAIT) {
             return Err(crate::transcribe::user_error("transcribe.timeout"));
@@ -783,8 +799,6 @@ fn finish(app: &tauri::AppHandle, error: Option<String>, dir: Option<&Path>) {
         j.copied = copied;
         j.level = 0.0;
         j.loading_model = None;
-        // The transcript shown stays what was heard (the catalogue lyrics,
-        // when copied instead, are shown with the song).
         j.committed = j.transcript_text();
         j.partial.clear();
         j.result = (!cancelled).then(|| text.clone());
@@ -893,8 +907,12 @@ mod tests {
         assert!(recognize_due(LiveSource::System, w, None, 0, false, false));
         // A dictation is never sent to Shazam.
         assert!(!recognize_due(LiveSource::Mic, w * 10, None, 0, false, false));
-        // Not before a full window exists.
-        assert!(!recognize_due(LiveSource::Room, w - 1, None, 0, false, false));
+        // Early attempts go out with what there is, but not with less than the minimum.
+        assert!(recognize_due(LiveSource::Room, RECOGNIZE_MIN, None, 0, false, false));
+        assert!(!recognize_due(LiveSource::Room, RECOGNIZE_MIN - 1, None, 0, false, false));
+        assert_eq!(recognize_secs(RECOGNIZE_MIN), 5);
+        assert_eq!(recognize_secs(RATE * 7 + 100), 7);
+        assert_eq!(recognize_secs(RATE * 60), 10);
         // Paced, one at a time, stops once matched or out of tries.
         assert!(!recognize_due(LiveSource::Room, w, Some(RECOGNIZE_EVERY_MS - 1), 1, false, false));
         assert!(recognize_due(LiveSource::Room, w, Some(RECOGNIZE_EVERY_MS), 1, false, false));
@@ -923,20 +941,22 @@ mod tests {
     }
 
     #[test]
-    fn catalogue_lyrics_win() {
+    fn stopping_copies_what_was_heard_never_the_catalogue_lyrics() {
         let mut j = LiveJob::new(1, None, 0);
         j.apply(&fin(1, "something heard"));
         assert_eq!(j.result_text(), "something heard");
-        // Recognised, but the catalogue has no lyrics: the transcript stays.
-        j.song = Some(SongInfo { title: "T".into(), artist: "A".into(), lyrics: None, ..Default::default() });
+        let song = SongInfo { title: "T".into(), artist: "A".into(), lyrics_loading: true, ..Default::default() };
+        j.song = Some(song.clone().with_lyrics(Some("line one\nline two".into())));
+        // The transcript is the result; the lyrics wait on the button.
         assert_eq!(j.result_text(), "something heard");
-        // With lyrics: those are copied, the heard text is still available.
-        j.song.as_mut().unwrap().lyrics = Some("line one\nline two".into());
-        assert_eq!(j.result_text(), crate::shazam::lyrics_clip_text("T", "A", "line one\nline two"));
-        assert_eq!(j.transcript_text(), "something heard");
-        // Blank lyrics count as none.
-        j.song.as_mut().unwrap().lyrics = Some("  ".into());
-        assert_eq!(j.result_text(), "something heard");
+        let s = j.song.as_ref().unwrap();
+        assert_eq!(s.lyrics_clip.as_deref(), Some(crate::shazam::lyrics_clip_text("T", "A", "line one\nline two").as_str()));
+        assert!(!s.lyrics_loading);
+        // Blank or missing lyrics: nothing to copy, and the search is over.
+        for none in [Some("  ".to_string()), None] {
+            let s = song.clone().with_lyrics(none);
+            assert_eq!((s.lyrics, s.lyrics_clip, s.lyrics_loading), (None, None, false));
+        }
     }
 
     #[test]

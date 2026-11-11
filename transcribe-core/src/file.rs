@@ -151,7 +151,7 @@ pub fn transcribe_stream(
     // recording used to cost the whole transcript.
     let mut failed: Option<String> = None;
     drive(src, vad, cancel, progress, |_, samples| {
-        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
+        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads, careful: false };
         let d = match tr.decode(Source::Mic, samples, &opts) {
             Ok(d) => d,
             Err(e) => {
@@ -214,7 +214,7 @@ pub fn transcribe_words_stream(
 
     let mut failed: Option<String> = None;
     drive(src, vad, cancel, progress, |s, samples| {
-        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads };
+        let opts = DecodeOpts { kind: JobKind::Final, lang, last_lang: last_lang.clone(), prompt: tail.clone(), threads, careful: false };
         let d = match tr.decode_tokens(samples, &opts) {
             Ok(d) => d,
             Err(e) => {

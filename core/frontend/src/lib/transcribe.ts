@@ -183,7 +183,7 @@ export function liveRowLabel(job: LiveJob | null | undefined, arg: string): stri
 
 /** The text a finished dictation produced (what was copied). */
 export function liveResultText(job: LiveJob): string {
-  // The session's own end text (catalogue lyrics for a recognised song).
+  // The session's own end text (what was heard).
   if (job.result && job.result.trim()) return job.result;
   if (job.final_text && job.final_text.trim()) return job.final_text;
   return [job.committed, job.partial].map((x) => x.trim()).filter(Boolean).join(" ");

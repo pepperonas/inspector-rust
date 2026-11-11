@@ -48,20 +48,38 @@ describe("TranscribeLivePanel", () => {
     expect(screen.getByTestId("live-song").textContent).toContain("attempt 2");
   });
 
-  it("shows the recognised song and copies its catalogue lyrics", () => {
-    const song = { title: "Title", artist: "Artist", cover_url: "", lyrics: "la la" };
-    const { unmount } = render(<TranscribeLivePanel {...props} job={job({ source: "room", song })} />);
-    expect(screen.getByTestId("live-song").textContent).toContain("Lyrics found");
+  it("keeps what was heard; the catalogue lyrics are copied only by their button", () => {
+    const clip = "Title – Artist\n\nla la";
+    const song = { title: "Title", artist: "Artist", cover_url: "", lyrics: "la la", lyrics_clip: clip };
+    const onCopy = vi.fn();
+    // While recording the button is already there.
+    const { unmount } = render(<TranscribeLivePanel {...props} onCopy={onCopy} job={job({ source: "room", song })} />);
+    expect(screen.getByTestId("live-copy-lyrics").textContent).toContain("Copy lyrics");
     unmount();
     render(
       <TranscribeLivePanel
         {...props}
-        job={job({ source: "room", song, state: "done", committed: "heard", result: "Title – Artist\n\nla la", copied: true })}
+        onCopy={onCopy}
+        job={job({ source: "room", song, state: "done", committed: "heard", result: "heard", copied: true })}
       />,
     );
-    expect(screen.getByTestId("live-song").textContent).toContain("Lyrics from the catalogue copied");
-    expect(screen.getByText(/la la/)).toBeTruthy();
-    expect(screen.queryByText("heard")).toBeNull();
+    // The transcript stays on screen, the lyrics are not shown in its place.
+    expect(screen.getByText("heard")).toBeTruthy();
+    expect(screen.queryByText(/la la/)).toBeNull();
+    expect(onCopy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("live-copy-lyrics"));
+    expect(onCopy).toHaveBeenCalledWith(clip);
+    expect(screen.getByTestId("live-copy-lyrics").textContent).toContain("Lyrics copied");
+  });
+
+  it("a song without lyrics has no lyrics button", () => {
+    const song = { title: "Title", artist: "Artist", cover_url: "", lyrics: null };
+    const { unmount } = render(<TranscribeLivePanel {...props} job={job({ source: "room", song: { ...song, lyrics_loading: true } })} />);
+    expect(screen.getByTestId("live-song").textContent).toContain("Looking up lyrics");
+    unmount();
+    render(<TranscribeLivePanel {...props} job={job({ source: "room", song })} />);
+    expect(screen.getByTestId("live-song").textContent).toContain("No lyrics in the catalogue");
+    expect(screen.queryByTestId("live-copy-lyrics")).toBeNull();
   });
 
   it("dictation never shows a song row", () => {

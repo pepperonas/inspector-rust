@@ -1074,7 +1074,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "transcribe ~/Videos/clip.mp4 -l en", result: "English speech → clip.txt." },
       { input: "transcribe --start --language de", result: "Dictate German; Enter stops, text → clipboard." },
       { input: "transcribe --song", result: "Writes down the lyrics of the song playing on this Mac; nothing is turned down." },
-      { input: "transcribe --room", result: "Listens to the stereo through the microphone, recognises the song and copies its lyrics." },
+      { input: "transcribe --room", result: "Listens to the stereo through the microphone and writes the song down; the recognised song gets a Copy lyrics button." },
     ],
     tips: [
       "Use a language hint for short recordings.",

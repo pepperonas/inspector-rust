@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.251.0] — 2026-11-11
+
+### Changed
+- **Stopping a song recording copies what was heard.** `transcribe --room` and `--song` used to replace the transcript with the recognised song's lyrics from the catalogue when you stopped. The transcript now stays and is what gets copied; the recognised song has a **Copy lyrics** button for the catalogue text, while recording and afterwards.
+- **Song recordings show text much sooner.** The live preview of the piece being sung now appears about every two seconds, roughly a second behind the music. Before, the preview came back empty most of the time on music and text only showed once per 20-second piece.
+- **The song is recognised sooner.** The first attempt goes out after 5 seconds instead of 10, further ones every 5 seconds instead of 8, and the song shows as soon as it matches instead of after its lyrics were looked up. Stopping no longer waits for a recognition that is still running.
+
 ## [0.250.1] — 2026-11-11
 
 ### Fixed

@@ -76,7 +76,7 @@ export function TranscribeLivePanel({
       ) : (
         <>
           <StatusRow job={job} />
-          {(job.source === "system" || job.source === "room") && <SongRow job={job} finished={finished} />}
+          {(job.source === "system" || job.source === "room") && <SongRow job={job} finished={finished} onCopy={onCopy} />}
           <div
             ref={textRef}
             className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[13px] leading-6"
@@ -229,10 +229,13 @@ function StatusRow({ job }: { job: LiveJob }) {
   );
 }
 
-/** The recognised song (song sessions): what Shazam found and whether the
- *  catalogue has its lyrics — those are copied instead of what was heard. */
-function SongRow({ job, finished }: { job: LiveJob; finished: boolean }) {
+/** The recognised song (song sessions): what Shazam found, and a button that
+ *  copies its catalogue lyrics. Stopping always copies what was heard. */
+function SongRow({ job, finished, onCopy }: { job: LiveJob; finished: boolean; onCopy: (text: string) => void }) {
   const song = job.song;
+  const [copied, setCopied] = useState(false);
+  const clip = song?.lyrics_clip ?? null;
+  useEffect(() => setCopied(false), [job.id, clip]);
   if (!song) {
     if (finished) return null;
     return (
@@ -256,9 +259,25 @@ function SongRow({ job, finished }: { job: LiveJob; finished: boolean }) {
         <div className="truncate text-[12px] font-medium">{song.title}</div>
         <div className="truncate text-[11px] text-[var(--color-muted)]">{song.artist}</div>
       </div>
-      <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
-        {song.lyrics ? (finished ? t("trx.live.song_lyrics_used") : t("trx.live.song_lyrics_found")) : t("trx.live.song_no_lyrics")}
-      </span>
+      {clip ? (
+        <button
+          type="button"
+          title={t("trx.live.song_lyrics_title")}
+          onClick={() => {
+            onCopy(clip);
+            setCopied(true);
+          }}
+          data-testid="live-copy-lyrics"
+          className="md3-press flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)]"
+        >
+          {copied ? <Check size={11} /> : <Copy size={11} />}
+          {copied ? t("trx.live.song_lyrics_used") : t("trx.live.song_lyrics_found")}
+        </button>
+      ) : (
+        <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
+          {song.lyrics_loading ? t("trx.live.song_lyrics_loading") : t("trx.live.song_no_lyrics")}
+        </span>
+      )}
     </div>
   );
 }

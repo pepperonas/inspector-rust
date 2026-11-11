@@ -358,6 +358,10 @@ export interface LiveSong {
   cover_url: string;
   /** Catalogue lyrics; null = the catalogue has none for this song. */
   lyrics: string | null;
+  /** The lyrics as the copy button writes them (title line + lyrics). */
+  lyrics_clip?: string | null;
+  /** The catalogue is still being asked. */
+  lyrics_loading?: boolean;
 }
 
 /** Payload of `transcribe-live-done`. */

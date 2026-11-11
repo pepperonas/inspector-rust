@@ -12,6 +12,10 @@ pub struct DecodeOpts {
     pub last_lang: Option<String>,
     pub prompt: String,
     pub threads: usize,
+    /// Decode a preview like a final (beam search, full encoder context).
+    /// Music needs it: the fast preview settings run into repeat loops there
+    /// and nearly every preview is thrown away.
+    pub careful: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

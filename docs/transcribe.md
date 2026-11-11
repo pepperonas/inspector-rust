@@ -87,14 +87,20 @@ needs more context than a spoken one.
 microphone to a song playing elsewhere — a stereo, a phone, the radio. Panel:
 "Song from another device". Two things run side by side:
 
-- **Shazam recognises the song.** Every 8 s the app asks the helper for the
-  last 10 s of audio (`Command::Window`) and sends a fingerprint (not the audio
-  itself) until a match, at most 15 tries. When the lyrics catalogue (lrclib)
-  has the song, its **exact lyrics** are copied at the stop instead of what
-  Whisper heard, with a "Title – Artist" line on top. The match also lands in
-  the Shazam history. `--song` (this Mac) does the same recognition.
-- **Whisper writes along** for songs the catalogue lacks (`Mode::Room`,
-  20-s segments).
+- **Whisper writes along** (`Mode::Room`, pieces of up to 20 s). The piece
+  being sung is previewed every 2 s over everything it holds so far, decoded
+  like a final (`DecodeOpts::careful`): the fast preview settings run into
+  repeat loops on music and nearly every preview was thrown away, so text only
+  appeared once per 20-s piece. Measured: a preview about 1.1 s after its
+  audio, text for 21 of 23 previews (before: 9 of 40).
+- **Shazam recognises the song.** From 5 s on, every 5 s, the app asks the
+  helper for the last up to 10 s of audio (`Command::Window`) and sends a
+  fingerprint (not the audio itself) until a match, at most 24 tries. The song
+  shows as soon as it matches; its lyrics from the catalogue (lrclib) follow.
+  The match also lands in the Shazam history. `--song` (this Mac) does the same.
+- **Stopping copies what was heard.** The catalogue lyrics never replace the
+  transcript: the song row has a **Copy lyrics** button ("Title – Artist", a
+  blank line, the lyrics), available while recording and afterwards.
 
 Vocal separation (Demucs) before Whisper was tried in 0.225 and made it worse,
 so it is not used. Through the microphone the system audio (`--song`) stays
@@ -107,6 +113,8 @@ singing over instruments as "no speech" most of the time: a song used to come
 out as 1–2-s scraps with long holes. These decodes also get no prompt
 (`pipeline::prompt_for`) — on a stretch it cannot make out, Whisper answers
 with the prompt itself, and the repeat then fed the next prompt.
+`IR_TRANSCRIBE_TIMING=1` makes the helper print one stderr line per decode
+(audio length, decode time, wait, rejections).
 
 ### Turning the music down while dictating (opt-in)
 

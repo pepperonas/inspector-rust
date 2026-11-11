@@ -71,6 +71,19 @@ pub const HYPOTHESIS_EVERY: Duration = Duration::from_secs(1);
 pub const HYPOTHESIS_WINDOW: usize = RATE * 10;
 /// … and only once it holds this much.
 pub const HYPOTHESIS_MIN: usize = RATE / 2;
+/// Music previews are decoded like finals (about a second each): less often,
+/// and over the whole open piece so the preview is the piece so far.
+pub const MUSIC_HYPOTHESIS_EVERY: Duration = Duration::from_millis(2000);
+
+/// How often the open segment is previewed and over how much of its end.
+pub fn preview_plan(music: bool, max_seg: usize) -> (Duration, usize) {
+    if music {
+        (MUSIC_HYPOTHESIS_EVERY, max_seg)
+    } else {
+        (HYPOTHESIS_EVERY, HYPOTHESIS_WINDOW)
+    }
+}
+
 pub const LEVEL_EVERY: Duration = Duration::from_millis(100);
 pub const RETRY_EVERY: Duration = Duration::from_secs(2);
 pub const MAX_RETRIES: u32 = 30;
@@ -103,6 +116,13 @@ pub fn prompt_for(music: bool, kind: JobKind, tail: &str) -> String {
     } else {
         tail.to_string()
     }
+}
+
+/// `IR_TRANSCRIBE_TIMING=1`: one stderr line per decode (audio length,
+/// decode time, how long the audio waited).
+fn timing_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("IR_TRANSCRIBE_TIMING").is_some())
 }
 
 pub fn now_ms() -> u64 {
@@ -562,7 +582,8 @@ fn process_chunk(c: &SourceCtx, s: &mut Stream, chunk: &[f32]) {
 }
 
 fn maybe_hypothesis(c: &SourceCtx, s: &mut Stream) {
-    if s.last_hyp.elapsed() < HYPOTHESIS_EVERY {
+    let (every, window) = preview_plan(c.music, c.max_seg);
+    if s.last_hyp.elapsed() < every {
         return;
     }
     let Some((open, samples)) = s.seg.open() else { return };
@@ -570,7 +591,7 @@ fn maybe_hypothesis(c: &SourceCtx, s: &mut Stream) {
         return;
     }
     s.last_hyp = Instant::now();
-    let from = samples.len().saturating_sub(HYPOTHESIS_WINDOW);
+    let from = samples.len().saturating_sub(window);
     c.shared.push(Job {
         kind: JobKind::Hypothesis,
         source: c.source,
@@ -712,8 +733,22 @@ fn run_job(c: &mut InferenceCtx, st: &mut [SrcState; 2], audio: &mut HashMap<(So
         last_lang: s.last_lang.clone(),
         prompt: prompt_for(c.music, job.kind, &s.tail),
         threads: c.threads,
+        careful: c.music,
     };
-    let decoded = match c.transcriber.decode(job.source, &job.samples, &opts) {
+    let t0 = Instant::now();
+    let res = c.transcriber.decode(job.source, &job.samples, &opts);
+    if timing_on() {
+        eprintln!(
+            "timing {:?} {:.1}s audio -> {} ms (waited {} ms, {} chars, rejected {:?})",
+            job.kind,
+            job.samples.len() as f32 / RATE as f32,
+            t0.elapsed().as_millis(),
+            now_ms().saturating_sub(job.start_ms + job.samples.len() as u64 * 1000 / RATE as u64),
+            res.as_ref().map(|d| d.text.len()).unwrap_or(0),
+            res.as_ref().map(|d| d.rejected.clone()).unwrap_or_default(),
+        );
+    }
+    let decoded = match res {
         Ok(d) => d,
         Err(e) => {
             (c.sink)(Event::Warning { code: "decode".into(), detail: e });
@@ -1174,6 +1209,14 @@ mod tests {
         assert_eq!(finals_with_deaf_vad(Mode::Room), 1);
         assert_eq!(finals_with_deaf_vad(Mode::Song), 1);
         assert_eq!(finals_with_deaf_vad(Mode::Meeting), 0, "speech modes still trust the VAD");
+    }
+
+    #[test]
+    fn music_previews_cover_the_whole_piece_and_come_less_often() {
+        assert_eq!(preview_plan(false, MAX_SEG), (HYPOTHESIS_EVERY, HYPOTHESIS_WINDOW));
+        let (every, window) = preview_plan(true, max_seg_for(Mode::Room));
+        assert_eq!(window, max_seg_for(Mode::Room));
+        assert!(every > HYPOTHESIS_EVERY);
     }
 
     #[test]

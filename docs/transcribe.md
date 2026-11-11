@@ -100,6 +100,14 @@ Vocal separation (Demucs) before Whisper was tried in 0.225 and made it worse,
 so it is not used. Through the microphone the system audio (`--song`) stays
 more exact; use `--room` only when the song is not on this Mac.
 
+**How a song is cut (v0.250.1).** In `Mode::Room` and `Mode::Song` every frame
+louder than `vad::MUSIC_RMS` (about −44 dBFS) counts as content
+(`vad::music_probs`), on top of the speech detector's own verdict. Silero hears
+singing over instruments as "no speech" most of the time: a song used to come
+out as 1–2-s scraps with long holes. These decodes also get no prompt
+(`pipeline::prompt_for`) — on a stretch it cannot make out, Whisper answers
+with the prompt itself, and the repeat then fed the next prompt.
+
 ### Turning the music down while dictating (opt-in)
 
 With the setting `transcribe.duck_audio = true`, a dictation from the

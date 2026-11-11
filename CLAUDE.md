@@ -270,7 +270,7 @@ accurate pass** any more (large-v3-turbo is the accurate model; `final_text` sta
 wire format, always null). Busy both ways with meeting and the file job. Gone with
 Python: the app's own segmenter, `live.py`, `system_audio.rs` (the helper has its own
 SCK fallback), `prompt_tail`, the accurate pass and its tests. Enter on a RECORDING
-dictation stops it before the argument is read (source-pinned).
+dictation stops it before the argument is read (source-pinned). ⚠️ **Music modes cut by loudness, not by the speech VAD (v0.250.1):** Silero scores singing over instruments as no speech, so `--room`/`--song` produced 1–2-s scraps with long holes (measured: 8 fragments in 110 s of a rock song) and the scraps echoed the PROMPT (previous text) back. `vad::music_probs` sets every frame above `MUSIC_RMS` (0.006) to speech when `pipeline::is_music(mode)`, and `prompt_for` gives music finals no prompt. Probe: scratch script driving `ir-transcribe` in mode `room` while `afplay` plays a song — lag 2–4 s per 20-s final.
 
 ### meeting — live transcription MIC + SYS (`transcribe-core/`, `transcribe-helper/`, `transcribe-protocol/`, `meeting.rs`, `meeting_ui.rs`, `ticker.rs`, `transcribe_client.rs`, v0.233.0, Apple Silicon) — reference: `docs/meeting.md`
 

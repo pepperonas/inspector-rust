@@ -36,6 +36,24 @@ impl Vad for EnergyVad {
     }
 }
 
+/// A frame louder than this (about −44 dBFS) counts as content in the music
+/// modes — a quiet room sits near −67 dBFS, a playing song far above.
+pub const MUSIC_RMS: f32 = 0.006;
+
+/// Song and room sessions: the speech VAD hears singing over instruments as
+/// "no speech" most of the time and would cut a song into 1-s scraps with
+/// long holes. Every frame that is audibly not silence counts there; the
+/// VAD's own verdict still stands for quiet speech.
+pub fn music_probs(frames: &[f32], mut probs: Vec<f32>) -> Vec<f32> {
+    for (p, f) in probs.iter_mut().zip(frames.chunks(VAD_FRAME)) {
+        let r = (f.iter().map(|x| x * x).sum::<f32>() / f.len().max(1) as f32).sqrt();
+        if r > MUSIC_RMS {
+            *p = 1.0;
+        }
+    }
+    probs
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub use silero::SileroVad;
 
@@ -101,6 +119,14 @@ mod tests {
         assert!(v.probs(&[0.5; 300]).unwrap().is_empty());
         assert_eq!(v.probs(&[0.5; 300]).unwrap(), vec![1.0]);
         assert_eq!(v.probs(&[0.0; 1024]).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn music_counts_every_audible_frame() {
+        let mut frames = vec![0.3f32; VAD_FRAME];
+        frames.extend(vec![0.001f32; VAD_FRAME * 2]);
+        // Loud frame the VAD missed, quiet frame it missed, quiet frame it heard.
+        assert_eq!(music_probs(&frames, vec![0.0, 0.1, 0.8]), vec![1.0, 0.1, 0.8]);
     }
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

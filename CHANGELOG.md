@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.250.1] — 2026-11-11
+
+### Fixed
+- **`transcribe --room` and `--song` keep up with a song.** The speech detector hears singing over instruments as "no speech" most of the time, so a song was cut into scraps of one or two seconds with long holes in between, and the few scraps often came back as a repeat of the previous line. In these two modes everything audible now counts, the song is written along in pieces of up to 20 seconds, and a piece no longer gets the earlier text as a hint. Measured on a rock song through the speakers: 8 short fragments in 110 seconds before, the whole lyrics afterwards, two to four seconds behind the music.
+
 ## [0.250.0] — 2026-11-10
 
 ### Added

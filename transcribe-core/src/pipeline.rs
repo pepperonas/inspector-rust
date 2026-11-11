@@ -89,6 +89,22 @@ pub fn max_seg_for(mode: Mode) -> usize {
     }
 }
 
+/// Song and room sessions transcribe music, not speech.
+pub fn is_music(mode: Mode) -> bool {
+    matches!(mode, Mode::Room | Mode::Song)
+}
+
+/// The text handed to a decode as context. Previews get none. Music gets
+/// none either: on a stretch it cannot make out, Whisper answers with the
+/// prompt itself, and the repeat then feeds the next prompt.
+pub fn prompt_for(music: bool, kind: JobKind, tail: &str) -> String {
+    if music || kind != JobKind::Final {
+        String::new()
+    } else {
+        tail.to_string()
+    }
+}
+
 pub fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -191,6 +207,7 @@ impl Pipeline {
                 vad: deps.vad.clone(),
                 sink: sink.clone(),
                 max_seg,
+                music: is_music(cfg.mode),
                 timing: deps.timing,
             };
             senders.push(tx);
@@ -215,6 +232,7 @@ impl Pipeline {
             sink,
             transcriber: deps.transcriber,
             threads: deps.threads,
+            music: is_music(cfg.mode),
             gate: EchoGate::new(threshold, gate_on),
             wtx,
             wrx,
@@ -295,6 +313,7 @@ struct SourceCtx {
     vad: VadFactory,
     sink: Sink,
     max_seg: usize,
+    music: bool,
     timing: Timing,
 }
 
@@ -524,6 +543,7 @@ fn process_chunk(c: &SourceCtx, s: &mut Stream, chunk: &[f32]) {
             vec![0.0; n / VAD_FRAME]
         }
     };
+    let probs = if c.music { crate::vad::music_probs(&frames, probs) } else { probs };
     let origin = s.origin_ms.unwrap_or(0);
     for (seg, samples) in s.seg.push(&frames, &probs) {
         s.seq += 1;
@@ -583,6 +603,7 @@ struct InferenceCtx {
     sink: Sink,
     transcriber: Box<dyn Transcriber>,
     threads: usize,
+    music: bool,
     gate: EchoGate,
     wtx: mpsc::Sender<WriterMsg>,
     wrx: mpsc::Receiver<WriterReport>,
@@ -689,7 +710,7 @@ fn run_job(c: &mut InferenceCtx, st: &mut [SrcState; 2], audio: &mut HashMap<(So
         kind: job.kind,
         lang: *c.shared.lang.lock().unwrap_or_else(|e| e.into_inner()),
         last_lang: s.last_lang.clone(),
-        prompt: if job.kind == JobKind::Final { s.tail.clone() } else { String::new() },
+        prompt: prompt_for(c.music, job.kind, &s.tail),
         threads: c.threads,
     };
     let decoded = match c.transcriber.decode(job.source, &job.samples, &opts) {
@@ -1114,6 +1135,53 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(30));
         }
+    }
+
+    /// A VAD that never hears speech — what Silero does on most of a song.
+    struct DeafVad;
+    impl Vad for DeafVad {
+        fn probs(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
+            Ok(vec![0.0; samples.len() / crate::segment::VAD_FRAME])
+        }
+    }
+
+    fn finals_with_deaf_vad(mode: Mode) -> usize {
+        let tmp = tempfile::tempdir().unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let ev = events.clone();
+        let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "la la la".into());
+        let deps = Deps {
+            transcriber: Box::new(FakeTranscriber { text, delay: Duration::ZERO }),
+            vad: Arc::new(|| Ok(Box::new(DeafVad) as Box<dyn Vad>)),
+            capture: Arc::new(FakeCapture { data: HashMap::from([(Source::Mic, utterance(2.0))]), fail: None }),
+            fallback_root: tmp.path().join("fallback"),
+            threads: 1,
+            headphones: None,
+            timing: Timing::default(),
+        };
+        let mut c = cfg(tmp.path().join("root"));
+        c.sources = vec![Source::Mic];
+        c.mode = mode;
+        let p = Pipeline::start(c, Arc::new(move |e| ev.lock().unwrap().push(e)), deps).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        p.stop();
+        let n = events.lock().unwrap().iter().filter(|e| matches!(e, Event::Final { .. })).count();
+        n
+    }
+
+    #[test]
+    fn music_is_transcribed_even_when_the_vad_hears_no_speech() {
+        assert_eq!(finals_with_deaf_vad(Mode::Room), 1);
+        assert_eq!(finals_with_deaf_vad(Mode::Song), 1);
+        assert_eq!(finals_with_deaf_vad(Mode::Meeting), 0, "speech modes still trust the VAD");
+    }
+
+    #[test]
+    fn music_decodes_get_no_prompt() {
+        assert_eq!(prompt_for(false, JobKind::Final, "so far"), "so far");
+        assert_eq!(prompt_for(false, JobKind::Hypothesis, "so far"), "");
+        assert_eq!(prompt_for(true, JobKind::Final, "so far"), "");
+        assert!(is_music(Mode::Room) && is_music(Mode::Song) && !is_music(Mode::Dictation));
     }
 
     #[test]

@@ -875,10 +875,10 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "md2pdf",
     keyword: "md2pdf",
-    syntax: "md2pdf [--dark] [pfad]",
+    syntax: "md2pdf [--dark] [--sign] [pfad]",
     description:
-      "Markdown → A4 PDF in mrxdown style (like Ctrl+Shift+M), --dark for GitHub's dark theme. Without a path: Finder selection; taken → “Name 2.pdf”",
-    description_de: "Markdown → A4-PDF im mrxdown-Stil (wie Ctrl+Shift+M), --dark für GitHubs dunkles Farbschema. Ohne Pfad: Finder-Auswahl; belegt → „Name 2.pdf“",
+      "Markdown → A4 PDF in mrxdown style (like Ctrl+Shift+M), --dark for GitHub's dark theme, --sign for your footer line. Without a path: Finder selection; taken → “Name 2.pdf”",
+    description_de: "Markdown → A4-PDF im mrxdown-Stil (wie Ctrl+Shift+M), --dark für GitHubs dunkles Farbschema, --sign für deine Fußzeile. Ohne Pfad: Finder-Auswahl; belegt → „Name 2.pdf“",
     requiresArg: false,
     // macOS: WKWebView (selection or path). Windows: Edge headless (path).
     // Linux has no PDF backend yet.

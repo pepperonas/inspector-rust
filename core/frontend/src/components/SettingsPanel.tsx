@@ -238,6 +238,7 @@ import {
   type AnimationStage,
 } from "../lib/motion-stage";
 import { MEME_ENABLED } from "../lib/meme";
+import { Md2pdfSection } from "./Md2pdfSection";
 import { SETTINGS_CATEGORIES } from "../lib/settings-sections";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
@@ -2826,6 +2827,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <div className="mb-6">
             <MemeSection />
           </div>
+    ),
+    "md2pdf": (
+        <div className="mb-6">
+          <Md2pdfSection />
+        </div>
     ),
         /* AI providers — keys + models for the `task` / `ki` command */
     "ai": (

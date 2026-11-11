@@ -53,7 +53,7 @@ pub struct ConvertSummary {
 ///
 /// Non-md paths land in `skipped`. Per-file failures land in
 /// `failed`. Never panics; one bad file doesn't stop the rest.
-pub fn convert_files(paths: &[PathBuf], dark: bool) -> ConvertSummary {
+pub fn convert_files(paths: &[PathBuf], opts: &RenderOpts) -> ConvertSummary {
     let mut summary = ConvertSummary::default();
     let mut md_files = Vec::new();
     for p in paths {
@@ -76,7 +76,7 @@ pub fn convert_files(paths: &[PathBuf], dark: bool) -> ConvertSummary {
         return summary;
     }
     for p in md_files {
-        match convert_single(&p, dark) {
+        match convert_single(&p, opts) {
             Ok(out) => {
                 summary.converted.push(p);
                 summary.outputs.push(out);
@@ -94,10 +94,10 @@ fn is_markdown(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn convert_single(input: &Path, dark: bool) -> Result<PathBuf, String> {
+fn convert_single(input: &Path, opts: &RenderOpts) -> Result<PathBuf, String> {
     let md_text =
         std::fs::read_to_string(input).map_err(|e| format!("can't read {input:?}: {e}"))?;
-    let doc = build_document(&md_text, input.parent(), dark);
+    let doc = build_document_with(&md_text, input.parent(), opts);
     // Never overwrite: `foo.pdf` taken → `foo 2.pdf`, `foo 3.pdf` … (Finder's
     // "keep both" naming).
     let output = free_pdf_path(input, |p| p.exists());
@@ -406,6 +406,68 @@ pub struct Document {
     /// Every heading in order — the PDF's outline (bookmarks).
     pub headings: Vec<Heading>,
     pub dark: bool,
+    /// The footer line of `--sign`, placeholders filled in.
+    pub footer: Option<String>,
+}
+
+/// How a document is rendered.
+#[derive(Debug, Clone, Default)]
+pub struct RenderOpts {
+    pub dark: bool,
+    /// The footer template (`--sign`); `None` = no footer.
+    pub footer: Option<String>,
+    /// For `{year}` and `{user}`.
+    pub year: i32,
+    pub user: String,
+}
+
+/// Settings key of the footer template.
+pub const KEY_FOOTER: &str = "md2pdf.footer";
+/// The footer when none was set: a copyright line with the account's name.
+pub const DEFAULT_FOOTER: &str = "© {year} {user}";
+const FOOTER_MAX_CHARS: usize = 160;
+
+/// The stored template, or the default for an unset/blank one. Pure.
+pub fn footer_template(stored: Option<&str>) -> String {
+    match stored.map(str::trim) {
+        Some(t) if !t.is_empty() => t.to_string(),
+        _ => DEFAULT_FOOTER.to_string(),
+    }
+}
+
+/// Fill a footer template: `{year}`, `{user}`, `{title}` (the document's
+/// title, empty without one). One line, whitespace collapsed, capped. Pure.
+pub fn resolve_footer(template: &str, year: i32, user: &str, title: Option<&str>) -> String {
+    let filled = template
+        .replace("{year}", &year.to_string())
+        .replace("{user}", user)
+        .replace("{title}", title.unwrap_or(""));
+    let line = filled.split_whitespace().collect::<Vec<_>>().join(" ");
+    line.chars().take(FOOTER_MAX_CHARS).collect()
+}
+
+/// The name behind `{user}`: the account's full name, else its login.
+pub fn account_name() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        let full = macos::full_user_name();
+        if !full.trim().is_empty() {
+            return full;
+        }
+    }
+    std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_default()
+}
+
+/// The options of one `md2pdf` run. `stored_footer` is the setting's value;
+/// it is only used with `sign`.
+pub fn render_opts(dark: bool, sign: bool, stored_footer: Option<&str>) -> RenderOpts {
+    use chrono::Datelike;
+    RenderOpts {
+        dark,
+        footer: sign.then(|| footer_template(stored_footer)),
+        year: chrono::Local::now().year(),
+        user: account_name(),
+    }
 }
 
 /// GitHub's anchor for a heading: lower case, letters/digits/`-`/`_` kept,
@@ -497,34 +559,52 @@ pub fn autolink(text: &str) -> Vec<(Option<String>, String)> {
     out
 }
 
-/// `md2pdf`'s argument: `--dark` (also `--dunkel`) as the first or last word
-/// selects the dark theme, the rest is the path (spaces kept). Pure.
-pub fn split_flags(arg: &str) -> (bool, Option<String>) {
-    let is_flag = |w: &str| matches!(w.to_ascii_lowercase().as_str(), "--dark" | "--dunkel");
+/// What `md2pdf`'s argument asks for.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Flags {
+    pub dark: bool,
+    pub sign: bool,
+    /// The path, when one was typed.
+    pub path: Option<String>,
+}
+
+/// `md2pdf`'s argument: `--dark` (also `--dunkel`) and `--sign` (also
+/// `--footer`, `--fuss`) as leading or trailing words, the rest is the path
+/// (spaces kept). Pure.
+pub fn split_flags(arg: &str) -> Flags {
+    let mut f = Flags::default();
+    let mut take = |w: &str, f: &mut Flags| match w.to_ascii_lowercase().as_str() {
+        "--dark" | "--dunkel" => {
+            f.dark = true;
+            true
+        }
+        "--sign" | "--footer" | "--fuss" => {
+            f.sign = true;
+            true
+        }
+        _ => false,
+    };
     let mut rest = arg.trim();
-    let mut dark = false;
     loop {
         if let Some((first, tail)) = rest.split_once(char::is_whitespace) {
-            if is_flag(first) {
-                dark = true;
+            if take(first, &mut f) {
                 rest = tail.trim_start();
                 continue;
             }
         }
         if let Some((head, last)) = rest.rsplit_once(char::is_whitespace) {
-            if is_flag(last) {
-                dark = true;
+            if take(last, &mut f) {
                 rest = head.trim_end();
                 continue;
             }
         }
-        if is_flag(rest) {
-            dark = true;
+        if take(rest, &mut f) {
             rest = "";
         }
         break;
     }
-    (dark, (!rest.is_empty()).then(|| rest.to_string()))
+    f.path = (!rest.is_empty()).then(|| rest.to_string());
+    f
 }
 
 /// The light document's HTML (tests).
@@ -534,6 +614,11 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
 }
 
 pub fn build_document(md: &str, base: Option<&Path>, dark: bool) -> Document {
+    build_document_with(md, base, &RenderOpts { dark, ..Default::default() })
+}
+
+pub fn build_document_with(md: &str, base: Option<&Path>, opts: &RenderOpts) -> Document {
+    let dark = opts.dark;
     use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
@@ -680,6 +765,19 @@ pub fn build_document(md: &str, base: Option<&Path>, dark: bool) -> Document {
     if dark {
         css.push_str(DARK_CSS);
     }
+    let footer = opts
+        .footer
+        .as_deref()
+        .map(|t| resolve_footer(t, opts.year, &opts.user, doc_title.as_deref()))
+        .filter(|f| !f.is_empty());
+    if let Some(f) = &footer {
+        // Print engines that honour page margin boxes (Edge on Windows):
+        // footer left, page number right. macOS draws both itself.
+        let quoted = f.replace('\\', "\\\\").replace('"', "\\\"");
+        css.push_str(&format!(
+            "@page {{ @bottom-left {{ content: \"{quoted}\"; font-size: 9pt; color: #999; }} @bottom-center {{ content: none; }} @bottom-right {{ content: counter(page); font-size: 9pt; color: #999; }} }}\n"
+        ));
+    }
     let mut scripts = String::new();
     let mut push_script = |src: &str| {
         // A literal `</script` inside a library would end the tag early.
@@ -705,7 +803,7 @@ pub fn build_document(md: &str, base: Option<&Path>, dark: bool) -> Document {
         tp = title_page(&fm),
         theme = if dark { "dark" } else { "light" },
     );
-    Document { html, title: doc_title, author: fm.get("author").cloned().filter(|a| !a.trim().is_empty()), headings, dark }
+    Document { html, title: doc_title, author: fm.get("author").cloned().filter(|a| !a.trim().is_empty()), headings, dark, footer }
 }
 
 /// Runs after the libraries: highlight, typeset math, draw diagrams, wait for
@@ -1240,6 +1338,17 @@ mod macos {
     // reference; only the annotations WebKit wrote survive a rewrite.
 
     static PAGE_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    /// The `--sign` footer of the document being written.
+    static PAGE_FOOTER: Mutex<Option<String>> = Mutex::new(None);
+
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {
+        fn NSFullUserName() -> Id;
+    }
+
+    pub fn full_user_name() -> String {
+        unsafe { nsstring_to_string(NSFullUserName()).unwrap_or_default() }
+    }
 
     /// `CGContextRef` for the method signature.
     #[repr(C)]
@@ -1294,11 +1403,23 @@ mod macos {
                 let attrs: Id = msg_send![objc2::class!(NSMutableDictionary), new];
                 let _: () = msg_send![attrs, setObject: font, forKey: kf];
                 let _: () = msg_send![attrs, setObject: grey, forKey: kc];
+                let footer = PAGE_FOOTER.lock().ok().and_then(|f| f.clone());
                 let label = nsstring_from_str(&(index + 1).to_string());
                 let size: CGSize = msg_send![label, sizeWithAttributes: attrs];
-                let at = CGPoint { x: b.origin.x + (b.size.width - size.width) / 2.0, y: b.origin.y + 24.0 };
-                let _: () = msg_send![label, drawAtPoint: at, withAttributes: attrs];
+                let y = b.origin.y + 24.0;
+                // Alone the number sits in the middle; with a footer the
+                // footer starts at the left margin and the number moves right.
+                let x = match &footer {
+                    Some(_) => b.origin.x + b.size.width - MARGIN_LR - size.width,
+                    None => b.origin.x + (b.size.width - size.width) / 2.0,
+                };
+                let _: () = msg_send![label, drawAtPoint: CGPoint { x, y }, withAttributes: attrs];
                 release(label);
+                if let Some(text) = footer {
+                    let line = nsstring_from_str(&text);
+                    let _: () = msg_send![line, drawAtPoint: CGPoint { x: b.origin.x + MARGIN_LR, y }, withAttributes: attrs];
+                    release(line);
+                }
                 release(attrs);
                 release(kf);
                 release(kc);
@@ -1346,6 +1467,9 @@ mod macos {
     /// from the headings, title/author. Links stay as WebKit wrote them.
     unsafe fn finish_pdf(src: &Path, dst: &Path, document: &super::Document) -> Result<(), String> {
         PAGE_DARK.store(document.dark, std::sync::atomic::Ordering::SeqCst);
+        if let Ok(mut f) = PAGE_FOOTER.lock() {
+            *f = document.footer.clone();
+        }
         let src_ns = nsstring_from_str(&src.to_string_lossy());
         let src_url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: src_ns];
         release(src_ns);
@@ -2226,9 +2350,10 @@ mod tests {
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fixtures/md2pdf-printed.pdf");
         let dir = std::env::temp_dir().join(format!("ir-md2pdf-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for dark in [false, true] {
+        for (dark, footer) in [(false, None), (true, Some("© 2026 Ada Lovelace | example.org"))] {
             let out = dir.join(format!("out-{dark}.pdf"));
-            let doc = build_document(FIXTURE_MD, None, dark);
+            let opts = RenderOpts { dark, footer: footer.map(str::to_string), year: 2026, ..Default::default() };
+            let doc = build_document_with(FIXTURE_MD, None, &opts);
             macos::finish_for_test(&src, &out, &doc).unwrap();
             let f = macos::inspect(&out);
             assert_eq!(f.pages, 3, "{f:?}");
@@ -2244,11 +2369,14 @@ mod tests {
                 vec![(0, "Einleitung".to_string(), 1), (1, "Unterpunkt".to_string(), 1), (0, "Schluss".to_string(), 2)]
             );
             for (i, text) in f.page_text.iter().enumerate() {
-                assert_eq!(text.trim().lines().last().map(str::trim), Some((i + 1).to_string().as_str()), "page number on page {i}: {text:?}");
+                let lines: Vec<&str> = text.trim().lines().map(str::trim).collect();
+                assert!(lines.contains(&(i + 1).to_string().as_str()), "page number on page {i}: {text:?}");
+                // The footer is on every page with --sign, on none without.
+                assert_eq!(footer.is_some_and(|f| text.contains(f)), footer.is_some(), "footer on page {i}: {text:?}");
             }
             assert!(f.page_text[1].contains("externer Link"), "text stays text");
             assert!(!f.page_text[2].contains('.') || f.page_text[2].contains("Einleitung."), "no helper dots in the text layer");
-            assert_eq!(f.page_text[2].trim().lines().count(), 3, "heading, sentence, number: {:?}", f.page_text[2]);
+            assert_eq!(f.page_text[2].trim().lines().count(), 3 + usize::from(footer.is_some()), "heading, sentence, number: {:?}", f.page_text[2]);
             assert_eq!((f.title.as_deref(), f.author.as_deref()), (Some("Prüfdokument"), Some("Test Autor")));
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -2303,16 +2431,50 @@ mod tests {
     }
 
     #[test]
-    fn the_dark_flag_is_split_from_the_path() {
-        assert_eq!(split_flags("--dark ~/Mein Ordner/a b.md"), (true, Some("~/Mein Ordner/a b.md".into())));
-        assert_eq!(split_flags("~/x.md --dark"), (true, Some("~/x.md".into())));
-        assert_eq!(split_flags("--DARK"), (true, None));
-        assert_eq!(split_flags("  --dunkel  "), (true, None));
-        assert_eq!(split_flags("~/x.md"), (false, Some("~/x.md".into())));
-        assert_eq!(split_flags(""), (false, None));
+    fn flags_are_split_from_the_path() {
+        let f = |dark, sign, path: Option<&str>| Flags { dark, sign, path: path.map(str::to_string) };
+        assert_eq!(split_flags("--dark ~/Mein Ordner/a b.md"), f(true, false, Some("~/Mein Ordner/a b.md")));
+        assert_eq!(split_flags("~/x.md --dark"), f(true, false, Some("~/x.md")));
+        assert_eq!(split_flags("--DARK"), f(true, false, None));
+        assert_eq!(split_flags("  --dunkel  "), f(true, false, None));
+        assert_eq!(split_flags("~/x.md"), f(false, false, Some("~/x.md")));
+        assert_eq!(split_flags(""), f(false, false, None));
+        // The footer flag, alone and combined, in any order and position.
+        assert_eq!(split_flags("--sign"), f(false, true, None));
+        assert_eq!(split_flags("--sign --dark ~/x.md"), f(true, true, Some("~/x.md")));
+        assert_eq!(split_flags("--dark ~/x.md --footer"), f(true, true, Some("~/x.md")));
+        assert_eq!(split_flags("~/x.md --fuss --dark"), f(true, true, Some("~/x.md")));
         // Only as a word of its own.
-        assert_eq!(split_flags("~/notes--dark.md"), (false, Some("~/notes--dark.md".into())));
-        assert_eq!(split_flags("~/a --dark b.md"), (false, Some("~/a --dark b.md".into())));
+        assert_eq!(split_flags("~/notes--dark.md"), f(false, false, Some("~/notes--dark.md")));
+        assert_eq!(split_flags("~/a --sign b.md"), f(false, false, Some("~/a --sign b.md")));
+    }
+
+    #[test]
+    fn the_footer_template_is_filled_in() {
+        assert_eq!(footer_template(None), DEFAULT_FOOTER);
+        assert_eq!(footer_template(Some("   ")), DEFAULT_FOOTER);
+        assert_eq!(footer_template(Some(" © {year} A ")), "© {year} A");
+        assert_eq!(resolve_footer("© {year} {user} | example.org", 2026, "Ada Lovelace", None), "© 2026 Ada Lovelace | example.org");
+        assert_eq!(resolve_footer("{title} — {year}", 2027, "", Some("Bericht")), "Bericht — 2027");
+        // One line, no stray spaces, no missing-title hole.
+        assert_eq!(resolve_footer("a\n  b   {title}  ", 2026, "", None), "a b");
+        assert_eq!(resolve_footer(&"x".repeat(500), 2026, "", None).chars().count(), 160);
+
+        // Without --sign there is no footer, whatever is stored.
+        assert_eq!(render_opts(true, false, Some("© {year} A")).footer, None);
+        let o = render_opts(false, true, None);
+        assert_eq!(o.footer.as_deref(), Some(DEFAULT_FOOTER));
+        assert!(o.year >= 2026);
+
+        let opts = RenderOpts { footer: Some("© {year} {user} · {title}".into()), year: 2026, user: "Ada".into(), ..Default::default() };
+        let d = build_document_with("---\ntitle: Bericht\n---\n\n# K", None, &opts);
+        assert_eq!(d.footer.as_deref(), Some("© 2026 Ada · Bericht"));
+        assert!(d.html.contains("@bottom-left { content: \"© 2026 Ada · Bericht\""));
+        let plain = build_document("# K", None, false);
+        assert!(plain.footer.is_none() && !plain.html.contains("@bottom-left"));
+        // A quote in the footer cannot end the CSS string.
+        let q = RenderOpts { footer: Some("a \" b".into()), year: 2026, ..Default::default() };
+        assert!(build_document_with("x", None, &q).html.contains("content: \"a \\\" b\""));
     }
 
     #[test]

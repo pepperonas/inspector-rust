@@ -90,6 +90,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   sec("changelog", ["changelog", "änderungen", "versionshinweise", "release notes", "what's new", "neuigkeiten", "history of changes"]),
   sec("record", ["record","aufnahme","recording","video"]),
   sec("meeting", ["meeting", "transkription", "transcription", "live transcription", "mitschrift", "whisper", "ticker", "laufband"]),
+  sec("md2pdf", ["md2pdf", "pdf", "markdown", "fusszeile", "fußzeile", "footer", "sign"]),
 ];
 
 export interface SettingsCategory {
@@ -112,7 +113,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   cat("clipboard", ["clipboard-history", "clipboard-privacy", "paste", "capture"]),
   cat("snippets", ["snippets", "expander", "auto-expand", "direct-slots"]),
   cat("desktop", ["gestures", "window", "window-palette", "cursor-wrap"]),
-  cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "adb", "record", "meeting"]),
+  cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "md2pdf", "adb", "record", "meeting"]),
   cat("services", ["ai", "weather", "spotify", "pagespeed", "github", "repos"]),
   cat("sync", ["cloud-sync", "device-sync", "auto-backup", "backup"]),
   cat("about", ["about", "changelog"]),

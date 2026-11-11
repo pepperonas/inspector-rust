@@ -876,7 +876,7 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
                 };
                 let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
                 let _ = app.run_on_main_thread(move || {
-                    let summary = crate::md_to_pdf::convert_files(&paths, false);
+                    let summary = crate::md_to_pdf::convert_files(&paths, &crate::md_to_pdf::RenderOpts::default());
                     let _ = tx.send(summary);
                 });
                 let summary = match rx.recv() {

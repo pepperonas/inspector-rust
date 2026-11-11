@@ -1125,6 +1125,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_memes,
             commands::copy_meme,
             commands::get_meme_dir,
+            commands::get_md2pdf_footer,
+            commands::set_md2pdf_footer,
             commands::set_meme_dir,
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,

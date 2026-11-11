@@ -1093,7 +1093,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.46.0",
     tagline: "Markdown → paginated A4 PDF in mrxdown's look, beside the source — never overwrites.",
     tagline_de: "Markdown → A4-PDF im mrxdown-Stil, neben der Quelle — überschreibt nie.",
-    synopsis: "md2pdf [--dark] [pfad]",
+    synopsis: "md2pdf [--dark] [--sign] [pfad]",
     description:
       "Converts Markdown to a PDF in the same folder under the same name (`foo.md` → `foo.pdf`). If `foo.pdf` already exists it is **never overwritten** — the new file becomes `foo 2.pdf`, `foo 3.pdf` …, the way the Finder names a kept duplicate. Without a path it converts the Markdown file(s) selected in the Finder; with a path it converts that file. The look is mrxdown's default PDF template: real **A4 pages** with 20/15 mm margins and page numbers, syntax-highlighted code (highlight.js), math (`$…$`, `$$…$$` via KaTeX), Mermaid diagrams, GitHub callouts (`> [!NOTE]` …), tables, task lists, footnotes, local images embedded, and a title page when the frontmatter has a `title`. Same as the `Ctrl+Shift+M` hotkey.",
     arguments: [
@@ -1106,11 +1106,14 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     flags: [
       { flag: "--dark", description: "GitHub's dark theme: dark page (margins included), light text, dark code colours and diagrams. Before or after the path; also `--dunkel`." },
+      { flag: "--sign", description: "Prints a footer line on every page — bottom left, the page number moves to the right. The line is set in **Settings → Markdown → PDF** (`settings md2pdf`); `{year}`, `{user}` and `{title}` are filled in. Unset, it reads `© {year} {user}`. Also `--footer`, `--fuss`." },
     ],
     examples: [
       { input: "md2pdf", result: "Converts the Markdown file selected in Finder → `name.pdf` beside it." },
       { input: "md2pdf --dark ~/notes/README.md", result: "The same PDF in GitHub's dark theme." },
       { input: "md2pdf --dark", result: "Finder selection, dark." },
+      { input: "md2pdf --sign ~/notes/README.md", result: "Every page carries your footer line at the bottom left, the page number moves to the right." },
+      { input: "md2pdf --sign --dark", result: "Finder selection, dark, with the footer." },
       { input: "md2pdf ~/notes/README.md", result: "Converts that file → `~/notes/README.pdf`." },
       { input: "md2pdf (README.pdf exists)", result: "Writes `README 2.pdf`; the existing PDF stays untouched." },
     ],

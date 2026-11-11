@@ -2487,6 +2487,24 @@ export function copyMeme(path: string): Promise<void> {
   return invoke("copy_meme", { path });
 }
 
+/** The footer of `md2pdf --sign` (Settings → Markdown → PDF). */
+export interface Md2pdfFooter {
+  /** What is stored; "" = unset, the default applies. */
+  template: string;
+  default_template: string;
+  /** The line as it would be printed today. */
+  preview: string;
+}
+
+export function getMd2pdfFooter(): Promise<Md2pdfFooter> {
+  return invoke("get_md2pdf_footer");
+}
+
+/** Save the footer template (blank resets to the default). */
+export function setMd2pdfFooter(template: string): Promise<Md2pdfFooter> {
+  return invoke("set_md2pdf_footer", { template });
+}
+
 /** The configured meme library directory (resolved default if unset). */
 export function getMemeDir(): Promise<string> {
   return invoke("get_meme_dir");

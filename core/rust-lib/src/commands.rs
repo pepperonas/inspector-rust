@@ -5372,7 +5372,16 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
     // Resolve the target paths up front so a bad/empty selection errors
     // synchronously (the frontend can show it) before we spawn.
     // `--dark` (first or last word) picks the dark theme; the rest is the path.
-    let (dark, path) = path.as_deref().map(crate::md_to_pdf::split_flags).unwrap_or((false, None));
+    // `--sign` adds the footer from Settings → Markdown → PDF.
+    let flags = path.as_deref().map(crate::md_to_pdf::split_flags).unwrap_or_default();
+    let opts = {
+        use tauri::Manager;
+        let stored = app
+            .try_state::<DbHandle>()
+            .and_then(|db| settings::get(&db, crate::md_to_pdf::KEY_FOOTER).ok().flatten());
+        crate::md_to_pdf::render_opts(flags.dark, flags.sign, stored.as_deref())
+    };
+    let path = flags.path;
     let arg_path = path
         .map(|p| p.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
         .filter(|p| !p.is_empty())
@@ -5406,12 +5415,12 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
         let summary = {
             let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
             let _ = app2.run_on_main_thread(move || {
-                let _ = tx.send(crate::md_to_pdf::convert_files(&paths, dark));
+                let _ = tx.send(crate::md_to_pdf::convert_files(&paths, &opts));
             });
             rx.recv().unwrap_or_default()
         };
         #[cfg(not(target_os = "macos"))]
-        let summary = crate::md_to_pdf::convert_files(&paths, dark);
+        let summary = crate::md_to_pdf::convert_files(&paths, &opts);
 
         tracing::info!(
             "md2pdf: {} converted, {} skipped, {} failed",
@@ -8246,6 +8255,38 @@ pub async fn list_memes(db: State<'_, DbHandle>) -> Result<Vec<meme::MemeEntry>,
 #[tauri::command]
 pub fn copy_meme(path: String) -> Result<(), String> {
     meme::copy_to_clipboard(&path)
+}
+
+/// Settings → Markdown → PDF: the footer of `md2pdf --sign`.
+#[derive(serde::Serialize)]
+pub struct Md2pdfFooter {
+    /// What is stored ("" = unset, the default applies).
+    pub template: String,
+    pub default_template: String,
+    /// The line as it would be printed today (without a document title).
+    pub preview: String,
+}
+
+fn md2pdf_footer_info(db: &DbHandle) -> Md2pdfFooter {
+    let stored = settings::get(db, crate::md_to_pdf::KEY_FOOTER).ok().flatten().unwrap_or_default();
+    let opts = crate::md_to_pdf::render_opts(false, true, Some(&stored));
+    Md2pdfFooter {
+        preview: crate::md_to_pdf::resolve_footer(opts.footer.as_deref().unwrap_or_default(), opts.year, &opts.user, None),
+        default_template: crate::md_to_pdf::DEFAULT_FOOTER.to_string(),
+        template: stored.trim().to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn get_md2pdf_footer(db: State<'_, DbHandle>) -> Md2pdfFooter {
+    md2pdf_footer_info(&db)
+}
+
+/// Persist the footer template. A blank value resets to the default.
+#[tauri::command]
+pub fn set_md2pdf_footer(db: State<'_, DbHandle>, template: String) -> Result<Md2pdfFooter, String> {
+    settings::set(&db, crate::md_to_pdf::KEY_FOOTER, template.trim()).map_err(map_err)?;
+    Ok(md2pdf_footer_info(&db))
 }
 
 /// The currently configured meme library directory (the `meme.dir` setting,

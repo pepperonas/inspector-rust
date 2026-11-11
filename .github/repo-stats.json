@@ -10,15 +10,15 @@
   "docs": 42,
   "modules": 116,
   "crates": 901,
-  "ipc": 576,
-  "components": 121,
-  "suites": 414,
+  "ipc": 578,
+  "components": 122,
+  "suites": 415,
   "tables": 29,
   "events": 73,
   "completion": 25,
   "frontendModules": 146,
   "hidden": 11,
   "hotkeys": 15,
-  "releases": 623,
-  "settings": 47
+  "releases": 624,
+  "settings": 48
 }

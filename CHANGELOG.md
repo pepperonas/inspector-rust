@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.253.0] — 2026-11-11
+
+### Added
+- **`md2pdf --sign`.** Prints a footer line at the bottom left of every page; the page number then moves to the right. The line is set in Settings → Markdown → PDF (`settings md2pdf`), with `{year}` for the current year, `{user}` for your account name and `{title}` for the document's title, and a preview of what will be printed. Unset, it reads `© {year} {user}`. Combines with `--dark`; `--footer` works too.
+
 ## [0.252.0] — 2026-11-11
 
 ### Added

@@ -198,6 +198,7 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
     { value: "%", hint: "arg.rz_pct" },
   ],
   kill: [{ value: "-9", hint: "arg.kill9" }],
+  md2pdf: [{ value: "--dark", hint: "arg.md2pdf_dark" }],
   transcribe: [
     {
       value: "--start",

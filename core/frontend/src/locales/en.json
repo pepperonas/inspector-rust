@@ -204,6 +204,7 @@
   "arg.rz_px": "size in pixels",
   "arg.rz_pct": "size in percent",
   "arg.kill9": "quit immediately (SIGKILL)",
+  "arg.md2pdf_dark": "GitHub's dark theme",
   "arg.language": "set the language",
   "arg.t5": "short break",
   "arg.t10": "steep tea",

@@ -1059,7 +1059,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline: "Local audio/video → TXT, or live dictation from the microphone.",
     tagline_de: "Audio/Video lokal → TXT, oder Live-Diktat vom Mikrofon.",
     synopsis: "transcribe [pfad | --start [--song | --room] | --stop] [--language <sprache>]",
-    description: "Whisper (large-v3-turbo on the Mac's GPU, the same engine as `meeting`) transcribes German and English locally in the background. TXT beside source; existing files kept as name 2.txt. Without a path: Finder selection. Language detected per file unless specified. `--start` dictates from the microphone instead: the text appears while you speak, the command then reads `transcribe --stop`, and Enter ends the recording — the text goes to the clipboard. `--song` writes down the lyrics of what this Mac plays: it records the system audio directly (not the microphone), so the music stays at full volume. `--room` does the same for a song playing on another device (stereo, phone, radio), through the microphone. In both song modes Shazam recognises the song along the way; if the lyrics catalogue has it, its exact lyrics are copied instead of what was heard.",
+    description: "Whisper (large-v3-turbo on the Mac's GPU, the same engine as `meeting`) transcribes German and English locally in the background. TXT beside source; existing files kept as name 2.txt. Without a path: Finder selection. Language detected per file unless specified. `--start` dictates from the microphone instead: the text appears while you speak, the command then reads `transcribe --stop`, and Enter ends the recording — the text goes to the clipboard. `--song` writes down the lyrics of what this Mac plays: it records the system audio directly (not the microphone), so the music stays at full volume. `--room` does the same for a song playing on another device (stereo, phone, radio), through the microphone. In both song modes Shazam recognises the song along the way; stopping copies what was heard, and if the lyrics catalogue has the song, a **Copy lyrics** button copies its exact lyrics.",
     arguments: [{ name: "pfad", required: false, description: "Media path; omit for Finder selection." }],
     flags: [
       { flag: "--language, -l", value_type: "language", description: "de, en or auto (detects German or English); before/after path; also for --start.", default: "de" },
@@ -1093,7 +1093,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.46.0",
     tagline: "Markdown → paginated A4 PDF in mrxdown's look, beside the source — never overwrites.",
     tagline_de: "Markdown → A4-PDF im mrxdown-Stil, neben der Quelle — überschreibt nie.",
-    synopsis: "md2pdf [pfad]",
+    synopsis: "md2pdf [--dark] [pfad]",
     description:
       "Converts Markdown to a PDF in the same folder under the same name (`foo.md` → `foo.pdf`). If `foo.pdf` already exists it is **never overwritten** — the new file becomes `foo 2.pdf`, `foo 3.pdf` …, the way the Finder names a kept duplicate. Without a path it converts the Markdown file(s) selected in the Finder; with a path it converts that file. The look is mrxdown's default PDF template: real **A4 pages** with 20/15 mm margins and page numbers, syntax-highlighted code (highlight.js), math (`$…$`, `$$…$$` via KaTeX), Mermaid diagrams, GitHub callouts (`> [!NOTE]` …), tables, task lists, footnotes, local images embedded, and a title page when the frontmatter has a `title`. Same as the `Ctrl+Shift+M` hotkey.",
     arguments: [
@@ -1104,13 +1104,18 @@ export const COMMAND_DOCS: CommandDoc[] = [
         default: "(Finder selection)",
       },
     ],
-    flags: [],
+    flags: [
+      { flag: "--dark", description: "GitHub's dark theme: dark page (margins included), light text, dark code colours and diagrams. Before or after the path; also `--dunkel`." },
+    ],
     examples: [
       { input: "md2pdf", result: "Converts the Markdown file selected in Finder → `name.pdf` beside it." },
+      { input: "md2pdf --dark ~/notes/README.md", result: "The same PDF in GitHub's dark theme." },
+      { input: "md2pdf --dark", result: "Finder selection, dark." },
       { input: "md2pdf ~/notes/README.md", result: "Converts that file → `~/notes/README.pdf`." },
       { input: "md2pdf (README.pdf exists)", result: "Writes `README 2.pdf`; the existing PDF stays untouched." },
     ],
     tips: [
+      "Links are clickable in the PDF: written links, bare addresses (`https://…`, `www.…`) and jumps to a heading (`[text](#heading)`, GitHub's anchor rules). Every heading is also a bookmark in the PDF's sidebar, and title and author land in the file's properties.",
       "A frontmatter block with `title:` (plus optional `subtitle`, `author`, `affiliation`, `date`, `abstract`) becomes a title page — exactly like mrxdown.",
       "A typed path wins over the Finder selection, so you can convert a file without leaving the popup.",
       "The notification names the written file, so a `… 2.pdf` is visible right away.",

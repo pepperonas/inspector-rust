@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.252.0] — 2026-11-11
+
+### Added
+- **`md2pdf --dark`.** Writes the PDF in GitHub's dark theme: dark page including the margins, light text, dark code colours, callouts, tables and diagrams. The flag goes before or after the path (`md2pdf --dark ~/notes/README.md`), or alone for the Finder selection; `--dunkel` works too.
+- **Bookmarks and properties in md2pdf files.** Every heading becomes an entry in the PDF's outline (the sidebar in Preview), nested by level, and the title and author from the frontmatter land in the file's properties.
+
+### Fixed
+- **Links in md2pdf files are clickable.** Since page numbers were added, the step that stamped them removed every link from the PDF. Page numbers are now drawn without touching the links, so web links, mail links and jumps inside the document work.
+- **Jumps to a heading work.** Headings had no anchor, so a table of contents like `[Setup](#setup)` pointed nowhere. Every heading now gets GitHub's anchor (lower case, spaces as hyphens, a repeated heading gets `-1`, `-2` …).
+- **Bare addresses are links.** `https://…`, `http://…` and `www.…` written as plain text are now linked, without the full stop or bracket that ends the sentence. Addresses inside code stay text.
+- **Long lines no longer run off the page.** Long addresses and long code lines wrap; a footnote's number sits beside its text instead of above it.
+
 ## [0.251.0] — 2026-11-11
 
 ### Changed

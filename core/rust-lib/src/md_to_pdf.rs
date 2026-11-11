@@ -53,7 +53,7 @@ pub struct ConvertSummary {
 ///
 /// Non-md paths land in `skipped`. Per-file failures land in
 /// `failed`. Never panics; one bad file doesn't stop the rest.
-pub fn convert_files(paths: &[PathBuf]) -> ConvertSummary {
+pub fn convert_files(paths: &[PathBuf], dark: bool) -> ConvertSummary {
     let mut summary = ConvertSummary::default();
     let mut md_files = Vec::new();
     for p in paths {
@@ -76,7 +76,7 @@ pub fn convert_files(paths: &[PathBuf]) -> ConvertSummary {
         return summary;
     }
     for p in md_files {
-        match convert_single(&p) {
+        match convert_single(&p, dark) {
             Ok(out) => {
                 summary.converted.push(p);
                 summary.outputs.push(out);
@@ -94,14 +94,14 @@ fn is_markdown(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn convert_single(input: &Path) -> Result<PathBuf, String> {
+fn convert_single(input: &Path, dark: bool) -> Result<PathBuf, String> {
     let md_text =
         std::fs::read_to_string(input).map_err(|e| format!("can't read {input:?}: {e}"))?;
-    let html = render_document(&md_text, input.parent());
+    let doc = build_document(&md_text, input.parent(), dark);
     // Never overwrite: `foo.pdf` taken → `foo 2.pdf`, `foo 3.pdf` … (Finder's
     // "keep both" naming).
     let output = free_pdf_path(input, |p| p.exists());
-    write_document_pdf(&html, &output)?;
+    write_document_pdf(&doc, &output)?;
     Ok(output)
 }
 
@@ -196,7 +196,54 @@ const EXTRA_CSS: &str = r#"
 .mrx-titlepage .mrx-abstract { margin: 3rem auto 0; max-width: 32rem; text-align: justify; font-size: 0.95rem; }
 .mrx-titlepage .mrx-abstract-label { font-weight: 600; text-align: center; margin-bottom: 0.5rem; }
 @media print { body { max-width: none; } }
+a, p, li, td, th { overflow-wrap: anywhere; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+pre code { white-space: pre-wrap; }
+.footnote-definition { display: flex; gap: 0.5em; font-size: 0.9em; margin: 0.6em 0; }
+.footnote-definition p { margin: 0; text-align: left; }
+.footnote-definition-label { flex-shrink: 0; }
+.ir-outline { font-size: 1px; line-height: 1px; height: 1px; margin: 0; padding: 0; }
+.ir-outline a { color: transparent !important; text-decoration: none !important; }
 "#;
+
+/// The page colour of the dark theme (GitHub's dark canvas), also painted
+/// into the page margins by the PDF writer.
+pub const DARK_BG: (u8, u8, u8) = (0x0d, 0x11, 0x17);
+
+/// `md2pdf --dark`: GitHub's dark colours on top of the base sheet.
+const DARK_CSS: &str = r##"
+@page { background: #0d1117; }
+html, body { background: #0d1117 !important; color: #e6edf3 !important; }
+h1, h2, h3, h4, h5, p, li, ul, ol, strong, b, em, i, th, td { color: #e6edf3 !important; }
+h1 { border-bottom-color: #3d444d; }
+h6 { color: #9198a1 !important; }
+a, a[href^="#"] { color: #4493f8 !important; }
+code { background: #262c36 !important; color: #e6edf3 !important; border-color: #3d444d; }
+pre { background: #151b23 !important; color: #e6edf3 !important; border-color: #3d444d; }
+pre code { background: none !important; color: #e6edf3 !important; }
+blockquote { border-left-color: #3d444d; color: #9198a1 !important; background: transparent; }
+blockquote p { color: #9198a1 !important; }
+th, td { border-color: #3d444d; }
+th { background: #151b23 !important; }
+tr:nth-child(even) { background: #151b23 !important; }
+tr:nth-child(odd) { background: #0d1117 !important; }
+hr { border-top-color: #3d444d; }
+.callout { background: #151b23 !important; border-left-color: #4493f8; }
+.callout-title { color: #4493f8; }
+.callout-tip { border-left-color: #3fb950; } .callout-tip .callout-title { color: #3fb950; }
+.callout-important { border-left-color: #ab7df8; } .callout-important .callout-title { color: #ab7df8; }
+.callout-warning { border-left-color: #d29922; } .callout-warning .callout-title { color: #d29922; }
+.callout-caution { border-left-color: #f85149; } .callout-caution .callout-title { color: #f85149; }
+.mrx-titlepage .mrx-subtitle, .mrx-titlepage .mrx-affiliation, .mrx-titlepage .mrx-date, .mrx-titlepage .mrx-meta { color: #9198a1; }
+.hljs { color: #e6edf3; }
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in { color: #ff7b72; }
+.hljs-string, .hljs-attr, .hljs-regexp { color: #a5d6ff; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: #79c0ff; }
+.hljs-comment { color: #8b949e; }
+.hljs-function .hljs-title, .hljs-title.function_ { color: #d2a8ff; }
+.hljs-class .hljs-title, .hljs-title.class_, .hljs-type, .hljs-params, .hljs-variable, .hljs-template-variable { color: #ffa657; }
+.hljs-meta, .hljs-tag { color: #7ee787; }
+"##;
 
 /// Lucide icons + German labels, 1:1 from mrxdown `callouts.js`.
 fn callout_meta(kind: pulldown_cmark::BlockQuoteKind) -> (&'static str, &'static str, &'static str) {
@@ -341,7 +388,152 @@ fn embed_image(dest: &str, base: Option<&Path>) -> Option<String> {
 ///
 /// The page sets `window.__irDone = true` once highlighting, math, diagrams,
 /// fonts and images are ready; the renderer waits for it.
+/// A heading of the document: its level, plain text and anchor id.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Heading {
+    pub level: u8,
+    pub title: String,
+    pub id: String,
+}
+
+/// What `build_document` hands the PDF writer.
+#[derive(Debug, Clone, Default)]
+pub struct Document {
+    pub html: String,
+    /// Frontmatter `title`, else the first heading.
+    pub title: Option<String>,
+    pub author: Option<String>,
+    /// Every heading in order — the PDF's outline (bookmarks).
+    pub headings: Vec<Heading>,
+    pub dark: bool,
+}
+
+/// GitHub's anchor for a heading: lower case, letters/digits/`-`/`_` kept,
+/// spaces become `-`, everything else is dropped ("Code & Mathe" →
+/// `code--mathe`). Pure.
+pub fn slugify(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.trim().chars() {
+        if c.is_alphanumeric() || c == '-' || c == '_' {
+            out.extend(c.to_lowercase());
+        } else if c.is_whitespace() {
+            out.push('-');
+        }
+    }
+    if out.is_empty() {
+        out.push_str("section");
+    }
+    out
+}
+
+/// A slug not used before in this document: the second "Setup" becomes
+/// `setup-1`, like on GitHub. Pure.
+pub fn unique_slug(seen: &mut std::collections::HashSet<String>, slug: String) -> String {
+    if seen.insert(slug.clone()) {
+        return slug;
+    }
+    let mut n = 1;
+    loop {
+        let candidate = format!("{slug}-{n}");
+        if seen.insert(candidate.clone()) {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
+/// Where a bare web address starts at byte `i` of `s`, if it does.
+fn url_start(s: &str, i: usize) -> bool {
+    let rest = &s[i..];
+    let boundary = s[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric() && c != '/' && c != '@' && c != '.');
+    boundary && (rest.starts_with("https://") || rest.starts_with("http://") || rest.starts_with("www."))
+}
+
+/// Split plain text into `(href, text)` pieces: `href` is `Some` for a bare
+/// web address (`https://…`, `http://…`, `www.…`). Punctuation that ends the
+/// sentence and an unmatched closing bracket stay outside the link. Pure.
+pub fn autolink(text: &str) -> Vec<(Option<String>, String)> {
+    let mut out: Vec<(Option<String>, String)> = Vec::new();
+    let mut plain_from = 0;
+    let mut i = 0;
+    while i < text.len() {
+        if !text.is_char_boundary(i) || !url_start(text, i) {
+            i += 1;
+            continue;
+        }
+        let mut end = text[i..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
+            .map_or(text.len(), |n| i + n);
+        loop {
+            let url = &text[i..end];
+            let Some(last) = url.chars().next_back() else { break };
+            let unbalanced = |open: char, close: char| url.matches(close).count() > url.matches(open).count();
+            let strip = matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '*' | '_' | '~')
+                || (last == ')' && unbalanced('(', ')'))
+                || (last == ']' && unbalanced('[', ']'));
+            if !strip {
+                break;
+            }
+            end -= last.len_utf8();
+        }
+        let url = &text[i..end];
+        // "www." or "https://" alone is not an address.
+        let host = ["https://", "http://", "www."].iter().find_map(|p| url.strip_prefix(p)).unwrap_or("");
+        if !host.contains(|c: char| c.is_alphanumeric()) || (url.starts_with("www.") && !host.contains('.')) {
+            i += 1;
+            continue;
+        }
+        if plain_from < i {
+            out.push((None, text[plain_from..i].to_string()));
+        }
+        let href = if url.starts_with("www.") { format!("https://{url}") } else { url.to_string() };
+        out.push((Some(href), url.to_string()));
+        plain_from = end;
+        i = end;
+    }
+    if plain_from < text.len() {
+        out.push((None, text[plain_from..].to_string()));
+    }
+    out
+}
+
+/// `md2pdf`'s argument: `--dark` (also `--dunkel`) as the first or last word
+/// selects the dark theme, the rest is the path (spaces kept). Pure.
+pub fn split_flags(arg: &str) -> (bool, Option<String>) {
+    let is_flag = |w: &str| matches!(w.to_ascii_lowercase().as_str(), "--dark" | "--dunkel");
+    let mut rest = arg.trim();
+    let mut dark = false;
+    loop {
+        if let Some((first, tail)) = rest.split_once(char::is_whitespace) {
+            if is_flag(first) {
+                dark = true;
+                rest = tail.trim_start();
+                continue;
+            }
+        }
+        if let Some((head, last)) = rest.rsplit_once(char::is_whitespace) {
+            if is_flag(last) {
+                dark = true;
+                rest = head.trim_end();
+                continue;
+            }
+        }
+        if is_flag(rest) {
+            dark = true;
+            rest = "";
+        }
+        break;
+    }
+    (dark, (!rest.is_empty()).then(|| rest.to_string()))
+}
+
+/// The light document's HTML (tests).
+#[cfg(test)]
 pub fn render_document(md: &str, base: Option<&Path>) -> String {
+    build_document(md, base, false).html
+}
+
+pub fn build_document(md: &str, base: Option<&Path>, dark: bool) -> Document {
     use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
@@ -357,9 +549,59 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
     let mut in_meta = false;
     let mut mermaid: Option<String> = None;
     let (mut has_code, mut has_math, mut has_mermaid) = (false, false, false);
+    let mut headings: Vec<Heading> = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+    // (index of the heading's start event, its text so far)
+    let mut open_heading: Option<(usize, String)> = None;
+    let (mut link_depth, mut in_code_block) = (0usize, false);
 
-    for ev in Parser::new_ext(md, options) {
+    // Merged text events: a bare address must arrive in one piece.
+    for ev in pulldown_cmark::TextMergeStream::new(Parser::new_ext(md, options)) {
+        match &ev {
+            Event::Start(Tag::Link { .. }) => link_depth += 1,
+            Event::End(TagEnd::Link) => link_depth = link_depth.saturating_sub(1),
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Text(t) | Event::Code(t) if !in_meta => {
+                if let Some((_, text)) = open_heading.as_mut() {
+                    text.push_str(t);
+                }
+            }
+            _ => {}
+        }
         match ev {
+            Event::Start(Tag::Heading { .. }) => {
+                open_heading = Some((events.len(), String::new()));
+                events.push(ev);
+            }
+            Event::End(TagEnd::Heading(level)) => {
+                if let Some((at, text)) = open_heading.take() {
+                    if let Event::Start(Tag::Heading { id, .. }) = &mut events[at] {
+                        // An explicit `{#id}` wins; every heading gets one, so
+                        // `[text](#heading)` jumps and the outline has a target.
+                        let slug = match id.as_deref() {
+                            Some(explicit) => {
+                                seen_ids.insert(explicit.to_string());
+                                explicit.to_string()
+                            }
+                            None => unique_slug(&mut seen_ids, slugify(&text)),
+                        };
+                        *id = Some(slug.clone().into());
+                        headings.push(Heading { level: level as u8, title: text.trim().to_string(), id: slug });
+                    }
+                }
+                events.push(ev);
+            }
+            Event::Text(t) if !in_meta && mermaid.is_none() && link_depth == 0 && !in_code_block => {
+                for (href, piece) in autolink(&t) {
+                    match href {
+                        Some(href) => events.push(Event::InlineHtml(
+                            format!("<a href=\"{}\">{}</a>", esc(&href), esc(&piece)).into(),
+                        )),
+                        None => events.push(Event::Text(piece.into())),
+                    }
+                }
+            }
             Event::Start(Tag::MetadataBlock(_)) => in_meta = true,
             Event::End(TagEnd::MetadataBlock(_)) => in_meta = false,
             Event::Text(t) if in_meta => frontmatter.push_str(&t),
@@ -411,7 +653,18 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
     let mut body = String::new();
     html::push_html(&mut body, events.into_iter());
     let fm = parse_frontmatter(&frontmatter);
-    let title = fm.get("title").cloned().unwrap_or_else(|| "Markdown".into());
+    let doc_title = fm.get("title").cloned().or_else(|| headings.first().map(|h| h.title.clone())).filter(|t| !t.trim().is_empty());
+    let title = doc_title.clone().unwrap_or_else(|| "Markdown".into());
+    // One tiny, invisible jump link per heading: WebKit resolves each to a
+    // page position in the PDF, which is where the outline entries point
+    // (the links themselves are taken out again).
+    if !headings.is_empty() {
+        body.push_str("<div class=\"ir-outline\" aria-hidden=\"true\">");
+        for h in &headings {
+            body.push_str(&format!("<a href=\"#{}\">&nbsp;</a>", esc(&h.id)));
+        }
+        body.push_str("</div>\n");
+    }
 
     let nonce = {
         use rand::Rng;
@@ -423,6 +676,9 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
     css.push_str(EXTRA_CSS);
     if has_math {
         css.push_str(KATEX_CSS);
+    }
+    if dark {
+        css.push_str(DARK_CSS);
     }
     let mut scripts = String::new();
     let mut push_script = |src: &str| {
@@ -443,11 +699,13 @@ pub fn render_document(md: &str, base: Option<&Path>) -> String {
     let csp = format!(
         "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'nonce-{nonce}'"
     );
-    format!(
-        "<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n<meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n<title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n{tp}{body}{scripts}</body>\n</html>\n",
+    let html = format!(
+        "<!DOCTYPE html>\n<html lang=\"de\" data-theme=\"{theme}\">\n<head>\n<meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n<title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n{tp}{body}{scripts}</body>\n</html>\n",
         title = esc(&title),
         tp = title_page(&fm),
-    )
+        theme = if dark { "dark" } else { "light" },
+    );
+    Document { html, title: doc_title, author: fm.get("author").cloned().filter(|a| !a.trim().is_empty()), headings, dark }
 }
 
 /// Runs after the libraries: highlight, typeset math, draw diagrams, wait for
@@ -457,7 +715,7 @@ const READY_JS: &str = r#"window.__irDone = false;
 (async () => {
   try { if (window.hljs) document.querySelectorAll('pre code[class*="language-"]').forEach(el => { try { hljs.highlightElement(el); } catch (e) {} }); } catch (e) {}
   try { if (window.katex) document.querySelectorAll('.ir-math').forEach(el => { try { katex.render(el.textContent, el, { displayMode: el.classList.contains('ir-math-display'), throwOnError: false }); } catch (e) {} }); } catch (e) {}
-  try { if (window.mermaid) { mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' }); await mermaid.run({ querySelector: '.mermaid' }); } } catch (e) {}
+  try { if (window.mermaid) { mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral', securityLevel: 'strict' }); await mermaid.run({ querySelector: '.mermaid' }); } } catch (e) {}
   try { await document.fonts.ready; } catch (e) {}
   await Promise.all(Array.from(document.images).map(i => i.decode().catch(() => {})));
   window.__irDone = true;
@@ -521,13 +779,13 @@ pub fn html_to_png(_html: &str, _output: &Path) -> Result<(), String> {
 /// md2pdf's writer: paginated A4 on macOS (WebKit print + page numbers);
 /// Windows prints through Edge, which honours mrxdown's `@page` rule.
 #[cfg(target_os = "macos")]
-fn write_document_pdf(html: &str, output: &Path) -> Result<(), String> {
-    macos::render_document_pdf_paged(html, output)
+fn write_document_pdf(doc: &Document, output: &Path) -> Result<(), String> {
+    macos::render_document_pdf_paged(doc, output)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn write_document_pdf(html: &str, output: &Path) -> Result<(), String> {
-    write_pdf(html, output)
+fn write_document_pdf(doc: &Document, output: &Path) -> Result<(), String> {
+    write_pdf(&doc.html, output)
 }
 
 #[cfg(target_os = "macos")]
@@ -810,13 +1068,11 @@ mod macos {
     );
 
     #[link(name = "PDFKit", kind = "framework")]
-    extern "C" {
-        static PDFAnnotationSubtypeFreeText: Id;
-    }
+    extern "C" {}
 
     /// Render a document from `render_document` to paginated A4 PDF.
     /// **Main thread only.**
-    pub fn render_document_pdf_paged(html: &str, output: &Path) -> Result<(), String> {
+    pub fn render_document_pdf_paged(doc: &super::Document, output: &Path) -> Result<(), String> {
         let tmp = std::env::temp_dir().join(format!(
             "inspector-rust-md2pdf-{}-{}.pdf",
             std::process::id(),
@@ -825,7 +1081,7 @@ mod macos {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        let result = unsafe { print_to(html, &tmp) }.and_then(|()| unsafe { stamp_page_numbers(&tmp, output) });
+        let result = unsafe { print_to(&doc.html, &tmp) }.and_then(|()| unsafe { finish_pdf(&tmp, output, doc) });
         let _ = std::fs::remove_file(&tmp);
         result
     }
@@ -970,10 +1226,126 @@ mod macos {
         ok
     }
 
-    /// Stamp "N" centred at the bottom of every page (mrxdown's
-    /// `@bottom-center` page counter: 9 pt, #999), burned into the page, and
-    /// write the result.
-    unsafe fn stamp_page_numbers(src: &Path, dst: &Path) -> Result<(), String> {
+    // ── Finishing the printed PDF ─────────────────────────────────────
+    //
+    // Page numbers are DRAWN onto each page while PDFKit writes the file (a
+    // `PDFPage` subclass whose draw adds the number). The earlier way — a
+    // FreeText annotation per page, burned in with
+    // `PDFDocumentBurnInAnnotationsOption` — flattened EVERY annotation, and
+    // links are annotations: no link in an md2pdf file was clickable.
+    // Measured 2026-11-11: 4 links after printing, 0 after the burn; with
+    // the page subclass all survive and the text stays selectable.
+    // ⚠️ Links cannot be taken out and put back instead: PDFKit (macOS 27)
+    // writes a newly created in-document destination with a broken page
+    // reference; only the annotations WebKit wrote survive a rewrite.
+
+    static PAGE_DARK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// `CGContextRef` for the method signature.
+    #[repr(C)]
+    struct CGContext {
+        _private: [u8; 0],
+    }
+    unsafe impl RefEncode for CGContext {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("CGContext", &[]));
+    }
+
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        fn NSRectFill(rect: CGRect);
+    }
+
+    /// Make `ctx` AppKit's current context for `f`.
+    unsafe fn with_graphics_context(ctx: *mut CGContext, f: impl FnOnce()) {
+        let gc_class = objc2::class!(NSGraphicsContext);
+        let _: () = msg_send![gc_class, saveGraphicsState];
+        let gc: Id = msg_send![gc_class, graphicsContextWithCGContext: ctx, flipped: false];
+        let _: () = msg_send![gc_class, setCurrentContext: gc];
+        f();
+        let _: () = msg_send![gc_class, restoreGraphicsState];
+    }
+
+    extern "C-unwind" fn numbered_page_draw(this: &AnyObject, _cmd: objc2::runtime::Sel, display_box: isize, ctx: *mut CGContext) {
+        unsafe {
+            let dark = PAGE_DARK.load(std::sync::atomic::Ordering::SeqCst);
+            let b: CGRect = msg_send![this, boundsForBox: 0isize]; // media box
+            if dark {
+                // WebKit paints the page colour only inside the print
+                // margins; the margins themselves get it here.
+                let (r, g, bl) = super::DARK_BG;
+                with_graphics_context(ctx, || {
+                    let c: Id = msg_send![objc2::class!(NSColor),
+                        colorWithSRGBRed: r as f64 / 255.0, green: g as f64 / 255.0, blue: bl as f64 / 255.0, alpha: 1.0f64];
+                    let _: () = msg_send![c, setFill];
+                    NSRectFill(b);
+                });
+            }
+            let _: () = msg_send![super(this, objc2::class!(PDFPage)), drawWithBox: display_box, toContext: ctx];
+            let doc: Id = msg_send![this, document];
+            if doc.is_null() {
+                return;
+            }
+            let index: usize = msg_send![doc, indexForPage: this];
+            with_graphics_context(ctx, || {
+                // mrxdown's `@bottom-center` page counter: 9 pt, #999.
+                let font: Id = msg_send![objc2::class!(NSFont), systemFontOfSize: 9.0f64];
+                let grey: Id = msg_send![objc2::class!(NSColor), colorWithWhite: 0.6f64, alpha: 1.0f64];
+                let (kf, kc) = (nsstring_from_str("NSFont"), nsstring_from_str("NSColor"));
+                let attrs: Id = msg_send![objc2::class!(NSMutableDictionary), new];
+                let _: () = msg_send![attrs, setObject: font, forKey: kf];
+                let _: () = msg_send![attrs, setObject: grey, forKey: kc];
+                let label = nsstring_from_str(&(index + 1).to_string());
+                let size: CGSize = msg_send![label, sizeWithAttributes: attrs];
+                let at = CGPoint { x: b.origin.x + (b.size.width - size.width) / 2.0, y: b.origin.y + 24.0 };
+                let _: () = msg_send![label, drawAtPoint: at, withAttributes: attrs];
+                release(label);
+                release(attrs);
+                release(kf);
+                release(kc);
+            });
+        }
+    }
+
+    extern "C-unwind" fn class_for_page(_this: &AnyObject, _cmd: objc2::runtime::Sel) -> *const objc2::runtime::AnyClass {
+        numbered_page_class()
+    }
+
+    /// `PDFPage` subclass that draws its page number (registered once).
+    fn numbered_page_class() -> &'static objc2::runtime::AnyClass {
+        static CLASS: std::sync::OnceLock<&'static objc2::runtime::AnyClass> = std::sync::OnceLock::new();
+        CLASS.get_or_init(|| {
+            let mut b = objc2::runtime::ClassBuilder::new(c"IRMdNumberedPage", objc2::class!(PDFPage))
+                .expect("IRMdNumberedPage registered twice");
+            unsafe {
+                b.add_method(
+                    objc2::sel!(drawWithBox:toContext:),
+                    numbered_page_draw as extern "C-unwind" fn(_, _, _, _),
+                );
+            }
+            b.register()
+        })
+    }
+
+    /// The document delegate that makes PDFKit use the numbered page class.
+    fn page_delegate_class() -> &'static objc2::runtime::AnyClass {
+        static CLASS: std::sync::OnceLock<&'static objc2::runtime::AnyClass> = std::sync::OnceLock::new();
+        CLASS.get_or_init(|| {
+            let mut b = objc2::runtime::ClassBuilder::new(c"IRMdPageDelegate", objc2::class!(NSObject))
+                .expect("IRMdPageDelegate registered twice");
+            unsafe {
+                b.add_method(
+                    objc2::sel!(classForPage),
+                    class_for_page as extern "C-unwind" fn(_, _) -> _,
+                );
+            }
+            b.register()
+        })
+    }
+
+    /// The printed PDF → the final file: page numbers, the outline built
+    /// from the headings, title/author. Links stay as WebKit wrote them.
+    unsafe fn finish_pdf(src: &Path, dst: &Path, document: &super::Document) -> Result<(), String> {
+        PAGE_DARK.store(document.dark, std::sync::atomic::Ordering::SeqCst);
         let src_ns = nsstring_from_str(&src.to_string_lossy());
         let src_url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: src_ns];
         release(src_ns);
@@ -982,55 +1354,94 @@ mod macos {
         if doc.is_null() {
             return Err("printed PDF could not be read back".into());
         }
+        // Before any page is touched: pages are created through the delegate.
+        let delegate: Id = msg_send![page_delegate_class(), new];
+        let _: () = msg_send![doc, setDelegate: delegate];
+
+        // The outline anchors: tiny in-document links, one per heading, in
+        // document order. Their destinations are the headings' positions.
         let count: usize = msg_send![doc, pageCount];
-        let font: Id = msg_send![objc2::class!(NSFont), systemFontOfSize: 9.0f64];
-        let grey: Id = msg_send![objc2::class!(NSColor), colorWithWhite: 0.6f64, alpha: 1.0f64];
-        let clear: Id = msg_send![objc2::class!(NSColor), clearColor];
+        let link_type = nsstring_from_str("Link");
+        let mut anchors: Vec<Id> = Vec::new(); // retained PDFDestinations
         for i in 0..count {
             let page: Id = msg_send![doc, pageAtIndex: i];
             if page.is_null() {
                 continue;
             }
-            let b: CGRect = msg_send![page, boundsForBox: 0isize]; // media box
-            let rect = CGRect {
-                origin: CGPoint { x: b.origin.x, y: b.origin.y + 22.0 },
-                size: CGSize { width: b.size.width, height: 14.0 },
-            };
-            let ann: Id = msg_send![objc2::class!(PDFAnnotation), alloc];
-            let ann: Id = msg_send![ann,
-                initWithBounds: rect,
-                forType: PDFAnnotationSubtypeFreeText,
-                withProperties: NIL];
-            if ann.is_null() {
-                continue;
+            let annots: Id = msg_send![page, annotations];
+            let n: usize = if annots.is_null() { 0 } else { msg_send![annots, count] };
+            let mut ours: Vec<Id> = Vec::new();
+            for k in 0..n {
+                let a: Id = msg_send![annots, objectAtIndex: k];
+                let ty: Id = msg_send![a, type];
+                let is_link: bool = !ty.is_null() && msg_send![ty, isEqualToString: link_type];
+                let bounds: CGRect = msg_send![a, bounds];
+                let dest: Id = msg_send![a, destination];
+                if is_link && !dest.is_null() && bounds.size.height <= OUTLINE_ANCHOR_MAX_H {
+                    let _: Id = msg_send![dest, retain];
+                    anchors.push(dest);
+                    let _: Id = msg_send![a, retain];
+                    ours.push(a);
+                }
             }
-            let label = nsstring_from_str(&(i + 1).to_string());
-            let _: () = msg_send![ann, setContents: label];
-            release(label);
-            let _: () = msg_send![ann, setFont: font];
-            let _: () = msg_send![ann, setFontColor: grey];
-            let _: () = msg_send![ann, setColor: clear];
-            let _: () = msg_send![ann, setAlignment: 1isize]; // NSTextAlignmentCenter (1 on the current macOS SDK — verified via Swift rawValue)
-            let border: Id = msg_send![objc2::class!(PDFBorder), new];
-            let _: () = msg_send![border, setLineWidth: 0.0f64];
-            let _: () = msg_send![ann, setBorder: border];
-            release(border);
-            let _: () = msg_send![ann, setReadOnly: true];
-            let _: () = msg_send![page, addAnnotation: ann];
-            release(ann);
+            for a in ours {
+                let _: () = msg_send![page, removeAnnotation: a];
+                release(a);
+            }
         }
+        release(link_type);
+        if anchors.len() == document.headings.len() && !anchors.is_empty() {
+            let root: Id = msg_send![objc2::class!(PDFOutline), new];
+            // (level, item) of the open ancestors.
+            let mut stack: Vec<(u8, Id)> = Vec::new();
+            for (h, dest) in document.headings.iter().zip(&anchors) {
+                let item: Id = msg_send![objc2::class!(PDFOutline), new];
+                let label = nsstring_from_str(&h.title);
+                let _: () = msg_send![item, setLabel: label];
+                release(label);
+                let _: () = msg_send![item, setDestination: *dest];
+                while stack.last().is_some_and(|(level, _)| *level >= h.level) {
+                    stack.pop();
+                }
+                let parent = stack.last().map_or(root, |(_, p)| *p);
+                let at: usize = msg_send![parent, numberOfChildren];
+                let _: () = msg_send![parent, insertChild: item, atIndex: at];
+                let _: () = msg_send![item, setIsOpen: h.level <= 2];
+                stack.push((h.level, item));
+                release(item);
+            }
+            let _: () = msg_send![doc, setOutlineRoot: root];
+            release(root);
+        } else if !document.headings.is_empty() {
+            tracing::warn!("md2pdf: {} headings but {} outline anchors — no outline", document.headings.len(), anchors.len());
+        }
+        for d in anchors {
+            release(d);
+        }
+
+        let attrs: Id = msg_send![objc2::class!(NSMutableDictionary), new];
+        let put = |key: &str, value: &str| {
+            let (k, v) = (nsstring_from_str(key), nsstring_from_str(value));
+            let _: () = msg_send![attrs, setObject: v, forKey: k];
+            release(k);
+            release(v);
+        };
+        if let Some(t) = &document.title {
+            put("Title", t);
+        }
+        if let Some(a) = &document.author {
+            put("Author", a);
+        }
+        put("Creator", "Inspector Rust");
+        let _: () = msg_send![doc, setDocumentAttributes: attrs];
+        release(attrs);
+
         let dst_ns = nsstring_from_str(&dst.to_string_lossy());
         let dst_url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: dst_ns];
         release(dst_ns);
-        // Burn the numbers into the page content (macOS 13+). As live
-        // FreeText annotations they stayed clickable in Preview and PDFKit
-        // wrote their appearance streams with a zero /Length (CoreGraphics
-        // logs "invalid stream length"). Older systems ignore the key.
-        let burn_key = nsstring_from_str("PDFDocumentBurnInAnnotationsOption");
-        let yes: Id = msg_send![objc2::class!(NSNumber), numberWithBool: true];
-        let opts: Id = msg_send![objc2::class!(NSDictionary), dictionaryWithObject: yes, forKey: burn_key];
-        release(burn_key);
-        let ok: bool = msg_send![doc, writeToURL: dst_url, withOptions: opts];
+        let ok: bool = msg_send![doc, writeToURL: dst_url];
+        let _: () = msg_send![doc, setDelegate: NIL];
+        release(delegate);
         release(doc);
         if ok {
             Ok(())
@@ -1038,6 +1449,94 @@ mod macos {
             Err(format!("can't write PDF to {dst:?}"))
         }
     }
+
+    /// What a finished PDF holds, read back through PDFKit (tests).
+    #[cfg(test)]
+    #[derive(Debug, Default)]
+    pub struct PdfFacts {
+        pub pages: usize,
+        /// Web/mail links, in order.
+        pub urls: Vec<String>,
+        /// Jumps inside the document: (from page, to page).
+        pub jumps: Vec<(usize, usize)>,
+        /// Outline entries: (depth, label, page).
+        pub outline: Vec<(usize, String, usize)>,
+        pub page_text: Vec<String>,
+        pub title: Option<String>,
+        pub author: Option<String>,
+    }
+
+    #[cfg(test)]
+    pub fn finish_for_test(src: &Path, dst: &Path, document: &super::Document) -> Result<(), String> {
+        unsafe { finish_pdf(src, dst, document) }
+    }
+
+    #[cfg(test)]
+    pub fn inspect(path: &Path) -> PdfFacts {
+        unsafe fn walk(doc: Id, item: Id, depth: usize, out: &mut Vec<(usize, String, usize)>) {
+            let n: usize = msg_send![item, numberOfChildren];
+            for i in 0..n {
+                let child: Id = msg_send![item, childAtIndex: i];
+                let label: Id = msg_send![child, label];
+                let dest: Id = msg_send![child, destination];
+                let page: Id = if dest.is_null() { NIL } else { msg_send![dest, page] };
+                let index: usize = if page.is_null() { usize::MAX } else { msg_send![doc, indexForPage: page] };
+                out.push((depth, nsstring_to_string(label).unwrap_or_default(), index));
+                walk(doc, child, depth + 1, out);
+            }
+        }
+        unsafe {
+            let mut f = PdfFacts::default();
+            let ns = nsstring_from_str(&path.to_string_lossy());
+            let url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: ns];
+            release(ns);
+            let doc: Id = msg_send![objc2::class!(PDFDocument), alloc];
+            let doc: Id = msg_send![doc, initWithURL: url];
+            if doc.is_null() {
+                return f;
+            }
+            f.pages = msg_send![doc, pageCount];
+            for i in 0..f.pages {
+                let page: Id = msg_send![doc, pageAtIndex: i];
+                let text: Id = msg_send![page, string];
+                f.page_text.push(nsstring_to_string(text).unwrap_or_default());
+                let annots: Id = msg_send![page, annotations];
+                let n: usize = msg_send![annots, count];
+                for k in 0..n {
+                    let a: Id = msg_send![annots, objectAtIndex: k];
+                    let u: Id = msg_send![a, URL];
+                    let dest: Id = msg_send![a, destination];
+                    if !u.is_null() {
+                        let abs: Id = msg_send![u, absoluteString];
+                        f.urls.push(nsstring_to_string(abs).unwrap_or_default());
+                    } else if !dest.is_null() {
+                        let dp: Id = msg_send![dest, page];
+                        if !dp.is_null() {
+                            f.jumps.push((i, msg_send![doc, indexForPage: dp]));
+                        }
+                    }
+                }
+            }
+            let root: Id = msg_send![doc, outlineRoot];
+            if !root.is_null() {
+                walk(doc, root, 0, &mut f.outline);
+            }
+            let attrs: Id = msg_send![doc, documentAttributes];
+            if !attrs.is_null() {
+                for (key, slot) in [("Title", &mut f.title), ("Author", &mut f.author)] {
+                    let k = nsstring_from_str(key);
+                    let v: Id = msg_send![attrs, objectForKey: k];
+                    release(k);
+                    *slot = nsstring_to_string(v);
+                }
+            }
+            release(doc);
+            f
+        }
+    }
+
+    /// An outline anchor link is 1 px high; a real link is a line of text.
+    const OUTLINE_ANCHOR_MAX_H: f64 = 3.0;
 
     /// Iterate the main CFRunLoop for up to `dur`. Returns when one
     /// event is processed OR the timeout elapses — we call this in
@@ -1430,7 +1929,7 @@ mod tests {
         let html = render_html("# Hello\n\nworld");
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains("<style>"));
-        assert!(html.contains("<h1>Hello</h1>"));
+        assert!(html.contains("<h1 id=\"hello\">Hello</h1>"));
         assert!(html.contains("<p>world</p>"));
     }
 
@@ -1693,6 +2192,143 @@ mod tests {
         for (name, src) in [("hljs", HLJS_JS), ("katex", KATEX_JS), ("mermaid", MERMAID_JS)] {
             assert!(!src.contains("</script"), "{name} contains </script");
         }
+    }
+
+    /// Writes the HTML of `$IR_MD_IN` to `$IR_DUMP_DIR/md2pdf.html`, to look
+    /// at: `IR_MD_IN=doc.md IR_DUMP_DIR=/tmp/x cargo test --lib dump_md2pdf -- --ignored`.
+    #[test]
+    #[ignore = "writes a file to look at"]
+    fn dump_md2pdf_html() {
+        let (Ok(input), Ok(dir)) = (std::env::var("IR_MD_IN"), std::env::var("IR_DUMP_DIR")) else { return };
+        let input = PathBuf::from(input);
+        let md = std::fs::read_to_string(&input).unwrap();
+        let dark = std::env::var_os("IR_MD_DARK").is_some();
+        std::fs::write(Path::new(&dir).join("md2pdf.html"), build_document(&md, input.parent(), dark).html).unwrap();
+    }
+
+    /// The Markdown behind `fixtures/md2pdf-printed.pdf` (what WebKit's print
+    /// step wrote for it, before finishing). Regenerate the PDF with the
+    /// dump test above and a WKWebView print when this changes.
+    const FIXTURE_MD: &str = "---\ntitle: Prüfdokument\nauthor: Test Autor\n---\n\n# Einleitung\n\nEin [externer Link](https://example.com/pfad?x=1), nackt https://www.example.org/seite und <mailto:hallo@example.com>. Sprung zum [Schluss](#schluss).\n\n## Unterpunkt\n\nText.\n\n<div style=\"height:1400px\"></div>\n\n# Schluss\n\nZurück zur [Einleitung](#einleitung).\n";
+
+    #[test]
+    #[ignore = "writes the fixture's HTML"]
+    fn dump_md2pdf_fixture_html() {
+        let Ok(dir) = std::env::var("IR_DUMP_DIR") else { return };
+        std::fs::write(Path::new(&dir).join("fixture.html"), build_document(FIXTURE_MD, None, false).html).unwrap();
+    }
+
+    /// The finishing step on a real printed PDF: every link survives, the
+    /// headings become the outline, each page carries its number.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finishing_keeps_links_and_adds_outline_numbers_and_properties() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fixtures/md2pdf-printed.pdf");
+        let dir = std::env::temp_dir().join(format!("ir-md2pdf-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for dark in [false, true] {
+            let out = dir.join(format!("out-{dark}.pdf"));
+            let doc = build_document(FIXTURE_MD, None, dark);
+            macos::finish_for_test(&src, &out, &doc).unwrap();
+            let f = macos::inspect(&out);
+            assert_eq!(f.pages, 3, "{f:?}");
+            assert_eq!(
+                f.urls,
+                vec!["https://example.com/pfad?x=1", "https://www.example.org/seite", "mailto:hallo@example.com"],
+                "web and mail links"
+            );
+            // Einleitung → Schluss and back; the outline's own anchors are gone.
+            assert_eq!(f.jumps, vec![(1, 2), (2, 1)]);
+            assert_eq!(
+                f.outline,
+                vec![(0, "Einleitung".to_string(), 1), (1, "Unterpunkt".to_string(), 1), (0, "Schluss".to_string(), 2)]
+            );
+            for (i, text) in f.page_text.iter().enumerate() {
+                assert_eq!(text.trim().lines().last().map(str::trim), Some((i + 1).to_string().as_str()), "page number on page {i}: {text:?}");
+            }
+            assert!(f.page_text[1].contains("externer Link"), "text stays text");
+            assert!(!f.page_text[2].contains('.') || f.page_text[2].contains("Einleitung."), "no helper dots in the text layer");
+            assert_eq!(f.page_text[2].trim().lines().count(), 3, "heading, sentence, number: {:?}", f.page_text[2]);
+            assert_eq!((f.title.as_deref(), f.author.as_deref()), (Some("Prüfdokument"), Some("Test Autor")));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn headings_get_github_anchors() {
+        assert_eq!(slugify("Code & Mathe"), "code--mathe");
+        assert_eq!(slugify("  Über uns: Größe_1  "), "über-uns-größe_1");
+        assert_eq!(slugify("!!!"), "section");
+        let mut seen = std::collections::HashSet::new();
+        assert_eq!(unique_slug(&mut seen, "setup".into()), "setup");
+        assert_eq!(unique_slug(&mut seen, "setup".into()), "setup-1");
+        assert_eq!(unique_slug(&mut seen, "setup".into()), "setup-2");
+
+        let d = build_document("# Start\n\n## Mit `code` drin\n\n## Start\n\n[hoch](#start)", None, false);
+        assert!(d.html.contains("<h1 id=\"start\">"), "{}", &d.html[d.html.len() - 600..]);
+        assert!(d.html.contains("<h2 id=\"mit-code-drin\">"));
+        assert!(d.html.contains("<h2 id=\"start-1\">"));
+        assert_eq!(
+            d.headings.iter().map(|h| (h.level, h.title.as_str(), h.id.as_str())).collect::<Vec<_>>(),
+            vec![(1, "Start", "start"), (2, "Mit code drin", "mit-code-drin"), (2, "Start", "start-1")]
+        );
+        // One invisible jump link per heading, for the outline.
+        assert!(d.html.contains("<div class=\"ir-outline\" aria-hidden=\"true\"><a href=\"#start\">&nbsp;</a><a href=\"#mit-code-drin\">&nbsp;</a><a href=\"#start-1\">&nbsp;</a></div>"));
+        assert_eq!(d.title.as_deref(), Some("Start"));
+        // No headings, no block.
+        assert!(!build_document("nur Text", None, false).html.contains("class=\"ir-outline\""));
+    }
+
+    #[test]
+    fn bare_addresses_become_links() {
+        let l = |s: &str| autolink(s).into_iter().filter_map(|(h, _)| h).collect::<Vec<_>>();
+        assert_eq!(l("siehe https://example.com/a?b=1&c=2."), vec!["https://example.com/a?b=1&c=2"]);
+        assert_eq!(l("(www.example.org/x) und http://a.de, fertig"), vec!["https://www.example.org/x", "http://a.de"]);
+        assert_eq!(l("https://de.wikipedia.org/wiki/Rust_(Programmiersprache)"), vec!["https://de.wikipedia.org/wiki/Rust_(Programmiersprache)"]);
+        // Not addresses: a word that merely contains one, a bare prefix, mail.
+        assert!(l("xhttps://a.de foo@www.example.com www. https:// www.x").is_empty());
+        // Text around the link is kept, in order.
+        assert_eq!(
+            autolink("a https://x.de b"),
+            vec![(None, "a ".to_string()), (Some("https://x.de".to_string()), "https://x.de".to_string()), (None, " b".to_string())]
+        );
+        assert_eq!(autolink("größe ändern"), vec![(None, "größe ändern".to_string())]);
+
+        let html = render_html("Nackt https://example.com/pfad_mit_unterstrich und [schon](https://example.com/y) Link.\n\n`https://code.example`\n\n```\nhttps://block.example\n```");
+        assert!(html.contains("<a href=\"https://example.com/pfad_mit_unterstrich\">https://example.com/pfad_mit_unterstrich</a>"));
+        // A written link is not linked twice, code stays code.
+        assert_eq!(html.matches("href=\"https://example.com/y\"").count(), 1);
+        assert!(!html.contains("href=\"https://code.example"));
+        assert!(!html.contains("href=\"https://block.example"));
+    }
+
+    #[test]
+    fn the_dark_flag_is_split_from_the_path() {
+        assert_eq!(split_flags("--dark ~/Mein Ordner/a b.md"), (true, Some("~/Mein Ordner/a b.md".into())));
+        assert_eq!(split_flags("~/x.md --dark"), (true, Some("~/x.md".into())));
+        assert_eq!(split_flags("--DARK"), (true, None));
+        assert_eq!(split_flags("  --dunkel  "), (true, None));
+        assert_eq!(split_flags("~/x.md"), (false, Some("~/x.md".into())));
+        assert_eq!(split_flags(""), (false, None));
+        // Only as a word of its own.
+        assert_eq!(split_flags("~/notes--dark.md"), (false, Some("~/notes--dark.md".into())));
+        assert_eq!(split_flags("~/a --dark b.md"), (false, Some("~/a --dark b.md".into())));
+    }
+
+    #[test]
+    fn dark_documents_carry_the_dark_sheet_light_ones_do_not() {
+        let light = build_document("# A", None, false);
+        let dark = build_document("# A", None, true);
+        assert!(dark.dark && dark.html.contains("data-theme=\"dark\"") && dark.html.contains("background: #0d1117 !important"));
+        assert!(!light.dark && light.html.contains("data-theme=\"light\"") && !light.html.contains("#0d1117"));
+        assert_eq!(DARK_BG, (0x0d, 0x11, 0x17));
+    }
+
+    #[test]
+    fn title_and_author_come_from_the_frontmatter() {
+        let d = build_document("---\ntitle: Bericht\nauthor: A. Autorin\n---\n\n# Kapitel", None, false);
+        assert_eq!((d.title.as_deref(), d.author.as_deref()), (Some("Bericht"), Some("A. Autorin")));
+        assert_eq!(build_document("ohne alles", None, false).title, None);
     }
 
     #[test]

@@ -5371,6 +5371,8 @@ pub async fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), S
 fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), String> {
     // Resolve the target paths up front so a bad/empty selection errors
     // synchronously (the frontend can show it) before we spawn.
+    // `--dark` (first or last word) picks the dark theme; the rest is the path.
+    let (dark, path) = path.as_deref().map(crate::md_to_pdf::split_flags).unwrap_or((false, None));
     let arg_path = path
         .map(|p| p.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
         .filter(|p| !p.is_empty())
@@ -5404,12 +5406,12 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
         let summary = {
             let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
             let _ = app2.run_on_main_thread(move || {
-                let _ = tx.send(crate::md_to_pdf::convert_files(&paths));
+                let _ = tx.send(crate::md_to_pdf::convert_files(&paths, dark));
             });
             rx.recv().unwrap_or_default()
         };
         #[cfg(not(target_os = "macos"))]
-        let summary = crate::md_to_pdf::convert_files(&paths);
+        let summary = crate::md_to_pdf::convert_files(&paths, dark);
 
         tracing::info!(
             "md2pdf: {} converted, {} skipped, {} failed",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Cpu,
@@ -10,11 +10,16 @@ import {
   BatteryCharging,
   Zap,
   Server,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   getSystemStats,
   getStatsHistory,
+  statsTopProcesses,
+  type ProcRow,
   type SystemStats,
+  type TopProcs,
   type StatsHistory,
   type StatsHistoryPoint,
 } from "../lib/ipc";
@@ -25,7 +30,29 @@ import {
   humanDuration,
   clampPct,
   usedPct,
+  fmtNum,
+  fmtPct,
+  fmtUnit,
 } from "../lib/format-stats";
+import {
+  cardForKey,
+  groupTemps,
+  loadLevel,
+  memSegments,
+  parseCollapsed,
+  pushSample,
+  shareOfTop,
+  sparkPaths,
+  splitCores,
+  stackUpTo,
+  toggleCollapsed,
+  visibleDisks,
+  type CoreReading,
+  type LoadLevel,
+  type MemKind,
+  type TempGroupKey,
+} from "../lib/stats-view";
+import { IS_MAC } from "../lib/platform";
 import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
 import {
   STAT_TWEEN_MS,
@@ -53,6 +80,38 @@ import { t, useT } from "../lib/i18n";
  * power draw via starship-battery.
  */
 const POLL_MS = 1500;
+/** The process lists cost a scan of every process — half as often. */
+const PROC_POLL_MS = 3000;
+/** The overview sparklines show the last minute. */
+const TRAIL_SLOTS = Math.round(60_000 / POLL_MS);
+const COLLAPSE_KEY = "ir.stats.collapsed.v1";
+
+type CardId = "cpu" | "memory" | "battery" | "temps" | "fans" | "storage" | "network" | "host";
+
+interface Trail {
+  cpu: number[];
+  mem: number[];
+  net: number[];
+  power: number[];
+}
+const EMPTY_TRAIL: Trail = { cpu: [], mem: [], net: [], power: [] };
+
+/** What a card needs to know about the panel: which cards are folded, how to
+ *  fold one, and which jump number it has (shown once the panel has the keys). */
+const CardCtx = createContext<{
+  collapsed: readonly string[];
+  toggle: (id: string) => void;
+  numbers: Readonly<Record<string, number>>;
+  showKeys: boolean;
+} | null>(null);
+
+function readCollapsed(): string[] {
+  try {
+    return parseCollapsed(window.localStorage.getItem(COLLAPSE_KEY));
+  } catch {
+    return [];
+  }
+}
 
 /** History time-frame options (seconds) for the dropdown. */
 const RANGES: ReadonlyArray<{ readonly label: string; secs: number }> = [
@@ -75,6 +134,9 @@ export function StatsPanel({
   const [mode, setMode] = useState<Mode>("live");
   const [rangeSecs, setRangeSecs] = useState<number>(21600); // default 6h
   const [stats, setStats] = useState<SystemStats | null>(null);
+  const [procs, setProcs] = useState<TopProcs | null>(null);
+  const [trail, setTrail] = useState<Trail>(EMPTY_TRAIL);
+  const [collapsed, setCollapsed] = useState<string[]>(readCollapsed);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -101,6 +163,12 @@ export function StatsPanel({
           if (alive.current) {
             setStats(s);
             setError(null);
+            setTrail((cur) => ({
+              cpu: pushSample(cur.cpu, s.cpu_usage, TRAIL_SLOTS),
+              mem: pushSample(cur.mem, usedPct(s.mem_used, s.mem_total), TRAIL_SLOTS),
+              net: pushSample(cur.net, s.net_rx_per_sec + s.net_tx_per_sec, TRAIL_SLOTS),
+              power: pushSample(cur.power, s.battery?.power_watts ?? s.battery?.percent ?? 0, TRAIL_SLOTS),
+            }));
           }
         })
         .catch((e) => {
@@ -116,6 +184,64 @@ export function StatsPanel({
       window.clearTimeout(scrollEndRef.current);
     };
   }, [mode]);
+
+  // The process lists: their own, slower poll — and only in the live view.
+  useEffect(() => {
+    if (mode !== "live") return;
+    let on = true;
+    const load = () => {
+      if (scrollingRef.current) return;
+      statsTopProcesses()
+        .then((p) => {
+          if (on) setProcs(p);
+        })
+        .catch(() => {});
+    };
+    load();
+    // The first answer has no CPU shares yet (they need two readings).
+    const soon = window.setTimeout(load, 1200);
+    const id = window.setInterval(load, PROC_POLL_MS);
+    return () => {
+      on = false;
+      window.clearTimeout(soon);
+      window.clearInterval(id);
+    };
+  }, [mode]);
+
+  const toggle = useCallback((id: string) => {
+    setCollapsed((cur) => {
+      const next = toggleCollapsed(cur, id);
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
+      } catch {
+        // Private mode / blocked storage: the fold still works for this session.
+      }
+      return next;
+    });
+  }, []);
+
+  // The cards on screen, in order — the digit keys jump by this list.
+  const cardIds = useMemo<CardId[]>(() => {
+    if (!stats) return [];
+    const ids: CardId[] = ["cpu", "memory"];
+    if (stats.battery) ids.push("battery");
+    if (stats.temps.length > 0) ids.push("temps");
+    if (stats.fans.length > 0) ids.push("fans");
+    if (visibleDisks(stats.disks).length > 0) ids.push("storage");
+    ids.push("network", "host");
+    return ids;
+  }, [stats]);
+  const numbers = useMemo(() => Object.fromEntries(cardIds.map((id, i) => [id, i + 1])), [cardIds]);
+
+  const jump = useCallback((id: CardId) => {
+    setCollapsed((cur) => (cur.includes(id) ? cur.filter((c) => c !== id) : cur));
+    // After the card unfolded (next frame), bring it to the top.
+    window.requestAnimationFrame(() => {
+      const box = scrollRef.current;
+      const el = box?.querySelector<HTMLElement>(`[data-card="${id}"]`);
+      if (box && el) box.scrollTo({ top: el.offsetTop - 12 });
+    });
+  }, []);
 
   // Mark "scrolling" on each scroll event and clear it ~200 ms after the last
   // one (momentum settled), then refresh once. Cheap: only touches refs +
@@ -138,8 +264,21 @@ export function StatsPanel({
     const onKey = (e: KeyboardEvent) => {
       // Let the mode toggle / range dropdown handle their own keys (so the
       // native <select> opens + arrow-selects instead of scrolling the panel).
+      // The search field keeps the DOM focus while this panel is open, so its
+      // key presses belong to the panel; any other text field keeps its keys.
       const tgt = e.target as HTMLElement | null;
-      if (tgt && (tgt.tagName === "SELECT" || tgt.tagName === "BUTTON" || tgt.tagName === "INPUT")) {
+      if (tgt && (tgt.tagName === "SELECT" || (tgt.tagName === "INPUT" && !tgt.hasAttribute("data-main-search")))) {
+        return;
+      }
+      // ⌘/Ctrl + digit jumps to that card. A chord, because a bare digit
+      // would be swallowed from whatever is typed into the search field.
+      if ((IS_MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && mode === "live") {
+        const target = cardForKey(e.key, cardIds);
+        if (target) {
+          e.preventDefault();
+          e.stopPropagation();
+          jump(target);
+        }
         return;
       }
       const el = scrollRef.current;
@@ -190,7 +329,7 @@ export function StatsPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit]);
+  }, [focused, onExit, mode, cardIds, jump]);
 
   return (
     <div
@@ -239,20 +378,23 @@ export function StatsPanel({
       ) : stats === null ? (
         <p className="text-[12px] text-[var(--color-muted)]">{t("stats.reading_system")}</p>
       ) : (
-        <>
-          <CpuSection s={stats} />
-          <MemorySection s={stats} />
+        <CardCtx.Provider value={{ collapsed, toggle, numbers, showKeys: focused }}>
+          <Overview s={stats} trail={trail} jump={jump} />
+          <CpuSection s={stats} procs={procs} />
+          <MemorySection s={stats} procs={procs} />
           {stats.battery && <BatterySection b={stats.battery} />}
           <TemperatureSection temps={stats.temps} />
           <FanSection fans={stats.fans} />
           <DisksSection s={stats} />
           <NetworkSection s={stats} />
           <HostSection s={stats} />
-        </>
+        </CardCtx.Provider>
       )}
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          {t("stats.scroll_esc_close")}
+          {mode === "live"
+            ? t("stats.keys_live", { mod: IS_MAC ? "⌘" : "Ctrl+", n: Math.min(9, cardIds.length) })
+            : t("stats.scroll_esc_close")}
         </p>
       )}
     </div>
@@ -347,7 +489,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
         tMin={tMin}
         tMax={tMax}
         domain={[0, 100]}
-        fmt={(v) => `${v.toFixed(0)}%`}
+        fmt={(v) => fmtPct(v)}
       />
       <LineChartCard
         icon={<MemoryStick size={14} />}
@@ -357,7 +499,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
         tMin={tMin}
         tMax={tMax}
         domain={[0, 100]}
-        fmt={(v) => `${v.toFixed(0)}%`}
+        fmt={(v) => fmtPct(v)}
       />
       <NetworkChartCard pts={pts} tMin={tMin} tMax={tMax} />
       {hasPower && (
@@ -368,7 +510,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
           pick={(p) => p.power}
           tMin={tMin}
           tMax={tMax}
-          fmt={(v) => `${v.toFixed(1)} W`}
+          fmt={(v) => fmtUnit(v, "W")}
         />
       )}
       {hasTemp && (
@@ -379,7 +521,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
           pick={(p) => p.cpu_temp}
           tMin={tMin}
           tMax={tMax}
-          fmt={(v) => `${v.toFixed(1)}°C`}
+          fmt={(v) => fmtUnit(v, "°C")}
         />
       )}
       {hasBattery && (
@@ -391,7 +533,7 @@ function HistoryView({ rangeSecs }: { rangeSecs: number }) {
           tMin={tMin}
           tMax={tMax}
           domain={[0, 100]}
-          fmt={(v) => `${v.toFixed(0)}%`}
+          fmt={(v) => fmtPct(v)}
         />
       )}
       <p className="px-1 pb-1 text-[10px] text-[var(--color-muted)]">
@@ -692,26 +834,54 @@ function Bar({ pct, color }: { pct: number; color?: string }) {
 }
 
 function Card({
+  id,
   icon,
   title,
   right,
   children,
 }: {
+  /** With an id the card can be folded and jumped to (live view). */
+  id?: CardId;
   icon: React.ReactNode;
   title: string;
   right?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const ctx = useContext(CardCtx);
+  const foldable = id != null && ctx != null;
+  const folded = foldable && ctx.collapsed.includes(id);
+  const head = (
+    <>
+      <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium">
+        <span className="text-[var(--color-accent)]">{icon}</span>
+        <span className="truncate">{title}</span>
+        {foldable && ctx.showKeys && ctx.numbers[id] != null && ctx.numbers[id] <= 9 && (
+          <kbd className="rounded border border-[var(--color-border)] px-1 text-[9px] font-normal leading-4 text-[var(--color-muted)]">
+            {ctx.numbers[id]}
+          </kbd>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--color-muted)] tabular-nums">
+        {right}
+        {foldable && <ChevronDown size={12} className={folded ? "-rotate-90" : undefined} />}
+      </span>
+    </>
+  );
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[12px] font-medium">
-          <span className="text-[var(--color-accent)]">{icon}</span>
-          {title}
-        </div>
-        {right && <span className="text-[11px] text-[var(--color-muted)]">{right}</span>}
-      </div>
-      {children}
+    <div data-card={id} className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
+      {foldable ? (
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={() => ctx.toggle(id)}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          {head}
+        </button>
+      ) : (
+        <div className="flex items-center justify-between gap-2">{head}</div>
+      )}
+      {!folded && <div className="mt-2">{children}</div>}
     </div>
   );
 }
@@ -732,47 +902,312 @@ function Kv({ k, v }: { k: string; v: React.ReactNode }) {
 function HeadlinePct({ pct }: { pct: number }) {
   return (
     <span className={isHot(pct) ? "stat-heat-num stat-heat-breathe" : undefined}>
-      <TweenNum value={pct} fmt={(v) => `${v.toFixed(0)}%`} />
+      <TweenNum value={pct} fmt={(v) => fmtPct(v)} />
     </span>
   );
 }
 
-function CpuSection({ s }: { s: SystemStats }) {
-  useT();
-  const cores = s.physical_cores
-    ? `${s.physical_cores}C / ${s.logical_cores}T`
-    : t("stats.threads", { n: s.logical_cores });
+// ── Overview strip ──────────────────────────────────────────────────────────
+
+const SPARK_W = 100;
+const SPARK_H = 22;
+
+function Tile({
+  label,
+  value,
+  sub,
+  color,
+  series,
+  top,
+  onClick,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+  color?: string;
+  series: readonly number[];
+  top?: number;
+  onClick: () => void;
+}) {
+  const { line, area } = sparkPaths(series, TRAIL_SLOTS, SPARK_W, SPARK_H, top);
+  const stroke = color ?? "var(--color-accent)";
   return (
-    <Card
-      icon={<Cpu size={14} />}
-      title="CPU"
-      right={<HeadlinePct pct={s.cpu_usage} />}
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative min-w-0 overflow-hidden rounded-xl border border-[var(--color-border)] px-2 pb-6 pt-1.5 text-left hover:border-[var(--color-accent)] [contain:content]"
     >
-      <Bar pct={s.cpu_usage} />
-      <div className="mt-1.5 truncate text-[11px] text-[var(--color-muted)]">
-        {s.cpu_brand}
+      <div className="truncate text-[9px] font-medium uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="truncate text-[13px] font-semibold leading-5 tabular-nums" style={color ? { color } : undefined}>
+        {value}
       </div>
-      <div className="mt-0.5 flex items-center justify-between text-[11px] text-[var(--color-muted)]">
-        <span>{cores}</span>
-        <span className="tabular-nums">
-          {s.cpu_freq_mhz > 0 ? `${(s.cpu_freq_mhz / 1000).toFixed(2)} GHz` : ""}
-          {s.load_avg ? ` · ${t("stats.load", { v: s.load_avg.map((l) => l.toFixed(1)).join(" ") })}` : ""}
-        </span>
-      </div>
-      {s.per_core.length > 1 && (
-        <div className="mt-2 grid grid-cols-8 gap-1">
-          {s.per_core.map((u, i) => (
-            <CoreCell key={i} index={i} pct={u} />
+      <div className="truncate text-[10px] text-[var(--color-muted)] tabular-nums">{sub}</div>
+      <svg
+        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+        preserveAspectRatio="none"
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 w-full" style={{ height: SPARK_H }}
+      >
+        {area && <path d={area} fill={stroke} opacity={0.14} />}
+        {line && <path d={line} fill="none" stroke={stroke} strokeWidth={1.25} vectorEffect="non-scaling-stroke" />}
+      </svg>
+    </button>
+  );
+}
+
+const PRESSURE_COLOR = ["#22c55e", "#f59e0b", "#ef4444"] as const;
+
+function pressureLabel(p: number): string {
+  return p >= 2 ? t("stats.pressure.critical") : p === 1 ? t("stats.pressure.raised") : t("stats.pressure.normal");
+}
+
+function loadLabel(level: LoadLevel): string {
+  switch (level) {
+    case "over": return t("stats.load_level.over");
+    case "busy": return t("stats.load_level.busy");
+    case "normal": return t("stats.load_level.normal");
+    default: return t("stats.load_level.idle");
+  }
+}
+
+function Overview({ s, trail, jump }: { s: SystemStats; trail: Trail; jump: (id: CardId) => void }) {
+  useT();
+  const memPct = usedPct(s.mem_used, s.mem_total);
+  const level = s.load_avg ? loadLevel(s.load_avg[0], s.logical_cores) : null;
+  const b = s.battery;
+  const disk = visibleDisks(s.disks)[0];
+  return (
+    <div className="grid grid-cols-4 gap-2" data-testid="stats-overview">
+      <Tile
+        label="CPU"
+        value={fmtPct(s.cpu_usage)}
+        sub={level ? loadLabel(level) : s.cpu_brand}
+        color={s.cpu_usage >= 70 ? loadColor(s.cpu_usage) : undefined}
+        series={trail.cpu}
+        top={100}
+        onClick={() => jump("cpu")}
+      />
+      <Tile
+        label={t("stats.tile.memory")}
+        value={s.memory ? pressureLabel(s.memory.pressure) : fmtPct(memPct)}
+        sub={t("stats.tile.used", { v: fmtPct(memPct) })}
+        color={s.memory ? PRESSURE_COLOR[Math.min(2, s.memory.pressure)] : undefined}
+        series={trail.mem}
+        top={100}
+        onClick={() => jump("memory")}
+      />
+      <Tile
+        label={t("stats.tile.net")}
+        value={humanRate(s.net_rx_per_sec)}
+        sub={`↑ ${humanRate(s.net_tx_per_sec)}`}
+        series={trail.net}
+        onClick={() => jump("network")}
+      />
+      {b ? (
+        <Tile
+          label={b.power_watts != null ? t("stats.tile.power") : t("stats.battery")}
+          value={b.power_watts != null ? fmtUnit(b.power_watts, "W") : fmtPct(b.percent)}
+          sub={b.power_watts != null ? t("stats.tile.battery", { v: fmtPct(b.percent) }) : batteryStateLabel(b.state)}
+          series={trail.power}
+          top={b.power_watts != null ? undefined : 100}
+          onClick={() => jump("battery")}
+        />
+      ) : (
+        <Tile
+          label={t("stats.storage")}
+          value={disk ? humanBytes(disk.available) : "—"}
+          sub={t("stats.free")}
+          series={trail.power}
+          onClick={() => jump("storage")}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Layered bars ────────────────────────────────────────────────────────────
+
+/** One fill of a layered bar: width tweened through the shared engine. */
+function Layer({ pct, color }: { pct: number; color: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reassert = useStatTween(clampPct(pct), (v) => {
+    if (ref.current) ref.current.style.transform = `scaleX(${clampPct(v) / 100})`;
+  });
+  useLayoutEffect(reassert);
+  return <div ref={ref} className="absolute inset-0 origin-left" style={{ backgroundColor: color }} />;
+}
+
+/**
+ * A stacked bar. Each part is drawn as a layer as wide as everything up to
+ * and including it, widest first — so the parts sit side by side without any
+ * layout work (transform only, like `Bar`).
+ */
+function StackedBar({ parts, height = "h-2" }: { parts: { key: string; pct: number; color: string }[]; height?: string }) {
+  const totals = stackUpTo(parts.map((p) => p.pct));
+  const layers = parts.map((p, i) => ({ key: p.key, upTo: totals[i], color: p.color }));
+  return (
+    <div className={`relative ${height} w-full overflow-hidden rounded-full bg-[var(--color-border)]`}>
+      {layers.reverse().map((l) => (
+        <Layer key={l.key} pct={l.upTo} color={l.color} />
+      ))}
+    </div>
+  );
+}
+
+function Dot({ color }: { color: string }) {
+  return <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />;
+}
+
+// ── Process lists ───────────────────────────────────────────────────────────
+
+function ProcList({
+  title,
+  rows,
+  value,
+  amount,
+  empty,
+}: {
+  title: string;
+  rows: ProcRow[];
+  value: (r: ProcRow) => string;
+  amount: (r: ProcRow) => number;
+  empty: string;
+}) {
+  const top = rows.length > 0 ? amount(rows[0]) : 0;
+  return (
+    <div className="mt-3">
+      <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">{title}</div>
+      {rows.length === 0 ? (
+        <p className="text-[11px] text-[var(--color-muted)]">{empty}</p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {rows.map((r) => (
+            <div key={r.name} className="grid items-center gap-2 text-[11px]" style={{ gridTemplateColumns: "minmax(0,1fr) 56px 64px" }}>
+              <span className="truncate" title={r.name}>
+                {r.name}
+                {r.procs > 1 && <span className="text-[var(--color-muted)]"> ×{r.procs}</span>}
+              </span>
+              <span className="relative h-1 overflow-hidden rounded-full bg-[var(--color-border)]">
+                <span
+                  className="absolute inset-y-0 left-0 rounded-full bg-[var(--color-accent)]"
+                  style={{ width: `${shareOfTop(amount(r), top)}%` }}
+                />
+              </span>
+              <span className="text-right tabular-nums">{value(r)}</span>
+            </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── CPU ─────────────────────────────────────────────────────────────────────
+
+const USER_COLOR = "var(--color-accent)";
+const SYSTEM_COLOR = "#f59e0b";
+
+function CpuSection({ s, procs }: { s: SystemStats; procs: TopProcs | null }) {
+  useT();
+  const split = s.cpu_user != null && s.cpu_system != null ? { user: s.cpu_user, system: s.cpu_system } : null;
+  const groups = splitCores(s.per_core, s.perf_cores, s.eff_cores);
+  const level = s.load_avg ? loadLevel(s.load_avg[0], s.logical_cores) : null;
+  return (
+    <Card id="cpu" icon={<Cpu size={14} />} title="CPU" right={<HeadlinePct pct={s.cpu_usage} />}>
+      {split ? (
+        <>
+          <StackedBar
+            parts={[
+              { key: "user", pct: split.user, color: USER_COLOR },
+              { key: "system", pct: split.system, color: SYSTEM_COLOR },
+            ]}
+          />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
+            <span className="flex items-center gap-1.5">
+              <Dot color={USER_COLOR} /> {t("stats.cpu_user")} <TweenNum value={split.user} fmt={(v) => fmtPct(v)} />
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Dot color={SYSTEM_COLOR} /> {t("stats.cpu_system")} <TweenNum value={split.system} fmt={(v) => fmtPct(v)} />
+            </span>
+            <span className="ml-auto text-[var(--color-muted)]">
+              {t("stats.cpu_idle")} {fmtPct(Math.max(0, 100 - split.user - split.system))}
+            </span>
+          </div>
+        </>
+      ) : (
+        <Bar pct={s.cpu_usage} />
+      )}
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-[var(--color-muted)]">
+        <span className="truncate">{s.cpu_brand}</span>
+        <span className="shrink-0 tabular-nums">
+          {groups
+            ? t("stats.cores_split", { p: groups.performance.length, e: groups.efficiency.length })
+            : t("stats.cores", { n: s.logical_cores })}
+          {s.cpu_freq_mhz > 0 ? ` · ${fmtUnit(s.cpu_freq_mhz / 1000, "GHz", 2)}` : ""}
+        </span>
+      </div>
+      {s.load_avg && level && (
+        <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+          <span className="text-[var(--color-muted)]" title={t("stats.load_title")}>
+            {t("stats.load_line", {
+              a: fmtNum(s.load_avg[0], 1),
+              b: fmtNum(s.load_avg[1], 1),
+              c: fmtNum(s.load_avg[2], 1),
+            })}
+          </span>
+          <span
+            className="shrink-0 font-medium"
+            style={{ color: level === "over" ? "#ef4444" : level === "busy" ? "#f59e0b" : undefined }}
+            data-testid="stats-load-level"
+          >
+            {loadLabel(level)}
+          </span>
+        </div>
+      )}
+      {s.per_core.length > 1 &&
+        (groups ? (
+          <>
+            <CoreRow label={t("stats.cores_perf")} cores={groups.performance} />
+            <CoreRow label={t("stats.cores_eff")} cores={groups.efficiency} />
+          </>
+        ) : (
+          <CoreRow label={null} cores={s.per_core.map((pct, index) => ({ index, pct }))} />
+        ))}
+      {procs && (
+        <ProcList
+          title={t("stats.top_cpu")}
+          rows={procs.by_cpu}
+          amount={(r) => r.cpu_pct}
+          value={(r) => fmtPct(r.cpu_pct, r.cpu_pct < 10 ? 1 : 0)}
+          empty={procs.cpu_ready ? t("stats.top_cpu_none") : t("stats.top_measuring")}
+        />
+      )}
+      {procs && procs.by_cpu.length > 0 && (
+        <p className="mt-1 text-[10px] text-[var(--color-muted)]">{t("stats.top_cpu_note")}</p>
       )}
     </Card>
   );
 }
 
-/** One per-core mini bar — tweened like `Bar`, but deliberately WITHOUT the
- *  glow/beam layers: 8–10 tiny cells with animated shadows would pay paint
- *  for little signal; `loadColor`'s red already marks a maxed core. */
+function CoreRow({ label, cores }: { label: string | null; cores: CoreReading[] }) {
+  return (
+    <div className="mt-2">
+      {label && (
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      )}
+      <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(28px, 1fr))" }}>
+        {cores.map((c) => (
+          <CoreCell key={c.index} index={c.index} pct={c.pct} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One core: a mini bar with its number and its load underneath. Tweened like
+ *  `Bar`, but deliberately WITHOUT the glow/beam layers: a dozen tiny cells
+ *  with animated shadows would pay paint for little signal; `loadColor`'s red
+ *  already marks a maxed core. */
 function CoreCell({ index, pct }: { index: number; pct: number }) {
   useT();
   const ref = useRef<HTMLDivElement>(null);
@@ -784,45 +1219,140 @@ function CoreCell({ index, pct }: { index: number; pct: number }) {
   });
   useLayoutEffect(reassert);
   return (
-    <div
-      title={t("stats.core", { n: index, pct: pct.toFixed(0) })}
-      className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
-    >
-      <div ref={ref} className="absolute inset-0 origin-bottom" />
+    <div title={t("stats.core", { n: index + 1, pct: fmtNum(pct) })} className="min-w-0">
+      <div className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]">
+        <div ref={ref} className="absolute inset-0 origin-bottom" />
+      </div>
+      <div className="mt-0.5 text-center text-[9px] text-[var(--color-muted)] tabular-nums">
+        <TweenNum value={clampPct(pct)} fmt={(v) => fmtNum(v)} />
+      </div>
     </div>
   );
 }
 
-function MemorySection({ s }: { s: SystemStats }) {
+// ── Memory ──────────────────────────────────────────────────────────────────
+
+const MEM_COLOR: Record<MemKind, string> = {
+  wired: "#a855f7",
+  active: "var(--color-accent)",
+  compressed: "#f59e0b",
+  inactive: "#64748b",
+  free: "transparent",
+};
+
+function memLabel(kind: MemKind): string {
+  switch (kind) {
+    case "wired": return t("stats.mem.wired");
+    case "active": return t("stats.mem.active");
+    case "compressed": return t("stats.mem.compressed");
+    case "inactive": return t("stats.mem.inactive");
+    default: return t("stats.mem.free");
+  }
+}
+
+function MemorySection({ s, procs }: { s: SystemStats; procs: TopProcs | null }) {
   useT();
   const memPct = usedPct(s.mem_used, s.mem_total);
   const swapPct = usedPct(s.swap_used, s.swap_total);
+  const m = s.memory ?? null;
+  const segments = m ? memSegments(m) : null;
   return (
-    <Card icon={<MemoryStick size={14} />} title={t("stats.memory")} right={<HeadlinePct pct={memPct} />}>
-      <Bar pct={memPct} />
-      <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--color-muted)] tabular-nums">
-        <span>
-          <TweenNum value={s.mem_used} fmt={bytesFormatterFor(s.mem_used)} /> /{" "}
-          {humanBytes(s.mem_total)}
+    <Card
+      id="memory"
+      icon={<MemoryStick size={14} />}
+      title={t("stats.memory")}
+      right={
+        <span className="flex items-center gap-2">
+          {m && (
+            <span
+              className="flex items-center gap-1 font-medium"
+              style={{ color: PRESSURE_COLOR[Math.min(2, m.pressure)] }}
+              title={t("stats.pressure.title")}
+              data-testid="stats-pressure"
+            >
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />
+              {pressureLabel(m.pressure)}
+            </span>
+          )}
+          <HeadlinePct pct={memPct} />
         </span>
-        <span>
-          <TweenNum value={s.mem_available} fmt={bytesFormatterFor(s.mem_available)} /> {t("stats.free")}
-        </span>
-      </div>
+      }
+    >
+      {segments ? (
+        <>
+          <StackedBar
+            parts={segments.filter((g) => g.kind !== "free").map((g) => ({ key: g.kind, pct: g.share * 100, color: MEM_COLOR[g.kind] }))}
+          />
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+            {segments.map((g) => (
+              <div key={g.kind} className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="flex min-w-0 items-center gap-1.5 text-[var(--color-muted)]">
+                  {g.kind === "free" ? (
+                    <span aria-hidden className="inline-block h-2 w-2 shrink-0 rounded-sm border border-[var(--color-border)]" />
+                  ) : (
+                    <Dot color={MEM_COLOR[g.kind]} />
+                  )}
+                  <span className="truncate">{memLabel(g.kind)}</span>
+                </span>
+                <span className="shrink-0 tabular-nums">{humanBytes(g.bytes)}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span className="text-[var(--color-muted)]">{t("stats.mem.total")}</span>
+              <span className="shrink-0 tabular-nums">{humanBytes(s.mem_total)}</span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <Bar pct={memPct} />
+          <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--color-muted)] tabular-nums">
+            <span>
+              <TweenNum value={s.mem_used} fmt={bytesFormatterFor(s.mem_used)} /> / {humanBytes(s.mem_total)}
+            </span>
+            {s.mem_available > 0 && (
+              <span>
+                <TweenNum value={s.mem_available} fmt={bytesFormatterFor(s.mem_available)} /> {t("stats.free")}
+              </span>
+            )}
+          </div>
+        </>
+      )}
       {s.swap_total > 0 && (
-        <div className="mt-2">
-          <div className="mb-1 flex items-center justify-between text-[11px] text-[var(--color-muted)] tabular-nums">
-            <span>Swap</span>
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between gap-2 text-[11px] tabular-nums">
+            <span className="text-[var(--color-muted)]">{t("stats.swap")}</span>
             <span>
               {humanBytes(s.swap_used)} / {humanBytes(s.swap_total)}
             </span>
           </div>
-          <Bar pct={swapPct} />
+          <Bar pct={swapPct} color={SYSTEM_COLOR} />
+          {m && (m.swapout_bps >= 1024 || m.swapin_bps >= 1024) && (
+            <div className="mt-1 flex items-center gap-3 text-[11px] tabular-nums" data-testid="stats-swap-flow">
+              {m.swapout_bps >= 1024 && (
+                <span style={{ color: "#f59e0b" }}>{t("stats.swap_out", { v: humanRate(m.swapout_bps) })}</span>
+              )}
+              {m.swapin_bps >= 1024 && (
+                <span className="text-[var(--color-muted)]">{t("stats.swap_in", { v: humanRate(m.swapin_bps) })}</span>
+              )}
+            </div>
+          )}
         </div>
+      )}
+      {procs && (
+        <ProcList
+          title={t("stats.top_mem")}
+          rows={procs.by_mem}
+          amount={(r) => r.mem}
+          value={(r) => humanBytes(r.mem)}
+          empty={t("stats.top_measuring")}
+        />
       )}
     </Card>
   );
 }
+
+// ── Battery ─────────────────────────────────────────────────────────────────
 
 // The battery state arrives as the Rust enum name; show it in the app language.
 function batteryStateLabel(state: string): string {
@@ -844,41 +1374,41 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
       ? t("stats.to_full", { d: humanDuration(b.time_to_full_secs) })
       : b.state === "Discharging" && b.time_to_empty_secs != null
         ? t("stats.left", { d: humanDuration(b.time_to_empty_secs) })
-        : batteryStateLabel(b.state);
+        : null;
   return (
     <Card
+      id="battery"
       icon={<BatteryCharging size={14} />}
       title={t("stats.battery_power")}
-      right={<TweenNum value={b.percent} fmt={(v) => `${v.toFixed(0)}%`} />}
+      right={<TweenNum value={b.percent} fmt={(v) => fmtPct(v)} />}
     >
-      <Bar
-        pct={b.percent}
-        color={charging ? "#22c55e" : b.percent <= 15 ? "#ef4444" : "var(--color-accent)"}
-      />
-      <div className="mt-1.5 flex items-center justify-between text-[11px] text-[var(--color-muted)]">
-        <span>{time}</span>
+      <Bar pct={b.percent} color={charging ? "#22c55e" : b.percent <= 15 ? "#ef4444" : "var(--color-accent)"} />
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+        <Kv k={t("stats.state")} v={batteryStateLabel(b.state)} />
+        {time && <Kv k={t("stats.time")} v={time} />}
         {b.power_watts != null && (
-          <span className="flex items-center gap-1 font-medium text-[var(--color-fg)] tabular-nums">
-            <Zap size={12} className="text-[var(--color-accent)]" />
-            <TweenNum value={b.power_watts} fmt={(v) => `${v.toFixed(1)} W`} />
-          </span>
+          <Kv
+            k={t("stats.power_draw")}
+            v={
+              <span className="inline-flex items-center gap-1 font-medium">
+                <Zap size={11} className="text-[var(--color-accent)]" />
+                <TweenNum value={b.power_watts} fmt={(v) => fmtUnit(v, "W")} />
+              </span>
+            }
+          />
         )}
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-        {b.health_percent != null && (
-          <Kv k={t("stats.health")} v={`${b.health_percent.toFixed(0)}%`} />
-        )}
-        {b.cycle_count != null && <Kv k={t("stats.cycles")} v={`${b.cycle_count}`} />}
+        {b.health_percent != null && <Kv k={t("stats.health")} v={fmtPct(b.health_percent)} />}
+        {b.cycle_count != null && <Kv k={t("stats.cycles")} v={fmtNum(b.cycle_count)} />}
         {b.temperature_c != null && (
-          <Kv k={t("stats.temp")} v={<TweenNum value={b.temperature_c} fmt={(v) => `${v.toFixed(1)}°C`} />} />
+          <Kv k={t("stats.temp")} v={<TweenNum value={b.temperature_c} fmt={(v) => fmtUnit(v, "°C")} />} />
         )}
-        {(b.model || b.vendor) && (
-          <Kv k={t("stats.model")} v={b.model || b.vendor || ""} />
-        )}
+        {(b.model || b.vendor) && <Kv k={t("stats.model")} v={b.model || b.vendor || ""} />}
       </div>
     </Card>
   );
 }
+
+// ── Temperatures + fans ─────────────────────────────────────────────────────
 
 function TemperatureMeter({ celsius }: { celsius: number }) {
   const fillRef = useRef<HTMLDivElement>(null);
@@ -895,49 +1425,85 @@ function TemperatureMeter({ celsius }: { celsius: number }) {
       <div
         ref={fillRef}
         className="absolute inset-0 origin-left rounded-full"
-        style={{
-          background:
-            "linear-gradient(90deg, var(--color-accent), #f59e0b 68%, #ef4444)",
-        }}
+        style={{ background: "linear-gradient(90deg, var(--color-accent), #f59e0b 68%, #ef4444)" }}
       />
       <div
         ref={markerRef}
         className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-bg)]"
-        style={{
-          backgroundColor: temperatureColor(celsius),
-          boxShadow: `0 0 8px ${temperatureColor(celsius)}`,
-        }}
+        style={{ backgroundColor: temperatureColor(celsius), boxShadow: `0 0 8px ${temperatureColor(celsius)}` }}
       />
     </div>
   );
 }
 
+function tempGroupLabel(key: TempGroupKey): string {
+  switch (key) {
+    case "cpu": return t("stats.temp_group.cpu");
+    case "gpu": return t("stats.temp_group.gpu");
+    case "battery": return t("stats.temp_group.battery");
+    case "storage": return t("stats.temp_group.storage");
+    default: return t("stats.temp_group.other");
+  }
+}
+
 function TemperatureSection({ temps }: { temps: SystemStats["temps"] }) {
   useT();
+  const [open, setOpen] = useState<readonly TempGroupKey[]>([]);
   if (temps.length === 0) return null;
+  const groups = groupTemps(temps);
+  const hottest = Math.max(...temps.map((x) => x.celsius));
   return (
     <Card
+      id="temps"
       icon={<Thermometer size={14} />}
       title={t("stats.temperatures")}
-      right={`${temps.length} sensor${temps.length === 1 ? "" : "s"}`}
+      right={
+        <span style={{ color: temperatureColor(hottest) }}>
+          {t("stats.max", { v: fmtUnit(hottest, "°C") })}
+        </span>
+      }
     >
       <div className="flex flex-col gap-2.5">
-        {temps.map((temp, index) => (
-          <div key={`${temp.label}-${index}`}>
-            <div className="mb-1 flex items-center justify-between gap-3 text-[11px]">
-              <span className="min-w-0 truncate text-[var(--color-muted)]" title={temp.label}>
-                {temp.label}
-              </span>
-              <span
-                className="shrink-0 font-medium tabular-nums"
-                style={{ color: temperatureColor(temp.celsius) }}
+        {groups.map((g) => {
+          const isOpen = open.includes(g.key);
+          return (
+            <div key={g.key}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => setOpen((cur) => (cur.includes(g.key) ? cur.filter((k) => k !== g.key) : [...cur, g.key]))}
+                className="mb-1 flex w-full items-center justify-between gap-3 text-left text-[11px]"
               >
-                <TweenNum value={temp.celsius} fmt={(value) => `${value.toFixed(1)}°C`} />
-              </span>
+                <span className="flex min-w-0 items-center gap-1 text-[var(--color-muted)]">
+                  <ChevronRight size={11} className={isOpen ? "rotate-90" : undefined} />
+                  <span className="truncate">{tempGroupLabel(g.key)}</span>
+                  {g.sensors.length > 1 && <span className="shrink-0">· {t("stats.sensors", { n: g.sensors.length })}</span>}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  {g.sensors.length > 1 && (
+                    <span className="mr-2 text-[var(--color-muted)]">{t("stats.avg", { v: fmtUnit(g.avg, "°C") })}</span>
+                  )}
+                  <span className="font-medium" style={{ color: temperatureColor(g.max) }}>
+                    <TweenNum value={g.max} fmt={(v) => fmtUnit(v, "°C")} />
+                  </span>
+                </span>
+              </button>
+              <TemperatureMeter celsius={g.max} />
+              {isOpen && (
+                <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                  {g.sensors.map((sensor, i) => (
+                    <div key={`${sensor.label}-${i}`} className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="truncate text-[var(--color-muted)]" title={sensor.label}>{sensor.label}</span>
+                      <span className="shrink-0 tabular-nums" style={{ color: temperatureColor(sensor.celsius) }}>
+                        {fmtUnit(sensor.celsius, "°C")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <TemperatureMeter celsius={temp.celsius} />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );
@@ -947,30 +1513,20 @@ function FanSection({ fans }: { fans: SystemStats["fans"] }) {
   useT();
   if (fans.length === 0) return null;
   return (
-    <Card icon={<Fan size={14} />} title={t("stats.fans")} right={`${fans.length}`}>
-      <div className="flex flex-col gap-2.5">
+    <Card id="fans" icon={<Fan size={14} />} title={t("stats.fans")} right={fmtNum(fans.length)}>
+      <div className="flex flex-col gap-2">
         {fans.map((fan, index) => (
-          <div
-            key={`${fan.label}-${index}`}
-            className="flex items-center gap-2.5 rounded-lg bg-[var(--color-border)]/20 px-2.5 py-2"
-          >
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--color-accent)]/10 text-[var(--color-accent)]">
-              <Fan
-                size={18}
-                className={fan.rpm > 0 ? "stat-fan-spin" : undefined}
-                style={{ animationDuration: fanDuration(fan.rpm) }}
-              />
-            </div>
+          <div key={`${fan.label}-${index}`} className="flex items-center gap-2.5">
+            <Fan
+              size={16}
+              className={"shrink-0 text-[var(--color-accent)]" + (fan.rpm > 0 ? " stat-fan-spin" : "")}
+              style={{ animationDuration: fanDuration(fan.rpm) }}
+            />
             <div className="min-w-0 flex-1">
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
-                <span className="truncate text-[var(--color-muted)]" title={fan.label}>
-                  {fan.label}
-                </span>
+                <span className="truncate text-[var(--color-muted)]" title={fan.label}>{fan.label}</span>
                 <span className="shrink-0 font-medium tabular-nums">
-                  <TweenNum
-                    value={fan.rpm}
-                    fmt={(value) => `${Math.max(0, Math.round(value))} rpm`}
-                  />
+                  <TweenNum value={fan.rpm} fmt={(value) => fmtUnit(Math.max(0, value), t("stats.rpm"), 0)} />
                 </span>
               </div>
               <Bar pct={clampPct(fan.rpm / 60)} color="var(--color-accent)" />
@@ -982,48 +1538,78 @@ function FanSection({ fans }: { fans: SystemStats["fans"] }) {
   );
 }
 
+// ── Storage, network, host ──────────────────────────────────────────────────
+
 function DisksSection({ s }: { s: SystemStats }) {
   useT();
-  if (s.disks.length === 0) return null;
+  const disks = visibleDisks(s.disks);
+  if (disks.length === 0) return null;
+  const io = s.disk_io ?? null;
   return (
-    <Card icon={<HardDrive size={14} />} title={t("stats.storage")}>
-      <div className="flex flex-col gap-2">
-        {s.disks.map((d, i) => {
+    <Card
+      id="storage"
+      icon={<HardDrive size={14} />}
+      title={t("stats.storage")}
+      right={t("stats.free_n", { v: humanBytes(disks[0].available) })}
+    >
+      <div className="flex flex-col gap-2.5">
+        {disks.map((d, i) => {
           const used = d.total - d.available;
-          const pct = usedPct(used, d.total);
           return (
             <div key={`${d.mount}-${i}`}>
               <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
-                <span className="truncate text-[var(--color-muted)]" title={d.mount}>
-                  {d.mount}
+                <span className="min-w-0 truncate" title={d.mount}>
+                  {d.name || d.mount}
+                  <span className="text-[var(--color-muted)]"> · {d.mount}</span>
                 </span>
                 <span className="shrink-0 tabular-nums text-[var(--color-muted)]">
-                  {humanBytes(used)} / {humanBytes(d.total)}
+                  {t("stats.free_of", { free: humanBytes(d.available), total: humanBytes(d.total) })}
                 </span>
               </div>
-              <Bar pct={pct} />
+              <Bar pct={usedPct(used, d.total)} />
             </div>
           );
         })}
       </div>
+      {io && (
+        <div className="mt-2.5 grid grid-cols-2 gap-x-4" data-testid="stats-disk-io">
+          <Kv k={t("stats.disk_read")} v={<TweenNum value={io.read_bps} fmt={rateFormatterFor(io.read_bps)} />} />
+          <Kv k={t("stats.disk_write")} v={<TweenNum value={io.write_bps} fmt={rateFormatterFor(io.write_bps)} />} />
+        </div>
+      )}
     </Card>
   );
 }
 
 function NetworkSection({ s }: { s: SystemStats }) {
   useT();
+  const ifaces = s.net_ifaces ?? [];
   return (
-    <Card icon={<ArrowDownUp size={14} />} title={t("stats.network")}>
-      <div className="flex items-center justify-between text-[12px] tabular-nums">
-        <span className="flex items-center gap-1.5">
-          <span className="text-[var(--color-muted)]">↓</span>
+    <Card id="network" icon={<ArrowDownUp size={14} />} title={t("stats.network")}>
+      <div className="grid grid-cols-2 gap-x-4 text-[12px] tabular-nums">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-[var(--color-muted)]">↓ {t("stats.download")}</span>
           <TweenNum value={s.net_rx_per_sec} fmt={rateFormatterFor(s.net_rx_per_sec)} />
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="text-[var(--color-muted)]">↑</span>
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-[var(--color-muted)]">↑ {t("stats.upload")}</span>
           <TweenNum value={s.net_tx_per_sec} fmt={rateFormatterFor(s.net_tx_per_sec)} />
         </span>
       </div>
+      {ifaces.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1 border-t border-[var(--color-border)] pt-2">
+          {ifaces.map((n) => (
+            <div key={n.name} className="grid items-center gap-2 text-[11px]" style={{ gridTemplateColumns: "minmax(0,1fr) 72px 72px" }}>
+              <span className="min-w-0 truncate">
+                <span className="font-medium">{n.name}</span>
+                {n.addr && <span className="font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]"> {n.addr}</span>}
+              </span>
+              <span className="text-right tabular-nums">↓ {humanRate(n.rx_per_sec)}</span>
+              <span className="text-right tabular-nums">↑ {humanRate(n.tx_per_sec)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -1031,12 +1617,12 @@ function NetworkSection({ s }: { s: SystemStats }) {
 function HostSection({ s }: { s: SystemStats }) {
   useT();
   return (
-    <Card icon={<Server size={14} />} title={t("stats.host")}>
+    <Card id="host" icon={<Server size={14} />} title={t("stats.host")} right={humanUptime(s.uptime_secs)}>
       <div className="grid grid-cols-1 gap-1">
         {s.host_name && <Kv k={t("stats.host")} v={s.host_name} />}
-        {s.os_name && <Kv k="OS" v={s.os_name} />}
-        {s.kernel && <Kv k="Kernel" v={s.kernel} />}
-        {s.cpu_arch && <Kv k="Arch" v={s.cpu_arch} />}
+        {s.os_name && <Kv k={t("stats.os")} v={s.os_name.trim()} />}
+        {s.kernel && <Kv k={t("stats.kernel")} v={s.kernel} />}
+        {s.cpu_arch && <Kv k={t("stats.arch")} v={s.cpu_arch} />}
         <Kv k={t("stats.uptime")} v={humanUptime(s.uptime_secs)} />
       </div>
     </Card>

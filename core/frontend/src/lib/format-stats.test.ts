@@ -100,3 +100,40 @@ describe("format-stats", () => {
     expect(usedPct(50, -10)).toBe(0); // negative total is invalid
   });
 });
+
+import { afterEach } from "vitest";
+import de from "../locales/de.json";
+import en from "../locales/en.json";
+import { setCatalog } from "./i18n";
+import { fmtNum, fmtPct, fmtUnit } from "./format-stats";
+import { bytesFormatterFor } from "./stats-anim";
+
+describe("numbers in the app language", () => {
+  afterEach(() => setCatalog("en", en));
+
+  it("English: decimal point, percent attached", () => {
+    expect(fmtNum(1534)).toBe("1,534");
+    expect(fmtNum(11.689, 1)).toBe("11.7");
+    expect(fmtPct(42.4)).toBe("42%");
+    expect(fmtPct(9.24, 1)).toBe("9.2%");
+    expect(fmtUnit(56.42, "°C")).toBe("56.4 °C");
+  });
+
+  it("German: decimal comma, a space before the percent sign", () => {
+    setCatalog("de", de);
+    expect(fmtNum(1534)).toBe("1.534");
+    expect(fmtNum(11.689, 1)).toBe("11,7");
+    expect(fmtPct(42.4)).toBe("42 %");
+    expect(fmtUnit(12.34, "W")).toBe("12,3 W");
+    expect(humanBytes(1.4 * 1024 * 1024 * 1024)).toBe("1,4 GB");
+    expect(humanRate(2.5 * 1024 * 1024)).toBe("2,5 MB/s");
+    // The tweened formatter agrees with the static one.
+    expect(bytesFormatterFor(1.4 * 1024 ** 3)(1.4 * 1024 ** 3)).toBe("1,4 GB");
+  });
+
+  it("keeps the decimals fixed and never prints a negative zero", () => {
+    expect(fmtNum(5, 1)).toBe("5.0");
+    expect(fmtNum(-0.04, 1)).toBe("0.0");
+    expect(fmtNum(Number.NaN)).toBe("0");
+  });
+});

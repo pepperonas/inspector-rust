@@ -2639,6 +2639,53 @@ export interface SystemStats {
   temps: TempStat[];
   fans: FanStat[];
   battery: BatteryStat | null;
+  /** Share of the last poll interval spent in user / system code (macOS). */
+  cpu_user?: number | null;
+  cpu_system?: number | null;
+  /** Performance / efficiency core counts (Apple Silicon). */
+  perf_cores?: number | null;
+  eff_cores?: number | null;
+  memory?: MemDetail | null;
+  disk_io?: DiskIo | null;
+  net_ifaces?: NetIface[];
+}
+export interface MemDetail {
+  /** 0 normal, 1 raised, 2 critical. */
+  pressure: number;
+  wired: number;
+  active: number;
+  inactive: number;
+  compressed: number;
+  free: number;
+  swapout_bps: number;
+  swapin_bps: number;
+}
+export interface DiskIo {
+  read_bps: number;
+  write_bps: number;
+}
+export interface NetIface {
+  name: string;
+  rx_per_sec: number;
+  tx_per_sec: number;
+  addr: string | null;
+}
+export interface ProcRow {
+  name: string;
+  /** Percent of ONE core: 250 = two and a half cores. */
+  cpu_pct: number;
+  mem: number;
+  procs: number;
+}
+export interface TopProcs {
+  by_cpu: ProcRow[];
+  by_mem: ProcRow[];
+  /** False on the first call: CPU shares need two readings. */
+  cpu_ready: boolean;
+}
+/** The apps using the most CPU and memory right now. */
+export function statsTopProcesses(): Promise<TopProcs> {
+  return invoke("stats_top_processes");
 }
 /** One live snapshot of system stats (CPU/mem/disks/net/temps/fans/battery). */
 export function getSystemStats(): Promise<SystemStats> {

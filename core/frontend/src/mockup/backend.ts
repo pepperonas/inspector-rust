@@ -107,12 +107,40 @@ const STATS = {
   cpu_brand: "Apple M3 Pro", cpu_usage: 23.6, cpu_freq_mhz: 4056, physical_cores: 12, logical_cores: 12,
   per_core: [41, 12, 33, 8, 57, 19, 26, 5, 14, 71, 9, 22], load_avg: [2.41, 2.08, 1.96],
   mem_total: 36 * GB, mem_used: 21.4 * GB, mem_available: 14.6 * GB, swap_total: 2 * GB, swap_used: 0.3 * GB,
-  disks: [{ name: "Macintosh HD", mount: "/", fs: "apfs", total: 994 * GB, available: 412 * GB, removable: false, kind: "SSD" }],
+  disks: [
+    { name: "Macintosh HD", mount: "/", fs: "apfs", total: 994 * GB, available: 412 * GB, removable: false, kind: "SSD" },
+    { name: "Macintosh HD", mount: "/System/Volumes/Data", fs: "apfs", total: 994 * GB, available: 412 * GB, removable: false, kind: "SSD" },
+    { name: "Archive", mount: "/Volumes/Archive", fs: "exfat", total: 1862 * GB, available: 640 * GB, removable: true, kind: "HDD" },
+  ],
   net_rx_per_sec: 2.4 * 1024 * 1024, net_tx_per_sec: 310 * 1024,
-  temps: [{ label: "CPU", celsius: 51.5 }, { label: "GPU", celsius: 44.0 }, { label: "SSD", celsius: 36.5 }],
-  fans: [{ label: "Fan", rpm: 1850 }],
-  battery: { percent: 86, state: "discharging", power_watts: 9.8, time_to_empty_secs: 9 * 3600 + 40 * 60,
-    time_to_full_secs: null, health_percent: 97, cycle_count: 142, temperature_c: 31.2, vendor: null, model: null },
+  temps: [
+    { label: "PMU tdie1", celsius: 51.5 }, { label: "PMU tdie2", celsius: 53.1 }, { label: "PMU tdie3", celsius: 49.8 },
+    { label: "PMU TP1g", celsius: 44.0 }, { label: "PMU TP2g", celsius: 45.2 },
+    { label: "gas gauge battery", celsius: 31.2 }, { label: "NAND CH0 temp", celsius: 36.5 }, { label: "PMU tcal", celsius: 41.0 },
+  ],
+  fans: [{ label: "Fan 1", rpm: 1850 }, { label: "Fan 2", rpm: 1920 }],
+  battery: { percent: 86, state: "Discharging", power_watts: 9.8, time_to_empty_secs: 9 * 3600 + 40 * 60,
+    time_to_full_secs: null, health_percent: 97, cycle_count: 142, temperature_c: 31.2, vendor: null, model: "bq40z651" },
+  cpu_user: 16.9, cpu_system: 6.7, perf_cores: 6, eff_cores: 6,
+  memory: { pressure: 0, wired: 3.1 * GB, active: 12.6 * GB, inactive: 9.8 * GB, compressed: 4.2 * GB, free: 6.3 * GB, swapout_bps: 0, swapin_bps: 0 },
+  disk_io: { read_bps: 1.8 * 1024 * 1024, write_bps: 640 * 1024 },
+  net_ifaces: [
+    { name: "en0", rx_per_sec: 2.4 * 1024 * 1024, tx_per_sec: 300 * 1024, addr: "192.168.1.42" },
+    { name: "utun4", rx_per_sec: 0, tx_per_sec: 10 * 1024, addr: "100.64.0.7" },
+  ],
+};
+const TOP_PROCS = {
+  cpu_ready: true,
+  by_cpu: [
+    { name: "Xcode", cpu_pct: 142.3, mem: 3.4 * GB, procs: 6 }, { name: "Safari", cpu_pct: 38.6, mem: 2.9 * GB, procs: 14 },
+    { name: "Figma", cpu_pct: 21.4, mem: 1.8 * GB, procs: 5 }, { name: "Docker", cpu_pct: 9.2, mem: 4.1 * GB, procs: 4 },
+    { name: "Spotify", cpu_pct: 3.1, mem: 0.4 * GB, procs: 6 },
+  ],
+  by_mem: [
+    { name: "Docker", cpu_pct: 9.2, mem: 4.1 * GB, procs: 4 }, { name: "Xcode", cpu_pct: 142.3, mem: 3.4 * GB, procs: 6 },
+    { name: "Safari", cpu_pct: 38.6, mem: 2.9 * GB, procs: 14 }, { name: "Figma", cpu_pct: 21.4, mem: 1.8 * GB, procs: 5 },
+    { name: "Slack", cpu_pct: 0.4, mem: 0.9 * GB, procs: 7 },
+  ],
 };
 
 const TOTP = [
@@ -1009,7 +1037,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_boom_config": return null;
     case "weather_fetch": return WEATHER;
     case "get_weather_config": return { has_key: true, units: "metric" };
-    case "get_system_stats": return STATS;
+    case "get_system_stats": {
+      // A little movement, so the sparklines have something to draw.
+      const w = Math.sin(Date.now() / 2400);
+      return { ...STATS, cpu_usage: 23.6 + w * 9, cpu_user: 16.9 + w * 7, cpu_system: 6.7 + w * 2,
+        net_rx_per_sec: (2.4 + w * 1.4) * 1024 * 1024, battery: { ...STATS.battery, power_watts: 9.8 + w * 2.2 } };
+    }
+    case "stats_top_processes": return TOP_PROCS;
     case "totp_list": return TOTP;
     case "totp_current_codes_all": {
       const left = 30 - (Math.floor(Date.now() / 1000) % 30);

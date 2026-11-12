@@ -6598,6 +6598,15 @@ pub async fn get_system_stats() -> Result<crate::system_stats::SystemStats, Stri
         .map_err(|e| format!("stats task: {e}"))
 }
 
+/// The processes using the most CPU and memory (the `stats` panel asks every
+/// few seconds while it is open).
+#[tauri::command]
+pub async fn stats_top_processes() -> Result<crate::system_stats::TopProcs, String> {
+    tauri::async_runtime::spawn_blocking(crate::system_stats::top_processes)
+        .await
+        .map_err(|e| format!("stats task: {e}"))
+}
+
 /// Current ambient-light reading for the `lumen` command. `None` means that
 /// this device/OS exposes no supported sensor; it is a normal hardware state.
 #[tauri::command]

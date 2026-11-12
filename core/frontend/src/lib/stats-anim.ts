@@ -1,3 +1,4 @@
+import { fmtNum } from "./format-stats";
 /**
  * Pure math + formatting for the stats panel's value animation and heat glow
  * (v0.115.0). Kept out of the component so it's unit-testable — the component
@@ -63,7 +64,7 @@ export function bytesFormatterFor(target: number): (v: number) => string {
   }
   const digits = i === 0 ? 0 : scaled < 10 ? 1 : 0;
   const div = Math.pow(1024, i);
-  return (v) => `${Math.max(0, v / div).toFixed(digits)} ${units[i]}`;
+  return (v) => `${fmtNum(Math.max(0, v / div), digits, false)} ${units[i]}`;
 }
 
 /** Rate variant: `bytesFormatterFor` + "/s" (mirrors `humanRate`). */

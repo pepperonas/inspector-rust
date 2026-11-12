@@ -117,6 +117,36 @@ fn cpu_ticks() -> Option<CpuTicks> {
     })
 }
 
+/// The host's CPU tick counters `[user, system, idle, nice]` (for the stats
+/// panel's user/system split — the difference of two readings).
+pub fn cpu_tick_split() -> Option<[u64; 4]> {
+    let mut info = [0u32; 4];
+    let mut count = libc::HOST_CPU_LOAD_INFO_COUNT;
+    // SAFETY: as in `cpu_ticks` — four natural_t counters into a four-slot array.
+    let rc = unsafe {
+        libc::host_statistics(host_port(), libc::HOST_CPU_LOAD_INFO, info.as_mut_ptr() as *mut libc::integer_t, &mut count)
+    };
+    (rc == 0).then(|| info.map(u64::from))
+}
+
+/// Logical CPUs per performance level on Apple Silicon: `(performance,
+/// efficiency)`. `None` on Intel Macs (one level only).
+pub fn perf_levels() -> Option<(usize, usize)> {
+    let p: i32 = sysctl_raw("hw.perflevel0.logicalcpu")?;
+    let e: i32 = sysctl_raw("hw.perflevel1.logicalcpu")?;
+    (p > 0 && e > 0).then_some((p as usize, e as usize))
+}
+
+/// Nanoseconds per unit of the CPU times in `rusage_info` (mach absolute
+/// time: 125/3 on Apple Silicon, 1 on Intel).
+#[allow(deprecated)] // libc's binding; the same call the recorder uses
+pub fn cpu_time_unit_ns() -> f64 {
+    let mut info = libc::mach_timebase_info { numer: 0, denom: 0 };
+    // SAFETY: fills the two-field struct; a failure leaves denom 0, handled below.
+    unsafe { libc::mach_timebase_info(&mut info) };
+    if info.denom == 0 { 1.0 } else { info.numer as f64 / info.denom as f64 }
+}
+
 /// NSProcessInfo.thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
 fn thermal_state() -> u8 {
     use objc2::runtime::{AnyClass, AnyObject};
@@ -489,6 +519,7 @@ pub fn read_processes(arg_cache: &mut HashMap<(i32, u64), Option<Vec<String>>>) 
             responsible_path,
             args,
             footprint: ri.ri_phys_footprint,
+            cpu_time: ri.ri_user_time.saturating_add(ri.ri_system_time),
             bytes_written: ri.ri_diskio_byteswritten,
         });
     }

@@ -58,6 +58,216 @@ pub struct SystemStats {
     pub fans: Vec<FanStat>,
     // ── Battery & power
     pub battery: Option<BatteryStat>,
+    // ── Detail (the live panel; empty / None in the collector's snapshot
+    //    and where the platform has no source)
+    /// Share of all CPU time spent in user / system code over the sample
+    /// window (0..100 each; the rest is idle).
+    pub cpu_user: Option<f32>,
+    pub cpu_system: Option<f32>,
+    /// Apple Silicon: logical CPUs per level. `per_core` lists the
+    /// efficiency cores first.
+    pub perf_cores: Option<usize>,
+    pub eff_cores: Option<usize>,
+    pub memory: Option<MemDetail>,
+    pub disk_io: Option<DiskIo>,
+    pub net_ifaces: Vec<NetIface>,
+}
+
+/// What the memory is used for, and how hard the system is pressed (macOS,
+/// from the `pulse` sampler's newest reading).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct MemDetail {
+    /// 0 normal · 1 warning · 2 critical.
+    pub pressure: u8,
+    pub wired: u64,
+    pub active: u64,
+    pub inactive: u64,
+    pub compressed: u64,
+    pub free: u64,
+    /// Bytes per second moving to / from swap.
+    pub swapout_bps: f64,
+    pub swapin_bps: f64,
+}
+
+/// Read / write rate of the internal disk (bytes per second).
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct DiskIo {
+    pub read_bps: f64,
+    pub write_bps: f64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct NetIface {
+    pub name: String,
+    pub rx_per_sec: u64,
+    pub tx_per_sec: u64,
+    /// The interface's IPv4 address, when it has one.
+    pub addr: Option<String>,
+}
+
+/// User / system share from two `[user, system, idle, nice]` tick readings.
+/// `None` when no time passed or the counters went backwards. Pure.
+pub fn cpu_split(before: [u64; 4], after: [u64; 4]) -> Option<(f32, f32)> {
+    let d: Vec<u64> = after.iter().zip(before).map(|(a, b)| a.checked_sub(b)).collect::<Option<_>>()?;
+    let total: u64 = d.iter().sum();
+    if total == 0 {
+        return None;
+    }
+    let pct = |ticks: u64| (ticks as f64 / total as f64 * 100.0) as f32;
+    // nice is user time at lowered priority.
+    Some((pct(d[0] + d[3]), pct(d[1])))
+}
+
+/// The interfaces worth a row: the ones carrying traffic or holding an
+/// address, never the loopback; busiest first, then by name; at most `max`.
+/// Pure.
+pub fn pick_ifaces(mut all: Vec<NetIface>, max: usize) -> Vec<NetIface> {
+    all.retain(|i| !i.name.starts_with("lo") && (i.addr.is_some() || i.rx_per_sec + i.tx_per_sec > 0));
+    all.sort_by(|a, b| {
+        (b.rx_per_sec + b.tx_per_sec)
+            .cmp(&(a.rx_per_sec + a.tx_per_sec))
+            .then_with(|| b.addr.is_some().cmp(&a.addr.is_some()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    all.truncate(max);
+    all
+}
+
+/// Readings older than this are not shown as "now".
+const MEM_DETAIL_MAX_AGE_S: i64 = 30;
+
+/// Memory detail + disk rates from the `pulse` sampler's newest reading, if
+/// it is fresh (`now`/sample time in Unix seconds). Pure.
+pub fn detail_from_pulse(sample: Option<&crate::pulse::Sample>, now: i64) -> (Option<MemDetail>, Option<DiskIo>) {
+    let Some(s) = sample.filter(|s| (now - s.ts).abs() <= MEM_DETAIL_MAX_AGE_S) else {
+        return (None, None);
+    };
+    let mem = MemDetail {
+        pressure: crate::pulse::pressure_bucket(s.pressure) as u8,
+        wired: s.wired,
+        active: s.active,
+        inactive: s.inactive,
+        compressed: s.compressor,
+        free: s.free,
+        swapout_bps: s.swapout_bps,
+        swapin_bps: s.swapin_bps,
+    };
+    (Some(mem), Some(DiskIo { read_bps: s.ssd_read_bps, write_bps: s.ssd_write_bps }))
+}
+
+/// One row of the process lists: every process of one name, summed.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct ProcRow {
+    pub name: String,
+    /// Percent of ONE core (Activity Monitor's scale): 250 = two and a half cores.
+    pub cpu_pct: f32,
+    pub mem: u64,
+    pub procs: u32,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct TopProcs {
+    pub by_cpu: Vec<ProcRow>,
+    pub by_mem: Vec<ProcRow>,
+    /// False on the first call: CPU shares need two readings.
+    pub cpu_ready: bool,
+}
+
+/// A process name as a group: helper processes count towards their app
+/// ("Google Chrome Helper (Renderer)" → "Google Chrome"). Pure.
+pub fn proc_group(name: &str) -> String {
+    let base = name.split(" Helper").next().unwrap_or(name).trim();
+    let base = base.strip_suffix(" (Renderer)").or_else(|| base.strip_suffix(" (GPU)")).unwrap_or(base);
+    if base.is_empty() { name.trim().to_string() } else { base.to_string() }
+}
+
+/// Sum `(name, cpu %, memory)` readings by group and rank them: the top `n`
+/// by CPU (only groups that use any) and the top `n` by memory. Ties break
+/// by name so the order does not flicker. Pure.
+pub fn rank_processes(readings: &[(String, f32, u64)], n: usize) -> (Vec<ProcRow>, Vec<ProcRow>) {
+    let mut groups: std::collections::HashMap<String, ProcRow> = std::collections::HashMap::new();
+    for (name, cpu, mem) in readings {
+        let key = proc_group(name);
+        let row = groups.entry(key.clone()).or_insert(ProcRow { name: key, cpu_pct: 0.0, mem: 0, procs: 0 });
+        row.cpu_pct += if cpu.is_finite() { cpu.max(0.0) } else { 0.0 };
+        row.mem += mem;
+        row.procs += 1;
+    }
+    let all: Vec<ProcRow> = groups.into_values().collect();
+    let mut by_cpu: Vec<ProcRow> = all.iter().filter(|r| r.cpu_pct >= 0.1).cloned().collect();
+    by_cpu.sort_by(|a, b| b.cpu_pct.total_cmp(&a.cpu_pct).then_with(|| a.name.cmp(&b.name)));
+    by_cpu.truncate(n);
+    let mut by_mem = all;
+    by_mem.sort_by(|a, b| b.mem.cmp(&a.mem).then_with(|| a.name.cmp(&b.name)));
+    by_mem.truncate(n);
+    (by_cpu, by_mem)
+}
+
+/// Rows per list in the panel.
+pub const TOP_PROCS: usize = 5;
+
+/// CPU share of one process between two readings, in percent of ONE core.
+/// `unit_ns` converts the counter to nanoseconds. Pure.
+pub fn proc_cpu_pct(before: u64, after: u64, unit_ns: f64, elapsed_s: f64) -> f32 {
+    if elapsed_s <= 0.0 || after < before {
+        return 0.0;
+    }
+    ((after - before) as f64 * unit_ns / 1e9 / elapsed_s * 100.0) as f32
+}
+
+/// The apps using the most CPU and memory right now. A CPU share is the
+/// difference to the previous call, so the first call has none.
+#[cfg(target_os = "macos")]
+pub fn top_processes() -> TopProcs {
+    use std::collections::HashMap;
+    struct Prev {
+        at: std::time::Instant,
+        cpu: HashMap<(i32, u64), u64>,
+        args: HashMap<(i32, u64), Option<Vec<String>>>,
+    }
+    static PREV: std::sync::Mutex<Option<Prev>> = std::sync::Mutex::new(None);
+    let mut guard = PREV.lock().unwrap_or_else(|e| e.into_inner());
+    let mut args = guard.as_mut().map(|p| std::mem::take(&mut p.args)).unwrap_or_default();
+    let (procs, _) = crate::pulse::macos::read_processes(&mut args);
+    let now = std::time::Instant::now();
+    let unit = crate::pulse::macos::cpu_time_unit_ns();
+    // A reading older than this says nothing about "now" (panel was closed).
+    let prev = guard.as_ref().filter(|p| now.duration_since(p.at).as_secs_f64() <= 30.0);
+    let elapsed = prev.map(|p| now.duration_since(p.at).as_secs_f64());
+    let readings: Vec<(String, f32, u64)> = procs
+        .iter()
+        .map(|p| {
+            let cpu = prev
+                .and_then(|pv| pv.cpu.get(&(p.pid, p.start)))
+                .zip(elapsed)
+                .map_or(0.0, |(&before, el)| proc_cpu_pct(before, p.cpu_time, unit, el));
+            (crate::pulse::group_for(p), cpu, p.footprint)
+        })
+        .collect();
+    let cpu_ready = prev.is_some();
+    let (by_cpu, by_mem) = rank_processes(&readings, TOP_PROCS);
+    *guard = Some(Prev { at: now, cpu: procs.iter().map(|p| ((p.pid, p.start), p.cpu_time)).collect(), args });
+    TopProcs { by_cpu: if cpu_ready { by_cpu } else { Vec::new() }, by_mem, cpu_ready }
+}
+
+/// The processes using the most CPU and memory right now. Keeps one
+/// `sysinfo::System` between calls: a process's CPU share is the difference
+/// to the previous reading, so the first call has none.
+#[cfg(not(target_os = "macos"))]
+pub fn top_processes() -> TopProcs {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+    static SYS: std::sync::Mutex<Option<System>> = std::sync::Mutex::new(None);
+    let mut guard = SYS.lock().unwrap_or_else(|e| e.into_inner());
+    let first = guard.is_none();
+    let sys = guard.get_or_insert_with(System::new);
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::new().with_cpu().with_memory());
+    let readings: Vec<(String, f32, u64)> = sys
+        .processes()
+        .values()
+        .map(|p| (p.name().to_string_lossy().to_string(), p.cpu_usage(), p.memory()))
+        .collect();
+    let (by_cpu, by_mem) = rank_processes(&readings, TOP_PROCS);
+    TopProcs { by_cpu: if first { Vec::new() } else { by_cpu }, by_mem, cpu_ready: !first }
 }
 
 #[derive(Serialize)]
@@ -122,6 +332,26 @@ pub fn gather_core() -> SystemStats {
     gather_scoped(GatherScope::Collector)
 }
 
+/// User/system share since the previous call. The kernel refreshes these
+/// counters only about once a second, so the 200 ms sample window above is
+/// too short for them (measured: identical readings 200 ms apart); the panel
+/// polls every 1.5 s, which is enough. `None` on the first call, after a
+/// pause of more than 30 s, or when the counters did not move.
+#[cfg(target_os = "macos")]
+fn split_since_last_call() -> Option<(f32, f32)> {
+    static LAST: std::sync::Mutex<Option<(std::time::Instant, [u64; 4])>> = std::sync::Mutex::new(None);
+    let now = crate::pulse::macos::cpu_tick_split()?;
+    let at = std::time::Instant::now();
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let out = match *last {
+        // `?`: counters not refreshed yet — keep the older reading as the base.
+        Some((t, before)) if at.duration_since(t).as_secs() <= 30 => Some(cpu_split(before, now)?),
+        _ => None,
+    };
+    *last = Some((at, now));
+    out
+}
+
 pub fn gather_scoped(scope: GatherScope) -> SystemStats {
     use sysinfo::{Disks, MemoryRefreshKind, Networks, RefreshKind, System};
     let full = scope == GatherScope::Full;
@@ -138,6 +368,10 @@ pub fn gather_scoped(scope: GatherScope) -> SystemStats {
     sys.refresh_cpu_all();
     std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
     sys.refresh_cpu_all();
+    #[cfg(target_os = "macos")]
+    let split = if full { split_since_last_call() } else { None };
+    #[cfg(not(target_os = "macos"))]
+    let split: Option<(f32, f32)> = None;
     sys.refresh_memory();
     networks.refresh();
 
@@ -149,6 +383,33 @@ pub fn gather_scoped(scope: GatherScope) -> SystemStats {
     }
     let net_rx_per_sec = (rx as f64 / window) as u64;
     let net_tx_per_sec = (tx as f64 / window) as u64;
+    let net_ifaces = if !full {
+        Vec::new()
+    } else {
+        let all = networks
+            .iter()
+            .map(|(name, data)| NetIface {
+                name: name.clone(),
+                rx_per_sec: (data.received() as f64 / window) as u64,
+                tx_per_sec: (data.transmitted() as f64 / window) as u64,
+                addr: data.ip_networks().iter().map(|n| n.addr).find(|a| a.is_ipv4()).map(|a| a.to_string()),
+            })
+            .collect();
+        pick_ifaces(all, 4)
+    };
+    #[cfg(target_os = "macos")]
+    let (perf_cores, eff_cores) = crate::pulse::macos::perf_levels().map_or((None, None), |(p, e)| (Some(p), Some(e)));
+    #[cfg(not(target_os = "macos"))]
+    let (perf_cores, eff_cores): (Option<usize>, Option<usize>) = (None, None);
+    let (memory, disk_io) = if full {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        detail_from_pulse(crate::pulse::sampler::live().latest.as_ref(), now)
+    } else {
+        (None, None)
+    };
 
     let cpus = sys.cpus();
     let cpu_brand = cpus
@@ -218,6 +479,13 @@ pub fn gather_scoped(scope: GatherScope) -> SystemStats {
         temps,
         fans,
         battery: read_battery(),
+        cpu_user: split.map(|s| s.0),
+        cpu_system: split.map(|s| s.1),
+        perf_cores,
+        eff_cores,
+        memory,
+        disk_io,
+        net_ifaces,
     }
 }
 
@@ -837,6 +1105,18 @@ mod temperature_tests {
 #[cfg(test)]
 mod gather_smoke {
     #[test]
+    #[ignore = "hits real hardware; prints the detail fields"]
+    fn print_live_detail() {
+        let _ = super::gather();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let mut s = super::gather();
+        s.temps.clear();
+        eprintln!("{}", serde_json::to_string_pretty(&s).unwrap());
+        let _ = super::top_processes();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        eprintln!("{}", serde_json::to_string_pretty(&super::top_processes()).unwrap());
+    }
+    #[test]
     #[ignore = "hits real hardware; run with --ignored --nocapture to inspect"]
     fn print_live_stats() {
         let s = super::gather();
@@ -950,5 +1230,73 @@ mod smc_tests {
         // …while the numbers it DOES store are still produced.
         assert!(core.mem_total > 0);
         assert!(core.logical_cores > 0);
+    }
+}
+
+#[cfg(test)]
+mod detail_tests {
+    use super::*;
+
+    #[test]
+    fn the_cpu_split_is_the_share_of_the_window() {
+        // 100 ticks: 30 user, 10 system, 55 idle, 5 nice.
+        assert_eq!(cpu_split([100, 50, 1000, 0], [130, 60, 1055, 5]), Some((35.0, 10.0)));
+        // No time passed, or a counter that went backwards: no claim.
+        assert_eq!(cpu_split([1, 1, 1, 1], [1, 1, 1, 1]), None);
+        assert_eq!(cpu_split([10, 0, 0, 0], [5, 0, 9, 0]), None);
+    }
+
+    #[test]
+    fn interfaces_are_ranked_and_the_loopback_is_left_out() {
+        let i = |name: &str, rx: u64, tx: u64, addr: Option<&str>| NetIface { name: name.into(), rx_per_sec: rx, tx_per_sec: tx, addr: addr.map(str::to_string) };
+        let picked = pick_ifaces(
+            vec![i("lo0", 900, 900, Some("127.0.0.1")), i("en5", 0, 0, None), i("utun3", 0, 0, Some("10.0.0.2")), i("en0", 500, 100, Some("192.168.1.5")), i("awdl0", 0, 0, Some("169.254.1.1"))],
+            2,
+        );
+        // Busiest first; among the idle ones the name decides; never lo0 or an
+        // interface with neither traffic nor address.
+        assert_eq!(picked.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["en0", "awdl0"]);
+    }
+
+    #[test]
+    fn pulse_readings_become_memory_detail_only_while_fresh() {
+        let mut s = crate::pulse::Sample { ts: 1000, pressure: 2, wired: 3, active: 4, inactive: 5, compressor: 6, free: 7, swapout_bps: 8.0, swapin_bps: 9.0, ssd_read_bps: 10.0, ssd_write_bps: 11.0, ..Default::default() };
+        let (mem, io) = detail_from_pulse(Some(&s), 1010);
+        assert_eq!(mem, Some(MemDetail { pressure: 1, wired: 3, active: 4, inactive: 5, compressed: 6, free: 7, swapout_bps: 8.0, swapin_bps: 9.0 }));
+        assert_eq!(io, Some(DiskIo { read_bps: 10.0, write_bps: 11.0 }));
+        s.pressure = 4;
+        assert_eq!(detail_from_pulse(Some(&s), 1000).0.unwrap().pressure, 2);
+        // A stale reading (sampler off) is not shown as now; nor is none.
+        assert_eq!(detail_from_pulse(Some(&s), 1031), (None, None));
+        assert_eq!(detail_from_pulse(None, 1000), (None, None));
+    }
+
+    #[test]
+    fn a_process_share_is_cpu_time_over_wall_time() {
+        // 1.5 s of CPU in 3 s of wall time = half a core.
+        assert_eq!(proc_cpu_pct(0, 1_500_000_000, 1.0, 3.0), 50.0);
+        // Apple Silicon unit 125/3 ns: 36 000 000 units = 1.5 s.
+        assert_eq!(proc_cpu_pct(1000, 36_001_000, 125.0 / 3.0, 3.0), 50.0);
+        // A restarted counter or no elapsed time is no share, never a spike.
+        assert_eq!(proc_cpu_pct(10, 5, 1.0, 3.0), 0.0);
+        assert_eq!(proc_cpu_pct(0, 10, 1.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn processes_are_summed_per_app_and_ranked() {
+        assert_eq!(proc_group("Google Chrome Helper (Renderer)"), "Google Chrome");
+        assert_eq!(proc_group("Code Helper (GPU)"), "Code");
+        assert_eq!(proc_group("rustc"), "rustc");
+        let r = |n: &str, c: f32, m: u64| (n.to_string(), c, m);
+        let (cpu, mem) = rank_processes(
+            &[r("Google Chrome", 20.0, 100), r("Google Chrome Helper (Renderer)", 80.0, 900), r("rustc", 150.0, 50), r("idle", 0.0, 400), r("b", 5.0, 1), r("a", 5.0, 1), r("nan", f32::NAN, 2)],
+            3,
+        );
+        assert_eq!(cpu.iter().map(|p| (p.name.as_str(), p.cpu_pct, p.procs)).collect::<Vec<_>>(), vec![("rustc", 150.0, 1), ("Google Chrome", 100.0, 2), ("a", 5.0, 1)]);
+        // What uses no CPU is not in the CPU list, even when there is room.
+        let (cpu, _) = rank_processes(&[r("busy", 3.0, 1), r("idle", 0.0, 400), r("nan", f32::NAN, 2)], 5);
+        assert_eq!(cpu.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), vec!["busy"]);
+        // Memory ranks everything, also what uses no CPU.
+        assert_eq!(mem.iter().map(|p| (p.name.as_str(), p.mem)).collect::<Vec<_>>(), vec![("Google Chrome", 1000), ("idle", 400), ("rustc", 50)]);
     }
 }

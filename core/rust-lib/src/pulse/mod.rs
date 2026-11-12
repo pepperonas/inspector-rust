@@ -97,6 +97,9 @@ pub struct ProcReading {
     pub args: Option<Vec<String>>,
     pub footprint: u64,
     pub bytes_written: u64,
+    /// User + system CPU time since the process started, in the unit of
+    /// `macos::cpu_time_unit_ns` (0 where it is not read).
+    pub cpu_time: u64,
 }
 
 // ── Counter deltas ─────────────────────────────────────────────────────────

@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.255.0] — 2026-11-12
+
+### Added
+- **`stats`: an overview on top.** Four tiles — CPU, memory, network, power — each with the last minute as a small curve. A click jumps to the card.
+- **`stats`: which apps use the machine.** The CPU and memory cards list the five apps using the most, helper processes counted towards their app. CPU is in percent of one core, as in Activity Monitor.
+- **`stats`: CPU in detail.** User, system and idle share; every core with its number and load, performance and efficiency cores apart on Apple Silicon; the load average with a word for it (idle, normal, busy, more work than cores).
+- **`stats`: memory in detail (macOS).** Memory pressure as Normal / Raised / Critical, a stacked bar of wired, in use, compressed, cache and free, and swap with direction and rate while the system moves memory out or reads it back.
+- **`stats`: more per card.** Read and write rate of the internal disk, each network interface with its address and rates, temperatures summed by part of the machine (processor, graphics, battery, SSD, board) with the single sensors one click away.
+- **`stats`: cards fold.** A click on a card's header folds it; the choice is remembered. After Enter, `⌘1`…`⌘9` (Ctrl elsewhere) jump to a card.
+
+### Changed
+- **Numbers follow the app language.** Sizes, rates, percentages and temperatures use a decimal comma in German and a point in English, with a fixed number of decimals and a space before the unit. This applies to every panel that shows sizes.
+- **`stats` lists a volume once.** macOS reports one APFS container under several mount points; the storage card showed each of them.
+
+### Fixed
+- **`stats`: the arrow keys scroll.** After Enter the search field keeps the keyboard focus, and the panel ignored keys coming from a text field — `↑`/`↓`, Page Up/Down, Home and End did nothing.
+- **`stats`: memory no longer reads "0 B free".** macOS reports no "available" figure; the card now shows the pressure and the memory classes instead.
+
 ## [0.254.1] — 2026-11-12
 
 ### Fixed

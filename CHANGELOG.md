@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.254.1] — 2026-11-12
+
 ### Fixed
 - **The Linux and Windows builds compile again.** Three places asked the screen-recording editor whether it is transcribing; that editor only exists on Apple Silicon Macs, so every other platform failed to build since 0.237.0.
 

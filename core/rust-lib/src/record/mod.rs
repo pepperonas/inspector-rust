@@ -32,6 +32,20 @@ pub mod project;
 pub mod render_client;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod editor_ipc;
+
+/// The record editor is transcribing a take right now (it shares the helper
+/// with `transcribe`, the meeting and dictation). Always false where the
+/// editor does not exist — callers on every platform ask through this.
+pub fn editor_is_transcribing() -> bool {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        editor_ipc::is_transcribing()
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    {
+        false
+    }
+}
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub mod control_ops;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

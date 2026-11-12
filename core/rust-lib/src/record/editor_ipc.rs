@@ -3719,7 +3719,7 @@ mod tests {
         assert!(take > run.find("transcribe_refusal(").unwrap());
         // Everything that starts a helper job waits while the editor transcribes.
         for (file, src) in [("commands.rs", include_str!("../commands.rs")), ("meeting.rs", include_str!("../meeting.rs")), ("live_transcribe.rs", include_str!("../live_transcribe.rs"))] {
-            assert!(src.contains("crate::record::editor_ipc::is_transcribing()"), "{file}");
+            assert!(src.contains("crate::record::editor_is_transcribing()"), "{file}");
         }
     }
 

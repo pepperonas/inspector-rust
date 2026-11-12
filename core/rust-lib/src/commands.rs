@@ -5452,7 +5452,7 @@ pub async fn transcribe_run(
             || crate::meeting::is_running()
             // The editor's word transcription holds the helper's file slot.
             || crate::transcribe_client::is_busy()
-            || crate::record::editor_ipc::is_transcribing()
+            || crate::record::editor_is_transcribing()
         {
             return Err(crate::transcribe::ERR_BUSY.to_string());
         }

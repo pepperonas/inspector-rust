@@ -414,7 +414,7 @@ pub fn start(app: tauri::AppHandle, language: Option<String>, source: LiveSource
             || crate::transcribe::status().is_some_and(|j| j.is_active())
             || crate::meeting::is_running()
             || crate::transcribe_client::is_busy()
-            || crate::record::editor_ipc::is_transcribing()
+            || crate::record::editor_is_transcribing()
         {
             return Err(ERR_BUSY.into());
         }

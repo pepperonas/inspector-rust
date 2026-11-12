@@ -194,10 +194,9 @@ pub fn migrate_table(
     Ok(migrated)
 }
 
-/// Try the OS keychain first, then a keyfile in `data_dir`. Generates a
-/// fresh key on first run and stores it in the keychain (and writes a
-/// keyfile copy as a fallback so a future keychain-unavailable session
-/// can still open the DB).
+/// Try the keyfile in `data_dir` first, then the OS keychain. Generates a
+/// fresh key on first run and stores it in both (the keychain copy lets a
+/// session with a lost keyfile still open the DB).
 /// What a key store answered. The distinction between [`Absent`](KeyLookup::Absent)
 /// and [`Failed`](KeyLookup::Failed) is the whole point: minting a fresh key is
 /// only ever correct when the store genuinely holds nothing.
@@ -225,16 +224,18 @@ enum KeyLookup {
 /// read failure aborts with an error — the caller refuses to start rather than
 /// replace a key it could not read.
 fn load_or_create_key(data_dir: &Path) -> Result<[u8; KEY_LEN]> {
-    let from_chain = read_keychain();
-    if let KeyLookup::Found(k) = from_chain {
-        // Keep the keyfile in sync so the fallback always works.
-        let _ = write_keyfile(data_dir, &k);
+    // The keyfile first: reading it never asks the user for anything, while
+    // every keychain read by a build macOS has not seen yet raises a login
+    // password dialog — at every start after every update. The keychain copy
+    // is the fallback for a lost keyfile.
+    let from_file = read_keyfile(data_dir);
+    if let KeyLookup::Found(k) = from_file {
         return Ok(*k);
     }
 
-    let from_file = read_keyfile(data_dir);
-    if let KeyLookup::Found(k) = from_file {
-        let _ = write_keychain(&k);
+    let from_chain = read_keychain();
+    if let KeyLookup::Found(k) = from_chain {
+        let _ = write_keyfile(data_dir, &k);
         return Ok(*k);
     }
 
@@ -553,6 +554,27 @@ mod tests {
         ));
     }
 
+    /// Tests that put a DB key into the (in-process) keychain share one account.
+    static KEYCHAIN_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Starting the app must not need the keychain when the keyfile is there
+    /// (a keychain read by a new build raises a login-password dialog).
+    #[test]
+    fn the_keyfile_wins_and_the_keychain_is_only_the_fallback() {
+        let _one_at_a_time = KEYCHAIN_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("ir-keyorder-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::secrets::set(KEYRING_USER, &B64.encode([9u8; KEY_LEN])).unwrap();
+        write_keyfile(&dir, &[4u8; KEY_LEN]).unwrap();
+        assert_eq!(load_or_create_key(&dir).unwrap(), [4u8; KEY_LEN]);
+        // Without the keyfile the keychain copy is used and the file comes back.
+        std::fs::remove_file(keyfile_path(&dir)).unwrap();
+        assert_eq!(load_or_create_key(&dir).unwrap(), [9u8; KEY_LEN]);
+        assert!(matches!(read_keyfile(&dir), KeyLookup::Found(k) if *k == [9u8; KEY_LEN]));
+        crate::secrets::delete(KEYRING_USER);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_missing_keyfile_is_absent_but_an_unreadable_one_is_a_failure() {
         let dir = std::env::temp_dir().join(format!("ir-keytest-{}", std::process::id()));
@@ -571,6 +593,7 @@ mod tests {
 
     #[test]
     fn load_or_create_refuses_to_replace_a_key_it_could_not_read() {
+        let _one_at_a_time = KEYCHAIN_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         // THE regression: an existing-but-unreadable keyfile must abort, and —
         // the load-bearing half — must be left byte-for-byte intact so the
         // user can still recover it.

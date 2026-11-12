@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.255.1] — 2026-11-12
+
+### Fixed
+- **macOS no longer asks for the login password over and over.** Since 0.254.0 secrets live in the real keychain, and macOS asks before a build it has not seen reads an item — on every read. The app now reads each stored secret at most once per run and remembers the answer, a refusal included. Starting the app needs no keychain access at all: the database key is taken from its key file, the keychain copy is only the fallback. What remains: after an update, the first use of a stored password (backup, device sync, GitHub, AI key) asks once — choose "Always Allow".
+- **`ir-record`: an over-long request line gets its error on Linux too.** The control socket closed with unread bytes pending, which resets the connection there and drops the answer; the server now reads off the rest before closing.
+
 ## [0.255.0] — 2026-11-12
 
 ### Added

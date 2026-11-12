@@ -147,6 +147,10 @@ mod server {
 
     /// Longest request line accepted (a document edit fits many times over).
     pub(super) const MAX_LINE: usize = 4 << 20;
+    /// After refusing an over-long line: how much of its rest is read off
+    /// before closing, and for how long at most.
+    const DRAIN_MAX: u64 = 1 << 20;
+    const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
     /// How long a write to a client may block before the call counts as cancelled.
     const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -251,6 +255,12 @@ mod server {
                 Ok(n) if n >= MAX_LINE && !line.ends_with('\n') => {
                     let e = ControlError::new("control.bad_request", "request line too long");
                     let _ = send(&mut out, &error_line(&Value::Null, &e));
+                    // Closing with unread bytes in the socket makes Linux reset
+                    // the connection, and the client loses the answer just
+                    // sent. So: end our side, read off a bounded rest, close.
+                    let _ = out.shutdown(std::net::Shutdown::Write);
+                    let _ = conn.set_read_timeout(Some(DRAIN_TIMEOUT));
+                    let _ = std::io::copy(&mut (&mut reader).take(DRAIN_MAX), &mut std::io::sink());
                     return;
                 }
                 Ok(_) => {}

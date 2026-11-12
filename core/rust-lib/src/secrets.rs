@@ -42,8 +42,32 @@ pub fn lookup(account: &str) -> Lookup {
     }
 }
 
+/// What this process already learned about each account. macOS asks the user
+/// for the login password on every read of an item the running build has not
+/// been allowed yet (and every new build counts as a new app for a
+/// self-signed bundle) — so each account is read from the keychain at most
+/// ONCE per run; a refusal is remembered too instead of asking again.
+#[cfg(not(test))]
+fn cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Lookup>> {
+    static C: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, Lookup>>> = std::sync::OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
 #[cfg(not(test))]
 pub fn lookup(account: &str) -> Lookup {
+    // The lock is held across the read: two threads asking for the same
+    // account must not raise two password dialogs.
+    let mut known = cache().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = known.get(account) {
+        return hit.clone();
+    }
+    let fresh = read_keychain_item(account);
+    known.insert(account.to_string(), fresh.clone());
+    fresh
+}
+
+#[cfg(not(test))]
+fn read_keychain_item(account: &str) -> Lookup {
     let entry = match keyring::Entry::new(SERVICE, account) {
         Ok(e) => e,
         Err(e) => return Lookup::Failed(format!("entry: {e}")),
@@ -73,7 +97,12 @@ fn write(account: &str, value: &str) -> Result<(), String> {
 fn write(account: &str, value: &str) -> Result<(), String> {
     keyring::Entry::new(SERVICE, account)
         .and_then(|e| e.set_password(value))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Re-read once (the write check in `set`), then answer from memory.
+    let mut known = cache().lock().unwrap_or_else(|e| e.into_inner());
+    let fresh = read_keychain_item(account);
+    known.insert(account.to_string(), fresh);
+    Ok(())
 }
 
 /// Remove a stored secret (nothing there is fine).
@@ -83,8 +112,11 @@ pub fn delete(account: &str) {
         store().lock().unwrap().remove(account);
     }
     #[cfg(not(test))]
-    if let Ok(e) = keyring::Entry::new(SERVICE, account) {
-        let _ = e.delete_credential();
+    {
+        if let Ok(e) = keyring::Entry::new(SERVICE, account) {
+            let _ = e.delete_credential();
+        }
+        cache().lock().unwrap_or_else(|e| e.into_inner()).insert(account.to_string(), Lookup::Absent);
     }
 }
 

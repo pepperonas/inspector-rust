@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.262.0] — 2026-11-13
+
+### Changed
+- **No more keychain password dialogs.** The backup password, the device-sync passphrase, the GitHub tokens and the AI provider keys are now stored encrypted in the app's data folder (AES-256-GCM with the database key, like the 2FA secrets) instead of as macOS keychain items. macOS treated every update of the app as a new program and asked for the login password whenever such an item was read — with automatic backups on, at every start. An existing keychain entry is moved over on its first read (macOS asks one last time) and removed from the keychain. Trade-off: another program running under your user account could read these secrets without a prompt, as it already could the 2FA secrets. Details: docs/encryption.md.
+
 ## [0.261.1] — 2026-11-13
 
 ### Fixed

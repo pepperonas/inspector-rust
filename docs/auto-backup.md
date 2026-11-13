@@ -65,8 +65,10 @@ Wiederherstellung.
 ## Verschlüsselung
 
 Optional, aber bei einem Cloud-Ordner dringend empfohlen. Das Passwort liegt
-**nur im Schlüsselbund** dieses Macs, nie in einer Datei oder der
-Settings-Tabelle. ⚠️ **Ohne dieses Passwort ist die Sicherung wertlos** —
+**verschlüsselt auf diesem Mac** (`secrets.json` im Datenordner, AES-256-GCM mit dem
+Datenbankschlüssel; seit v0.262.0 nicht mehr im Schlüsselbund, damit macOS nicht nach
+jedem Update nach dem Login-Passwort fragt), nie in der Settings-Tabelle und nie in einer
+Sicherung. ⚠️ **Ohne dieses Passwort ist die Sicherung wertlos** —
 notiere es zusätzlich in einem Passwortmanager. 2FA-Geheimnisse werden
 mitgesichert; bei **ausgeschalteter** Verschlüsselung liegen sie im Klartext im
 Ordner (die App warnt in diesem Fall deutlich).

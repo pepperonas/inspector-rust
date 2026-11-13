@@ -35,8 +35,8 @@ Three ways, tried in this order:
 1. **Sign in with GitHub** (recommended): the OAuth device flow. Inspector
    shows a short code, opens `github.com/login/device`, and you confirm there.
    No password passes through Inspector, and the flow needs no client secret.
-2. **Personal access token** — Settings → GitHub → Advanced. The same keychain
-   entry the `repo` command uses for private clones.
+2. **Personal access token** — Settings → GitHub → Advanced. The same stored
+   token the `repo` command uses for private clones.
 3. **GitHub CLI** — if `gh` is installed and logged in, its token is used.
 
 The panel and Settings show which one is active ("Connected as @login" plus
@@ -65,8 +65,8 @@ repositories you choose.
 
 ## Secrets
 
-Tokens live only in the macOS keychain (service `io.celox.inspector-rust`,
-accounts `github-oauth-v1` and `github-token-v1`). Tokens are never:
+Tokens are stored encrypted on this Mac only (`secrets.json` in the data folder,
+accounts `github-oauth-v1` and `github-token-v1`; see `docs/encryption.md`). Tokens are never:
 
 - written to `settings` or any file,
 - returned to the UI,

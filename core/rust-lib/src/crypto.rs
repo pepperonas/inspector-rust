@@ -156,6 +156,20 @@ pub fn decrypt(value: &str) -> String {
     }
 }
 
+/// [`encrypt`] without the pass-through: `None` when the cipher is not initialised or the
+/// encryption failed. For values that must never reach the disk in the clear.
+#[cfg_attr(test, allow(dead_code))]
+pub fn encrypt_strict(plain: &str) -> Option<String> {
+    CIPHER.get()?.encrypt(plain.as_bytes()).ok()
+}
+
+/// [`decrypt`] without the pass-through: `None` when the cipher is not initialised or the
+/// value does not decrypt.
+#[cfg_attr(test, allow(dead_code))]
+pub fn decrypt_strict(value: &str) -> Option<String> {
+    CIPHER.get()?.decrypt(value).ok()
+}
+
 /// Walk a TEXT column in `table` and re-encrypt every row that doesn't
 /// already start with the `v1:` prefix. Idempotent — already-encrypted
 /// rows are skipped. Run from the same connection pool as everything

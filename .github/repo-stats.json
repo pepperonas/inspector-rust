@@ -1,9 +1,9 @@
 {
-  "loc": 314995,
-  "loc_rust": 165295,
+  "loc": 315250,
+  "loc_rust": 165550,
   "loc_ts": 149700,
-  "tests": 7519,
-  "tests_rust": 3031,
+  "tests": 7524,
+  "tests_rust": 3036,
   "tests_frontend": 4488,
   "commands": 80,
   "features": 239,
@@ -19,6 +19,6 @@
   "frontendModules": 155,
   "hidden": 11,
   "hotkeys": 15,
-  "releases": 638,
+  "releases": 639,
   "settings": 49
 }

@@ -141,3 +141,23 @@ If a future version needs full-file encryption (e.g., to also hide the schema / 
 - [`docs/backup.md`](./backup.md) — how to back up your data; the relationship between encryption and the JSON export format.
 - [`docs/spec.md`](./spec.md) — the broader storage architecture this fits into.
 - [`core/rust-lib/src/crypto.rs`](../core/rust-lib/src/crypto.rs) — the implementation.
+
+## App secrets (`secrets.json`, v0.262.0)
+
+The backup password, the device-sync passphrase, the GitHub tokens and the AI provider keys
+are stored in `secrets.json` in the data folder (mode 0600). Every value is AES-256-GCM
+encrypted with the database key — the protection the 2FA secrets and the history have.
+
+They used to be macOS keychain items. A self-signed build counts as a new app for the
+keychain after every update, so macOS asked for the login password each time such an item
+was read — at every app start with automatic backups on. While that dialog is open macOS
+switches Secure Input on, which also locks a Logitech mouse for apps.
+
+The trade-off: another program running under your user account can read these secrets
+without a prompt (it needs the keyfile and `secrets.json`), as it already could the 2FA
+secrets. The file is never part of a backup or of device sync.
+
+Only the database key's copy stays in the keychain (account `history-db-key-v1`); the app
+reads the keyfile first and the keychain only when the keyfile is lost. A secret still in
+the keychain from an older version is moved into the file on its first read (macOS asks
+one last time) and removed from the keychain.

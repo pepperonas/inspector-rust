@@ -1527,7 +1527,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "In the panel, ⌘E / ⌘P export the selected range as HTML / PDF; ⌘K clones the repo.",
-      "Private repos work when `gh auth login` is done, or with a token in Settings → Repositories (kept in the keychain, never on a command line).",
+      "Private repos work when `gh auth login` is done, or with a token in Settings → Repositories (stored encrypted on this Mac, never on a command line).",
       "Pushes count all branches, the git numbers only the main branch; the Events API returns at most 300 events (then the count reads ≥ n) and reports pushes with a delay of up to a few hours.",
       "Local repos are analysed in place (no clone) — instant for your own projects.",
       "Churn = lines added + removed; the hotspots are ranked by how often a file changed.",

@@ -19,8 +19,8 @@ ki                       → same, via the alias
 | Gemini | Google AI key, `generateContent` (key in the `x-goog-api-key` header, never in the URL) | `gemini-3.8-flash` |
 | ChatGPT | OpenAI key, `chat/completions` in JSON mode | `gpt-6.1-sol` |
 
-* Keys live in the OS keychain (service `io.celox.inspector-rust`, accounts
-  `ai-key-<provider>-v1`). The UI only ever shows `••••abcd`; a key is sent to
+* Keys are stored encrypted on this Mac (`secrets.json` in the data folder, accounts
+  `ai-key-<provider>-v1`; see `docs/encryption.md`). The UI only ever shows `••••abcd`; a key is sent to
   its own provider and nowhere else.
 * Models are editable per provider. Leaving the default stores nothing, so a
   later change of the built-in default reaches you.

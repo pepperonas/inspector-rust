@@ -208,6 +208,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 // `crypto::init` now only errors when a key store failed to
                 // answer (never on a genuine first run), so refusing to start
                 // is the safe reading of "something is wrong with your key".
+                secrets::init(data_dir);
                 if let Err(e) = crypto::init(data_dir) {
                     // An Accessory app (no dock icon) that aborts launch shows
                     // the user NOTHING — the refusal to start must be visible,

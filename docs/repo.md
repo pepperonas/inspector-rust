@@ -155,7 +155,7 @@ der Analyse gelöscht wird.
 ## Private Repos
 
 Das Token kommt aus `gh auth token` (wenn die GitHub-CLI installiert und
-eingeloggt ist), sonst aus dem Schlüsselbund (Settings → Repositories). Es
+eingeloggt ist), sonst aus dem verschlüsselten lokalen Speicher der App (Settings → Repositories). Es
 geht **nur** an `https://github.com/`, und zwar als Umgebungsvariable
 (`GIT_CONFIG_*` mit `http.extraheader`) — **nie** auf die Kommandozeile, wo es
 in der Prozessliste sichtbar wäre — und wird aus Fehlermeldungen entfernt.

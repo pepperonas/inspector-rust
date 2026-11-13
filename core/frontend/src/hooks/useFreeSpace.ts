@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { keepIfEqual } from "../lib/stable";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getFreeSpace, type FreeSpace } from "../lib/ipc";
 
@@ -20,7 +21,7 @@ export function useFreeSpace(): FreeSpace | null {
     const fetchNow = () => {
       void getFreeSpace()
         .then((s) => {
-          if (!cancelled && s) setSpace(s);
+          if (!cancelled && s) setSpace((prev) => keepIfEqual(prev, s));
         })
         .catch(() => undefined); // keep the last reading
     };

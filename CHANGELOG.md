@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.256.1] — 2026-11-13
+
+### Changed
+- **Opening the popup and previewing an image no longer block the app.** Reading the history (up to 1000 decrypted entries) and loading a full image clip now run off the main thread.
+- **Typing re-renders less.** A history row whose clip did not change keeps its place in memory across keystrokes, so the list no longer redraws every visible row per key — with or without lineage rails.
+- **Stepping through image clips is lighter.** The bitmap is fetched 80 ms after the selection rests on a row, not for every row a held arrow key passes, and the last four images are kept so going back is instant.
+- **A dictation with the popup closed no longer redraws the app ten times a second.** While the dictation panel is not shown, only a change of state, source or session is taken.
+- The footer's audio, sleep and free-space checks no longer redraw the app when their reading is unchanged.
+
 ## [0.256.0] — 2026-11-13
 
 ### Changed

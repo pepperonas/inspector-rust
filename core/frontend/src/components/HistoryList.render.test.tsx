@@ -88,4 +88,30 @@ describe("HistoryList row memoisation", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledWith(2);
   });
+  it("a keystroke that keeps the same rows re-renders none of them", () => {
+    // App builds a fresh `combined` array per keystroke; the row objects come
+    // from `clipRow`, so a clip that stays keeps its object.
+    const { rerender } = render(
+      <HistoryList entries={entries} selectedIndex={0} onSelect={vi.fn()} onActivate={vi.fn()} />,
+    );
+    const before = new Map(renders);
+    rerender(
+      <HistoryList entries={[...entries]} selectedIndex={0} onSelect={vi.fn()} onActivate={vi.fn()} />,
+    );
+    for (const id of [1, 2, 3, 4]) expect((renders.get(id) ?? 0) - (before.get(id) ?? 0), `row ${id}`).toBe(0);
+  });
+
+  it("the same holds with lineage rails switched on", () => {
+    const derived = clip(5);
+    if (derived.kind === "clip") derived.data.derived_from = 1;
+    const list = [...entries, derived];
+    const { rerender } = render(
+      <HistoryList entries={list} selectedIndex={0} onSelect={vi.fn()} onActivate={vi.fn()} lineageHighlight />,
+    );
+    const before = new Map(renders);
+    rerender(
+      <HistoryList entries={[...list]} selectedIndex={0} onSelect={vi.fn()} onActivate={vi.fn()} lineageHighlight />,
+    );
+    for (const id of [1, 2, 3, 4, 5]) expect((renders.get(id) ?? 0) - (before.get(id) ?? 0), `row ${id}`).toBe(0);
+  });
 });

@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Lru } from "../lib/stable";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { STATE_LABELS, brunoSelfAssumptions, buildBrunoExport } from "../lib/bruno";
 import {
@@ -1486,6 +1487,12 @@ function CappedPre({ text, className }: { text: string; className: string }) {
  * fetches the full row by id when `content_text` is a truncated preview
  * (`needsFullText`).
  */
+/** Wait before fetching a selected image (see `ImagePreview`). */
+export const IMAGE_FETCH_DELAY_MS = 80;
+/** The last few fetched images, so stepping back and forth is instant. A
+ *  clip's bitmap never changes for its id. */
+const IMAGE_CACHE = new Lru<number, string>(4);
+
 function ClipTextBody({ clip }: { clip: ClipEntry }) {
   const inline = clip.content_data || clip.content_text;
   const [full, setFull] = useState<string | null>(null);
@@ -1519,26 +1526,37 @@ function ClipTextBody({ clip }: { clip: ClipEntry }) {
  */
 function ImagePreview({ entryId, inline }: { entryId: number; inline: string }) {
   const [src, setSrc] = useState<string | null>(
-    inline ? `data:image/png;base64,${inline}` : null,
+    inline ? `data:image/png;base64,${inline}` : (IMAGE_CACHE.get(entryId) ?? null),
   );
   useEffect(() => {
     if (inline) {
       setSrc(`data:image/png;base64,${inline}`);
       return;
     }
+    const cached = IMAGE_CACHE.get(entryId);
+    if (cached) {
+      setSrc(cached);
+      return;
+    }
     let cancelled = false;
     setSrc(null);
-    void getClip(entryId)
-      .then((e) => {
-        if (!cancelled && e && e.content_data) {
-          setSrc(`data:image/png;base64,${e.content_data}`);
-        }
-      })
-      .catch(() => {
-        // Row vanished / decode failed — leave the placeholder.
-      });
+    // A held arrow key passes many image rows: wait a moment before asking
+    // for the bitmap, so only the row the selection rests on is fetched.
+    const timer = window.setTimeout(() => {
+      void getClip(entryId)
+        .then((e) => {
+          if (!e || !e.content_data) return;
+          const url = `data:image/png;base64,${e.content_data}`;
+          IMAGE_CACHE.set(entryId, url);
+          if (!cancelled) setSrc(url);
+        })
+        .catch(() => {
+          // Row vanished / decode failed — leave the placeholder.
+        });
+    }, IMAGE_FETCH_DELAY_MS);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [entryId, inline]);
 

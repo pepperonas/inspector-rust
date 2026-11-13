@@ -164,6 +164,21 @@ export function isLiveRecording(job: LiveJob | null | undefined): boolean {
   return !!job && (job.state === "starting" || job.state === "recording");
 }
 
+/**
+ * Which job object the app keeps after a `transcribe-live` event.
+ *
+ * The session reports ~10×/s (level, clock, growing text). The dictation
+ * panel needs every report; everything else in the app only cares whether a
+ * session exists, what state it is in and which source it records. So while
+ * the panel is not shown, a report that changes none of those keeps the
+ * previous object — and the app does not re-render ten times a second during
+ * a dictation that runs with the popup closed.
+ */
+export function nextLiveJob(cur: LiveJob | null, next: LiveJob, panelShown: boolean): LiveJob {
+  if (panelShown || !cur) return next;
+  return cur.id === next.id && cur.state === next.state && cur.source === next.source ? cur : next;
+}
+
 /** `0:07`, `12:30`, `1:02:03` — the recording clock. */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

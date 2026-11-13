@@ -1,8 +1,9 @@
 import { activeTranscription, appVersion, revealPath, setAudioOutput, setBoomConfig } from "./lib/ipc";
+import { clipRow } from "./lib/stable";
 import { resumeQuery } from "./lib/meeting";
 import { useAudioRoute } from "./hooks/useAudioRoute";
 import { audioRouteView } from "./lib/audio-route";
-import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg } from "./lib/transcribe";
+import { isJobActive, isLiveActive, isLiveRecording, liveAction, liveRowLabel, modeOfSource, startArg, nextLiveJob } from "./lib/transcribe";
 
 /** localStorage key of the argument-usage memory (Tab ranking). */
 const ARG_USAGE_KEY = "ir.arg-usage.v1";
@@ -3244,7 +3245,7 @@ function App() {
   // Wrapped once per clip-list change, not on every `combined` rebuild
   // (query, snippets, command rows… each rebuilt all ~1000 wrappers).
   const clipRows = useMemo(
-    () => filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
+    () => filteredClips.map(clipRow),
     [filteredClips],
   );
 
@@ -3356,9 +3357,7 @@ function App() {
     // Pinned-only browser: just the pinned clips (still query-filtered), and
     // nothing else — no commands, snippets, launcher hits or calc rows.
     if (pinnedOnly) {
-      return pinnedClips(filteredClips).map(
-        (c): ListEntry => ({ kind: "clip", data: c }),
-      );
+      return pinnedClips(filteredClips).map(clipRow);
     }
     // Argument suggestions take over the whole list (like the kill/meme
     // pickers) so ↓/↑ walk through the options instead of dropping into the
@@ -4136,8 +4135,18 @@ function App() {
       .catch(() => undefined);
   }, []);
   useTauriEvent<LiveJob>("transcribe-live", (e) => {
-    if (e.payload) setLiveJob(e.payload);
+    const j = e.payload;
+    if (j) setLiveJob((cur) => nextLiveJob(cur, j, transcribeLiveRef.current));
   });
+  // The panel skipped reports while it was not shown: fetch the current one.
+  useEffect(() => {
+    if (!transcribeLive) return;
+    void transcribeLiveStatus()
+      .then((j) => {
+        if (j) setLiveJob(j);
+      })
+      .catch(() => undefined);
+  }, [transcribeLive]);
   useTauriEvent<LiveDone>("transcribe-live-done", (e) => {
     const d = e.payload;
     if (!d || d.cancelled) return;

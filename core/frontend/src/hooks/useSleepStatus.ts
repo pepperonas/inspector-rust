@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { keepIfEqual } from "../lib/stable";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getSleepStatus, type SleepStatus } from "../lib/ipc";
 import { IS_MAC } from "../lib/platform";
@@ -26,7 +27,7 @@ export function useSleepStatus(): SleepStatus | null {
     const fetchNow = () => {
       void getSleepStatus()
         .then((s) => {
-          if (!cancelled) setStatus(s);
+          if (!cancelled) setStatus((prev) => keepIfEqual(prev, s));
         })
         .catch(() => undefined); // transient IPC failure → keep the last state
     };

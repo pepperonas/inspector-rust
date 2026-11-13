@@ -34,14 +34,18 @@ fn map_err<E: std::fmt::Display>(e: E) -> String {
 // ── Clipboard history ────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn get_history(
+pub async fn get_history(
     db: State<'_, DbHandle>,
     limit: usize,
     offset: usize,
 ) -> Result<Vec<ClipEntry>, String> {
     // Slim list: omits the (multi-MB) image blobs the list view never renders.
     // The PreviewPanel fetches a selected image's data on demand via `get_clip`.
-    db::list_slim(&db, limit, offset).map_err(map_err)
+    // Off the main thread: it decrypts up to `limit` rows on every popup open.
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || db::list_slim(&db, limit, offset).map_err(map_err))
+        .await
+        .map_err(map_err)?
 }
 
 /// Fetch a single history entry **with its full payload** (including the image
@@ -59,8 +63,12 @@ pub fn app_version(app: AppHandle) -> String {
 }
 
 #[tauri::command]
-pub fn get_clip(db: State<'_, DbHandle>, id: i64) -> Result<Option<ClipEntry>, String> {
-    db::get(&db, id).map_err(map_err)
+pub async fn get_clip(db: State<'_, DbHandle>, id: i64) -> Result<Option<ClipEntry>, String> {
+    // Off the main thread: an image clip is several MB to decrypt and serialise.
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || db::get(&db, id).map_err(map_err))
+        .await
+        .map_err(map_err)?
 }
 
 #[tauri::command]

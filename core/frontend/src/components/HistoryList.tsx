@@ -147,10 +147,20 @@ export function HistoryList({
   // Lineage rails, computed over the WHOLE list (not just the visible window)
   // so a lane's span is right no matter where the user has scrolled. Non-clip
   // rows go in as `null` to keep positions aligned with the rendered rows.
-  const rails = useMemo(() => {
+  const freshRails = useMemo(() => {
     if (!lineageHighlight) return null;
     return computeLineage(entries.map((e) => (e.kind === "clip" ? e.data : null)));
   }, [entries, lineageHighlight]);
+  // `entries` is a new array on every keystroke, so the rails are recomputed
+  // each time — but usually to the same result. Keep the previous map (and
+  // with it each row's rail array) while the content is equal, or every row
+  // with a rail would re-render per keystroke.
+  const railsKey = useMemo(
+    () => (freshRails ? JSON.stringify([...freshRails.entries()]) : ""),
+    [freshRails],
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on content, not identity
+  const rails = useMemo(() => freshRails, [railsKey]);
 
   // One uniform gutter for the whole list so rows never jitter as lanes come
   // and go while scrolling. Capped so a pathological number of concurrent

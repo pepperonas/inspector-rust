@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { keepIfEqual } from "../lib/stable";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { audioRoute, type AudioRoute } from "../lib/ipc";
 
@@ -20,7 +21,7 @@ export function useAudioRoute(): { route: AudioRoute | null; refresh: () => void
   const refresh = useCallback(() => {
     void audioRoute()
       .then((r) => {
-        if (aliveRef.current && r) setRoute(r);
+        if (aliveRef.current && r) setRoute((prev) => keepIfEqual(prev, r));
       })
       .catch(() => undefined); // keep the last reading
   }, []);

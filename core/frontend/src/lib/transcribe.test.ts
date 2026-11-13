@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LiveJob, TranscribeFile, TranscribeJob } from "./ipc";
 import {
   fileStatus,
+  nextLiveJob,
   formatDuration,
   isJobActive,
   jobCounts,
@@ -218,5 +219,33 @@ describe("start modes", () => {
     expect(modeOfSource("mic")).toBe("dictate");
     expect(modeOfSource(undefined)).toBe("dictate");
     for (const m of ["dictate", "song", "room"] as const) expect(modeOfSource(m === "song" ? "system" : m === "room" ? "room" : "mic")).toBe(m);
+  });
+});
+
+describe("nextLiveJob", () => {
+  const job = (over: Partial<LiveJob>): LiveJob =>
+    ({ id: 1, state: "recording", source: "mic", committed: "", partial: "", level: 0, elapsed_ms: 0, ...over }) as LiveJob;
+
+  it("with the panel shown every report is taken", () => {
+    const cur = job({});
+    const next = job({ level: 0.5 });
+    expect(nextLiveJob(cur, next, true)).toBe(next);
+  });
+
+  it("without the panel a report that only moves level, clock or text is dropped", () => {
+    const cur = job({});
+    expect(nextLiveJob(cur, job({ level: 0.9, elapsed_ms: 4000, committed: "hallo" }), false)).toBe(cur);
+  });
+
+  it("without the panel a new state, source or session is still taken", () => {
+    const cur = job({});
+    for (const next of [job({ state: "done" }), job({ source: "system" }), job({ id: 2 })]) {
+      expect(nextLiveJob(cur, next, false)).toBe(next);
+    }
+  });
+
+  it("the first report is always taken", () => {
+    const next = job({});
+    expect(nextLiveJob(null, next, false)).toBe(next);
   });
 });

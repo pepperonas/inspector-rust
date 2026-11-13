@@ -4983,5 +4983,17 @@
   "rec9.aspect_set": "Format auf {aspect} umgestellt (⌘Z holt das alte zurück).",
   "rec9.safe_zone": "Sicherheitszone",
   "rec9.safe_zone_hint": "Zeigt, wo Knöpfe und Texte der Plattform das Video verdecken. Wird nie exportiert.",
-  "record.editor.cover_failed": "Das Titelbild konnte nicht berechnet werden."
+  "record.editor.cover_failed": "Das Titelbild konnte nicht berechnet werden.",
+  "rec10.mic_fallback": "Das gewählte Mikrofon ist nicht verbunden – aufgenommen wird der Standard-Eingang.",
+  "rec10.mic_device": "Mikrofon",
+  "rec10.mic_default": "Standard-Mikrofon des Systems",
+  "rec10.mic_missing": "„{name}“ ist nicht verbunden – aufgenommen würde das Standard-Mikrofon.",
+  "rec10.mic_level": "Mikrofonpegel",
+  "rec10.mic_silent": "kein Signal",
+  "rec10.mic_hot": "zu laut",
+  "rec10.mic_ok": "Pegel",
+  "rec10.camera_preview": "Kamerabild",
+  "rec10.camera_starting": "Kamera startet…",
+  "rec10.set.mic_device": "Mikrofon",
+  "rec10.set.mic_device_help": "Welches Mikrofon eine Aufnahme verwendet. Ist das Gerät nicht verbunden, wird das Standard-Mikrofon des Systems genommen."
 }

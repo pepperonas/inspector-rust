@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.259.0] — 2026-11-13
+
+### Added
+- **Choose the microphone for a recording.** The recording window lists every input device when the microphone is on; the choice is remembered (also in Settings → Recording). If the chosen microphone is not connected, the take uses the system default input and the control bar shows a hint.
+- **Microphone level before recording.** A level bar with a peak marker under the microphone choice shows whether the right microphone hears you and whether it is too loud.
+- **Live camera picture in the recording window**, mirrored like a mirror, for the chosen camera. It needs the camera permission already granted and frees the camera the moment the take starts — and by itself a few seconds after the window is gone.
+- **Camera quality in the recording window** (1080p, 1440p, 4K), not only in Settings.
+- Cameras and microphones plugged in while the window is open appear by themselves.
+- `ir-record record --mic-device <id or name>` and `--camera-device <id or name>`; the MCP tool `record_start` takes a microphone id or name as `mic`. `sources` lists microphone ids.
+
+### Fixed
+- A caption file written by an export never replaces an existing file (it gets ` 2`, ` 3`, … like the video).
+
 ## [0.258.0] — 2026-11-13
 
 ### Added

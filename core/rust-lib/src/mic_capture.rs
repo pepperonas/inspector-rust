@@ -24,12 +24,76 @@ pub type ChunkFn = Box<dyn Fn(&[f32], u32) + Send>;
 /// cpal stream — `cpal::Stream` isn't `Send`, so it never leaves that thread).
 pub struct MicStream {
     stop: Arc<AtomicBool>,
+    fell_back: Arc<AtomicBool>,
 }
 
 impl MicStream {
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
     }
+
+    /// A chosen input device is not there (never was, or was unplugged) and the capture runs
+    /// on the system's default input instead. Always false for a capture without a choice.
+    pub fn fell_back(&self) -> bool {
+        self.fell_back.load(Ordering::SeqCst)
+    }
+}
+
+/// One input device as the pickers show it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MicDevice {
+    /// What a setting stores: the device name, `name#2` for the second device of that name.
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// Ids for device names in host order: the name itself, `name#2`, `name#3` … for repeats
+/// (cpal identifies an input by its name only).
+pub fn device_ids(names: &[String]) -> Vec<String> {
+    let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    names
+        .iter()
+        .map(|n| {
+            let k = seen.entry(n.as_str()).or_insert(0);
+            *k += 1;
+            if *k == 1 { n.clone() } else { format!("{n}#{k}") }
+        })
+        .collect()
+}
+
+/// Index of the device a stored id names, or `None` (empty id, or the device is not there).
+pub fn pick_input(names: &[String], wanted: &str) -> Option<usize> {
+    let wanted = wanted.trim();
+    if wanted.is_empty() {
+        return None;
+    }
+    device_ids(names).iter().position(|id| id == wanted)
+}
+
+/// The input devices of this machine, in host order. Listing opens no device.
+pub fn inputs() -> Vec<MicDevice> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    let default = host.default_input_device().and_then(|d| d.name().ok());
+    let names: Vec<String> = match host.input_devices() {
+        Ok(devs) => devs.filter_map(|d| d.name().ok()).collect(),
+        Err(_) => Vec::new(),
+    };
+    let mut default_left = default;
+    device_ids(&names)
+        .into_iter()
+        .zip(names)
+        .map(|(id, name)| {
+            // Only the first device of the default's name is marked.
+            let is_default = default_left.as_deref() == Some(name.as_str());
+            if is_default {
+                default_left = None;
+            }
+            MicDevice { id, name, is_default }
+        })
+        .collect()
 }
 
 impl Drop for MicStream {
@@ -78,18 +142,25 @@ pub fn start_chunks(
 /// Shared entry point: spawns the worker thread that owns the cpal stream
 /// (`cpal::Stream` isn't `Send`, so it must never leave that thread).
 pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
-    spawn(Some(app), sink)
+    spawn(Some(app), sink, None)
 }
 
-/// [`start_chunks`] without a Tauri app (no `mic-level` events) — used by the
-/// `record` session's headless live test.
-pub fn start_chunks_headless(on_chunk: impl Fn(&[f32], u32) + Send + 'static) -> MicStream {
-    spawn(None, Sink::Chunks(Box::new(on_chunk)))
+/// [`start_chunks`] on a chosen input (`device` = a [`MicDevice::id`]; `None`/empty = the
+/// system default). A chosen device that is missing is replaced by the default input —
+/// [`MicStream::fell_back`] says so — and tried again whenever the stream has to reopen.
+pub fn start_chunks_on(
+    app: Option<AppHandle>,
+    device: Option<String>,
+    on_chunk: impl Fn(&[f32], u32) + Send + 'static,
+) -> MicStream {
+    spawn(app, Sink::Chunks(Box::new(on_chunk)), device.filter(|d| !d.trim().is_empty()))
 }
 
-fn spawn(app: Option<AppHandle>, sink: Sink) -> MicStream {
+fn spawn(app: Option<AppHandle>, sink: Sink, device: Option<String>) -> MicStream {
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
+    let fell_back = Arc::new(AtomicBool::new(false));
+    let fell_back2 = fell_back.clone();
     std::thread::spawn(move || {
         let label = sink.label();
         // Session loop (fixed 2026-08-16): a cpal stream that DIES — lid
@@ -101,7 +172,7 @@ fn spawn(app: Option<AppHandle>, sink: Sink) -> MicStream {
         // input, with backoff so a missing mic doesn't spin.
         let mut backoff_ms: u64 = 500;
         while !stop2.load(Ordering::SeqCst) {
-            match run(app.as_ref(), &sink, &stop2) {
+            match run(app.as_ref(), &sink, &stop2, device.as_deref(), &fell_back2) {
                 Ok(true) => break, // clean stop
                 Ok(false) => {
                     tracing::warn!("mic_capture[{label}]: stream died — reopening the input");
@@ -117,7 +188,7 @@ fn spawn(app: Option<AppHandle>, sink: Sink) -> MicStream {
             backoff_ms = (backoff_ms * 2).min(5_000);
         }
     });
-    MicStream { stop }
+    MicStream { stop, fell_back }
 }
 
 /// Root-mean-square of a mono chunk (linear amplitude, 0..1).
@@ -146,11 +217,33 @@ pub(crate) fn chunk_dbfs(chunk: &[f32]) -> f32 {
 
 /// One capture session. `Ok(true)` = stopped by request; `Ok(false)` = the
 /// stream died (device gone/switched) and the caller should reopen.
-fn run(app: Option<&AppHandle>, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, String> {
+fn run(
+    app: Option<&AppHandle>,
+    sink: &Sink,
+    stop: &Arc<AtomicBool>,
+    wanted: Option<&str>,
+    fell_back: &AtomicBool,
+) -> Result<bool, String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let host = cpal::default_host();
-    let device = host.default_input_device().ok_or("no microphone found")?;
+    let chosen = wanted.and_then(|w| {
+        let devs: Vec<cpal::Device> = host.input_devices().ok()?.collect();
+        let names: Vec<String> = devs.iter().map(|d| d.name().unwrap_or_default()).collect();
+        let i = pick_input(&names, w)?;
+        devs.into_iter().nth(i)
+    });
+    if wanted.is_some() {
+        if chosen.is_none() && !fell_back.swap(true, Ordering::SeqCst) {
+            tracing::warn!("mic_capture[{}]: the chosen input is not there — using the default input", sink.label());
+        } else if chosen.is_some() {
+            fell_back.store(false, Ordering::SeqCst);
+        }
+    }
+    let device = match chosen {
+        Some(d) => d,
+        None => host.default_input_device().ok_or("no microphone found")?,
+    };
     let supported = device
         .default_input_config()
         .map_err(|e| format!("mic config error: {e}"))?;
@@ -264,6 +357,42 @@ mod tests {
     // SPL → lit/dark), so its numbers have to be right rather than merely
     // plausible. The cpal stream itself needs a live machine and stays
     // untested, per the house rule.
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn repeated_device_names_get_numbered_ids() {
+        let n = names(&["MacBook Pro Microphone", "USB Audio", "USB Audio", "Logi Webcam", "USB Audio"]);
+        assert_eq!(device_ids(&n), names(&["MacBook Pro Microphone", "USB Audio", "USB Audio#2", "Logi Webcam", "USB Audio#3"]));
+        assert!(device_ids(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_stored_id_finds_its_device_or_nothing() {
+        let n = names(&["Built-in", "USB Audio", "USB Audio"]);
+        assert_eq!(pick_input(&n, "USB Audio"), Some(1));
+        assert_eq!(pick_input(&n, "USB Audio#2"), Some(2));
+        assert_eq!(pick_input(&n, "  Built-in "), Some(0));
+        // Unplugged, never there, or no choice at all: the caller uses the default input.
+        assert_eq!(pick_input(&n, "USB Audio#3"), None);
+        assert_eq!(pick_input(&n, "Other"), None);
+        assert_eq!(pick_input(&n, ""), None);
+        assert_eq!(pick_input(&n, "   "), None);
+        // Never a substring or case-insensitive guess — that could record the wrong microphone.
+        assert_eq!(pick_input(&n, "usb audio"), None);
+        assert_eq!(pick_input(&n, "USB"), None);
+    }
+
+    #[test]
+    fn a_capture_without_a_choice_never_reports_a_fallback() {
+        let src = include_str!("mic_capture.rs");
+        // Every entry point that existed before device choice passes no device.
+        assert!(src.contains("spawn(Some(app), sink, None)"));
+        // Only `start_chunks_on` hands a device on.
+        assert_eq!(src.matches("device.filter(").count(), 2, "the entry point and this test");
+    }
 
     #[test]
     fn an_empty_chunk_is_silent_not_nan() {

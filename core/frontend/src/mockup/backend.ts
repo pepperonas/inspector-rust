@@ -1261,6 +1261,23 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_record_config":
       return { projectDir: "/Users/demo/Movies/Inspector Rust", countdown: true, cursorMode: "editable-overlay", systemAudio: true, mic: true, openEditor: true, autoZoom: true, camera: true, cameraDevice: "", cameraQuality: "1080p" };
     case "set_record_config": return args.config ?? null;
+    case "record_mic_devices":
+      return [
+        { id: "MacBook Pro Microphone", name: "MacBook Pro Microphone", isDefault: true },
+        { id: "Studio Mic USB", name: "Studio Mic USB", isDefault: false },
+      ];
+    case "record_mic_meter_start":
+    case "record_mic_meter_stop":
+    case "record_camera_preview_start":
+    case "record_camera_preview_stop":
+      return null;
+    case "record_mic_level": {
+      // An invented speaking level that moves.
+      const t = Date.now() / 1000;
+      const level = Math.max(0.05, Math.min(0.85, 0.45 + 0.3 * Math.sin(t * 5.1) + 0.12 * Math.sin(t * 13.7)));
+      return { level, dbfs: -60 + level * 60, fellBack: false, live: true };
+    }
+    case "record_camera_preview_frame": return mockCameraFrame(Number(args.since));
     case "record_camera_auth":
       return new URLSearchParams(location.search).get("hud") === "denied" ? "denied" : "authorized";
     case "record_camera_devices":
@@ -1455,3 +1472,34 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
 }
 
 (window as unknown as { __mockMisses: Set<string> }).__mockMisses = misses;
+
+let mockCamGen = 0;
+/** An invented camera picture (a drawn figure, no real person): 8 bytes generation + JPEG. */
+function mockCameraFrame(since: number): ArrayBuffer {
+  if (mockCamGen > since && mockCamGen > 0) return new ArrayBuffer(0);
+  const c = document.createElement("canvas");
+  c.width = 640;
+  c.height = 360;
+  const g = c.getContext("2d");
+  if (!g) return new ArrayBuffer(0);
+  const bg = g.createLinearGradient(0, 0, 640, 360);
+  bg.addColorStop(0, "#27304a");
+  bg.addColorStop(1, "#4b3a5e");
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 640, 360);
+  g.fillStyle = "#e7c9a9";
+  g.beginPath();
+  g.arc(320, 150, 62, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = "#3d6fb6";
+  g.beginPath();
+  g.ellipse(320, 370, 150, 130, 0, 0, Math.PI * 2);
+  g.fill();
+  const b64 = c.toDataURL("image/jpeg", 0.8).split(",")[1] ?? "";
+  const bin = atob(b64);
+  mockCamGen += 1;
+  const out = new Uint8Array(8 + bin.length);
+  new DataView(out.buffer).setBigUint64(0, BigInt(mockCamGen), true);
+  for (let i = 0; i < bin.length; i++) out[8 + i] = bin.charCodeAt(i);
+  return out.buffer;
+}

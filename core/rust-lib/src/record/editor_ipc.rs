@@ -2247,14 +2247,36 @@ fn sidecar_text(play: &EditDoc, opts: &ExportOptions) -> Option<(SubFormat, Stri
     }))
 }
 
-/// Writes the caption file next to `video` (same name, own extension). A failure is logged —
-/// the video itself is unaffected.
+/// Writes the caption file next to `video` (same name, own extension). Never replaces a file:
+/// a taken name gets ` 2`, ` 3`, … A failure is logged — the video itself is unaffected.
 fn write_sidecar(video: &Path, sidecar: Option<(SubFormat, String)>) {
+    use std::io::Write as _;
     let Some((format, text)) = sidecar else { return };
-    let path = video.with_extension(format.ext());
-    if let Err(e) = record_render_protocol::safe_fs::write_atomic(&path, text.as_bytes()) {
-        tracing::warn!("record: caption file {} not written: {e}", path.display());
+    for n in 1u32..100 {
+        let path = sidecar_path(video, format.ext(), n);
+        match record_render_protocol::safe_fs::open_new_nofollow(&path) {
+            Ok(mut f) => {
+                if let Err(e) = f.write_all(text.as_bytes()) {
+                    tracing::warn!("record: caption file {} not written: {e}", path.display());
+                }
+                return;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                tracing::warn!("record: caption file {} not written: {e}", path.display());
+                return;
+            }
+        }
     }
+}
+
+/// The `n`-th candidate for a caption file next to `video`: `<stem>.<ext>`, then `<stem> 2.<ext>` …
+fn sidecar_path(video: &Path, ext: &str, n: u32) -> PathBuf {
+    if n <= 1 {
+        return video.with_extension(ext);
+    }
+    let stem = video.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    video.with_file_name(format!("{stem} {n}.{ext}"))
 }
 
 /// What an export with `opts` will produce — the dialog shows these instead of deriving them.
@@ -2348,7 +2370,11 @@ pub fn export_cover(app: &AppHandle, opts: ExportOptions, programme_ms: u64) -> 
         let _ = send_all(&client, &cmds);
     }
     let jpeg = rendered?.into_iter().next().map(|(_, j)| j).ok_or("record.editor.cover_failed")?;
-    record_render_protocol::safe_fs::write_atomic(&path, &jpeg).map_err(|e| e.to_string())?;
+    // `export_path` picked a free name; a file that appeared since is not replaced.
+    use std::io::Write as _;
+    record_render_protocol::safe_fs::open_new_nofollow(&path)
+        .and_then(|mut f| f.write_all(&jpeg))
+        .map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -4461,6 +4487,22 @@ mod tests {
         d.output.aspect = Aspect::W21H9;
         let wide = export_info_of(&ExportOptions { target: OutputTarget::P2160, ..opts }, &meta, &TakeMetas::new(), &d).unwrap();
         assert!(wide.forced_hevc && wide.codec == Codec::Hevc);
+    }
+
+    #[test]
+    fn a_caption_file_never_replaces_another() {
+        let dir = std::env::temp_dir().join(format!("ir-sidecar-{}-{}", std::process::id(), now_ms()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("Demo.mp4");
+        assert_eq!(sidecar_path(&video, "srt", 1), dir.join("Demo.srt"));
+        assert_eq!(sidecar_path(&video, "srt", 3), dir.join("Demo 3.srt"));
+        std::fs::write(dir.join("Demo.srt"), "mine").unwrap();
+        write_sidecar(&video, Some((SubFormat::Srt, "new".into())));
+        assert_eq!(std::fs::read_to_string(dir.join("Demo.srt")).unwrap(), "mine");
+        assert_eq!(std::fs::read_to_string(dir.join("Demo 2.srt")).unwrap(), "new");
+        write_sidecar(&video, None);
+        assert!(!dir.join("Demo 3.srt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

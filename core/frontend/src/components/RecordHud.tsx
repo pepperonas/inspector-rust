@@ -16,6 +16,8 @@ import {
 import { canStart } from "../lib/record";
 import { useT } from "../lib/i18n";
 import { CameraDeniedHint, useRecordCamera } from "./useRecordCamera";
+import { CameraPreview, MicPicker, useRecordMics } from "./RecordHudDevices";
+import { shownDevice } from "../lib/record-devices";
 
 /** Error sentinel `record.x_y` → locale key `rec2.err.x_y`. */
 function errorText(t: ReturnType<typeof useT>, raw: string): string {
@@ -37,6 +39,7 @@ export function RecordHud() {
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const cam = useRecordCamera();
+  const mics = useRecordMics();
 
   useEffect(() => {
     void recordStatus().then(setStatus).catch(() => undefined);
@@ -100,6 +103,7 @@ export function RecordHud() {
       camera: cameraOn,
       cameraDevice: cfg.cameraDevice ?? "",
       cameraQuality: cfg.cameraQuality ?? "1080p",
+      micDevice: cfg.micDevice ?? "",
     }).catch((e) => {
       setStarting(false);
       setError(errorText(t, String(e)));
@@ -199,7 +203,17 @@ export function RecordHud() {
           {toggle(cfg.countdown, t("rec2.hud.countdown"), null, (v) => patch({ countdown: v }))}
         </div>
       )}
+      {cfg && cfg.mic && !starting && (
+        <MicPicker
+          value={cfg.micDevice}
+          onChange={(micDevice) => patch({ micDevice })}
+          mics={mics.devices}
+          loaded={mics.loaded}
+          meter
+        />
+      )}
       {cfg && cam.showHint(cfg.camera) && <CameraDeniedHint />}
+      {cfg && cameraOn && !starting && <CameraPreview device={shownDevice(cam.devices, cfg.cameraDevice)} />}
       {cfg && cameraOn && cam.devices.length > 1 && (
         <select
           data-testid="rec-camera-device"
@@ -215,6 +229,27 @@ export function RecordHud() {
             </option>
           ))}
         </select>
+      )}
+      {cfg && cameraOn && (
+        <div className="flex items-center gap-1.5" data-testid="rec-camera-quality">
+          <span className="text-[11px] text-[var(--color-muted)]">{t("rec5.set.camera_quality")}</span>
+          {(["1080p", "1440p", "2160p"] as const).map((q) => (
+            <button
+              key={q}
+              type="button"
+              aria-pressed={(cfg.cameraQuality ?? "1080p") === q}
+              onClick={() => patch({ cameraQuality: q })}
+              className={
+                "rounded-full border px-2 py-0.5 text-[11px] " +
+                ((cfg.cameraQuality ?? "1080p") === q
+                  ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-bg)]")
+              }
+            >
+              {q === "2160p" ? "4K" : q}
+            </button>
+          ))}
+        </div>
       )}
       <input
         value={title}

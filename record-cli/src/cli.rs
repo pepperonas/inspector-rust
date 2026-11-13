@@ -37,7 +37,8 @@ Projects (<project> = folder name from `list`, or an absolute path):
 Recording:
   sources                           displays, windows, microphones, cameras
   record [--display Q | --window Q] [--[no-]mic] [--[no-]system-audio]
-         [--[no-]camera] [--no-countdown] [--title T] [--duration S]
+         [--[no-]camera] [--mic-device Q] [--camera-device Q]
+         [--no-countdown] [--title T] [--duration S]
                                     without --duration, Ctrl+C stops;
                                     mic/audio/camera not given = app setting
   stop | pause | resume | status
@@ -268,7 +269,7 @@ pub fn parse_with(
         "record" => {
             let a = split(
                 tail,
-                &["--display", "--window", "--title", "--duration"],
+                &["--display", "--window", "--title", "--duration", "--mic-device", "--camera-device"],
                 &[
                     "--mic",
                     "--system-audio",
@@ -306,6 +307,18 @@ pub fn parse_with(
                         params.insert(key.into(), json!(false));
                     }
                     (false, false) => {}
+                }
+            }
+            // A named device switches its track on (and wins over the bare flag).
+            for (flag, off, key) in [("--mic-device", "--no-mic", "mic"), ("--camera-device", "--no-camera", "camera")] {
+                if let Some(d) = a.get(flag) {
+                    if a.has(off) {
+                        return usage(format!("record: give {flag} or {off}, not both"));
+                    }
+                    if d.trim().is_empty() {
+                        return usage(format!("{flag} needs a device id or name"));
+                    }
+                    params.insert(key.into(), json!(d.trim()));
                 }
             }
             if let Some(t) = a.get("--title") {
@@ -907,6 +920,13 @@ mod tests {
         assert_eq!(Value::Object(r.params), json!({"mic": false, "systemAudio": false, "camera": false}));
         assert!(err("record --camera --no-camera").contains("not both"));
         assert!(err("record --no-mic --mic").contains("not both"));
+        let Command::Record(r) = cmd("record --mic-device Yeti --camera-device BRIO") else { panic!() };
+        assert_eq!(r.params.get("mic"), Some(&json!("Yeti")));
+        assert_eq!(r.params.get("camera"), Some(&json!("BRIO")));
+        // The bare flag next to a named device still means that device.
+        let Command::Record(r) = cmd("record --mic --mic-device Yeti") else { panic!() };
+        assert_eq!(r.params.get("mic"), Some(&json!("Yeti")));
+        assert!(err("record --no-mic --mic-device Yeti").contains("not both"));
         assert!(err("record --duration 0").contains("--duration"));
         assert!(err("record --duration soon").contains("--duration"));
         assert!(err("record --display").contains("needs a value"));

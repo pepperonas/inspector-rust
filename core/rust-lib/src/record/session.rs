@@ -192,6 +192,8 @@ pub struct RecordConfig {
     pub cursor_mode: CursorMode,
     pub system_audio: bool,
     pub mic: bool,
+    /// `mic_capture::MicDevice::id`; empty = the system default input.
+    pub mic_device: String,
     /// After a successful take, open the editor instead of the Finder.
     pub open_editor: bool,
     /// The first time a take opens in the editor, plan zooms at its clicks once.
@@ -211,6 +213,7 @@ impl Default for RecordConfig {
             cursor_mode: CursorMode::EditableOverlay,
             system_audio: true,
             mic: false,
+            mic_device: String::new(),
             open_editor: true,
             auto_zoom: true,
             camera: false,
@@ -227,9 +230,15 @@ const K_COUNTDOWN: &str = "record.countdown";
 const K_CURSOR: &str = "record.cursor_mode";
 const K_SYSTEM_AUDIO: &str = "record.system_audio";
 const K_MIC: &str = "record.mic";
+const K_MIC_DEVICE: &str = "record.mic_device";
 const K_CAMERA: &str = "record.camera";
 const K_CAMERA_DEVICE: &str = "record.camera_device";
 const K_CAMERA_QUALITY: &str = "record.camera_quality";
+
+/// The control bar's hint while a take records the default input instead of the chosen one.
+pub fn mic_warning_for(fell_back: bool) -> Option<String> {
+    fell_back.then(|| crate::i18n::t("rec10.mic_fallback"))
+}
 
 fn parse_bool(v: Option<String>, default: bool) -> bool {
     match v.as_deref().map(str::trim) {
@@ -264,6 +273,7 @@ impl RecordConfig {
             cursor_mode: get(K_CURSOR).map(|s| cursor_mode_from_str(&s)).unwrap_or(d.cursor_mode),
             system_audio: parse_bool(get(K_SYSTEM_AUDIO), d.system_audio),
             mic: parse_bool(get(K_MIC), d.mic),
+            mic_device: get(K_MIC_DEVICE).unwrap_or_default().trim().to_string(),
             open_editor: parse_bool(get(K_OPEN_EDITOR), d.open_editor),
             auto_zoom: parse_bool(get(K_AUTO_ZOOM), d.auto_zoom),
             camera: parse_bool(get(K_CAMERA), d.camera),
@@ -278,6 +288,7 @@ impl RecordConfig {
         crate::settings::set(db, K_CURSOR, cursor_mode_str(self.cursor_mode))?;
         crate::settings::set(db, K_SYSTEM_AUDIO, if self.system_audio { "true" } else { "false" })?;
         crate::settings::set(db, K_MIC, if self.mic { "true" } else { "false" })?;
+        crate::settings::set(db, K_MIC_DEVICE, self.mic_device.trim())?;
         crate::settings::set(db, K_OPEN_EDITOR, if self.open_editor { "true" } else { "false" })?;
         crate::settings::set(db, K_AUTO_ZOOM, if self.auto_zoom { "true" } else { "false" })?;
         crate::settings::set(db, K_CAMERA, if self.camera { "true" } else { "false" })?;
@@ -351,6 +362,9 @@ pub fn resolve_root(setting: &str) -> PathBuf {
 pub struct StartOptions {
     pub system_audio: bool,
     pub mic: bool,
+    /// Empty = the system default input.
+    #[serde(default)]
+    pub mic_device: String,
     pub cursor_mode: CursorMode,
     pub countdown: bool,
     #[serde(default)]
@@ -378,6 +392,8 @@ pub struct RecordStatus {
     pub low_disk_minutes: Option<u64>,
     /// The take runs without (or lost) its camera: why, for the control bar.
     pub camera_warning: Option<String>,
+    /// The chosen microphone is not there and the take records the default input instead.
+    pub mic_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -751,7 +767,7 @@ mod mac {
     /// with two cameras (device select) 405 — the old 320 cut the Record button off. 490
     /// leaves room for a one-line error; anything taller scrolls the middle while the Record
     /// row stays pinned (`RecordHud` Shell). Not resizable.
-    pub const HUD_SIZE: (f64, f64) = (440.0, 490.0);
+    pub const HUD_SIZE: (f64, f64) = (440.0, 680.0);
     pub const COUNTDOWN_LABEL: &str = "record-countdown";
     pub const BAR_LABEL: &str = "record-bar";
     pub const NOTES_LABEL: &str = "record-notes";
@@ -793,6 +809,7 @@ mod mac {
         dir: Option<PathBuf>,
         low_disk_minutes: Option<u64>,
         camera_warning: Option<String>,
+        mic_warning: Option<String>,
         /// Label of the source this take records (a control start does not use the picker slot).
         source: Option<String>,
     }
@@ -836,6 +853,7 @@ mod mac {
                     .or_else(|| picker_macos::current().map(|p| p.label)),
                 low_disk_minutes: g.low_disk_minutes,
                 camera_warning: g.camera_warning.clone(),
+                mic_warning: g.mic_warning.clone(),
             }
         }
 
@@ -1029,7 +1047,7 @@ mod mac {
             match WavSink::create(&prep.dir.join(MIC_FILE), OUT_RATE) {
                 Ok(sink) => {
                     let sink = Arc::new(Mutex::new(sink));
-                    Some((start_mic(app, sink.clone(), clock.clone(), origin_ns), sink))
+                    Some((start_mic(app, sink.clone(), clock.clone(), origin_ns, Some(opts.mic_device.clone())), sink))
                 }
                 Err(e) => {
                     tracing::warn!("record: cannot create mic.wav: {e}");
@@ -1343,6 +1361,9 @@ mod mac {
                         let _ = app.emit("record-camera-lost", ());
                         emit_status(&app);
                     }
+                    if mic_fallback_changed(&app) {
+                        emit_status(&app);
+                    }
                     if let Some(reason) = capture_failure(&app) {
                         tracing::warn!("record: capture failed mid-take: {reason}");
                         let app2 = app.clone();
@@ -1374,6 +1395,25 @@ mod mac {
         tracing::warn!("record: the camera dropped out; recording continues without it");
         let w = a.camera.warning().map(str::to_string);
         g.camera_warning = w;
+        true
+    }
+
+    /// Whether the microphone's fallback state changed since the last look: the chosen input
+    /// went missing (the take goes on with the default input) or came back.
+    fn mic_fallback_changed(app: &AppHandle) -> bool {
+        let Some(st) = app.try_state::<RecordState>() else { return false };
+        let mut g = st.inner.lock();
+        let Some(fell_back) = g.active.as_ref().and_then(|a| a.mic.as_ref()).map(|(m, _)| m.fell_back()) else {
+            return false;
+        };
+        let next = mic_warning_for(fell_back);
+        if g.mic_warning == next {
+            return false;
+        }
+        if fell_back {
+            tracing::warn!("record: the chosen microphone is not there; recording the default input");
+        }
+        g.mic_warning = next;
         true
     }
 
@@ -1626,6 +1666,12 @@ mod mac {
         start_with(app, opts, None)
     }
 
+    /// Stops the HUD's camera preview and microphone meter.
+    pub fn release_hud_devices() {
+        crate::record::camera_preview::stop();
+        crate::record::mic_meter::stop();
+    }
+
     /// [`start`] with a given source (`None` = the current pick of the picker/area overlay).
     /// A given source leaves the picker slot alone, so the HUD keeps its own pick.
     pub fn start_with(app: &AppHandle, opts: StartOptions, source: Option<Picked>) -> Result<RecordStatus, String> {
@@ -1641,6 +1687,9 @@ mod mac {
         abort: &dyn Fn() -> bool,
     ) -> Result<RecordStatus, String> {
         support_reason().map_err(|_| ERR_UNSUPPORTED.to_string())?;
+        // The HUD's live picture and level meter hold the camera and the microphone: both
+        // are released before the take opens them (also for a start the HUD did not make).
+        release_hud_devices();
         let st = app.state::<RecordState>();
         let my_gen = {
             let mut g = st.inner.lock();
@@ -1648,6 +1697,7 @@ mod mac {
             g.gen += 1;
             g.low_disk_minutes = None;
             g.camera_warning = None;
+            g.mic_warning = None;
             g.source = None;
             g.gen
         };
@@ -1697,7 +1747,11 @@ mod mac {
             let _ = camera.finish(0);
             discard_dir(&prep.dir);
             clear_dir(&st, my_gen);
-            st.inner.lock().camera_warning = None;
+            {
+                let mut g = st.inner.lock();
+                g.camera_warning = None;
+                g.mic_warning = None;
+            }
             emit_status(app);
             return Err(ERR_CANCELLED.into());
         }
@@ -1713,6 +1767,7 @@ mod mac {
                         g.phase = next_phase(g.phase, Action::Fail).unwrap_or(Phase::Idle);
                         g.dir = None;
                         g.camera_warning = None;
+            g.mic_warning = None;
                     }
                 }
                 let _ = app.emit(
@@ -1820,6 +1875,7 @@ mod mac {
             g.dir = None;
             g.low_disk_minutes = None;
             g.camera_warning = None;
+            g.mic_warning = None;
             g.source = None;
         }
         close_window(app, BAR_LABEL);
@@ -2335,12 +2391,13 @@ mod tests {
         }
     }
 
-    /// The HUD fits its measured worst case (German, every toggle on, the camera-denied hint:
-    /// 459 px of content at 440 px width) — the 320 px it had cut the Record button off.
+    /// The HUD fits its measured worst case (German, every toggle on, microphone choice with
+    /// its meter and the missing-device hint, camera picture, camera choice and quality:
+    /// 672 px of content at 440 px width; 652 without the hint, measured in the mockup).
     #[cfg(target_os = "macos")]
     #[test]
     fn hud_window_fits_the_measured_worst_case() {
-        const WORST_CASE: f64 = 459.0;
+        const WORST_CASE: f64 = 672.0;
         assert_eq!(mac::HUD_SIZE.0, 440.0, "the measurement was taken at 440 px width");
         assert!(mac::HUD_SIZE.1 >= WORST_CASE, "HUD {} px < measured {WORST_CASE} px", mac::HUD_SIZE.1);
     }
@@ -2370,6 +2427,25 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    #[test]
+    fn a_take_releases_the_huds_camera_and_microphone_first() {
+        let src = include_str!("session.rs");
+        let body = &src[src.find("pub fn start_with_abort(").unwrap()..];
+        let release = body.find("release_hud_devices();").expect("the start releases the HUD's devices");
+        let phase = body.find("next_phase(g.phase, Action::Start)").unwrap();
+        assert!(release < phase, "before anything of the take starts");
+        let f = &src[src.find("pub fn release_hud_devices()").unwrap()..];
+        let f = &f[..f.find("\n    }").unwrap()];
+        assert!(f.contains("camera_preview::stop()") && f.contains("mic_meter::stop()"));
+    }
+
+    #[test]
+    fn mic_warning_only_while_the_default_input_stands_in() {
+        assert_eq!(mic_warning_for(false), None);
+        assert_eq!(mic_warning_for(true), Some(crate::i18n::t("rec10.mic_fallback")));
+        assert_ne!(crate::i18n::t("rec10.mic_fallback"), "rec10.mic_fallback", "the text exists");
+    }
+
     #[test]
     fn camera_lost_mid_take_keeps_recording() {
         let (cam, finished_at) = fake(true);
@@ -2747,6 +2823,7 @@ mod live {
             countdown: false,
             title: "camera".into(),
             camera: true,
+            mic_device: String::new(),
             camera_device: String::new(),
             camera_quality: Default::default(),
         };
@@ -2789,6 +2866,7 @@ mod live {
             countdown: false,
             title: "live".into(),
             camera: false,
+            mic_device: String::new(),
             camera_device: String::new(),
             camera_quality: Default::default(),
         };

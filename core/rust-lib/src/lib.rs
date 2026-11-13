@@ -1299,6 +1299,16 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::record_open_dialog,
             #[cfg(target_os = "macos")]
             commands::record_camera_devices,
+            commands::record_mic_devices,
+            commands::record_mic_meter_start,
+            commands::record_mic_meter_stop,
+            commands::record_mic_level,
+            #[cfg(target_os = "macos")]
+            commands::record_camera_preview_start,
+            #[cfg(target_os = "macos")]
+            commands::record_camera_preview_stop,
+            #[cfg(target_os = "macos")]
+            commands::record_camera_preview_frame,
             #[cfg(target_os = "macos")]
             commands::record_camera_auth,
             #[cfg(target_os = "macos")]

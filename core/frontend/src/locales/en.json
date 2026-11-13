@@ -4983,5 +4983,17 @@
   "rec9.aspect_set": "Format switched to {aspect} (⌘Z brings the old one back).",
   "rec9.safe_zone": "Safe zone",
   "rec9.safe_zone_hint": "Shows where the platform's buttons and texts cover the video. Never exported.",
-  "record.editor.cover_failed": "The cover image could not be rendered."
+  "record.editor.cover_failed": "The cover image could not be rendered.",
+  "rec10.mic_fallback": "The chosen microphone is not connected — recording the default input instead.",
+  "rec10.mic_device": "Microphone",
+  "rec10.mic_default": "System default microphone",
+  "rec10.mic_missing": "“{name}” is not connected — the default microphone would be recorded.",
+  "rec10.mic_level": "Microphone level",
+  "rec10.mic_silent": "no signal",
+  "rec10.mic_hot": "too loud",
+  "rec10.mic_ok": "level",
+  "rec10.camera_preview": "Camera picture",
+  "rec10.camera_starting": "Starting the camera…",
+  "rec10.set.mic_device": "Microphone",
+  "rec10.set.mic_device_help": "Which microphone a recording uses. A device that is not connected is replaced by the system default."
 }

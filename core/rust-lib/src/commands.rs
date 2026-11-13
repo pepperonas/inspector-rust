@@ -7745,6 +7745,58 @@ pub async fn editor_close(app: AppHandle) -> Result<(), String> {
     .await
 }
 
+/// Microphones for the record HUD/settings (`id` is what `record.mic_device` stores).
+#[tauri::command]
+pub async fn record_mic_devices() -> Result<Vec<crate::mic_capture::MicDevice>, String> {
+    tauri::async_runtime::spawn_blocking(crate::mic_capture::inputs).await.map_err(|e| format!("record task: {e}"))
+}
+
+/// Starts (or keeps) the HUD's microphone level meter on `device` (empty = default input).
+#[tauri::command]
+pub async fn record_mic_meter_start(device: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::record::mic_meter::start(&device))
+        .await
+        .map_err(|e| format!("record task: {e}"))
+}
+
+#[tauri::command]
+pub async fn record_mic_meter_stop() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::record::mic_meter::stop).await.map_err(|e| format!("record task: {e}"))
+}
+
+/// The meter's newest level (`null` when no meter runs). Polling keeps the meter alive.
+#[tauri::command]
+pub fn record_mic_level() -> Option<crate::record::mic_meter::MicLevel> {
+    crate::record::mic_meter::level()
+}
+
+/// Starts (or keeps) the HUD's live camera picture. Needs granted camera permission.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_camera_preview_start(device: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let list = crate::record::camera::devices();
+        let dev = crate::record::camera::pick_device(&list, &device).ok_or_else(|| crate::i18n::t("rec5.camera_no_device"))?;
+        crate::record::camera_preview::start(&dev.id)
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn record_camera_preview_stop() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::record::camera_preview::stop).await.map_err(|e| format!("record task: {e}"))
+}
+
+/// The newest preview frame: 8 bytes generation (LE) + JPEG, empty when nothing newer than
+/// `since`. Polling keeps the preview alive.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn record_camera_preview_frame(since: u64) -> tauri::ipc::Response {
+    tauri::ipc::Response::new(crate::record::camera_preview::frame(since))
+}
+
 /// Video capture devices for the record HUD/settings (AVFoundation can take a moment).
 #[cfg(target_os = "macos")]
 #[tauri::command]

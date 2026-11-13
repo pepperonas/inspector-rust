@@ -399,7 +399,7 @@ impl Take {
     #[cfg(test)]
     fn open_mic_headless(&self) {
         let shared = self.shared.clone();
-        *self.mic.lock() = Some(mic_capture::start_chunks_headless(move |c: &[f32], r: u32| shared.push(c, r)));
+        *self.mic.lock() = Some(mic_capture::start_chunks_on(None, None, move |c: &[f32], r: u32| shared.push(c, r)));
     }
 
     /// Waits until the microphone delivered its first chunk; `false` after `timeout`.

@@ -12,6 +12,16 @@ let cameraAuth = "authorized";
 let authPending = false;
 let storedCamera = false;
 let cameraDevices = [{ id: "mac", name: "FaceTime HD Camera", builtin: true }];
+let storedMic = false;
+let storedMicDevice = "";
+const micDevices = [
+  { id: "MacBook Pro Microphone", name: "MacBook Pro Microphone", isDefault: true },
+  { id: "Yeti", name: "Yeti", isDefault: false },
+];
+const recordMicMeterStart = vi.fn(async (_d: string) => undefined);
+const recordMicMeterStop = vi.fn(async () => undefined);
+const recordCameraPreviewStart = vi.fn(async (_d: string) => undefined);
+const recordCameraPreviewStop = vi.fn(async () => undefined);
 vi.mock("../lib/ipc", () => ({
   recordStatus: async () => ({ supported: true, reason: null, phase: "idle", elapsedMs: 0, projectDir: null, source: "Display", lowDiskMinutes: null }),
   getRecordConfig: async () => ({
@@ -19,7 +29,8 @@ vi.mock("../lib/ipc", () => ({
     countdown: true,
     cursorMode: "editable-overlay",
     systemAudio: true,
-    mic: false,
+    mic: storedMic,
+    micDevice: storedMicDevice,
     camera: storedCamera,
     cameraDevice: "",
     cameraQuality: "1080p",
@@ -33,6 +44,13 @@ vi.mock("../lib/ipc", () => ({
   recordCameraDevices: async () => cameraDevices,
   recordCameraRequest: () => recordCameraRequest(),
   recordOpenCameraSettings: () => recordOpenCameraSettings(),
+  recordMicDevices: async () => micDevices,
+  recordMicMeterStart: (d: string) => recordMicMeterStart(d),
+  recordMicMeterStop: () => recordMicMeterStop(),
+  recordMicLevel: async () => ({ level: 0.5, dbfs: -30, fellBack: false, live: true }),
+  recordCameraPreviewStart: (d: string) => recordCameraPreviewStart(d),
+  recordCameraPreviewStop: () => recordCameraPreviewStop(),
+  recordCameraPreviewFrame: async () => new ArrayBuffer(0),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 vi.mock("@tauri-apps/api/webviewWindow", () => ({ getCurrentWebviewWindow: () => ({ close: async () => undefined }) }));
@@ -46,6 +64,8 @@ afterEach(() => {
   authPending = false;
   storedCamera = false;
   cameraDevices = [{ id: "mac", name: "FaceTime HD Camera", builtin: true }];
+  storedMic = false;
+  storedMicDevice = "";
 });
 
 describe("RecordHud Enter", () => {
@@ -220,5 +240,61 @@ describe("RecordHud sources", () => {
     expect(recordPickSource).not.toHaveBeenCalled();
     fireEvent.click(await findByRole("button", { name: /Window/ }));
     expect(recordPickSource).toHaveBeenLastCalledWith("window");
+  });
+});
+
+describe("RecordHud microphone", () => {
+  it("offers the microphones with a level meter only while the mic is on", async () => {
+    const r = render(<RecordHud />);
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    expect(r.queryByTestId("rec-mic-device")).toBeNull();
+    expect(recordMicMeterStart).not.toHaveBeenCalled();
+    fireEvent.click(await r.findByRole("switch", { name: /microphone/i }));
+    const select = (await r.findByTestId("rec-mic-device")) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    expect(r.getByTestId("rec-mic-meter")).toBeTruthy();
+    await waitFor(() => expect(recordMicMeterStart).toHaveBeenCalledWith(""));
+    fireEvent.change(select, { target: { value: "Yeti" } });
+    await waitFor(() => expect(recordMicMeterStart).toHaveBeenCalledWith("Yeti"));
+    await waitFor(() => expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ mic: true, micDevice: "Yeti" })));
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(recordStart).toHaveBeenCalledWith(expect.objectContaining({ mic: true, micDevice: "Yeti" }));
+    // The take needs the microphone: the meter lets go of it.
+    await waitFor(() => expect(r.queryByTestId("rec-mic-meter")).toBeNull());
+    expect(recordMicMeterStop).toHaveBeenCalled();
+  });
+
+  it("names a stored microphone that is not connected", async () => {
+    storedMic = true;
+    storedMicDevice = "Rode NT#2";
+    const r = render(<RecordHud />);
+    const hint = await r.findByTestId("rec-mic-missing");
+    expect(hint.textContent).toContain("Rode NT");
+    expect(hint.textContent).not.toContain("#2");
+    expect(((await r.findByTestId("rec-mic-device")) as HTMLSelectElement).value).toBe("");
+  });
+});
+
+describe("RecordHud camera picture", () => {
+  it("shows the live picture only with the camera on, and frees the camera for the take", async () => {
+    storedCamera = true;
+    const r = render(<RecordHud />);
+    await r.findByTestId("rec-camera-preview");
+    await waitFor(() => expect(recordCameraPreviewStart).toHaveBeenCalledWith(""));
+    expect(r.getByTestId("rec-camera-quality")).toBeTruthy();
+    fireEvent.click(r.getByText("4K"));
+    await waitFor(() => expect(setRecordConfig).toHaveBeenLastCalledWith(expect.objectContaining({ cameraQuality: "2160p" })));
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    await waitFor(() => expect(r.queryByTestId("rec-camera-preview")).toBeNull());
+    expect(recordCameraPreviewStop).toHaveBeenCalled();
+    expect(recordStart).toHaveBeenCalledWith(expect.objectContaining({ camera: true, cameraQuality: "2160p" }));
+  });
+
+  it("no picture and no camera access while the camera is off", async () => {
+    const r = render(<RecordHud />);
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    expect(r.queryByTestId("rec-camera-preview")).toBeNull();
+    expect(recordCameraPreviewStart).not.toHaveBeenCalled();
   });
 });

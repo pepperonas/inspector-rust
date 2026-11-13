@@ -11,6 +11,7 @@ import { t, useT } from "../lib/i18n";
 import { Section, Row } from "./SettingsSection";
 import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { CameraDeniedHint, useRecordCamera } from "./useRecordCamera";
+import { MicPicker, useRecordMics } from "./RecordHudDevices";
 
 function CopyLine({ text, label }: { text: string; label: string }) {
   const [done, setDone] = useState(false);
@@ -54,6 +55,7 @@ export function RecordSettingsSection() {
   const [bindings, saveBindings] = useEditorShortcuts();
   const [keysOpen, setKeysOpen] = useState(false);
   const cam = useRecordCamera();
+  const mics = useRecordMics();
   const [cliPath, setCliPath] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     void recordCliPath().then(setCliPath).catch(() => setCliPath(null));
@@ -141,6 +143,15 @@ export function RecordSettingsSection() {
       </Row>
       {box("systemAudio", t("rec2.hud.system_audio"))}
       {box("mic", t("rec2.hud.mic"))}
+      <Row label={t("rec10.set.mic_device")} help={t("rec10.set.mic_device_help")}>
+        <MicPicker
+          value={cfg.micDevice}
+          onChange={(micDevice) => save({ ...cfg, micDevice })}
+          mics={mics.devices}
+          loaded={mics.loaded}
+          meter={false}
+        />
+      </Row>
       <Row label={t("rec5.hud.camera")} help={t("rec5.set.camera_help")}>
         <input
           type="checkbox"

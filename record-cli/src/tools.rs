@@ -187,7 +187,7 @@ fn start_schema() -> Value {
                 "required": ["x", "y", "w", "h"],
                 "additionalProperties": false
             },
-            "mic": {"type": "boolean"},
+            "mic": {"type": ["boolean", "string"], "description": "true = the configured microphone, or a microphone id/name (from record_sources)."},
             "systemAudio": {"type": "boolean"},
             "camera": {"type": ["boolean", "string"], "description": "true = the configured camera, or a camera id/name."},
             "countdown": {"type": "boolean", "description": "Show the 3-s countdown first (default false)."},

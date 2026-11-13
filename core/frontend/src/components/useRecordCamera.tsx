@@ -8,6 +8,7 @@ import {
   type CameraDevice,
 } from "../lib/ipc";
 import { useT } from "../lib/i18n";
+import { DEVICE_POLL_MS, sameDevices } from "../lib/record-devices";
 
 /**
  * Camera permission + devices for the record HUD and Settings — one flow for both:
@@ -21,7 +22,18 @@ export function useRecordCamera() {
 
   useEffect(() => {
     void recordCameraAuth().then(setAuth).catch(() => undefined);
-    void recordCameraDevices().then(setDevices).catch(() => undefined);
+    // Re-read while open: a camera plugged in now appears by itself.
+    let live = true;
+    const read = () =>
+      void recordCameraDevices()
+        .then((d) => live && setDevices((prev) => (sameDevices(prev, d) ? prev : d)))
+        .catch(() => undefined);
+    read();
+    const id = window.setInterval(read, DEVICE_POLL_MS);
+    return () => {
+      live = false;
+      window.clearInterval(id);
+    };
   }, []);
 
   /** Resolves true only when the camera may be used; never stores anything itself. */

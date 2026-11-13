@@ -5239,7 +5239,13 @@ export interface RecordStatus {
   lowDiskMinutes: number | null;
   /** The take runs without (or lost) its camera: why. */
   cameraWarning?: string | null;
+  /** The chosen microphone is missing and the default input is recorded instead. */
+  micWarning?: string | null;
 }
+/** A microphone; `id` is what the `micDevice` setting stores. */
+export interface MicDevice { id: string; name: string; isDefault: boolean }
+/** The HUD's microphone meter. `level` is 0..1. */
+export interface MicLevel { level: number; dbfs: number; fellBack: boolean; live: boolean }
 /** Webcam quality the device is asked for ("ideal", never forced). */
 export type CameraQuality = "1080p" | "1440p" | "2160p";
 export interface CameraDevice {
@@ -5259,8 +5265,12 @@ export interface RecordStartOptions {
   /** Empty = the default device. */
   cameraDevice: string;
   cameraQuality: CameraQuality;
+  /** Empty = the system default input. */
+  micDevice?: string;
 }
 export interface RecordConfig {
+  /** Empty = the system default input. */
+  micDevice?: string;
   projectDir: string;
   countdown: boolean;
   cursorMode: RecordCursorMode;
@@ -5362,6 +5372,31 @@ export function recordDeleteProject(dir: string): Promise<void> {
 /** Video capture devices (built-in and external). */
 export function recordCameraDevices(): Promise<CameraDevice[]> {
   return invoke("record_camera_devices");
+}
+export function recordMicDevices(): Promise<MicDevice[]> {
+  return invoke("record_mic_devices");
+}
+/** Starts (or keeps) the HUD's level meter on `device` (empty = the default input). */
+export function recordMicMeterStart(device: string): Promise<void> {
+  return invoke("record_mic_meter_start", { device });
+}
+export function recordMicMeterStop(): Promise<void> {
+  return invoke("record_mic_meter_stop");
+}
+/** The meter's newest level; `null` when no meter runs. Polling keeps it alive. */
+export function recordMicLevel(): Promise<MicLevel | null> {
+  return invoke("record_mic_level");
+}
+/** Starts (or keeps) the HUD's live camera picture (empty = the default camera). */
+export function recordCameraPreviewStart(device: string): Promise<void> {
+  return invoke("record_camera_preview_start", { device });
+}
+export function recordCameraPreviewStop(): Promise<void> {
+  return invoke("record_camera_preview_stop");
+}
+/** 8 bytes generation (LE) + JPEG, empty when nothing newer than `since`. */
+export function recordCameraPreviewFrame(since: number): Promise<ArrayBuffer> {
+  return invoke("record_camera_preview_frame", { since });
 }
 /** The camera permission as it stands (never asks). */
 export function recordCameraAuth(): Promise<CameraAuth> {

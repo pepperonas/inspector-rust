@@ -101,6 +101,15 @@ impl Candidate for super::capture_macos::ShareableWindow {
     }
 }
 
+impl Candidate for crate::mic_capture::MicDevice {
+    fn cand_id(&self) -> String {
+        self.id.clone()
+    }
+    fn cand_name(&self) -> String {
+        self.name.clone()
+    }
+}
+
 impl Candidate for super::camera::CameraDevice {
     fn cand_id(&self) -> String {
         self.id.clone()
@@ -161,6 +170,8 @@ pub struct StartPlan {
     /// [`CameraChoice::Device`] (the handler resolves the device).
     pub opts: StartOptions,
     pub camera: CameraChoice,
+    /// A microphone named in the call (id or name); the handler resolves it.
+    pub mic_query: Option<String>,
 }
 
 /// Every key `record.start` reads.
@@ -240,9 +251,17 @@ pub fn start_plan(params: &Value, cfg: &RecordConfig) -> Result<StartPlan, Contr
         Some(Value::String(s)) => s.trim().to_string(),
         Some(_) => return Err(perr("title must be a string")),
     };
+    // `mic`: true/false, or a microphone's id or name (which also switches it on).
+    let (mic, mic_query) = match m.get("mic") {
+        None | Some(Value::Null) => (cfg.mic, None),
+        Some(Value::Bool(b)) => (*b, None),
+        Some(Value::String(s)) if !s.trim().is_empty() => (true, Some(s.trim().to_string())),
+        Some(_) => return Err(perr("mic must be true, false or a microphone id/name")),
+    };
     let opts = StartOptions {
         system_audio: opt_bool(m, "systemAudio")?.unwrap_or(cfg.system_audio),
-        mic: opt_bool(m, "mic")?.unwrap_or(cfg.mic),
+        mic,
+        mic_device: cfg.mic_device.clone(),
         cursor_mode: cfg.cursor_mode,
         countdown: opt_bool(m, "countdown")?.unwrap_or(false),
         title,
@@ -254,7 +273,7 @@ pub fn start_plan(params: &Value, cfg: &RecordConfig) -> Result<StartPlan, Contr
         camera_device: cfg.camera_device.clone(),
         camera_quality: cfg.camera_quality,
     };
-    Ok(StartPlan { source, opts, camera })
+    Ok(StartPlan { source, opts, camera, mic_query })
 }
 
 /// Why a start is refused in `phase` before anything is enumerated (the session checks
@@ -299,15 +318,9 @@ fn sources_failed(e: String) -> ControlError {
     ControlError::new(session::ERR_START_FAILED, format!("cannot list the screen's sources (Screen Recording?): {e}"))
 }
 
-/// Input devices by name (the take records the system default input).
+/// Input devices; `id` is what `record.start {mic}` and the `record.mic_device` setting take.
 fn mics() -> Vec<Value> {
-    use cpal::traits::{DeviceTrait, HostTrait};
-    let host = cpal::default_host();
-    let default = host.default_input_device().and_then(|d| d.name().ok());
-    let Ok(devs) = host.input_devices() else { return Vec::new() };
-    devs.filter_map(|d| d.name().ok())
-        .map(|n| json!({"id": n, "name": n, "default": Some(&n) == default.as_ref()}))
-        .collect()
+    crate::mic_capture::inputs().into_iter().map(|d| json!({"id": d.id, "name": d.name, "default": d.is_default})).collect()
 }
 
 pub(crate) fn sources(_app: &AppHandle, _c: &mut Call) -> Result<Value, ControlError> {
@@ -393,6 +406,10 @@ pub(crate) fn start(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError
         let list = super::camera::devices();
         plan.opts.camera_device = pick_source(&list, q, "camera")?.id.clone();
     }
+    if let Some(q) = &plan.mic_query {
+        let list = crate::mic_capture::inputs();
+        plan.opts.mic_device = pick_source(&list, q, "microphone")?.id.clone();
+    }
     let picked = picked_for(&plan.source)?;
     if plan.opts.countdown {
         c.emit(json!({"phase": "countdown", "seconds": session::COUNTDOWN_SECS}));
@@ -458,6 +475,28 @@ mod tests {
 
     fn cams() -> Vec<CameraDevice> {
         vec![cam("A1", "FaceTime HD Camera"), cam("B2", "Logitech BRIO"), cam("C3", "Logitech C920")]
+    }
+
+    #[test]
+    fn a_named_microphone_switches_the_mic_on_and_is_resolved_later() {
+        let cfg = RecordConfig { mic: false, mic_device: "Saved".into(), ..RecordConfig::default() };
+        let plan = start_plan(&json!({"mic": " Yeti "}), &cfg).unwrap();
+        assert!(plan.opts.mic);
+        assert_eq!(plan.mic_query.as_deref(), Some("Yeti"));
+        // Without a name the setting's device is used; `false` switches the mic off.
+        let plan = start_plan(&json!({"mic": true}), &cfg).unwrap();
+        assert_eq!((plan.opts.mic, plan.opts.mic_device.as_str(), plan.mic_query), (true, "Saved", None));
+        assert!(!start_plan(&json!({"mic": false}), &cfg).unwrap().opts.mic);
+        assert!(!start_plan(&json!({}), &cfg).unwrap().opts.mic);
+        // A microphone is found like a camera: id first, then a unique name.
+        let mics = vec![
+            crate::mic_capture::MicDevice { id: "USB Audio".into(), name: "USB Audio".into(), is_default: false },
+            crate::mic_capture::MicDevice { id: "USB Audio#2".into(), name: "USB Audio".into(), is_default: false },
+            crate::mic_capture::MicDevice { id: "MacBook Pro Microphone".into(), name: "MacBook Pro Microphone".into(), is_default: true },
+        ];
+        assert_eq!(pick_source(&mics, "USB Audio#2", "microphone").unwrap().id, "USB Audio#2");
+        assert_eq!(pick_source(&mics, "macbook", "microphone").unwrap().id, "MacBook Pro Microphone");
+        assert_eq!(pick_source(&mics, "USB Audio", "microphone").unwrap().id, "USB Audio", "an exact id wins over two equal names");
     }
 
     #[test]
@@ -582,7 +621,8 @@ mod tests {
             json!({"display": ""}),
             json!({"display": true}),
             json!({"window": -3}),
-            json!({"mic": "yes"}),
+            json!({"mic": 3}),
+            json!({"mic": " "}),
             json!({"countdown": 1}),
             json!({"camera": 3}),
             json!({"camera": ""}),

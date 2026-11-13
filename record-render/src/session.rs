@@ -545,7 +545,7 @@ impl State {
         };
         let (gpu, comp) = self.compositor(size, &scene)?;
         let result: Result<()> = match kind {
-            ExportKind::Mp4 { codec, .. } => {
+            ExportKind::Mp4 { codec, bit_rate, .. } => {
                 let params = ExportParams {
                     width: size.0,
                     height: size.1,
@@ -554,7 +554,7 @@ impl State {
                         Codec::H264 => ExportCodec::H264,
                         Codec::Hevc => ExportCodec::H265,
                     },
-                    bit_rate: None,
+                    bit_rate: bit_rate.and_then(|b| i64::try_from(b).ok()),
                 };
                 pipeline::run_composited_multi_cancellable(&clips, out_path, gpu, comp, &cfg, &params, &mut progress, control).map(|_| ())
             }

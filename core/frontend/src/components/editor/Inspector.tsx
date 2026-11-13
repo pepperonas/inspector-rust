@@ -37,8 +37,13 @@ import { clipHasPointer } from "../../lib/effects";
 import { TranscriptTab } from "./TranscriptTab";
 import type { Transcription } from "./useTranscription";
 import { useT, type MessageKey } from "../../lib/i18n";
+import { SAFE_ZONE_PLATFORMS, type SafeZonePlatform } from "../../lib/safe-zones";
+import { PLATFORM_NAME } from "../../lib/export-opts";
 
 export interface InspectorProps {
+  /** The platform whose safe zone the preview shows (upright video only). */
+  safeZone?: SafeZonePlatform | null;
+  onSafeZone?: (p: SafeZonePlatform | null) => void;
   doc: RecordEditDoc;
   /** `null` while loading. */
   assets: EditorAssets | null;
@@ -374,7 +379,7 @@ function BackgroundTab({ doc, assets, assetUrl, projectAssetUrl, onCommit, onLiv
   );
 }
 
-function FrameTab({ doc, onCommit, onLive, onLiveEnd }: InspectorProps) {
+function FrameTab({ doc, onCommit, onLive, onLiveEnd, safeZone = null, onSafeZone }: InspectorProps) {
   const t = useT();
   const a = doc.appearance;
   const live = (patch: Parameters<typeof setAppearance>[1]) => onLive(setAppearance(doc, patch));
@@ -467,6 +472,17 @@ function FrameTab({ doc, onCommit, onLive, onLiveEnd }: InspectorProps) {
           ))}
         </Chips>
       </Group>
+      {doc.output.aspect === "9:16" && onSafeZone && (
+        <Group label={t("rec9.safe_zone")}>
+          <Chips>
+            <Chip label={t("rec9.captions_none")} active={safeZone === null} onClick={() => onSafeZone(null)} />
+            {SAFE_ZONE_PLATFORMS.map((p) => (
+              <Chip key={p} label={PLATFORM_NAME[p]} active={safeZone === p} onClick={() => onSafeZone(p)} />
+            ))}
+          </Chips>
+          <p className="text-[11px] text-[var(--color-muted)]">{t("rec9.safe_zone_hint")}</p>
+        </Group>
+      )}
     </>
   );
 }

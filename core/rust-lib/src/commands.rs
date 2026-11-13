@@ -7694,6 +7694,33 @@ pub async fn editor_export(app: AppHandle, opts: crate::record::editor_ipc::Expo
     editor_blocking(move || crate::record::editor_ipc::export(&app, opts)).await
 }
 
+/// What an export with `opts` would produce (size, codec, bitrate, warnings).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_export_info(
+    opts: crate::record::editor_ipc::ExportOptions,
+) -> Result<crate::record::editor_ipc::ExportInfo, String> {
+    editor_blocking(move || crate::record::editor_ipc::export_info(opts)).await
+}
+
+/// Saves the frame at `programme_ms` as a cover image into Downloads; returns its path.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_export_cover(
+    app: AppHandle,
+    opts: crate::record::editor_ipc::ExportOptions,
+    programme_ms: u64,
+) -> Result<String, String> {
+    editor_blocking(move || crate::record::editor_ipc::export_cover(&app, opts, programme_ms)).await
+}
+
+/// The platform presets of the export dialog.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub fn editor_platform_presets() -> Vec<crate::record::platform::PlatformSpec> {
+    crate::record::platform::platform_presets().to_vec()
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]
 pub async fn editor_cancel_export() -> Result<(), String> {

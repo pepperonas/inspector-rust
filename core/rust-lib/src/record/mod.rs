@@ -25,6 +25,8 @@ pub mod mic;
 pub mod peaks;
 #[cfg(target_os = "macos")]
 pub mod picker_macos;
+#[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
+pub mod platform;
 pub mod presets;
 pub mod session;
 pub mod project;

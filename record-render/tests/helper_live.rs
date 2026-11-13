@@ -287,7 +287,7 @@ fn helper_live_export() {
     let t = Instant::now();
     h.send(&Command::Export {
         scene: scene(&dir, &[(1.0, 3.0, 2.0)], (1920, 1080)),
-        kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264 },
+        kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264, bit_rate: None },
         out_path: mp4.display().to_string(),
     });
     let (done, progress, frames) = h.export_result(Duration::from_secs(300));
@@ -344,7 +344,7 @@ fn export_cancel_leaves_no_file() {
     let mut h = Helper::start();
     h.send(&Command::Export {
         scene: scene(&dir, &[], (1920, 1080)),
-        kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 60, codec: Codec::Hevc },
+        kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 60, codec: Codec::Hevc, bit_rate: None },
         out_path: mp4.display().to_string(),
     });
     // Cancel once the export is demonstrably running.
@@ -399,7 +399,7 @@ fn broken_output_cancels_export_and_exits() {
         &mut stdin,
         &Command::Export {
             scene: scene(&dir, &[], (1920, 1080)),
-            kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 60, codec: Codec::Hevc },
+            kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 60, codec: Codec::Hevc, bit_rate: None },
             out_path: mp4.display().to_string(),
         },
     )
@@ -569,7 +569,7 @@ fn export_scene_file() {
     let t = Instant::now();
     helper.send(&Command::Export {
         scene: scene.clone(),
-        kind: ExportKind::Mp4 { w, h, fps: 30, codec: Codec::H264 },
+        kind: ExportKind::Mp4 { w, h, fps: 30, codec: Codec::H264, bit_rate: None },
         out_path: mp4.display().to_string(),
     });
     let (done, _, frames) = helper.export_result(Duration::from_secs(600));
@@ -964,7 +964,7 @@ fn audio_tracks_export_levels() {
     for (scene, out) in [(s, &mp4), (hot, &hot_mp4)] {
         h.send(&Command::Export {
             scene,
-            kind: ExportKind::Mp4 { w: 1280, h: 720, fps: 30, codec: Codec::H264 },
+            kind: ExportKind::Mp4 { w: 1280, h: 720, fps: 30, codec: Codec::H264, bit_rate: None },
             out_path: out.display().to_string(),
         });
         let (done, _, _) = h.export_result(Duration::from_secs(300));

@@ -102,6 +102,9 @@ import { Preview } from "./editor/Preview";
 import { Timeline } from "./editor/Timeline";
 import { CropOverlay } from "./editor/CropOverlay";
 import { ExportDialog } from "./editor/ExportDialog";
+import { SafeZoneOverlay } from "./editor/SafeZoneOverlay";
+import { parseSafeZone, SAFE_ZONE_KEY, safeZoneFor, type SafeZonePlatform } from "../lib/safe-zones";
+import { PLATFORM_NAME } from "../lib/export-opts";
 import { ShortcutsDialog, useEditorShortcuts } from "./editor/ShortcutsDialog";
 import { BindingsContext, useKeyTitle } from "./editor/bindings-context";
 import { matchAction } from "../lib/editor-shortcuts";
@@ -193,6 +196,22 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const [cropMode, setCropMode] = useState(false);
   const [cropSourceMs, setCropSourceMs] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
+  const [safeZone, setSafeZone] = useState<SafeZonePlatform | null>(() => {
+    try {
+      return parseSafeZone(localStorage.getItem(SAFE_ZONE_KEY));
+    } catch {
+      return null;
+    }
+  });
+  const pickSafeZone = (p: SafeZonePlatform | null) => {
+    setSafeZone(p);
+    try {
+      if (p) localStorage.setItem(SAFE_ZONE_KEY, p);
+      else localStorage.removeItem(SAFE_ZONE_KEY);
+    } catch {
+      // not remembered
+    }
+  };
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [bindings, saveBindings] = useEditorShortcuts();
   const keyTitle = useKeyTitle();
@@ -1194,6 +1213,41 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const iconBtn =
     "flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-40";
 
+  const safeZoneNow = safeZoneFor(doc.output.aspect, safeZone);
+  const previewOverlay =
+          voiceover ? null : annSel && !cropMode && !fatal && !modalOpen ? (
+            <AnnotationOverlay
+              annotation={annSel}
+              screenRect={view.screenRects?.[annSel.clip] ?? null}
+              zoomActive={zoomActiveAt(view, annSel.clip, pos)}
+              visible={annotationShownAt(view, annSel.id, pos)}
+              onLive={(p) => {
+                const next = annPatch(p);
+                if (next) inspectorLive(next);
+              }}
+              onEnd={inspectorLiveEnd}
+              onCommit={(p) => {
+                const next = annPatch(p);
+                if (next) commit(next);
+              }}
+              bindings={bindings}
+            />
+          ) : zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
+            <FocusOverlay
+              rect={zoomRect}
+              focus={{ x: zoomSel.focusX, y: zoomSel.focusY }}
+              onPick={(x, y) => commit(updateZoom(cur() ?? doc, zoomSel.id, { focusX: x, focusY: y, origin: "manual" }))}
+            />
+          ) : camRect && !(zoomSel && zoomSel.focusMode === "manual") && !cropMode && !fatal && !modalOpen ? (
+            <CameraOverlay
+              rect={camRect}
+              outSize={view.outputSize}
+              sizePct={doc.camera.sizePct}
+              onLive={(p) => inspectorLive(camPatch(p))}
+              onEnd={inspectorLiveEnd}
+            />
+          ) : null;
+
   return (
     <BindingsContext.Provider value={bindings}>
     <div className="flex h-screen w-screen flex-col bg-[var(--color-bg)] text-[var(--color-fg)]">
@@ -1285,38 +1339,12 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
         active={!fatal && !cropMode}
         dim={!!fatal}
         overlay={
-          voiceover ? null : annSel && !cropMode && !fatal && !modalOpen ? (
-            <AnnotationOverlay
-              annotation={annSel}
-              screenRect={view.screenRects?.[annSel.clip] ?? null}
-              zoomActive={zoomActiveAt(view, annSel.clip, pos)}
-              visible={annotationShownAt(view, annSel.id, pos)}
-              onLive={(p) => {
-                const next = annPatch(p);
-                if (next) inspectorLive(next);
-              }}
-              onEnd={inspectorLiveEnd}
-              onCommit={(p) => {
-                const next = annPatch(p);
-                if (next) commit(next);
-              }}
-              bindings={bindings}
-            />
-          ) : zoomSel && zoomRect && zoomSel.focusMode === "manual" && !cropMode && !fatal ? (
-            <FocusOverlay
-              rect={zoomRect}
-              focus={{ x: zoomSel.focusX, y: zoomSel.focusY }}
-              onPick={(x, y) => commit(updateZoom(cur() ?? doc, zoomSel.id, { focusX: x, focusY: y, origin: "manual" }))}
-            />
-          ) : camRect && !(zoomSel && zoomSel.focusMode === "manual") && !cropMode && !fatal && !modalOpen ? (
-            <CameraOverlay
-              rect={camRect}
-              outSize={view.outputSize}
-              sizePct={doc.camera.sizePct}
-              onLive={(p) => inspectorLive(camPatch(p))}
-              onEnd={inspectorLiveEnd}
-            />
-          ) : null
+          <>
+            {safeZoneNow && safeZone && !cropMode && !fatal && (
+              <SafeZoneOverlay zone={safeZoneNow} label={PLATFORM_NAME[safeZone]} />
+            )}
+            {previewOverlay}
+          </>
         }
       >
         {cropMode && !fatal && (
@@ -1386,6 +1414,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             onAddAnnotation={(k) => void addAnnotationHere(k)}
             getDoc={() => cur() ?? doc}
             hasMic={!!meta.mic}
+            safeZone={safeZone}
+            onSafeZone={pickSafeZone}
             selectedTrack={selectedTrack}
             onSelectTrack={setSelectedTrack}
             onAddMusic={() => void addMusic()}
@@ -1556,7 +1586,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           on: hasCursorData && doc.cursor.show && doc.cursor.clickSound,
         }}
       />
-      {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
+      {exportOpen && (
+        <ExportDialog
+          onClose={() => setExportOpen(false)}
+          aspect={doc.output.aspect}
+          onAspect={(aspect) => commit({ ...(cur() ?? doc), output: { ...(cur() ?? doc).output, aspect } })}
+          positionMs={pos}
+        />
+      )}
       {shortcutsOpen && <ShortcutsDialog bindings={bindings} onSave={saveBindings} onClose={() => setShortcutsOpen(false)} />}
       {projectsOpen && (
         <ProjectDialog currentDir={dir} onOpen={switchProject} onClose={() => setProjectsOpen(false)} onError={report} />

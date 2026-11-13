@@ -393,6 +393,83 @@ pub fn caption_entries(doc: &EditDoc, out: (u32, u32), kept: &dyn Fn(usize) -> O
     entries
 }
 
+/// One caption on the programme clock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cue {
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+}
+
+/// The captions as they play in the finished video: every clip's lines (clamped to the clip,
+/// like [`caption_entries`]) mapped to programme time — cuts, clip order and speed included.
+/// Independent of whether captions are burned in. Sorted, never overlapping, none empty.
+pub fn caption_cues(doc: &EditDoc) -> Vec<Cue> {
+    let s = &doc.captions;
+    let mut lines_by_source: HashMap<Option<&str>, Vec<CaptionLine>> = HashMap::new();
+    let mut cues: Vec<Cue> = Vec::new();
+    for (i, clip) in doc.clips.iter().enumerate() {
+        let source = clip.source.as_deref();
+        let lines = lines_by_source.entry(source).or_insert_with(|| {
+            doc.transcripts
+                .iter()
+                .rev()
+                .find(|t| t.source.as_deref() == source)
+                .map(|t| caption_lines(&t.words, s.min_words, s.max_words))
+                .unwrap_or_default()
+        });
+        for line in lines.iter() {
+            let start = line.start_ms.max(clip.start_ms);
+            let end = line.end_ms.min(clip.end_ms);
+            if end <= start {
+                continue;
+            }
+            let a = super::editor::source_to_programme(doc, i, start);
+            let b = super::editor::source_to_programme(doc, i, end);
+            if b > a {
+                cues.push(Cue { start_ms: a, end_ms: b, text: line.text.clone() });
+            }
+        }
+    }
+    cues.sort_by_key(|c| (c.start_ms, c.end_ms));
+    for i in 0..cues.len().saturating_sub(1) {
+        let next = cues[i + 1].start_ms;
+        if cues[i].end_ms > next {
+            cues[i].end_ms = next;
+        }
+    }
+    cues.retain(|c| c.end_ms > c.start_ms);
+    cues
+}
+
+fn stamp(ms: u64, sep: char) -> String {
+    format!("{:02}:{:02}:{:02}{sep}{:03}", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+}
+
+/// One line per cue: a caption's text never contains a line break of its own, and an arrow
+/// inside the text would read as a timing line.
+fn cue_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ").replace("-->", "->")
+}
+
+/// SubRip: numbered blocks, `,` before the milliseconds.
+pub fn to_srt(cues: &[Cue]) -> String {
+    let mut out = String::new();
+    for (i, c) in cues.iter().enumerate() {
+        out.push_str(&format!("{}\n{} --> {}\n{}\n\n", i + 1, stamp(c.start_ms, ','), stamp(c.end_ms, ','), cue_text(&c.text)));
+    }
+    out
+}
+
+/// WebVTT: the header, then blocks with `.` before the milliseconds.
+pub fn to_vtt(cues: &[Cue]) -> String {
+    let mut out = String::from("WEBVTT\n\n");
+    for c in cues {
+        out.push_str(&format!("{} --> {}\n{}\n\n", stamp(c.start_ms, '.'), stamp(c.end_ms, '.'), cue_text(&c.text)));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +712,53 @@ mod tests {
         for (_, l) in CAPTION_LOOKS {
             assert!(TEXT_FONTS.contains(&l.font_family) && valid_plate_color(l.plate_color));
         }
+    }
+    #[test]
+    fn cues_follow_cuts_order_and_speed() {
+        // Words at 0–1.5 s and 4–5.5 s of the take; the programme plays 4–6 s first, then 0–2 s.
+        let mut words = run(4, 0);
+        words.extend(run(4, 4000));
+        let d = doc(
+            vec![
+                EditClip::main(4000, 6000),
+                EditClip::main(0, 2000),
+            ],
+            vec![own(words)],
+        );
+        let cues = caption_cues(&d);
+        assert!(cues.len() >= 2);
+        assert_eq!(cues[0].start_ms, 0, "the later words play first");
+        assert!(cues[0].text.starts_with("w0"));
+        assert!(cues.iter().any(|c| c.start_ms == 2000), "the first words start where clip 2 starts");
+        assert!(cues.windows(2).all(|p| p[0].end_ms <= p[1].start_ms), "sorted, no overlap");
+        // Burned-in captions off: the file is still available.
+        let mut off = d.clone();
+        off.captions.enabled = false;
+        assert_eq!(caption_cues(&off), cues);
+    }
+
+    #[test]
+    fn cues_skip_what_was_cut_away() {
+        let d = doc(vec![EditClip::main(4000, 6000)], vec![own(run(4, 0))]);
+        assert!(caption_cues(&d).is_empty(), "the words lie outside the only clip");
+        let none = doc(vec![EditClip::main(0, 2000)], vec![]);
+        assert!(caption_cues(&none).is_empty());
+    }
+
+    #[test]
+    fn srt_and_vtt_text() {
+        let cues = vec![
+            Cue { start_ms: 0, end_ms: 1500, text: "Hallo  Welt".into() },
+            Cue { start_ms: 3_723_004, end_ms: 3_724_000, text: "a --> b".into() },
+        ];
+        assert_eq!(
+            to_srt(&cues),
+            "1\n00:00:00,000 --> 00:00:01,500\nHallo Welt\n\n2\n01:02:03,004 --> 01:02:04,000\na -> b\n\n"
+        );
+        assert_eq!(
+            to_vtt(&cues),
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.500\nHallo Welt\n\n01:02:03.004 --> 01:02:04.000\na -> b\n\n"
+        );
+        assert_eq!(to_srt(&[]), "");
     }
 }

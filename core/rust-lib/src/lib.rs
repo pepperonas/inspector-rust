@@ -1378,6 +1378,12 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_export,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_export_info,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_export_cover,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_platform_presets,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_cancel_export,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_restart,

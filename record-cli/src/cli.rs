@@ -24,7 +24,9 @@ Projects (<project> = folder name from `list`, or an absolute path):
   list                              all recordings
   info <project>                    project and timeline
   doc <project>                     the edit document (region ids)
-  export <project> [--format mp4|gif] [--quality p720|p1080|source]
+  export <project> [--format mp4|gif] [--quality p720|p1080|p1440|p2160|source]
+         [--preset youtube|shorts|reels|tiktok] [--bitrate auto|small|standard|high|max|MBIT]
+         [--loudness -16|-14] [--captions srt|vtt]
          [--fps N] [--codec h264|hevc] [--gif-width N] [-o PATH]
   transcribe <project> [--lang de|en|auto]
   auto-zoom <project>               add zooms from the pointer clicks
@@ -321,7 +323,10 @@ pub fn parse_with(
         "export" => {
             let a = split(
                 tail,
-                &["--format", "--quality", "--fps", "--codec", "--gif-width", "-o", "--out"],
+                &[
+                    "--format", "--quality", "--fps", "--codec", "--gif-width", "--preset", "--bitrate", "--loudness",
+                    "--captions", "-o", "--out",
+                ],
                 none,
             )?;
             let project = a.positionals(name, &["project"])?.remove(0);
@@ -330,7 +335,25 @@ pub fn parse_with(
                 params.insert("format".into(), json!(one_of("--format", f, &["mp4", "gif"])?));
             }
             if let Some(q) = a.get("--quality") {
-                params.insert("quality".into(), json!(one_of("--quality", q, &["p720", "p1080", "source"])?));
+                params.insert("quality".into(), json!(one_of("--quality", q, &["p720", "p1080", "p1440", "p2160", "source"])?));
+            }
+            if let Some(p) = a.get("--preset") {
+                params.insert("preset".into(), json!(one_of("--preset", p, &["youtube", "shorts", "reels", "tiktok"])?));
+            }
+            if let Some(b) = a.get("--bitrate") {
+                match b.parse::<f64>() {
+                    Ok(m) if m.is_finite() && m > 0.0 => params.insert("bitrateMbps".into(), json!(m)),
+                    Ok(_) => return usage("--bitrate needs a level or a positive number of Mbit/s"),
+                    Err(_) => params
+                        .insert("bitrate".into(), json!(one_of("--bitrate", b, &["auto", "small", "standard", "high", "max"])?)),
+                };
+            }
+            if let Some(l) = a.get("--loudness") {
+                let l = one_of("--loudness", l, &["-16", "-14"])?;
+                params.insert("loudness".into(), json!(l.parse::<i64>().unwrap_or(-16)));
+            }
+            if let Some(c) = a.get("--captions") {
+                params.insert("captions".into(), json!(one_of("--captions", c, &["srt", "vtt"])?));
             }
             if let Some(f) = a.get("--fps") {
                 params.insert("fps".into(), json!(number("--fps", f)?));

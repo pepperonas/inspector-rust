@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.258.0] — 2026-11-13
+
+### Added
+- **Recording export for YouTube, Shorts, Reels and TikTok.** The editor's export dialog has a platform row: one click sets frame rate, quality and voice level for that platform, switches the project to its format (16:9 or 9:16; ⌘Z brings the old one back) and adds the platform to the file name (`… – shorts.mp4`). A line under the options shows what will come out — frame size, codec, bitrate and the estimated file size — and warns when the video is longer than the platform accepts or is enlarged over the recording.
+- **Export quality.** Small, Standard, High, Max or an own bitrate from 2 to 80 Mbit/s; Auto keeps the previous behaviour. Standard is about 8 Mbit/s at 1080p30 and 12 Mbit/s at 1080p60.
+- **1440p and 4K export**, next to 720p, 1080p and the recording's own size. A frame H.264 cannot encode is exported as HEVC, and the dialog says so.
+- **Voice level −16 or −14 LUFS** for an export.
+- **Caption file.** An export can write the spoken text as `.srt` or `.vtt` next to the video, timed to the finished cut (needs a transcript; burned-in captions may be off).
+- **Cover image.** "Save cover image" in the export dialog saves the frame at the playhead as a JPEG in Downloads.
+- **Safe zones for upright video.** With the 9:16 format, the Frame tab can shade where TikTok, Reels or Shorts cover the video with their own buttons and texts. Shown in the editor only, never exported.
+- `ir-record export` and the MCP tool `record_export` take `--preset`, `--bitrate`, `--loudness`, `--captions` and the sizes `p1440` and `p2160`.
+
 ## [0.257.0] — 2026-11-13
 
 ### Added

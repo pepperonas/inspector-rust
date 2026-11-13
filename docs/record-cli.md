@@ -29,7 +29,7 @@ The app writes a discovery file (`control.json`: socket, token) into its data di
 | `sources` | displays, windows, microphones, cameras |
 | `record [--display Q \| --window Q] [--[no-]mic] [--[no-]system-audio] [--[no-]camera] [--no-countdown] [--title T] [--duration S]` | start a take; waits for `--duration` or Ctrl+C, then stops and prints the project path. `Q` = id (number) or name part. Microphone, system sound and camera: `--x` on, `--no-x` off, neither = the app's setting. A window take records only that app's sound |
 | `stop`, `pause`, `resume`, `status` | control the running take |
-| `export <p> [--format mp4\|gif] [--quality p720\|p1080\|source] [--fps N] [--codec h264\|hevc] [--gif-width N] [-o PATH]` | export; prints the file path |
+| `export <p> [--format mp4\|gif] [--quality p720\|p1080\|p1440\|p2160\|source] [--preset youtube\|shorts\|reels\|tiktok] [--bitrate auto\|small\|standard\|high\|max\|MBIT] [--loudness -16\|-14] [--captions srt\|vtt] [--fps N] [--codec h264\|hevc] [--gif-width N] [-o PATH]` | export; prints the file path |
 | `transcribe <p> [--lang de\|en\|auto]` | transcribe on the Mac, merge into the doc |
 | `auto-zoom <p>` | add zooms from the pointer clicks |
 | `edit <p> --ops JSON\|@file\|@-` | apply edit ops (array, or one op object) |
@@ -58,6 +58,8 @@ Human mode: the result on stdout (table for `list`, path for `export`/`stop`), p
 `0` ok. `2` usage errors and usage-type sentinels (`bad_request`, `*.bad_params`, `*.bad_op`, `*.bad_project`, `*.confirm_required`, `*.ambiguous`, `*.no_match`, ...). `1` everything else: `record.permission` (Screen Recording not granted), `record.busy`, `record.unsupported`, client errors (not running, token, interrupted), and a stop that did not end `ready`.
 
 Ctrl+C stops a recording (`record` without `--duration`) or cancels a running export/transcription (the connection closes, the app aborts the job; exit 1). Ctrl+C during the countdown cancels the take before it starts — nothing is recorded, no project is left behind (exit 1).
+
+`export --preset` sets frame rate, bitrate level and voice level for a platform and names the file; it does not change the project's format — set 16:9 or 9:16 with `edit` (`look.set`). `--bitrate` takes a level or a number of Mbit/s (2–80). `--captions` writes the spoken text next to the video and needs a transcript (`transcribe`).
 
 `export --out` takes an absolute path; without the format's extension it is appended (`demo.v2` → `demo.v2.mp4`). Another video format's extension (`.mov`, `.gif` …) is refused, an existing file is never overwritten.
 
@@ -88,7 +90,7 @@ stdio, newline-delimited JSON-RPC 2.0, protocol 2025-06-18 (also 2025-03-26, 202
 | `record_edit` | Apply `ops` (1-500) to a project, all or nothing. |
 | `record_auto_zoom` | Add zooms planned from the pointer clicks. |
 | `record_transcribe` | Transcribe and merge into the doc (`lang`). |
-| `record_export` | Export MP4/GIF (`format`, `quality`, `fps`, `codec`, `gifWidth`, `out`). |
+| `record_export` | Export MP4/GIF (`format`, `quality`, `preset`, `bitrate`, `bitrateMbps`, `loudness`, `captions`, `fps`, `codec`, `gifWidth`, `out`). |
 | `record_rename` | Set the title. |
 | `record_delete` | Delete a project folder; needs `confirm: true`. |
 | `record_start` | Start a take (`display`/`window`/`area`, `mic`, `systemAudio`, `camera`, `countdown`, `title`). |

@@ -5405,7 +5405,7 @@ export function setRecordNotes(notes: RecordNotes): Promise<void> {
 
 // ── record (stage 2): editor ────────────────────────────────────────────────
 export type RecordAspect = "source" | "auto" | "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
-export type RecordOutputTarget = "p720" | "p1080" | "source";
+export type RecordOutputTarget = "p720" | "p1080" | "p1440" | "p2160" | "source";
 export interface RecordEditClip {
   startMs: number;
   endMs: number;
@@ -5794,6 +5794,40 @@ export interface EditorExportOptions {
   codec: "h264" | "hevc";
   gifWidth: number;
   loopForever: boolean;
+  /** The platform the export is for (names the file). */
+  preset?: RecordPlatform | null;
+  quality?: RecordQuality;
+  /** Mbit/s when `quality` is `custom`. */
+  bitrateMbps?: number | null;
+  loudness?: RecordLoudness;
+  captionsSidecar?: "srt" | "vtt" | null;
+}
+export type RecordPlatform = "youtube" | "shorts" | "reels" | "tiktok";
+export type RecordQuality = "auto" | "small" | "standard" | "high" | "max" | "custom";
+export type RecordLoudness = "-16" | "-14";
+export interface RecordPlatformSpec {
+  id: RecordPlatform;
+  aspect: RecordAspect;
+  target: RecordOutputTarget;
+  fps: number;
+  quality: RecordQuality;
+  loudness: RecordLoudness;
+  maxDurationS: number | null;
+  softDurationS: number | null;
+  suffix: string;
+}
+/** What an export with given options will produce (computed in Rust). */
+export interface EditorExportInfo {
+  width: number;
+  height: number;
+  codec: "h264" | "hevc";
+  bitrateBps: number | null;
+  forcedHevc: boolean;
+  upscale: number | null;
+  programmeMs: number;
+  durationWarning: ["toolong" | "long", number] | null;
+  estimatedBytes: number | null;
+  hasCaptions: boolean;
 }
 /** A decoded `editor_frame` response; `null` when nothing newer exists. */
 export interface EditorFrame { gen: number; width: number; height: number; rgba: Uint8ClampedArray }
@@ -6016,6 +6050,16 @@ export function editorImportAsset(sessionId: number, src: string, kind: "image" 
 }
 export function editorExport(opts: EditorExportOptions): Promise<string> {
   return invoke("editor_export", { opts });
+}
+export function editorExportInfo(opts: EditorExportOptions): Promise<EditorExportInfo> {
+  return invoke("editor_export_info", { opts });
+}
+/** Saves the frame at `programmeMs` as a cover image into Downloads; resolves to its path. */
+export function editorExportCover(opts: EditorExportOptions, programmeMs: number): Promise<string> {
+  return invoke("editor_export_cover", { opts, programmeMs });
+}
+export function editorPlatformPresets(): Promise<RecordPlatformSpec[]> {
+  return invoke("editor_platform_presets");
 }
 export function editorCancelExport(): Promise<void> {
   return invoke("editor_cancel_export");

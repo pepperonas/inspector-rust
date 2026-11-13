@@ -82,7 +82,15 @@ pub enum Codec {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExportKind {
-    Mp4 { w: u32, h: u32, fps: u32, codec: Codec },
+    /// `bit_rate` (bits per second) absent = the compositor's own default.
+    Mp4 {
+        w: u32,
+        h: u32,
+        fps: u32,
+        codec: Codec,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bit_rate: Option<u64>,
+    },
     Gif { w: u32, h: u32, fps: u32, loop_forever: bool },
 }
 
@@ -262,12 +270,12 @@ mod tests {
             Command::Thumbs { scene: scene.clone(), out_fps: 30, frames: vec![0, 15, 90], max_width: 160 },
             Command::Export {
                 scene: scene.clone(),
-                kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264 },
+                kind: ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264, bit_rate: None },
                 out_path: "/tmp/a.mp4".into(),
             },
             Command::Export {
                 scene: scene.clone(),
-                kind: ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc },
+                kind: ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc, bit_rate: Some(12_000_000) },
                 out_path: "/tmp/b.mp4".into(),
             },
             Command::Export {
@@ -285,6 +293,14 @@ mod tests {
     }
 
     #[test]
+    fn an_mp4_export_without_a_bitrate_reads_and_writes_as_before() {
+        let old = r#"{"type":"mp4","w":1920,"h":1080,"fps":30,"codec":"h264"}"#;
+        let kind: ExportKind = serde_json::from_str(old).unwrap();
+        assert_eq!(kind, ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264, bit_rate: None });
+        assert_eq!(serde_json::to_string(&kind).unwrap(), old);
+    }
+
+    #[test]
     fn command_json_roundtrip() {
         for cmd in every_command() {
             let mut buf = Vec::new();
@@ -298,7 +314,7 @@ mod tests {
         assert_eq!(v, json!({"cmd": "set_active_clip", "clip": 1, "source_sec": 0.5}));
         let v = serde_json::to_value(Command::Export {
             scene: json!({}),
-            kind: ExportKind::Mp4 { w: 2, h: 2, fps: 30, codec: Codec::Hevc },
+            kind: ExportKind::Mp4 { w: 2, h: 2, fps: 30, codec: Codec::Hevc, bit_rate: None },
             out_path: "x".into(),
         })
         .unwrap();

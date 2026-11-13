@@ -1286,6 +1286,34 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "editor_to_programme": return Number(args.sourceMs);
     case "editor_frame": return Number(args.sinceGen) > 0 ? new ArrayBuffer(0) : edFrame();
     case "editor_resize": return null;
+    case "editor_platform_presets": return [
+      { id: "youtube", aspect: "16:9", target: "p1080", fps: 30, quality: "standard", loudness: "-14", maxDurationS: null, softDurationS: null, suffix: "youtube" },
+      { id: "shorts", aspect: "9:16", target: "p1080", fps: 30, quality: "high", loudness: "-14", maxDurationS: 180, softDurationS: null, suffix: "shorts" },
+      { id: "reels", aspect: "9:16", target: "p1080", fps: 30, quality: "high", loudness: "-14", maxDurationS: 900, softDurationS: 180, suffix: "reels" },
+      { id: "tiktok", aspect: "9:16", target: "p1080", fps: 30, quality: "high", loudness: "-14", maxDurationS: 3600, softDurationS: 600, suffix: "tiktok" },
+    ];
+    case "editor_export_info": {
+      // Invented numbers in the shape Rust returns (the real ones come from `platform.rs`).
+      const o = args.opts as { target?: string; quality?: string; bitrateMbps?: number | null; fps?: number; codec?: string };
+      const upright = (edDoc.output as { aspect?: string } | undefined)?.aspect === "9:16";
+      const short = ({ p720: 720, p1080: 1080, p1440: 1440, p2160: 2160 } as Record<string, number>)[o.target ?? "p1080"] ?? 1080;
+      const long = Math.round((short * 16) / 9 / 2) * 2;
+      const [width, height] = upright ? [short, long] : [long, short];
+      const bpp = ({ small: 0.07, standard: 0.13, high: 0.2, max: 0.3 } as Record<string, number>)[o.quality ?? "auto"];
+      const bitrateBps =
+        o.quality === "custom" ? (o.bitrateMbps ?? 12) * 1e6
+        : bpp ? Math.round(bpp * width * height * 30 * Math.pow((o.fps ?? 30) / 30, 0.585) * (o.codec === "hevc" ? 0.65 : 1))
+        : null;
+      const programmeMs = edView(edDoc).programmeMs;
+      return {
+        width, height, codec: o.codec ?? "h264", bitrateBps, forcedHevc: false,
+        upscale: short > 1080 ? Math.round((short / 1080) * 10) / 10 : null,
+        programmeMs, durationWarning: null,
+        estimatedBytes: bitrateBps ? Math.round(((bitrateBps + 256_000) * programmeMs) / 8000) : null,
+        hasCaptions: ((edDoc.transcripts as unknown[] | undefined) ?? []).length > 0,
+      };
+    }
+    case "editor_export_cover": return "/Users/ana/Downloads/Product tour 2026-11-13 09.05 – cover.jpg";
     case "editor_thumbs": return Array.from({ length: Number(args.count) || 8 }, (_, i) => edThumb(i));
     case "editor_assets": return {
         wallpapers: ED_WALL_HUES.map((h, i) => ({ id: `0${i + 1}`, thumb: edWallpaper(h) })),

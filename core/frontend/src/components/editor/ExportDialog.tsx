@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
-import { editorCancelExport, editorExport, type EditorExportOptions, type RecordOutputTarget } from "../../lib/ipc";
-import { useT, type MessageKey } from "../../lib/i18n";
+import {
+  editorCancelExport, editorExport, editorExportCover, editorExportInfo, editorPlatformPresets,
+  type EditorExportInfo, type RecordAspect, type RecordPlatformSpec,
+} from "../../lib/ipc";
+import { locale, useT, type MessageKey } from "../../lib/i18n";
+import {
+  applyPreset, clampMbps, CUSTOM_MBPS, GIF_FPS, GIF_WIDTHS, limitText, mbpsText, MP4_FPS, parseStored, PLATFORM_NAME,
+  QUALITIES, sizeText, STORE_KEY, TARGET_NAME, TARGETS, type ExportOpts,
+} from "../../lib/export-opts";
 
-const MP4_FPS = [24, 30, 60] as const;
-const GIF_FPS = [15, 20, 25, 30] as const;
-const GIF_WIDTHS = [480, 640, 854, 1080] as const;
-const TARGETS: RecordOutputTarget[] = ["p720", "p1080", "source"];
+function loadOpts(): ExportOpts {
+  try {
+    return parseStored(localStorage.getItem(STORE_KEY));
+  } catch {
+    return parseStored(null);
+  }
+}
 
 type Phase =
   | { kind: "setup" }
@@ -23,17 +33,68 @@ const errText = (t: (k: MessageKey) => string, reason: string) =>
  * be closed while an export runs (the helper keeps going), re-opening shows the progress.
  * On success Rust shows the file in the Finder and raises the toast — the dialog only says where.
  */
-export function ExportDialog({ onClose }: { onClose: () => void }) {
+export function ExportDialog({
+  onClose,
+  aspect,
+  onAspect,
+  positionMs = 0,
+}: {
+  onClose: () => void;
+  /** The document's aspect; a platform preset asks to change it through `onAspect`. */
+  aspect?: RecordAspect;
+  onAspect?: (a: RecordAspect) => void;
+  /** The playhead: the frame a cover image is taken from. */
+  positionMs?: number;
+}) {
   const t = useT();
-  const [opts, setOpts] = useState<EditorExportOptions>({
-    kind: "mp4",
-    target: "p1080",
-    fps: 30,
-    codec: "h264",
-    gifWidth: 640,
-    loopForever: true,
-  });
+  const [opts, setOptsRaw] = useState<ExportOpts>(loadOpts);
   const [phase, setPhase] = useState<Phase>({ kind: "setup" });
+  const [presets, setPresets] = useState<RecordPlatformSpec[]>([]);
+  const [info, setInfo] = useState<EditorExportInfo | null>(null);
+  const [cover, setCover] = useState<{ path: string } | { error: string } | "busy" | null>(null);
+
+  const setOpts = (next: ExportOpts) => {
+    setOptsRaw(next);
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(next));
+    } catch {
+      // the choice is just not remembered
+    }
+  };
+
+  useEffect(() => {
+    let live = true;
+    void editorPlatformPresets().then((p) => live && setPresets(p)).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+
+  // Size, codec, bitrate and warnings come from Rust — for the options AND the aspect shown.
+  const optsKey = JSON.stringify(opts);
+  useEffect(() => {
+    let live = true;
+    void editorExportInfo(JSON.parse(optsKey) as ExportOpts)
+      .then((i) => live && setInfo(i))
+      .catch(() => live && setInfo(null));
+    return () => { live = false; };
+  }, [optsKey, aspect]);
+
+  const [aspectNote, setAspectNote] = useState<RecordAspect | null>(null);
+  const pickPreset = (spec: RecordPlatformSpec) => {
+    setOpts(applyPreset(opts, spec));
+    if (aspect !== undefined && aspect !== spec.aspect && onAspect) {
+      onAspect(spec.aspect);
+      setAspectNote(spec.aspect);
+    }
+  };
+
+  const saveCover = async () => {
+    setCover("busy");
+    try {
+      setCover({ path: await editorExportCover(opts, Math.round(positionMs)) });
+    } catch (e) {
+      setCover({ error: String(e) });
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -85,7 +146,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-label={t("rec2.ed.export_title")}
-        className="md3-pop-in w-[420px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl"
+        style={{ width: 460, maxHeight: "92vh" }}
+        className="md3-pop-in overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl"
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -106,11 +168,25 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
             )}
             {opts.kind === "mp4" ? (
               <>
+                {presets.length > 0 &&
+                  row(
+                    t("rec9.platform"),
+                    <>
+                      <button className={chip(opts.preset === null)} onClick={() => setOpts({ ...opts, preset: null })}>
+                        {t("rec9.platform_none")}
+                      </button>
+                      {presets.map((p) => (
+                        <button key={p.id} className={chip(opts.preset === p.id)} onClick={() => pickPreset(p)}>
+                          {PLATFORM_NAME[p.id]}
+                        </button>
+                      ))}
+                    </>,
+                  )}
                 {row(
                   t("rec2.ed.export_size"),
                   TARGETS.map((tg) => (
                     <button key={tg} className={chip(opts.target === tg)} onClick={() => setOpts({ ...opts, target: tg })}>
-                      {tg === "source" ? t("rec2.ed.export_source") : tg === "p720" ? "720p" : "1080p"}
+                      {tg === "source" ? t("rec2.ed.export_source") : TARGET_NAME[tg]}
                     </button>
                   )),
                 )}
@@ -129,6 +205,64 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                       {c === "h264" ? "H.264" : "HEVC"}
                     </button>
                   )),
+                )}
+                {row(
+                  t("rec9.quality"),
+                  <>
+                    {QUALITIES.map((q) => (
+                      <button
+                        key={q}
+                        className={chip(opts.quality === q)}
+                        onClick={() =>
+                          setOpts({ ...opts, quality: q, bitrateMbps: q === "custom" ? (opts.bitrateMbps ?? 12) : null })
+                        }
+                      >
+                        {t(`rec9.q.${q}` as MessageKey)}
+                      </button>
+                    ))}
+                    {opts.quality === "custom" && (
+                      <label className="flex items-center gap-1 text-[11px]">
+                        <input
+                          type="number"
+                          aria-label={t("rec9.bitrate")}
+                          min={CUSTOM_MBPS[0]}
+                          max={CUSTOM_MBPS[1]}
+                          step={0.5}
+                          value={opts.bitrateMbps ?? 12}
+                          onChange={(e) => setOpts({ ...opts, bitrateMbps: clampMbps(Number(e.target.value)) })}
+                          style={{ width: 64 }}
+                          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 tabular-nums"
+                        />
+                        Mbit/s
+                      </label>
+                    )}
+                  </>,
+                )}
+                {row(
+                  t("rec9.loudness"),
+                  (["-16", "-14"] as const).map((l) => (
+                    <button key={l} className={chip(opts.loudness === l)} onClick={() => setOpts({ ...opts, loudness: l })}>
+                      {l} LUFS
+                    </button>
+                  )),
+                )}
+                {row(
+                  t("rec9.captions_file"),
+                  <>
+                    {([null, "srt", "vtt"] as const).map((f) => (
+                      <button
+                        key={f ?? "off"}
+                        disabled={f !== null && info !== null && !info.hasCaptions}
+                        className={chip(opts.captionsSidecar === f) + " disabled:opacity-40"}
+                        onClick={() => setOpts({ ...opts, captionsSidecar: f })}
+                      >
+                        {f === null ? t("rec9.captions_none") : f.toUpperCase()}
+                      </button>
+                    ))}
+                    {info !== null && !info.hasCaptions && (
+                      <span className="self-center text-[11px] text-[var(--color-muted)]">{t("rec9.captions_need")}</span>
+                    )}
+                  </>,
                 )}
               </>
             ) : (
@@ -159,13 +293,54 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 )}
               </>
             )}
+            {opts.kind === "mp4" && info && (
+              <div data-testid="export-info" className="flex flex-col gap-1 rounded-lg bg-[var(--color-bg)] px-2.5 py-2 text-[11px]">
+                <span className="tabular-nums">
+                  {info.width} × {info.height} · {info.codec === "h264" ? "H.264" : "HEVC"}
+                  {info.bitrateBps !== null && ` · ${mbpsText(info.bitrateBps, locale())} Mbit/s`}
+                  {info.estimatedBytes !== null && ` · ${t("rec9.about", { size: sizeText(info.estimatedBytes, locale()) })}`}
+                </span>
+                {info.forcedHevc && <span className="text-[var(--color-muted)]">{t("rec9.forced_hevc")}</span>}
+                {info.upscale !== null && (
+                  <span className="text-[var(--color-muted)]">
+                    {t("rec9.upscaled", { factor: info.upscale.toLocaleString(locale()) })}
+                  </span>
+                )}
+                {info.durationWarning && opts.preset && (
+                  <span className="text-amber-500">
+                    {t(info.durationWarning[0] === "toolong" ? "rec9.too_long" : "rec9.long", {
+                      platform: PLATFORM_NAME[opts.preset],
+                      limit: limitText(info.durationWarning[1]),
+                    })}
+                  </span>
+                )}
+              </div>
+            )}
+            {aspectNote && <p className="text-[11px] text-[var(--color-muted)]">{t("rec9.aspect_set", { aspect: aspectNote })}</p>}
             <p className="text-[11px] text-[var(--color-muted)]">{t("rec2.ed.export_where")}</p>
-            <button
-              onClick={start}
-              className="mt-1 self-end rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
-            >
-              {t("rec2.ed.export_start")}
-            </button>
+            {cover !== null && cover !== "busy" && (
+              <p className={"break-all text-[11px] " + ("error" in cover ? "text-red-500" : "text-[var(--color-muted)]")}>
+                {"error" in cover ? errText(t, cover.error) : t("rec9.cover_saved", { path: cover.path })}
+              </p>
+            )}
+            <div className="mt-1 flex items-center justify-end gap-2">
+              {opts.kind === "mp4" && (
+                <button
+                  onClick={() => void saveCover()}
+                  disabled={cover === "busy"}
+                  title={t("rec9.cover_hint")}
+                  className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:bg-[var(--color-bg)] disabled:opacity-50"
+                >
+                  {t("rec9.cover")}
+                </button>
+              )}
+              <button
+                onClick={start}
+                className="rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
+              >
+                {t("rec2.ed.export_start")}
+              </button>
+            </div>
           </div>
         )}
         {phase.kind === "running" && (

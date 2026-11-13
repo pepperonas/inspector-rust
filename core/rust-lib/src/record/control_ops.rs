@@ -1022,7 +1022,49 @@ fn export(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
         other => return Err(perr(format!("format must be mp4 or gif, not {other}"))),
     };
     if let Some(q) = p.get("quality").filter(|v| !v.is_null()) {
-        opts.target = serde_json::from_value(q.clone()).map_err(|_| perr("quality must be p720, p1080 or source"))?;
+        opts.target = serde_json::from_value(q.clone()).map_err(|_| perr("quality must be p720, p1080, p1440, p2160 or source"))?;
+    }
+    if let Some(v) = p.get("preset").filter(|v| !v.is_null()) {
+        let id: super::platform::Platform =
+            serde_json::from_value(v.clone()).map_err(|_| perr("preset must be youtube, shorts, reels or tiktok"))?;
+        // A preset sets what the platform wants; explicit parameters below still win. The
+        // aspect belongs to the document (record.edit look.set).
+        let spec = super::platform::preset(id);
+        opts.preset = Some(id);
+        opts.fps = spec.fps;
+        opts.quality = spec.quality;
+        opts.loudness = spec.loudness;
+        if p.get("quality").is_none_or(Value::is_null) {
+            opts.target = spec.target;
+        }
+    }
+    if let Some(v) = p.get("bitrate").filter(|v| !v.is_null()) {
+        match v {
+            Value::Number(n) => {
+                opts.quality = super::platform::Quality::Custom;
+                opts.bitrate_mbps = n.as_f64();
+            }
+            other => {
+                opts.quality = serde_json::from_value(other.clone())
+                    .ok()
+                    .filter(|q| *q != super::platform::Quality::Custom)
+                    .ok_or_else(|| perr("bitrate must be auto, small, standard, high, max or a number of Mbit/s"))?;
+            }
+        }
+    }
+    if let Some(v) = p.get("bitrateMbps").filter(|v| !v.is_null()) {
+        opts.quality = super::platform::Quality::Custom;
+        opts.bitrate_mbps = Some(v.as_f64().ok_or_else(|| perr("bitrateMbps must be a number"))?);
+    }
+    if let Some(v) = p.get("loudness").filter(|v| !v.is_null()) {
+        opts.loudness = match v.as_i64() {
+            Some(-16) => super::platform::Loudness::L16,
+            Some(-14) => super::platform::Loudness::L14,
+            _ => return Err(perr("loudness must be -16 or -14")),
+        };
+    }
+    if let Some(v) = p.get("captions").filter(|v| !v.is_null()) {
+        opts.captions_sidecar = Some(serde_json::from_value(v.clone()).map_err(|_| perr("captions must be srt or vtt"))?);
     }
     if let Some(f) = p.get("fps").filter(|v| !v.is_null()) {
         opts.fps = f.as_u64().and_then(|f| u32::try_from(f).ok()).ok_or_else(|| perr("fps must be an integer"))?;

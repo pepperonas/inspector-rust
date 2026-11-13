@@ -141,7 +141,12 @@ fn export_schema() -> Value {
         json!({
             "project": project(),
             "format": {"type": "string", "enum": ["mp4", "gif"], "description": "Default mp4."},
-            "quality": {"type": "string", "enum": ["p720", "p1080", "source"], "description": "Default p1080."},
+            "quality": {"type": "string", "enum": ["p720", "p1080", "p1440", "p2160", "source"], "description": "Frame size. Default p1080."},
+            "preset": {"type": "string", "enum": ["youtube", "shorts", "reels", "tiktok"], "description": "Sets fps, bitrate level and loudness for that platform and names the file; other parameters still win. The aspect ratio belongs to the document (16:9 or 9:16 via record_edit look.set)."},
+            "bitrate": {"type": "string", "enum": ["auto", "small", "standard", "high", "max"], "description": "mp4 video bitrate level. Default auto."},
+            "bitrateMbps": {"type": "number", "minimum": 2, "maximum": 80, "description": "mp4 video bitrate in Mbit/s (instead of a level)."},
+            "loudness": {"type": "integer", "enum": [-16, -14], "description": "Voice level in LUFS. Default -16."},
+            "captions": {"type": "string", "enum": ["srt", "vtt"], "description": "Also writes the spoken text as a caption file next to the video (needs a transcript)."},
             "fps": {"type": "integer", "minimum": 1, "maximum": 60, "description": "mp4: 24, 30 or 60 (30). gif: 15–30 (15)."},
             "codec": {"type": "string", "enum": ["h264", "hevc"], "description": "mp4 only."},
             "gifWidth": {"type": "integer", "enum": [480, 640, 854, 1080], "description": "gif only (640)."},

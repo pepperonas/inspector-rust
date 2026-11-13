@@ -153,7 +153,22 @@ impl Aspect {
 pub enum OutputTarget {
     P720,
     P1080,
+    P1440,
+    P2160,
     Source,
+}
+
+impl OutputTarget {
+    /// Short and long side of the target for a 16:9 frame (`None` = as recorded).
+    pub fn sides(self) -> Option<(f64, f64)> {
+        match self {
+            OutputTarget::P720 => Some((720.0, 1280.0)),
+            OutputTarget::P1080 => Some((1080.0, 1920.0)),
+            OutputTarget::P1440 => Some((1440.0, 2560.0)),
+            OutputTarget::P2160 => Some((2160.0, 3840.0)),
+            OutputTarget::Source => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -2060,7 +2075,7 @@ pub fn auto_ratio(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc) -> f64
 }
 
 /// Export frame size of `doc` for `target`. `Aspect::Auto` takes `auto_ratio`; its LONG side
-/// is the target's (1280 / 1920 / the source's long side), the other derived and even
+/// is the target's (1280 / 1920 / 2560 / 3840 / the source's long side), the other derived and even
 /// (`toEvenPx = max(2, round(v/2)·2)`, OpenScreen `pickOutputDims`). Every other aspect:
 /// [`aspect_output_size`].
 pub fn output_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, target: OutputTarget) -> (u32, u32) {
@@ -2069,11 +2084,7 @@ pub fn output_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, targe
     }
     let ratio = auto_ratio(meta, takes, doc);
     let (sw, sh) = source_dims(meta);
-    let long = match target {
-        OutputTarget::P720 => 1280.0,
-        OutputTarget::P1080 => 1920.0,
-        OutputTarget::Source => sw.max(sh),
-    };
+    let long = target.sides().map_or(sw.max(sh), |(_, long)| long);
     let long = even_round(long) as f64;
     if ratio >= 1.0 {
         (long as u32, even_round(long / ratio))
@@ -2082,20 +2093,16 @@ pub fn output_size(meta: &RecordingMeta, takes: &TakeMetas, doc: &EditDoc, targe
     }
 }
 
-/// Export frame size for a fixed aspect. Even on both axes (H.264/HEVC need it). For 720p/1080p
-/// the SHORT side is 720/1080; at source resolution it is the largest rect of the aspect inside
+/// Export frame size for a fixed aspect. Even on both axes (H.264/HEVC need it). For a named
+/// target the SHORT side is its height (720 … 2160); at source resolution it is the largest rect of the aspect inside
 /// the source. `Auto` has no fixed ratio — it needs the document, see [`output_size`]; here it
 /// falls back to the source's shape.
 pub fn aspect_output_size(meta: &RecordingMeta, aspect: Aspect, target: OutputTarget) -> (u32, u32) {
     let (sw, sh) = source_dims(meta);
     let ratio = aspect.ratio().unwrap_or(sw / sh);
-    let short = match target {
-        OutputTarget::P720 => 720.0,
-        OutputTarget::P1080 => 1080.0,
-        OutputTarget::Source => {
-            let (w, h) = if sw / sh > ratio { (sh * ratio, sh) } else { (sw, sw / ratio) };
-            return (even_floor(w + 1e-6), even_floor(h + 1e-6));
-        }
+    let Some((short, _)) = target.sides() else {
+        let (w, h) = if sw / sh > ratio { (sh * ratio, sh) } else { (sw, sw / ratio) };
+        return (even_floor(w + 1e-6), even_floor(h + 1e-6));
     };
     if ratio >= 1.0 {
         (even_round(short * ratio), even_round(short))
@@ -2527,6 +2534,10 @@ pub(crate) mod tests {
         assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::P720), (1280, 720));
         assert_eq!(aspect_output_size(&m, Aspect::W1H1, OutputTarget::P720), (720, 720));
         assert_eq!(aspect_output_size(&m, Aspect::W21H9, OutputTarget::P1080), (2520, 1080));
+        assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::P1440), (2560, 1440));
+        assert_eq!(aspect_output_size(&m, Aspect::W16H9, OutputTarget::P2160), (3840, 2160));
+        assert_eq!(aspect_output_size(&m, Aspect::W9H16, OutputTarget::P2160), (2160, 3840));
+        assert_eq!(serde_json::to_string(&OutputTarget::P2160).unwrap(), "\"p2160\"");
         // Source aspect at 1080p: short side 1080, long side scaled and even.
         assert_eq!(aspect_output_size(&m, Aspect::Source, OutputTarget::P1080), (1662, 1080));
         // A fixed aspect at source resolution: the largest such rect inside the source.
@@ -2535,7 +2546,7 @@ pub(crate) mod tests {
         // Every size is even (H.264/HEVC need it).
         let odd = RecordingMeta { width: 1001, height: 777, ..m.clone() };
         for a in [Aspect::Source, Aspect::W16H9, Aspect::W9H16, Aspect::W4H3, Aspect::W3H4, Aspect::W21H9] {
-            for t in [OutputTarget::P720, OutputTarget::P1080, OutputTarget::Source] {
+            for t in [OutputTarget::P720, OutputTarget::P1080, OutputTarget::P1440, OutputTarget::P2160, OutputTarget::Source] {
                 let (w, h) = aspect_output_size(&odd, a, t);
                 assert!(w % 2 == 0 && h % 2 == 0 && w >= 2 && h >= 2, "{a:?} {t:?} → {w}×{h}");
             }

@@ -27,6 +27,7 @@ use super::voiceover::{self, Take, VoiceoverState};
 use super::zoom_plan::plan_auto_zooms;
 use base64::Engine;
 use record_render_protocol::{Codec, Command, ExportKind, PreviewFrame};
+use super::platform::{Loudness, Platform, Quality, SubFormat, CUSTOM_MBPS};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -47,7 +48,7 @@ pub const PREVIEW_MAX: (u32, u32) = (1280, 720);
 pub const THUMB_FPS: u32 = 10;
 pub const THUMB_WIDTH: u32 = 160;
 pub const MAX_THUMBS: u32 = 60;
-pub const MP4_FPS: [u32; 3] = [24, 30, 60];
+pub use super::platform::MP4_FPS;
 pub const GIF_FPS: std::ops::RangeInclusive<u32> = 15..=30;
 pub const GIF_WIDTHS: [u32; 4] = [480, 640, 854, 1080];
 
@@ -335,15 +336,20 @@ fn clean_title(title: &str) -> String {
     if t.is_empty() { "Recording".into() } else { t }
 }
 
-/// `<dir>/<title> <YYYY-MM-DD HH.MM>.<ext>`; taken names get ` 2`, ` 3`, …
+/// `<dir>/<title> <YYYY-MM-DD HH.MM>[ – <suffix>].<ext>`; taken names get ` 2`, ` 3`, …
 pub fn export_path(
     dir: &Path,
     title: &str,
     now: chrono::NaiveDateTime,
+    suffix: Option<&str>,
     ext: &str,
     exists: impl Fn(&Path) -> bool,
 ) -> PathBuf {
-    let stem = format!("{} {}", clean_title(title), now.format("%Y-%m-%d %H.%M"));
+    let mut stem = format!("{} {}", clean_title(title), now.format("%Y-%m-%d %H.%M"));
+    if let Some(sfx) = suffix.filter(|s| !s.is_empty()) {
+        stem.push_str(" – ");
+        stem.push_str(sfx);
+    }
     let first = dir.join(format!("{stem}.{ext}"));
     if !exists(&first) {
         return first;
@@ -420,6 +426,14 @@ pub struct ExportOptions {
     pub codec: Codec,
     pub gif_width: u32,
     pub loop_forever: bool,
+    /// The platform the export is for: names the file (`… – shorts.mp4`).
+    pub preset: Option<Platform>,
+    pub quality: Quality,
+    /// Mbit/s for `Quality::Custom`.
+    pub bitrate_mbps: Option<f64>,
+    pub loudness: Loudness,
+    /// Writes the captions as a file next to the video.
+    pub captions_sidecar: Option<SubFormat>,
 }
 
 impl Default for ExportOptions {
@@ -431,7 +445,18 @@ impl Default for ExportOptions {
             codec: Codec::H264,
             gif_width: 640,
             loop_forever: true,
+            preset: None,
+            quality: Quality::Auto,
+            bitrate_mbps: None,
+            loudness: Loudness::L16,
+            captions_sidecar: None,
         }
+    }
+}
+
+impl ExportOptions {
+    fn suffix(&self) -> Option<&'static str> {
+        self.preset.filter(|_| self.kind == ExportFormat::Mp4).map(|p| super::platform::preset(p).suffix)
     }
 }
 
@@ -451,8 +476,16 @@ pub fn export_plan(
             if !MP4_FPS.contains(&opts.fps) {
                 return Err(ERR_BAD_EXPORT.into());
             }
+            if opts.quality == Quality::Custom
+                && !opts.bitrate_mbps.is_some_and(|m| m.is_finite() && (CUSTOM_MBPS.0..=CUSTOM_MBPS.1).contains(&m))
+            {
+                return Err(ERR_BAD_EXPORT.into());
+            }
             let (w, h) = editor::output_size(meta, takes, doc, opts.target);
-            Ok((ExportKind::Mp4 { w, h, fps: opts.fps, codec: opts.codec }, (w, h), opts.fps, "mp4"))
+            // Beyond the H.264 limit only HEVC can encode the frame.
+            let codec = if super::platform::needs_hevc(w, h) { Codec::Hevc } else { opts.codec };
+            let bit_rate = super::platform::video_bitrate(w, h, opts.fps, codec, opts.quality, opts.bitrate_mbps);
+            Ok((ExportKind::Mp4 { w, h, fps: opts.fps, codec, bit_rate }, (w, h), opts.fps, "mp4"))
         }
         ExportFormat::Gif => {
             if !GIF_FPS.contains(&opts.fps) || !GIF_WIDTHS.contains(&opts.gif_width) {
@@ -808,7 +841,26 @@ impl Session {
     }
 
     fn scene(&self, out: (u32, u32), fps: u32) -> Value {
-        scene_json_with(&self.dir, &self.project, &self.play, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
+        self.scene_of(&self.play, out, fps)
+    }
+
+    fn scene_of(&self, doc: &EditDoc, out: (u32, u32), fps: u32) -> Value {
+        scene_json_with(&self.dir, &self.project, doc, out, fps, &self.assets, self.cursor.as_ref(), &self.takes)
+    }
+
+    /// The scene an export with `opts` renders: the playable document with the voice at the
+    /// chosen level.
+    fn export_scene(&self, opts: &ExportOptions, out: (u32, u32), fps: u32) -> Value {
+        let has_mic = self.project.recording.mic.is_some();
+        self.scene_of(&super::platform::with_loudness(&self.play, opts.loudness, has_mic), out, fps)
+    }
+
+    fn title(&self) -> String {
+        if self.project.title.trim().is_empty() {
+            self.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+        } else {
+            self.project.title.clone()
+        }
     }
 
     /// Whether this session's helper reported a usable segmentation model in `Ready`.
@@ -2181,8 +2233,141 @@ pub fn thumbs(app: &AppHandle, count: u32) -> Result<Vec<String>, String> {
         .collect())
 }
 
+/// The caption file an export with `opts` writes (format and text), when it asks for one and
+/// the document has spoken text.
+fn sidecar_text(play: &EditDoc, opts: &ExportOptions) -> Option<(SubFormat, String)> {
+    let format = opts.captions_sidecar.filter(|_| opts.kind == ExportFormat::Mp4)?;
+    let cues = super::captions::caption_cues(play);
+    if cues.is_empty() {
+        return None;
+    }
+    Some((format, match format {
+        SubFormat::Srt => super::captions::to_srt(&cues),
+        SubFormat::Vtt => super::captions::to_vtt(&cues),
+    }))
+}
+
+/// Writes the caption file next to `video` (same name, own extension). A failure is logged —
+/// the video itself is unaffected.
+fn write_sidecar(video: &Path, sidecar: Option<(SubFormat, String)>) {
+    let Some((format, text)) = sidecar else { return };
+    let path = video.with_extension(format.ext());
+    if let Err(e) = record_render_protocol::safe_fs::write_atomic(&path, text.as_bytes()) {
+        tracing::warn!("record: caption file {} not written: {e}", path.display());
+    }
+}
+
+/// What an export with `opts` will produce — the dialog shows these instead of deriving them.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportInfo {
+    pub width: u32,
+    pub height: u32,
+    pub codec: Codec,
+    /// `None` = the compositor's own choice.
+    pub bitrate_bps: Option<u64>,
+    /// The codec was switched to HEVC because H.264 cannot encode this size.
+    pub forced_hevc: bool,
+    /// How far the picture is enlarged over the recording (`None` = not).
+    pub upscale: Option<f64>,
+    pub programme_ms: u64,
+    /// `"toolong"` / `"long"` with the limit in seconds, for the chosen platform.
+    pub duration_warning: Option<(super::platform::DurationWarning, u64)>,
+    /// Estimated file size in bytes (video + audio), when the bitrate is known.
+    pub estimated_bytes: Option<u64>,
+    /// The document has spoken text a caption file could hold.
+    pub has_captions: bool,
+}
+
+/// Audio of an MP4 export (AAC 256 kbit/s), for the size estimate.
+const EXPORT_AUDIO_BPS: u64 = 256_000;
+
+pub fn export_info_of(opts: &ExportOptions, meta: &RecordingMeta, takes: &TakeMetas, play: &EditDoc) -> Result<ExportInfo, String> {
+    let (kind, (width, height), _, _) = export_plan(opts, meta, takes, play)?;
+    let programme_ms = editor::programme_duration_ms(play);
+    let (codec, bitrate_bps) = match kind {
+        ExportKind::Mp4 { codec, bit_rate, .. } => (codec, bit_rate),
+        ExportKind::Gif { .. } => (opts.codec, None),
+    };
+    let source = editor::clip_source_size(meta, takes, play, 0);
+    Ok(ExportInfo {
+        width,
+        height,
+        codec,
+        bitrate_bps,
+        forced_hevc: opts.kind == ExportFormat::Mp4 && codec != opts.codec,
+        upscale: super::platform::upscale(source, (width, height)),
+        programme_ms,
+        duration_warning: opts.preset.and_then(|p| super::platform::duration_warning(super::platform::preset(p), programme_ms)),
+        estimated_bytes: bitrate_bps.map(|b| (b + EXPORT_AUDIO_BPS) * programme_ms / 8000),
+        has_captions: !super::captions::caption_cues(play).is_empty(),
+    })
+}
+
+pub fn export_info(opts: ExportOptions) -> Result<ExportInfo, String> {
+    let guard = session();
+    let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
+    export_info_of(&opts, &s.project.recording, &s.metas(), &s.play)
+}
+
+/// Renders the frame at `programme_ms` as a JPEG next to the exports: the cover image for an
+/// upload. Its size is the export's (`opts`), at most 1920 px on the long side.
+pub fn export_cover(app: &AppHandle, opts: ExportOptions, programme_ms: u64) -> Result<String, String> {
+    let (scene, frame, width, path) = {
+        let guard = session();
+        let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
+        let mp4 = ExportOptions { kind: ExportFormat::Mp4, ..opts.clone() };
+        let (_, size, _, _) = export_plan(&mp4, &s.project.recording, &s.metas(), &s.play)?;
+        let total = editor::programme_duration_ms(&s.play);
+        let frame = cover_frame(programme_ms, total, PREVIEW_FPS);
+        let downloads = dirs::download_dir()
+            .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+            .filter(|d| d.is_dir())
+            .ok_or(ERR_NO_DOWNLOADS)?;
+        let suffix = match opts.suffix() {
+            Some(sfx) => format!("{sfx} cover"),
+            None => "cover".to_string(),
+        };
+        let path = export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), Some(&suffix), "jpg", |p| p.exists());
+        (s.scene(size, PREVIEW_FPS), frame, cover_width(size), path)
+    };
+    let client = ensure_client(app, true)?;
+    if client.exporting() {
+        return Err("record.editor.export_busy".into());
+    }
+    let rendered = client.thumbs(scene, PREVIEW_FPS, vec![frame], width);
+    // As after any still render: a playing preview is re-aimed.
+    let cmds = {
+        let mut guard = session();
+        guard.as_mut().filter(|s| s.transport.playing()).map(|s| {
+            s.last_frame_ms = now_ms();
+            s.transport.reaim(&s.play, now_ms())
+        })
+    };
+    if let Some(cmds) = cmds {
+        let _ = send_all(&client, &cmds);
+    }
+    let jpeg = rendered?.into_iter().next().map(|(_, j)| j).ok_or("record.editor.cover_failed")?;
+    record_render_protocol::safe_fs::write_atomic(&path, &jpeg).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// The frame index on the `fps` grid for a cover at `programme_ms` (never past the last frame).
+pub fn cover_frame(programme_ms: u64, total_ms: u64, fps: u32) -> u64 {
+    let fps = fps.max(1) as u64;
+    let last = (total_ms * fps / 1000).saturating_sub(1);
+    (programme_ms.min(total_ms) * fps / 1000).min(last)
+}
+
+/// A cover is at most 1920 px on its long side.
+pub fn cover_width(size: (u32, u32)) -> u32 {
+    let long = size.0.max(size.1).max(1) as f64;
+    let scale = (1920.0 / long).min(1.0);
+    ((size.0 as f64 * scale / 2.0).round() as u32 * 2).max(2)
+}
+
 pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
-    let (scene, kind, path) = {
+    let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
         let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc)?;
@@ -2190,17 +2375,13 @@ pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
             .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
             .filter(|d| d.is_dir())
             .ok_or(ERR_NO_DOWNLOADS)?;
-        let title = if s.project.title.trim().is_empty() {
-            s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-        } else {
-            s.project.title.clone()
-        };
-        let path = export_path(&downloads, &title, chrono::Local::now().naive_local(), ext, |p| p.exists());
-        (s.scene(size, fps), kind, path)
+        let path = export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix(), ext, |p| p.exists());
+        (s.export_scene(&opts, size, fps), kind, path, sidecar_text(&s.play, &opts))
     };
     let client = ensure_client(app, true)?;
     let out = path.to_string_lossy().into_owned();
     client.export(scene, kind, out.clone())?;
+    write_sidecar(&path, sidecar);
     Ok(out)
 }
 
@@ -2768,7 +2949,7 @@ pub fn control_export(
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<String, crate::control::ControlError> {
     use crate::control::ControlError;
-    let (scene, kind, path) = {
+    let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
         let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc).map_err(ControlError::sentinel)?;
@@ -2779,15 +2960,10 @@ pub fn control_export(
                     .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
                     .filter(|d| d.is_dir())
                     .ok_or_else(|| ControlError::sentinel(ERR_NO_DOWNLOADS))?;
-                let title = if s.project.title.trim().is_empty() {
-                    s.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-                } else {
-                    s.project.title.clone()
-                };
-                export_path(&downloads, &title, chrono::Local::now().naive_local(), ext, |p| p.exists())
+                export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix(), ext, |p| p.exists())
             }
         };
-        (s.scene(size, fps), kind, path)
+        (s.export_scene(&opts, size, fps), kind, path, sidecar_text(&s.play, &opts))
     };
     let client = ensure_client(app, true).map_err(ControlError::sentinel)?;
     if client.exporting() {
@@ -2798,6 +2974,7 @@ pub fn control_export(
     let _guard = WatchGuard;
     let target = path.to_string_lossy().into_owned();
     client.export(scene, kind, target.clone()).map_err(ControlError::sentinel)?;
+    write_sidecar(&path, sidecar);
     touch_control(app);
     let mut cancel_at: Option<Instant> = None;
     loop {
@@ -4098,15 +4275,15 @@ mod tests {
     fn export_name_is_unique() {
         let dir = Path::new("/Users/x/Downloads");
         let now = NaiveDate::from_ymd_opt(2026, 11, 2).unwrap().and_hms_opt(9, 5, 33).unwrap();
-        let p = export_path(dir, "Demo", now, "mp4", |_| false);
+        let p = export_path(dir, "Demo", now, None, "mp4", |_| false);
         assert_eq!(p, dir.join("Demo 2026-11-02 09.05.mp4"));
         let taken = [dir.join("Demo 2026-11-02 09.05.mp4"), dir.join("Demo 2026-11-02 09.05 2.mp4")];
-        let p = export_path(dir, "Demo", now, "mp4", |p| taken.iter().any(|t| t == p));
+        let p = export_path(dir, "Demo", now, None, "mp4", |p| taken.iter().any(|t| t == p));
         assert_eq!(p, dir.join("Demo 2026-11-02 09.05 3.mp4"));
         // Characters the Finder refuses never reach the name; an empty title still names it.
-        assert_eq!(export_path(dir, "a/b:c\n", now, "gif", |_| false), dir.join("a b c 2026-11-02 09.05.gif"));
-        assert_eq!(export_path(dir, "  ", now, "gif", |_| false), dir.join("Recording 2026-11-02 09.05.gif"));
-        assert_eq!(export_path(dir, "..hidden", now, "gif", |_| false), dir.join("hidden 2026-11-02 09.05.gif"));
+        assert_eq!(export_path(dir, "a/b:c\n", now, None, "gif", |_| false), dir.join("a b c 2026-11-02 09.05.gif"));
+        assert_eq!(export_path(dir, "  ", now, None, "gif", |_| false), dir.join("Recording 2026-11-02 09.05.gif"));
+        assert_eq!(export_path(dir, "..hidden", now, None, "gif", |_| false), dir.join("hidden 2026-11-02 09.05.gif"));
     }
 
     #[test]
@@ -4218,13 +4395,114 @@ mod tests {
     }
 
     #[test]
+    fn export_name_carries_the_platform() {
+        let dir = Path::new("/d");
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 11, 2).unwrap().and_hms_opt(9, 5, 0).unwrap();
+        assert_eq!(export_path(dir, "Demo", now, Some("shorts"), "mp4", |_| false), dir.join("Demo 2026-11-02 09.05 – shorts.mp4"));
+        assert_eq!(export_path(dir, "Demo", now, Some(""), "mp4", |_| false), dir.join("Demo 2026-11-02 09.05.mp4"));
+        let taken = dir.join("Demo 2026-11-02 09.05 – shorts.mp4");
+        assert_eq!(export_path(dir, "Demo", now, Some("shorts"), "mp4", |p| p == taken), dir.join("Demo 2026-11-02 09.05 – shorts 2.mp4"));
+        let o = ExportOptions { preset: Some(Platform::Tiktok), ..Default::default() };
+        assert_eq!(o.suffix(), Some("tiktok"));
+        assert_eq!(ExportOptions { kind: ExportFormat::Gif, ..o }.suffix(), None, "a GIF is not a platform upload");
+    }
+
+    #[test]
+    fn export_plan_quality_and_size() {
+        let meta = crate::record::editor::tests::meta(10_000);
+        let mut d = editor::default_doc(&meta, None);
+        d.output.aspect = Aspect::W16H9;
+        let base = ExportOptions::default();
+        // Unchanged options: the compositor still picks the bitrate.
+        let (kind, ..) = export_plan(&base, &meta, &TakeMetas::new(), &d).unwrap();
+        assert_eq!(kind, ExportKind::Mp4 { w: 1920, h: 1080, fps: 30, codec: Codec::H264, bit_rate: None });
+        let high = ExportOptions { quality: Quality::High, ..base.clone() };
+        let (kind, ..) = export_plan(&high, &meta, &TakeMetas::new(), &d).unwrap();
+        assert!(matches!(kind, ExportKind::Mp4 { bit_rate: Some(b), .. } if (12_000_000..13_000_000).contains(&b)));
+        // Custom needs a number inside the range.
+        let custom = |m| ExportOptions { quality: Quality::Custom, bitrate_mbps: m, ..base.clone() };
+        assert!(export_plan(&custom(Some(20.0)), &meta, &TakeMetas::new(), &d).is_ok());
+        for bad in [None, Some(0.5), Some(500.0), Some(f64::NAN)] {
+            assert_eq!(export_plan(&custom(bad), &meta, &TakeMetas::new(), &d).unwrap_err(), ERR_BAD_EXPORT);
+        }
+        // 4K portrait still fits H.264; 21:9 at 2160 is wider than it can encode → HEVC.
+        d.output.aspect = Aspect::W9H16;
+        let big = ExportOptions { target: OutputTarget::P2160, quality: Quality::Standard, ..base.clone() };
+        let (kind, size, ..) = export_plan(&big, &meta, &TakeMetas::new(), &d).unwrap();
+        assert_eq!(size, (2160, 3840));
+        assert!(matches!(kind, ExportKind::Mp4 { codec: Codec::H264, .. }));
+        d.output.aspect = Aspect::W21H9;
+        let (kind, size, ..) = export_plan(&big, &meta, &TakeMetas::new(), &d).unwrap();
+        assert_eq!(size, (5040, 2160));
+        assert!(matches!(kind, ExportKind::Mp4 { codec: Codec::Hevc, .. }));
+    }
+
+    #[test]
+    fn export_info_names_what_will_come_out() {
+        let meta = crate::record::editor::tests::meta(200_000);
+        let mut d = editor::default_doc(&meta, None);
+        d.output.aspect = Aspect::W9H16;
+        let opts = ExportOptions { preset: Some(Platform::Shorts), quality: Quality::High, ..Default::default() };
+        let info = export_info_of(&opts, &meta, &TakeMetas::new(), &d).unwrap();
+        assert_eq!((info.width, info.height), (1080, 1920));
+        assert_eq!(info.programme_ms, 200_000);
+        assert_eq!(info.duration_warning, Some((crate::record::platform::DurationWarning::TooLong, 180)));
+        assert!(!info.forced_hevc);
+        let bps = info.bitrate_bps.unwrap();
+        assert_eq!(info.estimated_bytes, Some((bps + 256_000) * 200_000 / 8000));
+        assert!(!info.has_captions);
+        // Without a preset nothing warns; without a quality level there is no estimate.
+        let plain = export_info_of(&ExportOptions::default(), &meta, &TakeMetas::new(), &d).unwrap();
+        assert_eq!((plain.duration_warning, plain.estimated_bytes), (None, None));
+        // The source is 3024×1964: 1080×1920 does not enlarge it, 4K portrait does.
+        assert_eq!(info.upscale, None);
+        let big = export_info_of(&ExportOptions { target: OutputTarget::P2160, ..opts.clone() }, &meta, &TakeMetas::new(), &d).unwrap();
+        assert!(!big.forced_hevc && big.upscale.is_some());
+        d.output.aspect = Aspect::W21H9;
+        let wide = export_info_of(&ExportOptions { target: OutputTarget::P2160, ..opts }, &meta, &TakeMetas::new(), &d).unwrap();
+        assert!(wide.forced_hevc && wide.codec == Codec::Hevc);
+    }
+
+    #[test]
+    fn cover_frame_and_size() {
+        assert_eq!(cover_frame(0, 10_000, 30), 0);
+        assert_eq!(cover_frame(2_000, 10_000, 30), 60);
+        assert_eq!(cover_frame(99_000, 10_000, 30), 299, "never past the last frame");
+        assert_eq!(cover_frame(5, 0, 30), 0);
+        assert_eq!(cover_width((1920, 1080)), 1920);
+        assert_eq!(cover_width((3840, 2160)), 1920);
+        assert_eq!(cover_width((2160, 3840)), 1080);
+        assert_eq!(cover_width((1080, 1920)), 1080);
+    }
+
+    #[test]
+    fn caption_file_only_when_asked_and_spoken() {
+        use crate::record::editor::{Transcript, TranscriptWord};
+        let meta = crate::record::editor::tests::meta(10_000);
+        let mut d = editor::default_doc(&meta, None);
+        let srt = ExportOptions { captions_sidecar: Some(SubFormat::Srt), ..Default::default() };
+        assert_eq!(sidecar_text(&d, &srt), None, "nothing spoken");
+        d.transcripts = vec![Transcript {
+            source: None,
+            lang: "de".into(),
+            words: vec![TranscriptWord { id: "a".into(), start_ms: 100, end_ms: 400, text: "Hallo".into(), original_text: None }],
+        }];
+        assert_eq!(sidecar_text(&d, &ExportOptions::default()), None, "not asked for");
+        let (f, text) = sidecar_text(&d, &srt).unwrap();
+        assert_eq!(f, SubFormat::Srt);
+        assert!(text.starts_with("1\n00:00:00,100 --> "));
+        assert!(sidecar_text(&d, &ExportOptions { captions_sidecar: Some(SubFormat::Vtt), ..Default::default() }).unwrap().1.starts_with("WEBVTT"));
+        assert_eq!(sidecar_text(&d, &ExportOptions { kind: ExportFormat::Gif, ..srt }), None);
+    }
+
+    #[test]
     fn export_plan_presets() {
         let meta = RecordingMeta { width: 3342, height: 2160, fps: 60, duration_ms: 5_000, ..RecordingMeta::default() };
         let mp4 = ExportOptions { target: OutputTarget::P720, fps: 60, codec: Codec::Hevc, ..ExportOptions::default() };
         let mut d = doc(&[(0, 5_000)]);
         d.output.aspect = Aspect::W16H9;
         let (kind, size, fps, ext) = export_plan(&mp4, &meta, &TakeMetas::new(), &d).unwrap();
-        assert_eq!(kind, ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc });
+        assert_eq!(kind, ExportKind::Mp4 { w: 1280, h: 720, fps: 60, codec: Codec::Hevc, bit_rate: None });
         assert_eq!((size, fps, ext), ((1280, 720), 60, "mp4"));
         assert_eq!(export_plan(&ExportOptions { fps: 25, ..mp4.clone() }, &meta, &TakeMetas::new(), &d).unwrap_err(), ERR_BAD_EXPORT);
 
@@ -4450,7 +4728,7 @@ mod tests {
         .unwrap();
         let mp4 = work.join("stage4.mp4");
         let started = Instant::now();
-        client.export(scene, ExportKind::Mp4 { w: out.0, h: out.1, fps: 30, codec: Codec::H264 }, mp4.display().to_string()).unwrap();
+        client.export(scene, ExportKind::Mp4 { w: out.0, h: out.1, fps: 30, codec: Codec::H264, bit_rate: None }, mp4.display().to_string()).unwrap();
         while done.lock().unwrap().is_none() && started.elapsed() < Duration::from_secs(300) {
             std::thread::sleep(Duration::from_millis(100));
         }

@@ -8,10 +8,22 @@ const m = vi.hoisted(() => ({
   toast: vi.fn(async () => {}),
   reveal: vi.fn(async () => {}),
   handlers: new Map<string, (e: { payload: unknown }) => void>(),
+  info: vi.fn(async (_o: unknown): Promise<unknown> => ({
+    width: 1920, height: 1080, codec: "h264", bitrateBps: null, forcedHevc: false, upscale: null,
+    programmeMs: 60_000, durationWarning: null, estimatedBytes: null, hasCaptions: true,
+  })),
+  cover: vi.fn(async (_o: unknown, _ms: number) => "/Users/x/Downloads/Demo – cover.jpg"),
+  presets: vi.fn(async () => [
+    { id: "youtube", aspect: "16:9", target: "p1080", fps: 30, quality: "standard", loudness: "-14", maxDurationS: null, softDurationS: null, suffix: "youtube" },
+    { id: "shorts", aspect: "9:16", target: "p1080", fps: 30, quality: "high", loudness: "-14", maxDurationS: 180, softDurationS: null, suffix: "shorts" },
+  ]),
 }));
 vi.mock("../../lib/ipc", () => ({
   editorExport: m.exp,
   editorCancelExport: m.cancel,
+  editorExportInfo: m.info,
+  editorExportCover: m.cover,
+  editorPlatformPresets: m.presets,
   showStatusToast: m.toast,
   revealPath: m.reveal,
 }));
@@ -25,8 +37,8 @@ import { ExportDialog } from "./ExportDialog";
 
 const lastExport = () => { const all = screen.getAllByText("Export"); return all[all.length - 1]; };
 
-async function mount() {
-  const r = render(<ExportDialog onClose={() => {}} />);
+async function mount(props: Partial<Parameters<typeof ExportDialog>[0]> = {}) {
+  const r = render(<ExportDialog onClose={() => {}} {...props} />);
   await act(async () => {});
   return r;
 }
@@ -41,13 +53,16 @@ describe("ExportDialog", () => {
     m.toast.mockClear();
     m.reveal.mockClear();
     m.handlers.clear();
+    m.info.mockClear();
+    m.cover.mockClear();
+    localStorage.clear();
   });
 
-  it("MP4 offers the codec and the three sizes; GIF hides the codec", async () => {
+  it("MP4 offers the codec and the sizes up to 4K; GIF hides the codec", async () => {
     await mount();
     expect(screen.getByText("H.264")).toBeTruthy();
     expect(screen.getByText("HEVC")).toBeTruthy();
-    expect(screen.getByText("720p")).toBeTruthy();
+    for (const size of ["720p", "1080p", "1440p", "4K"]) expect(screen.getByText(size)).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByText("GIF")); });
     expect(screen.queryByText("H.264")).toBeNull();
     expect(screen.queryByText("HEVC")).toBeNull();
@@ -96,5 +111,71 @@ describe("ExportDialog", () => {
     expect(screen.getByText(/Demo 2026-11-02 09\.05\.mp4/)).toBeTruthy();
     expect(m.toast).not.toHaveBeenCalled();
     expect(m.reveal).not.toHaveBeenCalled();
+  });
+
+  it("a platform sets its values and asks for its format once", async () => {
+    const onAspect = vi.fn();
+    await mount({ aspect: "auto", onAspect });
+    await act(async () => { fireEvent.click(screen.getByText("Shorts")); });
+    expect(onAspect).toHaveBeenCalledWith("9:16");
+    expect(screen.getByText(/Format switched to 9:16/)).toBeTruthy();
+    await act(async () => { fireEvent.click(lastExport()); });
+    expect(m.exp).toHaveBeenCalledWith(
+      expect.objectContaining({ preset: "shorts", quality: "high", loudness: "-14", fps: 30, target: "p1080" }),
+    );
+  });
+
+  it("a platform whose format the document already has changes nothing there", async () => {
+    const onAspect = vi.fn();
+    await mount({ aspect: "16:9", onAspect });
+    await act(async () => { fireEvent.click(screen.getByText("YouTube")); });
+    expect(onAspect).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Format switched/)).toBeNull();
+  });
+
+  it("a custom quality sends its number", async () => {
+    await mount();
+    await act(async () => { fireEvent.click(screen.getAllByText("Custom")[1]); });
+    const field = screen.getByLabelText("Bitrate in Mbit/s") as HTMLInputElement;
+    await act(async () => { fireEvent.change(field, { target: { value: "500" } }); });
+    await act(async () => { fireEvent.click(lastExport()); });
+    expect(m.exp).toHaveBeenCalledWith(expect.objectContaining({ quality: "custom", bitrateMbps: 80 }));
+  });
+
+  it("shows what Rust says will come out, warnings included", async () => {
+    m.info.mockResolvedValueOnce({
+      width: 1080, height: 1920, codec: "hevc", bitrateBps: 12_400_000, forcedHevc: true, upscale: 1.8,
+      programmeMs: 200_000, durationWarning: ["toolong", 180], estimatedBytes: 316_000_000, hasCaptions: false,
+    });
+    localStorage.setItem("ir.record.export.v1", JSON.stringify({ preset: "shorts", quality: "high" }));
+    await mount();
+    const info = screen.getByTestId("export-info").textContent ?? "";
+    expect(info).toContain("1080 × 1920 · HEVC · 12 Mbit/s · about 316 MB");
+    expect(info).toContain("exported as HEVC");
+    expect(info).toContain("Enlarged 1.8×");
+    expect(info).toContain("Longer than Shorts accepts (3:00)");
+    // No transcript: the caption file cannot be chosen, and the dialog says why.
+    expect((screen.getByText("SRT") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("needs a transcript")).toBeTruthy();
+  });
+
+  it("remembers the last choice", async () => {
+    const first = await mount();
+    await act(async () => { fireEvent.click(screen.getByText("4K")); });
+    await act(async () => { fireEvent.click(screen.getByText("-14 LUFS")); });
+    first.unmount();
+    await mount();
+    await act(async () => { fireEvent.click(lastExport()); });
+    expect(m.exp).toHaveBeenCalledWith(expect.objectContaining({ target: "p2160", loudness: "-14" }));
+  });
+
+  it("the cover image is taken at the playhead", async () => {
+    await mount({ positionMs: 4321.4 });
+    await act(async () => { fireEvent.click(screen.getByText("Save cover image")); });
+    expect(m.cover).toHaveBeenCalledWith(expect.objectContaining({ kind: "mp4" }), 4321);
+    expect(screen.getByText(/Cover image saved to .*cover\.jpg/)).toBeTruthy();
+    m.cover.mockRejectedValueOnce("record.editor.export_busy");
+    await act(async () => { fireEvent.click(screen.getByText("Save cover image")); });
+    expect(screen.getByText("An export is already running.")).toBeTruthy();
   });
 });

@@ -168,13 +168,6 @@ export function BoomPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "BUTTON")
-      ) {
-        if (e.key !== "Escape") return;
-      }
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
   ArrowRightLeft,
@@ -187,8 +188,7 @@ export function ConvertPanel({
         return;
       }
       // Never swallow typing: the search bar and the value field keep their keys.
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (isTyping(e)) return;
       const idx = CATEGORIES.findIndex((c) => c.id === cat);
       if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
         e.preventDefault();

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmButton } from "./ConfirmButton";
 import { confirmDialog } from "../lib/confirm";
 import {
   Bookmark,
@@ -171,9 +172,13 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
   };
 
   const remove = async (id: number) => {
-    await deleteNote(id);
-    if (form?.id === id) setForm(null);
-    await onRefresh();
+    try {
+      await deleteNote(id);
+      if (form?.id === id) setForm(null);
+      await onRefresh();
+    } catch (e) {
+      setError(String(e));
+    }
   };
 
   const paste = async (id: number) => {
@@ -288,11 +293,8 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
                       <span>{relativeTime(n.updated_at)}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void remove(n.id);
-                    }}
+                  <ConfirmButton
+                    onConfirm={() => void remove(n.id)}
                     className={
                       "shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 " +
                       (isActive
@@ -302,7 +304,7 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
                     title={t("notes.delete_note")}
                   >
                     <Trash2 size={12} />
-                  </button>
+                  </ConfirmButton>
                 </div>
               );
             })
@@ -524,13 +526,15 @@ function NoteEditor({
 
       <div className="flex items-center justify-end gap-2">
         {onDelete && (
-          <button
-            onClick={onDelete}
+          <ConfirmButton
+            onConfirm={onDelete}
             title={t("notes.delete_note")}
             className="mr-auto rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-red-400"
+            armedClassName="mr-auto flex items-center gap-1 rounded bg-red-400/10 px-1.5 py-1 text-[11px] text-red-400"
+            armedLabel={t("common.really_delete")}
           >
             <Trash2 size={14} />
-          </button>
+          </ConfirmButton>
         )}
         {onPaste && (
           <button

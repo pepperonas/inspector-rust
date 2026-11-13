@@ -9,6 +9,7 @@
  * `lib/github.ts`. Reference: docs/github.md.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -1274,8 +1275,7 @@ export function GithubPanel({ cmd, focused, runSignal, onExit, onQuery }: Props)
         onExit();
         return;
       }
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (isTyping(e)) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         const i = RANGES.findIndex((r) => r.id === rememberedRange);

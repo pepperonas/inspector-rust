@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ConfirmButton } from "./ConfirmButton";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -115,10 +116,16 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
 
   const cancel = () => setForm(null);
 
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const remove = async (id: number) => {
-    await deleteSnippet(id);
-    if (form?.id === id) setForm(null);
-    await onRefresh();
+    try {
+      await deleteSnippet(id);
+      setRemoveError(null);
+      if (form?.id === id) setForm(null);
+      await onRefresh();
+    } catch (e) {
+      setRemoveError(String(e));
+    }
   };
 
   const onRestoreDefaults = async () => {
@@ -380,6 +387,12 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
           </div>
         )}
 
+        {removeError && (
+          <div role="alert" className="px-3 py-1 text-[11px] text-red-400">
+            {removeError}
+          </div>
+        )}
+
         <div ref={listRef} className="flex-1 overflow-auto">
           {visible.length === 0 ? (
             <div className="flex h-full items-center justify-center text-[12px] text-[var(--color-muted)]">
@@ -447,11 +460,8 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                     >
                       v{s.version ?? 1}
                     </span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void remove(s.id);
-                      }}
+                    <ConfirmButton
+                      onConfirm={() => void remove(s.id)}
                       className={
                         "shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 " +
                         (isActive
@@ -461,7 +471,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                       title={t("snip.delete_snippet")}
                     >
                       <Trash2 size={12} />
-                    </button>
+                    </ConfirmButton>
                   </div>
                 );
               })}

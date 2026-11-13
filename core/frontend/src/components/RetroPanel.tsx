@@ -7,6 +7,7 @@
  * applied at once — to the preview and to a running overlay.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { Gamepad2, Save, RotateCcw, X } from "lucide-react";
 import {
   retroGetConfig,
@@ -153,8 +154,7 @@ export function RetroPanel({ focused, keyword, onExit }: Props) {
         onExit();
         return;
       }
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (isTyping(e)) return;
       if (e.key === "Enter") {
         // Toggling needs no loaded config — never swallow it while loading.
         e.preventDefault();

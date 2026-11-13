@@ -10,6 +10,7 @@
  * conversion, dates) are the pure, unit-tested `lib/weather.ts`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   AlertTriangle,
@@ -386,15 +387,8 @@ export function WeatherPanel({
       // `weather darmstadt`, leaving "damstadt".) The panel's scroll/refresh
       // keys therefore only fire when the user is NOT typing (e.g. clicked the
       // panel), so every character of the city — r included — reaches the field.
-      const tgt = e.target as HTMLElement | null;
-      if (
-        tgt &&
-        (tgt.tagName === "INPUT" ||
-          tgt.tagName === "TEXTAREA" ||
-          tgt.isContentEditable)
-      ) {
-        return;
-      }
+      // Arrows, Page keys and ⌘R still arrive from the search field.
+      if (isTyping(e)) return;
       const el = scrollRef.current;
       switch (e.key) {
         case "ArrowDown":
@@ -409,12 +403,9 @@ export function WeatherPanel({
         case "PageUp":
           el?.scrollBy({ top: -240 });
           break;
-        case "r":
-        case "R":
-          void load(arg.trim());
-          break;
         default:
-          return;
+          if (!hitKey(e, "r")) return;
+          void load(arg.trim());
       }
       e.preventDefault();
       e.stopPropagation();

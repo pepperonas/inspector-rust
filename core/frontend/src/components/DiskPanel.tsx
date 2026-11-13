@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { fromSearch, hitKey, isTyping, withMod } from "../lib/panel-keys";
 import {
   HardDrive,
   RefreshCw,
@@ -409,9 +410,7 @@ export function DiskPanel({
       // The path is typed in the search field, so a shortcut must never eat a
       // keystroke meant for it (the weather lesson). Esc still exits from
       // anywhere.
-      const tgt = e.target as HTMLElement | null;
-      const typing =
-        !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
+      const typing = isTyping(e);
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -436,8 +435,27 @@ export function DiskPanel({
         requestTrash();
         return;
       }
+      // The chords work from the search field too: ⌘↑ is the Finder's
+      // "enclosing folder", ⌘⏎ collects, ⌘R scans again.
+      if (withMod(e) && e.key === "ArrowUp") {
+        e.preventDefault();
+        goUp();
+        return;
+      }
+      if (withMod(e) && e.key === "Enter") {
+        e.preventDefault();
+        const row = rowsRef.current[sel];
+        if (row) toggleCollect(itemOf([row.index], row.node));
+        return;
+      }
+      if (withMod(e) && hitKey(e, "r")) {
+        e.preventDefault();
+        run(target);
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Backspace" || e.key === "ArrowLeft") {
+      // ← stays with the caret while the path is being edited.
+      if (e.key === "Backspace" || (e.key === "ArrowLeft" && !fromSearch(e))) {
         e.preventDefault();
         goUp();
       } else if (e.key === " ") {

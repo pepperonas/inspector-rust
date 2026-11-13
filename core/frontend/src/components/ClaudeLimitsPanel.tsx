@@ -6,6 +6,7 @@
  * Esc exits.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import { AlertCircle, ChevronDown, Gauge, Loader2, RefreshCw } from "lucide-react";
 import {
   claudeLimitsStatus,
@@ -366,10 +367,8 @@ export function ClaudeLimitsPanel({
         onExit();
         return;
       }
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable))
-        return;
-      if (e.key === "r" || e.key === "R") {
+      if (isTyping(e)) return;
+      if (hitKey(e, "r")) {
         e.preventDefault();
         void load(true);
       } else if (e.key === "ArrowDown" || e.key === "PageDown") {

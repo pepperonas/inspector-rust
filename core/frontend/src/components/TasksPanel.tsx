@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { keyOrigin } from "../lib/panel-keys";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -202,7 +203,7 @@ export function TasksPanel({
       const t = e.target as HTMLElement | null;
       e.preventDefault();
       e.stopPropagation();
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) {
+      if (t && keyOrigin(t) === "field") {
         t.blur();
         return;
       }

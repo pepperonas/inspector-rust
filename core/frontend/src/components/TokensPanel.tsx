@@ -4,6 +4,7 @@
  * Projects/Sessions · Models. Esc exits. Connection refused → start-hint card.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import {
   Activity,
   AlertCircle,
@@ -112,16 +113,8 @@ export function TokensPanel({
         onExit();
         return;
       }
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.isContentEditable)
-      ) {
-        return;
-      }
-      if (e.key === "r" || e.key === "R") {
+      if (isTyping(e)) return;
+      if (hitKey(e, "r")) {
         e.preventDefault();
         void load(period, listMode === "sessions");
         return;

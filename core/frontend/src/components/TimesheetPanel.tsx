@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { listen } from "@tauri-apps/api/event";
 import {
   Check,
@@ -180,8 +181,7 @@ export function TimesheetPanel() {
   // Keyboard day-nav (ignore when typing in an input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (isTyping(e)) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
         setDate((d) => (modeRef.current === "week" ? shiftWeek(d, -1) : shiftDay(d, -1)));

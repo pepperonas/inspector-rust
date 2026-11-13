@@ -1170,10 +1170,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "shazam", result: "Listens ~10 s, then shows the matched song + links." },
       { input: "shazam history", result: "Your past recognitions with links + per-row delete." },
       { input: "lyrics", result: "Listens ~10 s, then the lyrics are in the clipboard and the history." },
-      { input: "shazam", result: "R re-records, Esc exits." },
+      { input: "shazam", result: "⌘R re-records, Esc exits." },
     ],
     tips: [
-      "R re-records, L opens the LYRICS of the match (in-app via lrclib.net, browser-search fallback; a +DE toggle shows a German translation under each line), Enter copies “Title – Artist”.",
+      "⌘R re-records, ⌘L opens the LYRICS of the match (in-app via lrclib.net, browser-search fallback; a +DE toggle shows a German translation under each line), Enter copies “Title – Artist”.",
       "The Spotify button opens the song in the Spotify desktop app when it's installed, else the web player; Shazam (blue) / Spotify (green) / YouTube (red) are brand icons — hover for the tooltip.",
       "Close the overlay mid-listen and the recognition keeps running in the backend — the match still lands in history and a toast shows the song.",
       "`shazam history` opens your recognized-songs list directly — with a search field over title · artist · album · genre.",
@@ -1211,7 +1211,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "spotify history today", result: "Today's plays, even when the app language is German. Tab switches to another interval instead of appending it." },
     ],
     tips: [
-      "With the panel focused: Space plays/pauses, ←/→ previous/next; in the history ↑/↓ scroll.",
+      "With the panel focused: ←/→ previous/next (Space plays/pauses once you clicked into the panel); in the history ↑/↓ scroll.",
       "listened = at least half the track or 4 minutes; skipped = under 30 s; in between partial. Plays under 5 s are not kept.",
       "Covers are off by default — they load from Spotify's image server (Settings → Spotify).",
     ],
@@ -1739,10 +1739,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "daisy ~/Downloads", result: "Same view (alias) for a specific folder." },
     ],
     tips: [
-      "Click a ring segment to zoom into that folder; `⌫` (or Esc) walks back out — past the scan root, so you can browse anywhere.",
+      "Click a ring segment to zoom into that folder; `⌘↑` (or Esc) walks back out — past the scan root, so you can browse anywhere.",
       "**The list under the chart is the way into small folders.** The sunburst is area-proportional, so a 2 MB `src` next to a 20 GB `target` is a sub-pixel sliver you cannot click — the list has every child regardless of size (`↑↓` select, Enter opens).",
       "The path bar shows exactly which folder you are looking at; click any segment of it to jump straight there.",
-      "**Deleting:** Space collects the selected row (folders and files, across folders), the bar shows the total, `⌘⌫` trashes the collection — press it once to arm, again to commit; Esc cancels. With an empty collector `⌘⌫` trashes the selected row alone. `⌫` alone still goes up a level.",
+      "**Deleting:** `⌘⏎` collects the selected row (folders and files, across folders), the bar shows the total, `⌘⌫` trashes the collection — press it once to arm, again to commit; Esc cancels. With an empty collector `⌘⌫` trashes the selected row alone. `⌫` alone still goes up a level.",
       "**Right-click a ring segment** for a context menu that names the exact folder/file and moves it to the Trash in one click — Finder's secondary-click, for when you don't want the collector. Esc or a click outside closes it.",
       "Every ＋ elsewhere (the hovered segment's detail row, the largest-files list) only COLLECTS — the sole thing that actually trashes is the collector's button or `⌘⌫`, so a stray click can never delete.",
       "After a delete the chart and list update in place and you stay in the same folder — the bytes now live in the Trash, so the folder's numbers drop while the volume's free space does not.",
@@ -1781,7 +1781,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "Export puts **both** views in one HTML or PDF — that is the document you send a client.",
-      "`R` re-measures, `↑↓` scroll, Esc closes.",
+      "`⌘R` re-measures, `↑↓` scroll, Esc closes.",
       "The key goes in Settings → PageSpeed and never leaves the machine except as the API request's `key` parameter.",
     ],
     caveats: [
@@ -1813,8 +1813,8 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "Export als HTML, PDF oder PNG über die drei Knöpfe — die Datei landet in `~/Downloads` und wird im Finder gezeigt (Gestaltung: `docs/reports.md`).",
-      "Der Pfad über der Statistik ist klickbar, und die Unterordner-Reihe darunter zählt einen Ordner tiefer — `⌫` geht wieder hoch.",
-      "R re-counts (e.g. after edits); the checkbox at the bottom includes ignored + hidden files.",
+      "Der Pfad über der Statistik ist klickbar, und die Unterordner-Reihe darunter zählt einen Ordner tiefer — `⌘↑` geht wieder hoch.",
+      "⌘R re-counts (e.g. after edits); the checkbox at the bottom includes ignored + hidden files.",
       "A folder's .gitignore only filters inside a git repo — a plain folder with a .gitignore counts everything.",
     ],
     caveats: [
@@ -2096,7 +2096,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Wetter für deinen Standort — aktuell, nächste 12 h + 5-Tage-Vorschau, animiert.",
     synopsis: "weather [city]",
     description:
-      "Shows the current conditions, the next 12 hours (3-hour slots with temperature, condition and rain probability, labelled in the searched city's local time) and a 5-day forecast in the preview, with a weather-appropriate animation (sun, drifting clouds, falling rain/snow, lightning, mist). With no argument it uses your IP-geolocated location; `weather berlin` overrides it with a city. Powered by OpenWeatherMap — set a free API key in Settings → Weather (or paste it into the connect card the first time). Refreshes every 10 min; press R to refresh now, ↑/↓ scroll, Esc exits.",
+      "Shows the current conditions, the next 12 hours (3-hour slots with temperature, condition and rain probability, labelled in the searched city's local time) and a 5-day forecast in the preview, with a weather-appropriate animation (sun, drifting clouds, falling rain/snow, lightning, mist). With no argument it uses your IP-geolocated location; `weather berlin` overrides it with a city. Powered by OpenWeatherMap — set a free API key in Settings → Weather (or paste it into the connect card the first time). Refreshes every 10 min; press ⌘R to refresh now, ↑/↓ scroll, Esc exits.",
     arguments: [
       {
         name: "city",
@@ -2128,7 +2128,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Monatskalender im Preview — welcher Wochentag war das Datum?",
     synopsis: "calendar [month year]   ·   cal [month year]",
     description:
-      "Shows a month calendar in the preview to research which weekday a date fell on. ←/→ month, ↑/↓ year, PgUp/PgDn month, T/Home today, click a day → a full-date readout + distance from today. The argument jumps the view: `cal märz 1990`, `cal 3.2024`, `cal 2024-03`, or a bare year. Monday-start weeks + ISO week numbers.",
+      "Shows a month calendar in the preview to research which weekday a date fell on. ←/→ month, ↑/↓ year, PgUp/PgDn month, ⌘T/Home today, click a day → a full-date readout + distance from today. The argument jumps the view: `cal märz 1990`, `cal 3.2024`, `cal 2024-03`, or a bare year. Monday-start weeks + ISO week numbers.",
     arguments: [{ name: "month year", required: false, description: "Jump target — DE/EN month names, `3.2024`, `2024-03`, or a bare year.", default: "(current month)" }],
     flags: [],
     examples: [
@@ -2157,7 +2157,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "ip", result: "See ISP, ASN, timezone and coordinates." },
       { input: "ip", result: "Open the approximate location in OpenStreetMap." },
     ],
-    tips: ["Press R to refresh and Esc to leave the panel."],
+    tips: ["Press ⌘R to refresh and Esc to leave the panel."],
     caveats: ["Requires internet access; the lookup provider receives your public IP and the location can be inaccurate."],
     related: ["weather", "snitch"],
   },

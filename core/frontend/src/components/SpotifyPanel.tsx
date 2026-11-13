@@ -8,6 +8,7 @@
  * reads it. Pure logic: `lib/spotify.ts`. Reference: docs/spotify.md.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { PlayStatusIcon, STATUS_COLOR } from "./PlayStatusIcon";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -506,7 +507,7 @@ export function SpotifyPanel({ cmd, focused, runSignal, onExit, onQuery }: Props
         return;
       }
       const target = e.target instanceof HTMLElement ? e.target : null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (isTyping(e)) return;
       // Keep native button activation local; Enter in the search field
       // continues through App's command dispatch, even after a prior run.
       if (target?.closest("button") && e.key === "Enter") {

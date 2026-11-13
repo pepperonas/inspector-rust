@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { listen } from "@tauri-apps/api/event";
 import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays, Download } from "lucide-react";
 import {
@@ -187,8 +188,7 @@ export function RepoPanel({
       // and could never fire. Making bare letters work instead would recreate
       // the weather bug: `repo` keeps its argument editable, and a `p` typed
       // into a path would silently start an export.
-      const tgt = e.target as HTMLElement | null;
-      const typing = tgt && (tgt.tagName === "INPUT" || tgt.isContentEditable);
+      const typing = isTyping(e);
       const chord = e.metaKey || e.ctrlKey;
       if (e.key === "Escape") {
         e.preventDefault();

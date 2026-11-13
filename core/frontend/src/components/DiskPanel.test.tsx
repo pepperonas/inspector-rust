@@ -549,3 +549,64 @@ describe("permission denied — Full Disk Access", () => {
     expect(diskScan).not.toHaveBeenCalledWith("~");
   });
 });
+
+/** The popup's search field: it keeps the DOM focus while a panel is open, so
+ *  this is where real key presses come from. */
+function searchField(): HTMLInputElement {
+  const el = document.createElement("input");
+  el.setAttribute("data-main-search", "");
+  document.body.appendChild(el);
+  return el;
+}
+
+describe("DiskPanel keys from the search field", () => {
+  beforeEach(() => {
+    diskScan.mockReset();
+    diskScan.mockImplementation(async (p) => scanOf(p ?? "/Users/martin"));
+  });
+  afterEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it("arrows and Enter reach the list", async () => {
+    const { container } = render(<DiskPanel arg="/Users/martin" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("leafdir"));
+    const search = searchField();
+    // Row 0 is `deep` (largest first): Enter drills in without a scan.
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() => expect(container.textContent).toContain("inner"));
+    expect(diskScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("a typed r is text; ⌘R scans again", async () => {
+    const { container } = render(<DiskPanel arg="/Users/martin" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("leafdir"));
+    const search = searchField();
+    fireEvent.keyDown(search, { key: "r" });
+    fireEvent.keyDown(search, { key: " " });
+    fireEvent.keyDown(search, { key: "Backspace" });
+    expect(diskScan).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(search, { key: "r", metaKey: true });
+    await waitFor(() => expect(diskScan).toHaveBeenCalledTimes(2));
+  });
+
+  it("⌘↑ climbs; ← stays with the caret", async () => {
+    const { container } = render(<DiskPanel arg="/Users/martin/claude" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("leafdir"));
+    const search = searchField();
+    fireEvent.keyDown(search, { key: "ArrowLeft" });
+    expect(diskScan).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(search, { key: "ArrowUp", metaKey: true });
+    await waitFor(() => expect(diskScan).toHaveBeenLastCalledWith("/Users/martin"));
+  });
+
+  it("⌘⏎ puts the selected row into the collector", async () => {
+    const { container } = render(<DiskPanel arg="/Users/martin" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("leafdir"));
+    const before = container.textContent ?? "";
+    fireEvent.keyDown(searchField(), { key: "Enter", metaKey: true });
+    await waitFor(() => expect(container.textContent).not.toBe(before));
+    expect(container.textContent).toContain("Papierkorb");
+  });
+});

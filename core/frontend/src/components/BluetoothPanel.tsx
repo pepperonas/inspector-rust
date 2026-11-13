@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { Bluetooth, BluetoothConnected, RefreshCw, Trash2 } from "lucide-react";
 import {
   bluetoothConnect,
@@ -111,10 +112,7 @@ export function BluetoothPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
-        if (e.key !== "Escape") return;
-      }
+      if (e.key !== "Escape" && isTyping(e)) return;
       const list = devices ?? [];
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();

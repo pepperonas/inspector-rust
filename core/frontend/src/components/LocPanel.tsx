@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fromSearch, hitKey, isTyping, withMod } from "../lib/panel-keys";
 import { Code2, FileCode2, RefreshCw, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import { locCount, locExport, type LocReport } from "../lib/ipc";
 import { ExportRow } from "./ExportRow";
@@ -101,9 +102,7 @@ export function LocPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      const tgt = e.target as HTMLElement | null;
-      const typing =
-        tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
+      const typing = isTyping(e);
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -112,10 +111,14 @@ export function LocPanel({
       }
       if (typing) return;
       const el = scrollRef.current;
-      if (e.key === "r" || e.key === "R") {
+      if (hitKey(e, "r")) {
         e.preventDefault();
         run(respectIgnores, target);
-      } else if (e.key === "Backspace" || e.key === "ArrowLeft") {
+      } else if (
+        e.key === "Backspace" ||
+        (e.key === "ArrowLeft" && !fromSearch(e)) ||
+        (withMod(e) && e.key === "ArrowUp")
+      ) {
         e.preventDefault();
         goUp();
       } else if (e.key === "ArrowDown" && el) {

@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.256.0] — 2026-11-13
+
+### Changed
+- **One key rule for every preview panel.** The search field keeps the focus while a panel is open, and until now most panels ignored every key that came from a text field — so the keys named in their footers did nothing unless you clicked into the panel first. Now arrows, Enter, Page keys and ⌘ chords reach the panel from the search field, while letters, digits, space and ⌫ stay text. Affected: `disk`, `loc`, `pagespeed`, `limits`, `tokens`, `speedtest`, `weather`, `bluetooth`, `8bit`, `convert`, `github`, `spotify`, `benchmark`, `repo`, `mailcheck`.
+- **Letter shortcuts are ⌘ chords now**, because a bare letter is text: ⌘R refreshes / measures again / scans again (`disk`, `loc`, `pagespeed`, `limits`, `tokens`, `speedtest`, `weather`, `ip`, `mailcheck`, `shazam`), ⌘L opens the lyrics and ⌘C copies them in `shazam`, ⌘T jumps to today in `calendar`, ⌘1…5 pick the range in `pulse`. A bare letter still works after a click into the panel.
+- **`disk`:** ⌘↑ goes one level up (the Finder's key), ⌘⏎ puts the selected row into the collector; ← stays with the caret while you edit the path. `loc`: ⌘↑ goes up. `bluetooth`: ⌘⌫ unpairs.
+- **Deleting a snippet, a note, the Shazam history or the speed-test history needs a second click.** The button turns red and asks "Really delete?"; it disarms after four seconds or when the pointer leaves.
+
+### Fixed
+- **Typing no longer triggers panel actions.** With a result on screen, typing `shazam history` started a new recording at the "r"; `cal oktober` lost its "t" and jumped to today; `ip` reloaded on every "r"; `pulse` ate digits.
+- `mailcheck` no longer takes the focus away from the search field, so the next address can be typed straight away.
+- In `alias` and `task`, Esc from the search field leaves the panel on the first press.
+- A snippet or note that could not be deleted now says so.
+
 ## [0.255.1] — 2026-11-12
 
 ### Fixed

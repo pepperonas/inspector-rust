@@ -6,6 +6,7 @@
  * All date math is the pure, unit-tested `lib/calendar.ts`.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import {
   CalendarDays,
   ChevronLeft,
@@ -105,6 +106,8 @@ export function CalendarPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // `cal oktober` is typed while the panel is open: letters are text.
+      if (e.key !== "Escape" && isTyping(e)) return;
       switch (e.key) {
         case "ArrowLeft":
           go(-1);

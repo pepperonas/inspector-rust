@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import { AlertCircle, Copy, Mail, RefreshCw } from "lucide-react";
 import { mailcheckRun } from "../lib/ipc";
 import {
@@ -37,7 +38,6 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
   const [copied, setCopied] = useState(false);
   const [runId, setRunId] = useState(0);
 
-  const containerRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
 
   useEffect(() => {
@@ -65,9 +65,23 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
       });
   }, [email, runId]);
 
+  // The search field keeps the focus (the next address is typed there), so
+  // the keys are read from the window like in every other panel.
   useEffect(() => {
-    if (focused) containerRef.current?.focus();
-  }, [focused]);
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onExit();
+      } else if (!isTyping(e) && hitKey(e, "r")) {
+        e.preventDefault();
+        setRunId((n) => n + 1);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [focused, onExit]);
 
   const copySummary = useCallback(async () => {
     if (!result) return;
@@ -81,22 +95,8 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
     }
   }, [result]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onExit();
-    } else if ((e.key === "r" || e.key === "R") && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault();
-      setRunId((n) => n + 1);
-    }
-  };
-
   return (
     <div
-      ref={containerRef}
-      tabIndex={-1}
-      onKeyDown={onKeyDown}
       className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] outline-none [contain:paint]"
     >
       <div className="flex shrink-0 items-center justify-between gap-2">

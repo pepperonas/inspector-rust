@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ConfirmButton } from "./ConfirmButton";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import { listen } from "@tauri-apps/api/event";
 import { ArrowDown, ArrowUp, Gauge, Loader2, RefreshCw, Timer, Trash2 } from "lucide-react";
 import {
@@ -109,12 +111,11 @@ export function SpeedtestPanel({ focused, onExit }: { focused: boolean; onExit: 
   useEffect(() => {
     if (!focused) return;
     const handler = (event: KeyboardEvent) => {
-      const t = event.target as HTMLElement | null;
-      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+      const typing = isTyping(event);
       if (event.key === "Escape") {
         event.preventDefault();
         onExit();
-      } else if (!typing && event.key.toLowerCase() === "r" && status !== "running") {
+      } else if (!typing && hitKey(event, "r") && status !== "running") {
         event.preventDefault();
         void run();
       }
@@ -329,14 +330,15 @@ function HistoryList({ rows, onClear }: { rows: SpeedtestHistoryEntry[]; onClear
     <div className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] p-2">
       <div className="flex items-center text-xs text-[var(--color-muted)]">
         {t("speed.history_n", { what: tn("speed.runs", rows.length) })}
-        <button
-          onClick={onClear}
+        <ConfirmButton
+          onConfirm={onClear}
           className="ml-auto rounded p-1 hover:bg-[var(--color-surface)]"
+          armedClassName="ml-auto flex items-center gap-1 rounded bg-red-400/10 px-1.5 py-1 text-red-400"
+          armedLabel={t("common.really_delete")}
           title={t("speed.clear_history")}
-          aria-label={t("speed.clear_history")}
         >
           <Trash2 size={12} />
-        </button>
+        </ConfirmButton>
       </div>
 
       <table className="w-full text-[11px] tabular-nums">

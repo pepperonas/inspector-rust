@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { Cpu, Play, Trash2, Upload, Check } from "lucide-react";
 import {
@@ -72,8 +73,7 @@ export function BenchPanel({ focused, onExit }: { focused: boolean; onExit: () =
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      const tgt = e.target as HTMLElement | null;
-      const typing = tgt && (tgt.tagName === "INPUT" || tgt.isContentEditable);
+      const typing = isTyping(e);
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { keyOrigin } from "../lib/panel-keys";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { TerminalSquare, Copy, Check, PlusCircle, Pencil, Trash2, Search, X } from "lucide-react";
 import { buildAliasSetups, validAliasName, filterAliases, chooseForm, type AliasSetup } from "../lib/alias";
@@ -78,7 +79,9 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) {
+      // Only the panel's own fields: the search field keeps the focus and its
+      // Esc must leave the panel, not just drop the focus.
+      if (t && keyOrigin(t) === "field") {
         e.preventDefault();
         e.stopPropagation();
         (t as HTMLInputElement).blur();

@@ -16,6 +16,7 @@
 //! Tests never touch the real keychain: under `cfg(test)` the store is a map
 //! in the process.
 
+#[cfg_attr(test, allow(dead_code))]
 pub const SERVICE: &str = "io.celox.inspector-rust";
 
 /// What the keychain says about an account.

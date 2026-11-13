@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTyping } from "../lib/panel-keys";
 import { Activity, HardDrive, Settings2 } from "lucide-react";
 import {
   pulseHistory,
@@ -99,6 +100,7 @@ export function PulsePanel({
         onExit();
         return;
       }
+      if (isTyping(e)) return;
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         setView((v) => (v === "live" ? "history" : "live"));

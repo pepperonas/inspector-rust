@@ -6,6 +6,8 @@
  * toggle switches between the recognizer and the history list. Esc exits.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ConfirmButton } from "./ConfirmButton";
+import { isTyping } from "../lib/panel-keys";
 import {
   AudioLines,
   Loader2,
@@ -516,6 +518,9 @@ export function ShazamPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // Letters typed into the search field (`shazam history`) are text; the
+      // shortcuts are reached as ⌘R / ⌘L / ⌘C from there.
+      if (e.key !== "Escape" && isTyping(e)) return;
       if (e.key === "Escape") {
         // Esc from the lyrics view goes BACK first; a second Esc exits.
         if (view === "lyrics") setView(lyricsBack);
@@ -930,13 +935,15 @@ export function ShazamPanel({
                   ? t("shazam.n_of", { n: filteredHistory.length, total: history.length })
                   : t("shazam.n_recognized", { n: history.length })}
               </span>
-              <button
-                type="button"
-                onClick={() => void clearHistory()}
+              <ConfirmButton
+                onConfirm={() => void clearHistory()}
+                title={t("shazam.clear_all")}
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-[var(--color-surface)]"
+                armedClassName="flex items-center gap-1 rounded bg-red-400/10 px-1.5 py-0.5 text-red-400"
+                armedLabel={t("common.really_delete")}
               >
                 <Trash2 size={12} /> {t("shazam.clear_all")}
-              </button>
+              </ConfirmButton>
             </div>
           )}
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">

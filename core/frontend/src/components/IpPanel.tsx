@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { hitKey, isTyping } from "../lib/panel-keys";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, Globe2, Loader2, MapPin, RefreshCw } from "lucide-react";
 import { ipFetch, type IpReport } from "../lib/ipc";
@@ -87,7 +88,7 @@ export function IpPanel({ focused, onExit }: { focused: boolean; onExit: () => v
         event.preventDefault();
         onExit();
       }
-      if (event.key.toLowerCase() === "r") {
+      if (!isTyping(event) && hitKey(event, "r")) {
         event.preventDefault();
         void load();
       }

@@ -1322,8 +1322,21 @@ mod tests {
         let text: Arc<dyn Fn(Source, JobKind) -> String + Send + Sync> = Arc::new(|_, _| "Satz".into());
         let (p, r) = start(data, None, text, Duration::from_millis(300));
         // Break both the session folder and the fallback root.
-        std::fs::remove_dir_all(p.dir().unwrap()).unwrap();
+        // The fallback first, so the writer can never move there in between.
         std::fs::write(r._tmp.path().join("fallback"), b"not a folder").unwrap();
+        // The session is live: a file written while the folder is being
+        // removed makes one removal fail with "directory not empty" (seen on
+        // CI). Remove until it is gone.
+        let dir = p.dir().unwrap();
+        let until = Instant::now() + Duration::from_secs(5);
+        loop {
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(e) => assert!(Instant::now() < until, "session folder not removable: {e}"),
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
         wait_for(&r, |e| e.iter().any(|e| matches!(e, Event::Stopped { .. })));
         assert!(!p.is_running());
         p.stop();

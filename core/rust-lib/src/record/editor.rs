@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub const EDITOR_VERSION: u32 = 7;
+pub const EDITOR_VERSION: u32 = 8;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -826,6 +826,10 @@ pub struct EditDoc {
     /// percent (one of [`super::denoise::LEVELS`]). The recording itself is never changed.
     #[serde(default)]
     pub mic_denoise: u8,
+    /// The project's other formats (v8): what each keeps for itself while another one is
+    /// active — see [`super::formats`]. The root always holds the active format.
+    #[serde(default, deserialize_with = "lenient_vec")]
+    pub variants: Vec<super::formats::FormatVariant>,
 }
 
 /// The words of one recording, with times in that recording's SOURCE ms.
@@ -1018,6 +1022,9 @@ pub struct EditorView {
     pub waveforms: Vec<super::peaks::WaveSpan>,
     /// The playing recordings that have a microphone file, as folders relative to the project
     /// (`""` = its own take, `takes/<id>`). Filled by the editor session.
+    /// Every format of the project in list order (`formats::formats`); the active one is
+    /// `doc.output.aspect`.
+    pub formats: Vec<Aspect>,
     pub mic_sources: Vec<String>,
     /// Those of `mic_sources` whose noise-suppressed file for `doc.mic_denoise` exists — the
     /// preview and the export use it for exactly these. Filled by the editor session.
@@ -1051,10 +1058,11 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
         captions: CaptionSettings::default(),
         effects: Vec::new(),
         mic_denoise: 0,
+        variants: Vec::new(),
     }
 }
 
-/// Reads a stored editor block: v7 as is, v6 upgraded with noise suppression off, v5 upgraded with no rotated zooms, depth of field on and a flat cursor,  v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
+/// Reads a stored editor block: v8 as is, v7 upgraded with one format, v6 upgraded with noise suppression off, v5 upgraded with no rotated zooms, depth of field on and a flat cursor,  v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
 /// (`CameraStyle::default()`, picture-in-picture whether or not there is a camera) and no layout
 /// regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
@@ -1100,6 +1108,11 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
         // Stage 12: noise suppression is off for every existing project.
         doc.version = 7;
         doc.mic_denoise = 0;
+    }
+    if doc.version == 7 {
+        // Stage 13: one format, as before.
+        doc.version = 8;
+        doc.variants = Vec::new();
     }
     (doc.version == EDITOR_VERSION).then_some(doc)
 }
@@ -1391,6 +1404,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         captions,
         effects,
         mic_denoise,
+        variants,
         ..
     } = doc;
     crop.resize(clips.len(), None);
@@ -1470,6 +1484,8 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
     let layout_regions = normalize_layout_regions(layout_regions, &new_clips, new_index);
     let effects = super::effects::normalize_effects(effects, &new_clips, new_index);
 
+    let captions = super::captions::normalize_settings(captions);
+    let variants = super::formats::normalize_variants(variants, output.aspect, &captions, normalize_camera);
     EditDoc {
         version: EDITOR_VERSION,
         clips: new_clips,
@@ -1487,9 +1503,10 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         camera: normalize_camera(camera),
         layout_regions,
         transcripts: normalize_transcripts(transcripts, duration_ms, takes),
-        captions: super::captions::normalize_settings(captions),
+        captions,
         effects,
         mic_denoise: super::denoise::normalize_level(mic_denoise),
+        variants,
     }
 }
 
@@ -2027,6 +2044,7 @@ pub fn view(doc: &EditDoc) -> EditorView {
         takes: TakeMetas::new(),
         tracks: super::audio_tracks::track_entries(doc),
         waveforms: Vec::new(),
+        formats: super::formats::formats(doc),
         mic_sources: Vec::new(),
         denoised: Vec::new(),
     }
@@ -2194,6 +2212,7 @@ pub(crate) mod tests {
             captions: CaptionSettings::default(),
             effects: Vec::new(),
             mic_denoise: 0,
+            variants: Vec::new(),
         }
     }
 

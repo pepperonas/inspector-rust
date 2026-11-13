@@ -5696,6 +5696,9 @@ export interface RecordEditDoc {
   /** One transcript per recording (v5); captions are derived from it, never stored. */
   transcripts: RecordTranscript[];
   captions: RecordCaptionSettings;
+  /** The project's other formats (v8); the root holds the active one. Opaque to the UI — Rust
+   *  switches (`editorVariant`). */
+  variants?: { aspect: RecordAspect }[];
   /** Noise suppression on the recorded microphone (v7): 0/absent = off, else 50, 75 or 100. */
   micDenoise?: number;
 }
@@ -5730,6 +5733,8 @@ export interface RecordEditorView {
   tracks?: RecordTrackSpan[];
   /** Waveforms on the programme clock, filled as peaks arrive (`record-editor-waveforms`). */
   waveforms?: RecordWaveSpan[];
+  /** Every format of the project in list order; the active one is `doc.output.aspect`. */
+  formats?: RecordAspect[];
   /** Playing recordings with a microphone file, as folders relative to the project (`""` = own take). */
   micSources?: string[];
   /** Those of `micSources` whose noise-suppressed file for `doc.micDenoise` exists. */
@@ -6125,10 +6130,20 @@ export interface EditorImportedAsset {
 export function editorImportAsset(sessionId: number, src: string, kind: "image" | "cursor" | "audio"): Promise<EditorImportedAsset> {
   return invoke("editor_import_asset", { sessionId, src, kind });
 }
-export function editorExport(opts: EditorExportOptions): Promise<string> {
+/** Which of the project's formats an export is for (`null`/absent = the active one), and
+ *  whether it ends without Finder window and toast (all but the last of a batch). */
+export interface EditorExportTarget {
+  variant?: RecordAspect | null;
+  quiet?: boolean;
+}
+export function editorExport(opts: EditorExportOptions & EditorExportTarget): Promise<string> {
   return invoke("editor_export", { opts });
 }
-export function editorExportInfo(opts: EditorExportOptions): Promise<EditorExportInfo> {
+/** Switches to, adds or removes one of the project's formats; the answer is one undo step. */
+export function editorVariant(sessionId: number, op: "switch" | "add" | "remove", aspect: RecordAspect): Promise<RecordEditorView> {
+  return invoke("editor_variant", { sessionId, op, aspect });
+}
+export function editorExportInfo(opts: EditorExportOptions & EditorExportTarget): Promise<EditorExportInfo> {
   return invoke("editor_export_info", { opts });
 }
 /** Saves the frame at `programmeMs` as a cover image into Downloads; resolves to its path. */

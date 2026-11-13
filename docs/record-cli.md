@@ -71,6 +71,8 @@ Ctrl+C stops a recording (`record` without `--duration`) or cancels a running ex
 
 `zoom.add`, `zoom.set`, `zoom.remove`, `zoom.auto`, `clip.split`, `clip.delete`, `clip.move`, `clip.duplicate`, `clip.speed`, `clip.crop`, `annotation.add`, `annotation.set`, `annotation.remove`, `effect.add`, `effect.set`, `effect.remove`, `track.add`, `track.set`, `track.remove`, `look.set`, `preset.apply`, `rename`.
 
+**Formats.** A project can hold several formats (16:9, 9:16, 1:1, 4:3, 3:4, 21:9). `format.add {aspect}` adds one and makes it the active format, `format.switch {aspect}` changes the active one, `format.remove {aspect}` deletes one. Cuts, zooms and sound are shared; the camera layout and the caption position belong to each format. `export --aspect 9:16` exports one format without changing the project — run it once per format for a batch. `look.set {output:{aspect}}` refuses an aspect the project already keeps as a format (use `format.switch`).
+
 `look.set` also takes `micDenoise` (0 = off, 50, 75 or 100): noise suppression on the recorded microphone. The cleaned sound is made before the next export; the recording itself is not changed.
 
 `track.add {file, kind?, atProgrammeMs | clip (+startMs)?, gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}` lays an audio file under the programme: `file` is an absolute path (MP3, M4A, AAC, WAV, FLAC), copied into the project before the ops run and removed again if they fail; `kind` is `voiceover` (default, 0 dB, no fades) or `music` (−18 dB, 1 s fades); without a placement it starts at clip 0. `track.set {id, …}` changes level, mute, loop, fades or label; `track.remove {id}`. Narration for a scripted demo: `say -o q.aiff "…"` → `afconvert -f WAVE -d LEI16 q.aiff q.wav` → `track.add`.

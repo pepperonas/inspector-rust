@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent } from "@testing-library/react";
 
 const m = vi.hoisted(() => ({
-  exp: vi.fn(async () => "/Users/x/Downloads/Demo 2026-11-02 09.05.mp4"),
+  exp: vi.fn(async (_o?: unknown) => "/Users/x/Downloads/Demo 2026-11-02 09.05.mp4"),
   cancel: vi.fn(async () => {}),
   toast: vi.fn(async () => {}),
   reveal: vi.fn(async () => {}),
@@ -177,5 +177,37 @@ describe("ExportDialog", () => {
     m.cover.mockRejectedValueOnce("record.editor.export_busy");
     await act(async () => { fireEvent.click(screen.getByText("Save cover image")); });
     expect(screen.getByText("An export is already running.")).toBeTruthy();
+  });
+
+  it("offers the project's formats only when there are several", async () => {
+    await mount({ aspect: "16:9", formats: ["16:9"] });
+    expect(screen.queryByTestId("export-formats")).toBeNull();
+  });
+
+  it("exports the ticked formats one after the other, each as its own file", async () => {
+    await mount({ aspect: "16:9", formats: ["16:9", "9:16"] });
+    const row = screen.getByTestId("export-formats");
+    expect(row.querySelector('[aria-pressed="true"]')?.textContent).toBe("16:9");
+    await act(async () => { fireEvent.click(screen.getByText("9:16")); });
+    await act(async () => { fireEvent.click(lastExport()); });
+    expect(m.exp).toHaveBeenCalledTimes(1);
+    expect(m.exp.mock.calls[0][0]).toMatchObject({ variant: "16:9", quiet: true });
+    expect(screen.getByTestId("export-batch-pos").textContent).toContain("16:9 · 1 of 2");
+    await fire("record-export-done", { path: "/d/a 16x9.mp4" });
+    expect(m.exp).toHaveBeenCalledTimes(2);
+    expect(m.exp.mock.calls[1][0]).toMatchObject({ variant: "9:16", quiet: false });
+    // One failed format is reported next to the one that worked.
+    await fire("record-export-failed", { reason: "boom", cancelled: false });
+    const done = screen.getByTestId("export-batch-done").textContent ?? "";
+    expect(done).toContain("1 of 2 exported");
+    expect(done).toContain("/d/a 16x9.mp4");
+    expect(done).toContain("9:16: failed");
+  });
+
+  it("exports only the active format without a format name when nothing else is ticked", async () => {
+    await mount({ aspect: "16:9", formats: ["16:9", "9:16"] });
+    await act(async () => { fireEvent.click(lastExport()); });
+    expect(m.exp).toHaveBeenCalledTimes(1);
+    expect((m.exp.mock.calls[0][0] as { variant?: string } | undefined)?.variant).toBeUndefined();
   });
 });

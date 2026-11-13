@@ -10,6 +10,7 @@ import {
   applyPreset, clampMbps, CUSTOM_MBPS, GIF_FPS, GIF_WIDTHS, limitText, mbpsText, MP4_FPS, parseStored, PLATFORM_NAME,
   QUALITIES, sizeText, STORE_KEY, TARGET_NAME, TARGETS, type ExportOpts,
 } from "../../lib/export-opts";
+import { batchOrder, formatLabel, makeBatchRunner, type BatchPos, type BatchResult } from "../../lib/formats";
 
 function loadOpts(): ExportOpts {
   try {
@@ -23,6 +24,7 @@ type Phase =
   | { kind: "setup" }
   | { kind: "running"; frames: number; total: number }
   | { kind: "done"; path: string }
+  | { kind: "batch-done"; results: BatchResult[] }
   | { kind: "failed"; reason: string; cancelled: boolean };
 
 const errText = (t: (k: MessageKey) => string, reason: string) =>
@@ -38,8 +40,11 @@ export function ExportDialog({
   aspect,
   onAspect,
   positionMs = 0,
+  formats,
 }: {
   onClose: () => void;
+  /** Every format of the project; with more than one, several can be exported in one go. */
+  formats?: RecordAspect[];
   /** The document's aspect; a platform preset asks to change it through `onAspect`. */
   aspect?: RecordAspect;
   onAspect?: (a: RecordAspect) => void;
@@ -49,6 +54,17 @@ export function ExportDialog({
   const t = useT();
   const [opts, setOptsRaw] = useState<ExportOpts>(loadOpts);
   const [phase, setPhase] = useState<Phase>({ kind: "setup" });
+  const [batchPos, setBatchPos] = useState<BatchPos | null>(null);
+  const [runner] = useState(() =>
+    makeBatchRunner({
+      pos: (p) => {
+        setBatchPos(p);
+        if (p) setPhase({ kind: "running", frames: 0, total: 0 });
+      },
+      done: (results) => setPhase({ kind: "batch-done", results }),
+    }),
+  );
+
   const [presets, setPresets] = useState<RecordPlatformSpec[]>([]);
   const [info, setInfo] = useState<EditorExportInfo | null>(null);
   const [cover, setCover] = useState<{ path: string } | { error: string } | "busy" | null>(null);
@@ -111,15 +127,29 @@ export function ExportDialog({
       listen<{ frames: number; total: number }>("record-export-progress", (e) =>
         setPhase({ kind: "running", frames: e.payload.frames, total: e.payload.total }),
       ),
-      listen<{ path: string }>("record-export-done", (e) => setPhase({ kind: "done", path: e.payload.path })),
-      listen<{ reason: string; cancelled: boolean }>("record-export-failed", (e) =>
-        setPhase({ kind: "failed", reason: e.payload.reason, cancelled: e.payload.cancelled }),
-      ),
+      listen<{ path: string }>("record-export-done", (e) => {
+        if (!runner.active()) return setPhase({ kind: "done", path: e.payload.path });
+        runner.outcome({ path: e.payload.path });
+      }),
+      listen<{ reason: string; cancelled: boolean }>("record-export-failed", (e) => {
+        if (!runner.active()) return setPhase({ kind: "failed", reason: e.payload.reason, cancelled: e.payload.cancelled });
+        runner.outcome({ error: e.payload.reason, cancelled: e.payload.cancelled });
+      }),
     ];
     return () => offs.forEach((p) => void p.then((u) => u()));
-  }, []);
+  }, [runner]);
 
+  // Several formats in one go: one export after the other, each its own file. A failed one
+  // does not stop the rest; a cancel does.
+  const many = (formats?.length ?? 0) > 1;
+  const [picked, setPicked] = useState<ReadonlySet<RecordAspect>>(new Set());
   const start = async () => {
+    const order = many && formats && aspect ? batchOrder(formats, picked, aspect) : [];
+    if (order.length > 1 || (order.length === 1 && order[0] !== aspect)) {
+      const frozen = opts;
+      runner.start(order, (format, quiet) => editorExport({ ...frozen, variant: format, quiet }));
+      return;
+    }
     setPhase({ kind: "running", frames: 0, total: 0 });
     try {
       await editorExport(opts);
@@ -317,6 +347,31 @@ export function ExportDialog({
               </div>
             )}
             {aspectNote && <p className="text-[11px] text-[var(--color-muted)]">{t("rec9.aspect_set", { aspect: aspectNote })}</p>}
+            {many && formats && (
+              <div className="flex items-center gap-3" data-testid="export-formats">
+                <span className="w-24 shrink-0 text-[12px] text-[var(--color-muted)]">{t("rec13.export.formats")}</span>
+                <div className="flex flex-wrap gap-1.5" title={t("rec13.export.formats_hint")}>
+                  {formats.map((f) => {
+                    const on = picked.size ? picked.has(f) : f === aspect;
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        aria-pressed={on}
+                        className={chip(on)}
+                        onClick={() => {
+                          const next = new Set(picked.size ? picked : aspect ? [aspect] : []);
+                          if (!next.delete(f)) next.add(f);
+                          setPicked(next);
+                        }}
+                      >
+                        {formatLabel(f, t("rec13.format.auto"), t("rec13.format.source"))}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <p className="text-[11px] text-[var(--color-muted)]">{t("rec2.ed.export_where")}</p>
             {cover !== null && cover !== "busy" && (
               <p className={"break-all text-[11px] " + ("error" in cover ? "text-red-500" : "text-[var(--color-muted)]")}>
@@ -352,6 +407,15 @@ export function ExportDialog({
                 style={{ transform: `scaleX(${pct})` }}
               />
             </div>
+            {batchPos && (
+              <span className="text-[12px]" data-testid="export-batch-pos">
+                {t("rec13.export.batch_running", {
+                  format: formatLabel(batchPos.format, t("rec13.format.auto"), t("rec13.format.source")),
+                  n: batchPos.n,
+                  total: batchPos.total,
+                })}
+              </span>
+            )}
             <span className="text-[12px] tabular-nums text-[var(--color-muted)]">
               {phase.total > 0 ? `${Math.round(pct * 100)} %` : t("rec2.ed.export_preparing")}
             </span>
@@ -365,6 +429,26 @@ export function ExportDialog({
         )}
         {phase.kind === "done" && (
           <p className="break-all text-[12px]">{t("rec2.ed.export_done", { path: phase.path })}</p>
+        )}
+        {phase.kind === "batch-done" && (
+          <div className="flex flex-col gap-1.5" data-testid="export-batch-done">
+            <p className="text-[12px] font-medium">
+              {t("rec13.export.batch_done", { ok: phase.results.filter((r) => "path" in r).length, total: phase.results.length })}
+            </p>
+            {phase.results.map((r) => (
+              <p key={r.aspect} className={"break-all text-[12px] " + ("error" in r ? "text-red-500" : "")}>
+                {"path" in r
+                  ? t("rec2.ed.export_done", { path: r.path })
+                  : `${t("rec13.export.batch_failed", { format: formatLabel(r.aspect, t("rec13.format.auto"), t("rec13.format.source")) })} — ${errText(t, r.error)}`}
+              </p>
+            ))}
+            <button
+              onClick={() => setPhase({ kind: "setup" })}
+              className="self-end rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:bg-[var(--color-bg)]"
+            >
+              {t("rec2.ed.export_again")}
+            </button>
+          </div>
         )}
         {phase.kind === "failed" && (
           <div className="flex flex-col gap-2">

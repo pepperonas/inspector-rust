@@ -5026,5 +5026,21 @@
   "rec12.clean.filler_note": "Gefunden werden nur Füllwörter, die die Transkription aufgeschrieben hat; oft lässt sie sie weg.",
   "logi.refused.title": "{name} gefunden, aber macOS blockiert den Zugriff",
   "logi.refused.body": "macOS weist Anfragen an die Maus gerade ab. Inspector Rust versucht es alle paar Sekunden erneut; die Einstellungen erscheinen, sobald sie antwortet.",
-  "logi.refused.secure": "Die sichere Eingabe ist aktiv (ein Passwortfeld oder ein Terminal mit sicherer Tastatureingabe). Solange sie läuft, sperrt macOS die Maus für Apps. Sie verbindet sich von selbst, sobald die sichere Eingabe endet."
+  "logi.refused.secure": "Die sichere Eingabe ist aktiv (ein Passwortfeld oder ein Terminal mit sicherer Tastatureingabe). Solange sie läuft, sperrt macOS die Maus für Apps. Sie verbindet sich von selbst, sobald die sichere Eingabe endet.",
+  "rec13.format.title": "Formate",
+  "rec13.format.auto": "Auto",
+  "rec13.format.source": "Original",
+  "rec13.format.switch_hint": "Formate dieses Projekts. Schnitte, Zooms und Ton sind gemeinsam; Kamera-Layout und Untertitel-Position gehören zum jeweiligen Format.",
+  "rec13.format.add": "Format",
+  "rec13.format.add_hint": "Weiteres Format dieses Projekts anlegen, zum Beispiel 9:16 für Shorts, Reels und TikTok",
+  "rec13.format.portrait_note": "Shorts · Reels · TikTok",
+  "rec13.format.landscape_note": "YouTube",
+  "rec13.format.remove_hint": "Format {format} entfernen",
+  "rec13.format.remove_confirm": "Entfernen?",
+  "rec13.export.formats": "Formate",
+  "rec13.export.formats_hint": "Jedes angehakte Format wird eine eigene Datei, eines nach dem anderen.",
+  "rec13.export.batch_running": "Format {format} · {n} von {total}",
+  "rec13.export.batch_done": "{ok} von {total} exportiert",
+  "rec13.export.batch_failed": "{format}: fehlgeschlagen",
+  "record.editor.no_format": "Das Projekt hat kein solches Format."
 }

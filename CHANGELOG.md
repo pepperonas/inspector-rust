@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.263.0] — 2026-11-13
+
+### Added
+- **One project, several formats.** The recording editor's header shows the project's formats as chips; "+" adds one — for example 9:16 next to 16:9. Cuts, speed, zooms, annotations, effects and sound are shared; the camera's layout and size and the position and size of the captions belong to each format, so the vertical version can stack screen and camera while the wide one keeps picture-in-picture. A new portrait format of a project with a camera starts stacked. Switching is one undo step; the × removes the active format (asks once).
+- **Export several formats in one go.** With more than one format, the export dialog has a "Formats" row: every ticked format becomes its own file, one after the other, with the format in the file name (`… – 9x16.mp4`). A format that fails does not stop the others; the Finder opens once at the end.
+- `ir-record export --aspect 9:16` exports one of the project's formats without changing the project; `ir-record edit` knows `format.add`, `format.switch` and `format.remove`.
+
+### Notes
+- Layout changes on the timeline and the crop of a clip are shared by all formats.
+
 ## [0.262.0] — 2026-11-13
 
 ### Changed

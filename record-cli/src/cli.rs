@@ -26,7 +26,7 @@ Projects (<project> = folder name from `list`, or an absolute path):
   doc <project>                     the edit document (region ids)
   export <project> [--format mp4|gif] [--quality p720|p1080|p1440|p2160|source]
          [--preset youtube|shorts|reels|tiktok] [--bitrate auto|small|standard|high|max|MBIT]
-         [--loudness -16|-14] [--captions srt|vtt]
+         [--loudness -16|-14] [--captions srt|vtt] [--aspect 9:16]
          [--fps N] [--codec h264|hevc] [--gif-width N] [-o PATH]
   transcribe <project> [--lang de|en|auto]
   auto-zoom <project>               add zooms from the pointer clicks
@@ -348,7 +348,7 @@ pub fn parse_with(
                 tail,
                 &[
                     "--format", "--quality", "--fps", "--codec", "--gif-width", "--preset", "--bitrate", "--loudness",
-                    "--captions", "-o", "--out",
+                    "--captions", "--aspect", "-o", "--out",
                 ],
                 none,
             )?;
@@ -374,6 +374,9 @@ pub fn parse_with(
             if let Some(l) = a.get("--loudness") {
                 let l = one_of("--loudness", l, &["-16", "-14"])?;
                 params.insert("loudness".into(), json!(l.parse::<i64>().unwrap_or(-16)));
+            }
+            if let Some(x) = a.get("--aspect") {
+                params.insert("aspect".into(), json!(one_of("--aspect", x, &["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "auto", "source"])?));
             }
             if let Some(c) = a.get("--captions") {
                 params.insert("captions".into(), json!(one_of("--captions", c, &["srt", "vtt"])?));

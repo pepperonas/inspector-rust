@@ -1353,6 +1353,8 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_denoise,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            commands::editor_variant,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_autocut_suggest,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             commands::editor_transcribe,

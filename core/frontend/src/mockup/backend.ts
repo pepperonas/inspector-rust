@@ -740,6 +740,13 @@ function edOutputSize(doc: EdDoc): [number, number] {
 }
 let edPlaying = false;
 let edPos = 3_400;
+const ED_FORMAT_ORDER = ["auto", "source", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
+function edFormats(doc: EdDoc): string[] {
+  const d = doc as unknown as { output: { aspect: string }; variants?: { aspect: string }[] };
+  const all = [d.output.aspect, ...(d.variants ?? []).map((v) => v.aspect)];
+  return ED_FORMAT_ORDER.filter((a) => all.includes(a));
+}
+
 function edView(doc: EdDoc) {
   let t = 0;
   const speed: { index: number; progStartMs: number; progEndMs: number }[] = [];
@@ -844,7 +851,7 @@ function edView(doc: EdDoc) {
   const cx = cam.position ? Math.min(ow - m - cw, Math.max(m, cam.position.x * ow - cw / 2)) : ow - m - cw;
   const cy = cam.position ? Math.min(oh - m - ch, Math.max(m, cam.position.y * oh - ch / 2)) : oh - m - ch;
   const cameraRects = doc.clips.map(() => [cx / ow, cy / oh, cw / ow, ch / oh] as [number, number, number, number]);
-  return { doc, programmeMs: programme, clips, speed, zooms, effects, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes, micSources: [""], denoised: [""] };
+  return { doc, programmeMs: programme, clips, speed, zooms, effects, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes, micSources: [""], denoised: [""], formats: edFormats(doc) };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -1339,6 +1346,19 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         clickDown: null,
         clickUp: null,
       };
+    case "editor_variant": {
+      const aspect = String(args.aspect);
+      const d = edDoc as unknown as { output: { aspect: string }; variants?: { aspect: string }[] };
+      const own = { aspect: d.output.aspect };
+      const others = (d.variants ?? []).filter((v) => v.aspect !== aspect);
+      if (args.op === "remove") {
+        if (aspect === d.output.aspect && others.length) edDoc = { ...edDoc, output: { aspect: others[0].aspect }, variants: others.slice(1) } as EdDoc;
+        else edDoc = { ...edDoc, variants: others } as EdDoc;
+      } else if (aspect !== d.output.aspect) {
+        edDoc = { ...edDoc, output: { aspect }, variants: [...others, own] } as EdDoc;
+      }
+      return edView(edDoc);
+    }
     case "editor_denoise": return { ...edView(edDoc), micSources: [""], denoised: [""] };
     case "editor_autocut_suggest": {
       const o = (args.opts ?? {}) as { silences?: boolean; fillers?: boolean };

@@ -7379,6 +7379,18 @@ pub async fn editor_auto_zoom(app: AppHandle, session_id: u64) -> Result<crate::
     editor_blocking(move || crate::record::editor_ipc::auto_zoom(&app, session_id)).await
 }
 
+/// Switches to, adds or removes one of the open project's formats (`op`: switch, add, remove).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_variant(
+    app: AppHandle,
+    session_id: u64,
+    op: String,
+    aspect: crate::record::editor::Aspect,
+) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::variant(&app, session_id, &op, aspect)).await
+}
+
 /// Makes the noise-suppressed microphone files the open document asks for; returns the view.
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[tauri::command]

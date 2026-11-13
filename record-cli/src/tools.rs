@@ -18,7 +18,7 @@ pub const READ_DEADLINE: Duration = Duration::from_secs(60);
 pub const FRAMES_DEADLINE: Duration = Duration::from_secs(180);
 
 /// Op kinds of `record.edit` (Task 2's table).
-pub const EDIT_OPS: [&str; 22] = [
+pub const EDIT_OPS: [&str; 25] = [
     "zoom.add",
     "zoom.set",
     "zoom.remove",
@@ -36,6 +36,9 @@ pub const EDIT_OPS: [&str; 22] = [
     "effect.set",
     "effect.remove",
     "look.set",
+    "format.add",
+    "format.switch",
+    "format.remove",
     "track.add",
     "track.set",
     "track.remove",
@@ -146,6 +149,7 @@ fn export_schema() -> Value {
             "bitrate": {"type": "string", "enum": ["auto", "small", "standard", "high", "max"], "description": "mp4 video bitrate level. Default auto."},
             "bitrateMbps": {"type": "number", "minimum": 2, "maximum": 80, "description": "mp4 video bitrate in Mbit/s (instead of a level)."},
             "loudness": {"type": "integer", "enum": [-16, -14], "description": "Voice level in LUFS. Default -16."},
+            "aspect": {"type": "string", "enum": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "auto", "source"], "description": "Exports this format of the project (one made with format.add) without changing the document. Default: the active format."},
             "captions": {"type": "string", "enum": ["srt", "vtt"], "description": "Also writes the spoken text as a caption file next to the video (needs a transcript)."},
             "fps": {"type": "integer", "minimum": 1, "maximum": 60, "description": "mp4: 24, 30 or 60 (30). gif: 15–30 (15)."},
             "codec": {"type": "string", "enum": ["h264", "hevc"], "description": "mp4 only."},
@@ -210,7 +214,7 @@ clip.split {atProgrammeMs | clip+sourceMs}; clip.delete {clip}; clip.move {clip,
 annotation.add {placement, body {kind: text|image|arrow|blur, …}, x,y,w,h percent, id?}; annotation.set / annotation.remove {id}; \
 effect.add {placement, effect (built-in id e.g. vignette, grain, spotlight), values?}; effect.set / effect.remove {id}; \
 track.add {file (absolute path to MP3/M4A/AAC/WAV/FLAC; copied into the project), kind voiceover|music (default voiceover), atProgrammeMs | clip (+startMs source ms; default clip 0 start), gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}; track.set {id, gainDb?, muted?, looped?, fadeInMs?, fadeOutMs?, label?}; track.remove {id}; \
-look.set {appearance?, cursor?, output?, camera?, captions?, micGainDb?, systemGainDb?, micDenoise? (0 off, 50, 75 or 100: noise suppression on the microphone)} (partial, deep-merged); preset.apply {file}; rename {title}. \
+look.set {appearance?, cursor?, output?, camera?, captions?, micGainDb?, systemGainDb?, micDenoise? (0 off, 50, 75 or 100: noise suppression on the microphone)} (partial, deep-merged); format.add {aspect} adds a second format of the same project (16:9, 9:16, 1:1, 4:3, 3:4, 21:9) and makes it the active one - cuts, zooms and sound are shared, camera layout and caption place are per format; format.switch {aspect}; format.remove {aspect}; preset.apply {file}; rename {title}. \
 Returns the new view and the ids of created regions.";
 
 pub static TOOLS: &[Tool] = &[

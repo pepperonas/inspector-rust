@@ -91,6 +91,8 @@ pub struct OpCtx<'a> {
     /// `track.add`: the audio file given as `file`, already copied into the project
     /// (`(asset file name, length ms)`); `None` = not imported.
     pub audio: &'a dyn Fn(&str) -> Option<(String, u64)>,
+    /// `format.add`: some clip has a camera (a new portrait format then starts stacked).
+    pub has_camera: bool,
 }
 
 /// The outcome of [`apply_ops`].
@@ -672,6 +674,17 @@ fn apply_one(doc: &EditDoc, op: &Value, ctx: &OpCtx, new_id: &mut dyn FnMut() ->
             check = Some(id.clone());
             created = Some(id);
         }
+        "format.add" | "format.switch" | "format.remove" => {
+            use super::formats;
+            let aspect: editor::Aspect = serde_json::from_value(a.take("aspect").ok_or_else(|| bad("aspect is missing"))?)
+                .map_err(|_| bad("aspect must be one of 16:9, 9:16, 1:1, 4:3, 3:4, 21:9"))?;
+            next = match kind.as_str() {
+                "format.add" if formats::ADDABLE.contains(&aspect) => formats::add_variant(doc, aspect, ctx.has_camera),
+                "format.add" => return Err(bad("aspect must be one of 16:9, 9:16, 1:1, 4:3, 3:4, 21:9")),
+                "format.switch" => formats::switch_variant(doc, aspect).ok_or_else(|| bad("the project has no such format (format.add makes one)"))?,
+                _ => formats::remove_variant(doc, aspect),
+            };
+        }
         "look.set" => {
             let mut v = serde_json::to_value(doc).map_err(|e| bad(e.to_string()))?;
             let mut any = false;
@@ -689,6 +702,10 @@ fn apply_one(doc: &EditDoc, op: &Value, ctx: &OpCtx, new_id: &mut dyn FnMut() ->
                 return Err(bad(format!("give at least one of {}", LOOK_FIELDS.join(", "))));
             }
             next = serde_json::from_value(v).map_err(|e| bad(format!("look: {e}")))?;
+            // Setting the aspect to one the project keeps as its own format would overwrite it.
+            if next.output.aspect != doc.output.aspect && doc.variants.iter().any(|x| x.aspect == next.output.aspect) {
+                return Err(bad("this aspect is one of the project's formats: use format.switch"));
+            }
         }
         "track.add" => {
             let path = a.need_str("file")?;
@@ -984,7 +1001,7 @@ fn edit(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
             Ok(super::presets::apply_preset(d, &pr, &root, p.dir))
         };
         let audio = |path: &str| imported.iter().find(|(p, _, _)| p == path).map(|(_, f, ms)| (f.clone(), *ms));
-        let ctx = OpCtx { duration_ms: p.duration_ms, takes: p.takes, cursor: p.cursor, preset: &preset, audio: &audio };
+        let ctx = OpCtx { duration_ms: p.duration_ms, takes: p.takes, cursor: p.cursor, preset: &preset, audio: &audio, has_camera: p.has_camera };
         let out = apply_ops(p.doc, &ops, &ctx, &mut random_id)?;
         Ok((out.doc, (out.created, out.title)))
     });
@@ -1062,6 +1079,9 @@ fn export(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError> {
             Some(-14) => super::platform::Loudness::L14,
             _ => return Err(perr("loudness must be -16 or -14")),
         };
+    }
+    if let Some(v) = p.get("aspect").filter(|v| !v.is_null()) {
+        opts.variant = Some(serde_json::from_value(v.clone()).map_err(|_| perr("aspect must be one of the project's formats, e.g. 9:16"))?);
     }
     if let Some(v) = p.get("captions").filter(|v| !v.is_null()) {
         opts.captions_sidecar = Some(serde_json::from_value(v.clone()).map_err(|_| perr("captions must be srt or vtt"))?);
@@ -1198,8 +1218,26 @@ mod tests {
         (path == "/a/voice.m4a").then(|| ("voice-1.m4a".to_string(), 3_000))
     }
 
+    #[test]
+    fn formats_are_added_switched_and_removed() {
+        let d = two_clips();
+        let out = run(&d, json!([{"op": "format.add", "aspect": "9:16"}])).unwrap().doc;
+        assert_eq!(out.output.aspect, editor::Aspect::W9H16);
+        assert_eq!(out.variants.len(), 1);
+        let back = run(&out, json!([{"op": "format.switch", "aspect": out.variants[0].aspect}])).unwrap().doc;
+        assert_eq!(back.output.aspect, d.output.aspect);
+        let one = run(&back, json!([{"op": "format.remove", "aspect": "9:16"}])).unwrap().doc;
+        assert!(one.variants.is_empty());
+        assert_eq!(run(&d, json!([{"op": "format.switch", "aspect": "1:1"}])).unwrap_err().code, ERR_BAD_OP);
+        assert_eq!(run(&d, json!([{"op": "format.add", "aspect": "auto"}])).unwrap_err().code, ERR_BAD_OP);
+        assert_eq!(run(&d, json!([{"op": "format.add"}])).unwrap_err().code, ERR_BAD_OP);
+        // look.set never overwrites a kept format.
+        let e = run(&out, json!([{"op": "look.set", "output": {"aspect": out.variants[0].aspect}}])).unwrap_err();
+        assert!(e.message.contains("format.switch"), "{}", e.message);
+    }
+
     fn ctx() -> OpCtx<'static> {
-        OpCtx { duration_ms: 10_000, takes: &NO_TAKES, cursor: None, preset: &no_preset, audio: &test_audio }
+        OpCtx { duration_ms: 10_000, takes: &NO_TAKES, cursor: None, preset: &no_preset, audio: &test_audio, has_camera: false }
     }
 
     fn ids() -> impl FnMut() -> String {

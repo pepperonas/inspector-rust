@@ -434,6 +434,11 @@ pub struct ExportOptions {
     pub loudness: Loudness,
     /// Writes the captions as a file next to the video.
     pub captions_sidecar: Option<SubFormat>,
+    /// Which of the project's formats to export (`None` = the active one). The document is
+    /// not changed.
+    pub variant: Option<editor::Aspect>,
+    /// No Finder window and no toast when this export finishes (all but the last of a batch).
+    pub quiet: bool,
 }
 
 impl Default for ExportOptions {
@@ -450,15 +455,35 @@ impl Default for ExportOptions {
             bitrate_mbps: None,
             loudness: Loudness::L16,
             captions_sidecar: None,
+            variant: None,
+            quiet: false,
         }
     }
 }
 
 impl ExportOptions {
-    fn suffix(&self) -> Option<&'static str> {
-        self.preset.filter(|_| self.kind == ExportFormat::Mp4).map(|p| super::platform::preset(p).suffix)
+    /// The file-name part after the title: the platform, and the format when one is named
+    /// (`shorts 9x16`) — the files of a batch must not share a name.
+    fn suffix(&self) -> Option<String> {
+        let platform = self.preset.filter(|_| self.kind == ExportFormat::Mp4).map(|p| super::platform::preset(p).suffix);
+        let format = self.variant.map(super::formats::file_suffix).filter(|s| !s.is_empty());
+        let parts: Vec<&str> = platform.into_iter().chain(format).collect();
+        (!parts.is_empty()).then(|| parts.join(" "))
+    }
+
+    /// `doc` as the format this export is for.
+    fn format_doc(&self, doc: &EditDoc) -> Result<EditDoc, String> {
+        match self.variant {
+            None => Ok(doc.clone()),
+            Some(a) => super::formats::switch_variant(doc, a).ok_or_else(|| ERR_NO_FORMAT.to_string()),
+        }
     }
 }
+
+/// The project has no such format.
+pub const ERR_NO_FORMAT: &str = "record.editor.no_format";
+/// Set while a quiet export runs: its end raises neither the Finder nor a toast.
+static QUIET_EXPORT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Export kind, scene output size, fps and file extension.
 pub type ExportPlan = (ExportKind, (u32, u32), u32, &'static str);
@@ -850,9 +875,10 @@ impl Session {
 
     /// The scene an export with `opts` renders: the playable document with the voice at the
     /// chosen level.
-    fn export_scene(&self, opts: &ExportOptions, out: (u32, u32), fps: u32) -> Value {
+    fn export_scene(&self, opts: &ExportOptions, out: (u32, u32), fps: u32) -> Result<Value, String> {
         let has_mic = self.project.recording.mic.is_some();
-        self.scene_of(&super::platform::with_loudness(&self.play, opts.loudness, has_mic), out, fps)
+        let play = opts.format_doc(&self.play)?;
+        Ok(self.scene_of(&super::platform::with_loudness(&play, opts.loudness, has_mic), out, fps))
     }
 
     fn title(&self) -> String {
@@ -1107,12 +1133,16 @@ fn ui_notice(app: &AppHandle, notice: Notice, watched: bool) {
         }
         Notice::ExportDone { path } => {
             if !watched {
-                crate::commands::reveal_in_file_manager(Path::new(&path));
-                crate::status_toast::announce_keeping_popup(app, export_done_toast(&path));
+                // All but the last export of a batch end quietly: one Finder window, one toast.
+                if !QUIET_EXPORT.swap(false, Ordering::SeqCst) {
+                    crate::commands::reveal_in_file_manager(Path::new(&path));
+                    crate::status_toast::announce_keeping_popup(app, export_done_toast(&path));
+                }
             }
             let _ = app.emit(EV_EXPORT_DONE, serde_json::json!({ "path": path }));
         }
         Notice::ExportFailed { reason, cancelled } => {
+            QUIET_EXPORT.store(false, Ordering::SeqCst);
             let _ = app.emit(EV_EXPORT_FAILED, serde_json::json!({ "reason": reason, "cancelled": cancelled }));
         }
         Notice::Dead { reason } => {
@@ -1658,6 +1688,29 @@ pub fn auto_zoom(app: &AppHandle, session_id: u64) -> Result<EditorView, String>
         match with_auto_zooms(&s.doc, s.cursor.as_ref(), s.project.recording.duration_ms, &s.metas()) {
             Some(doc) => doc,
             None => return Ok(s.view()),
+        }
+    };
+    update(app, session_id, next)
+}
+
+// ---- Formats (stage 13) ---------------------------------------------------------------------
+
+/// `editor_variant`: switches to, adds or removes one of the project's formats; the UI records
+/// the returned document as one undo step. `op` = `switch` | `add` | `remove`.
+pub fn variant(app: &AppHandle, session_id: u64, op: &str, aspect: editor::Aspect) -> Result<EditorView, String> {
+    use super::formats;
+    let next = {
+        let guard = session();
+        let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+        match op {
+            "switch" => formats::switch_variant(&s.doc, aspect).ok_or(ERR_NO_FORMAT)?,
+            "add" if formats::ADDABLE.contains(&aspect) => {
+                let metas = s.metas();
+                let has_camera = (0..s.play.clips.len()).any(|i| editor::clip_camera(&s.project.recording, &metas, &s.play, i).is_some());
+                formats::add_variant(&s.doc, aspect, has_camera)
+            }
+            "remove" => formats::remove_variant(&s.doc, aspect),
+            _ => return Err(ERR_NO_FORMAT.into()),
         }
     };
     update(app, session_id, next)
@@ -2429,7 +2482,7 @@ pub fn export_info_of(opts: &ExportOptions, meta: &RecordingMeta, takes: &TakeMe
 pub fn export_info(opts: ExportOptions) -> Result<ExportInfo, String> {
     let guard = session();
     let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-    export_info_of(&opts, &s.project.recording, &s.metas(), &s.play)
+    export_info_of(&opts, &s.project.recording, &s.metas(), &opts.format_doc(&s.play)?)
 }
 
 /// Renders the frame at `programme_ms` as a JPEG next to the exports: the cover image for an
@@ -2439,7 +2492,8 @@ pub fn export_cover(app: &AppHandle, opts: ExportOptions, programme_ms: u64) -> 
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
         let mp4 = ExportOptions { kind: ExportFormat::Mp4, ..opts.clone() };
-        let (_, size, _, _) = export_plan(&mp4, &s.project.recording, &s.metas(), &s.play)?;
+        let play = opts.format_doc(&s.play)?;
+        let (_, size, _, _) = export_plan(&mp4, &s.project.recording, &s.metas(), &play)?;
         let total = editor::programme_duration_ms(&s.play);
         let frame = cover_frame(programme_ms, total, PREVIEW_FPS);
         let downloads = dirs::download_dir()
@@ -2451,7 +2505,7 @@ pub fn export_cover(app: &AppHandle, opts: ExportOptions, programme_ms: u64) -> 
             None => "cover".to_string(),
         };
         let path = export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), Some(&suffix), "jpg", |p| p.exists());
-        (s.scene(size, PREVIEW_FPS), frame, cover_width(size), path)
+        (s.scene_of(&play, size, PREVIEW_FPS), frame, cover_width(size), path)
     };
     let client = ensure_client(app, true)?;
     if client.exporting() {
@@ -2497,17 +2551,18 @@ pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
     let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
-        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc)?;
+        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &opts.format_doc(&s.doc)?)?;
         let downloads = dirs::download_dir()
             .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
             .filter(|d| d.is_dir())
             .ok_or(ERR_NO_DOWNLOADS)?;
-        let path = export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix(), ext, |p| p.exists());
-        (s.export_scene(&opts, size, fps), kind, path, sidecar_text(&s.play, &opts))
+        let path = export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix().as_deref(), ext, |p| p.exists());
+        (s.export_scene(&opts, size, fps)?, kind, path, sidecar_text(&s.play, &opts))
     };
     let client = ensure_client(app, true)?;
     let out = path.to_string_lossy().into_owned();
     client.export(scene, kind, out.clone())?;
+    QUIET_EXPORT.store(opts.quiet, Ordering::SeqCst);
     write_sidecar(&path, sidecar);
     Ok(out)
 }
@@ -2960,6 +3015,8 @@ pub struct EditParts<'a> {
     pub duration_ms: u64,
     pub takes: &'a TakeMetas,
     pub cursor: Option<&'a CursorRecording>,
+    /// Some playing clip has a camera (a new portrait format then starts stacked).
+    pub has_camera: bool,
 }
 
 /// A control edit: `f` makes the next document from the session's under the session lock (no
@@ -2983,6 +3040,7 @@ pub fn control_edit<T>(
             duration_ms: s.project.recording.duration_ms,
             takes: &metas,
             cursor: s.cursor.as_ref(),
+            has_camera: (0..s.play.clips.len()).any(|i| editor::clip_camera(&s.project.recording, &metas, &s.play, i).is_some()),
         };
         let (doc, out) = f(&parts)?;
         let (view, scene, cmds) = apply_update(&mut guard, session_id, doc, now_ms()).map_err(ControlError::sentinel)?;
@@ -3080,7 +3138,8 @@ pub fn control_export(
     let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
-        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &s.doc).map_err(ControlError::sentinel)?;
+        let doc = opts.format_doc(&s.doc).map_err(ControlError::sentinel)?;
+        let (kind, size, fps, ext) = export_plan(&opts, &s.project.recording, &s.metas(), &doc).map_err(ControlError::sentinel)?;
         let path = match out {
             Some(o) => super::control_ops::export_out(o, ext)?,
             None => {
@@ -3088,10 +3147,10 @@ pub fn control_export(
                     .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
                     .filter(|d| d.is_dir())
                     .ok_or_else(|| ControlError::sentinel(ERR_NO_DOWNLOADS))?;
-                export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix(), ext, |p| p.exists())
+                export_path(&downloads, &s.title(), chrono::Local::now().naive_local(), opts.suffix().as_deref(), ext, |p| p.exists())
             }
         };
-        (s.export_scene(&opts, size, fps), kind, path, sidecar_text(&s.play, &opts))
+        (s.export_scene(&opts, size, fps).map_err(ControlError::sentinel)?, kind, path, sidecar_text(&s.play, &opts))
     };
     let client = ensure_client(app, true).map_err(ControlError::sentinel)?;
     if client.exporting() {
@@ -3254,6 +3313,24 @@ mod tests {
         assert!(t.on);
         assert_eq!(t.subtitle, "Demo 2026-11-02 09.05.mp4");
         assert!(!t.title.is_empty() && t.title != "rec2.toast.exported");
+    }
+
+    #[test]
+    fn an_export_can_name_a_format_without_changing_the_document() {
+        let meta = RecordingMeta { width: 1920, height: 1080, duration_ms: 10_000, ..RecordingMeta::default() };
+        let mut d = editor::default_doc(&meta, None);
+        d.output.aspect = Aspect::W16H9;
+        let both = crate::record::formats::add_variant(&d, Aspect::W9H16, false);
+        let land = ExportOptions { variant: Some(Aspect::W16H9), ..Default::default() };
+        let port = ExportOptions { variant: Some(Aspect::W9H16), ..Default::default() };
+        let size = |o: &ExportOptions| export_plan(o, &meta, &TakeMetas::new(), &o.format_doc(&both).unwrap()).unwrap().1;
+        assert_eq!((size(&land), size(&port)), ((1920, 1080), (1080, 1920)));
+        assert_eq!(size(&ExportOptions::default()), (1080, 1920), "no format named: the active one");
+        let none = ExportOptions { variant: Some(Aspect::W1H1), ..Default::default() };
+        assert_eq!(none.format_doc(&both).unwrap_err(), ERR_NO_FORMAT);
+        // Old option objects (no `variant`, no `quiet`) still read.
+        let o: ExportOptions = serde_json::from_str(r#"{"kind":"mp4","target":"p1080","fps":30,"codec":"h264","gifWidth":640,"loopForever":true}"#).unwrap();
+        assert_eq!((o.variant, o.quiet), (None, false));
     }
 
     #[test]
@@ -3455,6 +3532,7 @@ mod tests {
             captions: Default::default(),
             effects: Vec::new(),
             mic_denoise: 0,
+            variants: Vec::new(),
         }
     }
 
@@ -4532,8 +4610,13 @@ mod tests {
         let taken = dir.join("Demo 2026-11-02 09.05 – shorts.mp4");
         assert_eq!(export_path(dir, "Demo", now, Some("shorts"), "mp4", |p| p == taken), dir.join("Demo 2026-11-02 09.05 – shorts 2.mp4"));
         let o = ExportOptions { preset: Some(Platform::Tiktok), ..Default::default() };
-        assert_eq!(o.suffix(), Some("tiktok"));
-        assert_eq!(ExportOptions { kind: ExportFormat::Gif, ..o }.suffix(), None, "a GIF is not a platform upload");
+        assert_eq!(o.suffix().as_deref(), Some("tiktok"));
+        assert_eq!(ExportOptions { kind: ExportFormat::Gif, ..o.clone() }.suffix(), None, "a GIF is not a platform upload");
+        // A named format is part of the name, so the files of a batch never collide.
+        assert_eq!(ExportOptions { variant: Some(Aspect::W9H16), ..o }.suffix().as_deref(), Some("tiktok 9x16"));
+        let land = ExportOptions { variant: Some(Aspect::W16H9), ..Default::default() };
+        assert_eq!(land.suffix().as_deref(), Some("16x9"));
+        assert_eq!(ExportOptions { variant: Some(Aspect::Auto), ..Default::default() }.suffix(), None);
     }
 
     #[test]

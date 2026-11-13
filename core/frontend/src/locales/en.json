@@ -5026,5 +5026,21 @@
   "rec12.clean.filler_note": "Only filler words the transcription wrote down are found; it often leaves them out.",
   "logi.refused.title": "{name} found, but macOS is blocking access",
   "logi.refused.body": "macOS is refusing requests to the mouse right now. Inspector Rust keeps trying every few seconds; the settings appear as soon as it answers.",
-  "logi.refused.secure": "Secure Input is on (a password field, or a terminal with secure keyboard entry). While it is on, macOS locks the mouse for apps. It connects by itself as soon as Secure Input ends."
+  "logi.refused.secure": "Secure Input is on (a password field, or a terminal with secure keyboard entry). While it is on, macOS locks the mouse for apps. It connects by itself as soon as Secure Input ends.",
+  "rec13.format.title": "Formats",
+  "rec13.format.auto": "Auto",
+  "rec13.format.source": "Original",
+  "rec13.format.switch_hint": "Formats of this project. Cuts, zooms and sound are shared; camera layout and caption position belong to each format.",
+  "rec13.format.add": "Format",
+  "rec13.format.add_hint": "Add another format of this project, for example 9:16 for Shorts, Reels and TikTok",
+  "rec13.format.portrait_note": "Shorts · Reels · TikTok",
+  "rec13.format.landscape_note": "YouTube",
+  "rec13.format.remove_hint": "Remove the format {format}",
+  "rec13.format.remove_confirm": "Remove?",
+  "rec13.export.formats": "Formats",
+  "rec13.export.formats_hint": "Each ticked format becomes its own file, one after the other.",
+  "rec13.export.batch_running": "Format {format} · {n} of {total}",
+  "rec13.export.batch_done": "{ok} of {total} exported",
+  "rec13.export.batch_failed": "{format}: failed",
+  "record.editor.no_format": "The project has no such format."
 }

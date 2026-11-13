@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { denoisePending, micFileFor } from "../lib/autocut";
-import { editorAutocutSuggest, editorDenoise, type RecordAutocutOpts } from "../lib/ipc";
+import { aspectSwitchTarget } from "../lib/formats";
+import { FormatBar } from "./editor/FormatBar";
+import { editorAutocutSuggest, editorDenoise, editorVariant, type RecordAspect, type RecordAutocutOpts } from "../lib/ipc";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Copy,
@@ -504,7 +506,17 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     return () => void off.then((u) => u());
   }, [report]);
 
-  const commit = useCallback((doc: RecordEditDoc) => void send(doc, true), [send]);
+  /** Set once `rustEdit` exists (below): switches to one of the project's formats. */
+  const switchFormat = useRef<(a: RecordAspect) => void>(() => undefined);
+  const commit = useCallback(
+    (doc: RecordEditDoc) => {
+      // An aspect the project keeps as its own format: switch to it, never overwrite it.
+      const target = history.current ? aspectSwitchTarget(history.current.present, doc) : null;
+      if (target) switchFormat.current(target);
+      else void send(doc, true);
+    },
+    [send],
+  );
 
   /** Transcription (captions + transcript tabs): the result is merged into the NEWEST document
    *  (pending edits included) and becomes one undo step. */
@@ -798,6 +810,13 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     },
     [report],
   );
+  const formatOp = useCallback(
+    (op: "switch" | "add" | "remove", aspect: RecordAspect) => rustEdit(() => editorVariant(sessionId.current, op, aspect)),
+    [rustEdit],
+  );
+  useEffect(() => {
+    switchFormat.current = (a) => formatOp("switch", a);
+  }, [formatOp]);
 
   const moveClip = useCallback(
     (from: number, to: number) => rustEdit(() => editorMoveClip(sessionId.current, from, to), () => setSelected(to)),
@@ -1299,6 +1318,14 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
           </span>
         )}
         <div className="flex-1" />
+        <FormatBar
+          formats={view.formats ?? [doc.output.aspect]}
+          active={doc.output.aspect}
+          disabled={!!voiceover || !!fatal}
+          onSwitch={(a) => formatOp("switch", a)}
+          onAdd={(a) => formatOp("add", a)}
+          onRemove={(a) => formatOp("remove", a)}
+        />
         <button
           className={iconBtn}
           onClick={() => {
@@ -1617,6 +1644,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
       {exportOpen && (
         <ExportDialog
           onClose={() => setExportOpen(false)}
+          formats={view.formats}
           aspect={doc.output.aspect}
           onAspect={(aspect) => commit({ ...(cur() ?? doc), output: { ...(cur() ?? doc).output, aspect } })}
           positionMs={pos}

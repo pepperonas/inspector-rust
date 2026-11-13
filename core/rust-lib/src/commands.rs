@@ -9440,6 +9440,59 @@ pub async fn mailcheck_run(email: String) -> Result<crate::mailcheck::MailCheckR
         .map_err(|e| format!("mailcheck task: {e}"))
 }
 
+// ── Logitech mouse (HID++) ───────────────────────────────────────────────────
+
+/// Cached status + stored configuration; no device traffic.
+#[tauri::command]
+pub fn logi_view(db: State<'_, DbHandle>) -> crate::logi::LogiView {
+    crate::logi::LogiView { status: crate::logi::status(), config: crate::logi::load(db.inner()) }
+}
+
+/// Read battery and settings from the mouse again (blocks on the device).
+#[tauri::command]
+pub async fn logi_refresh(db: State<'_, DbHandle>) -> Result<crate::logi::LogiView, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::logi::LogiView {
+        status: crate::logi::refresh(),
+        config: crate::logi::load(&db),
+    })
+    .await
+    .map_err(|e| format!("logi task: {e}"))
+}
+
+/// Save a configuration and write it to the connected mouse.
+#[tauri::command]
+pub async fn logi_set_config(
+    db: State<'_, DbHandle>,
+    config: crate::logi::LogiConfig,
+) -> Result<crate::logi::LogiView, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = crate::logi::save(&db, config)?;
+        let status = crate::logi::apply(config.clone());
+        Ok(crate::logi::LogiView { status, config })
+    })
+    .await
+    .map_err(|e| format!("logi task: {e}"))?
+}
+
+/// Ask for Input Monitoring and open its pane in System Settings.
+#[tauri::command]
+pub async fn logi_request_access() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let granted = crate::logi::request_access();
+        #[cfg(target_os = "macos")]
+        if !granted {
+            let _ = std::process::Command::new("/usr/bin/open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+                .status();
+        }
+        granted
+    })
+    .await
+    .map_err(|e| format!("logi task: {e}"))
+}
+
 #[cfg(test)]
 mod main_thread_tests {
     /// A SYNC `#[tauri::command]` runs ON the main thread; these spawn

@@ -29,6 +29,7 @@ mod commands;
 mod control;
 mod crypto;
 mod cursor_wrap;
+mod logi;
 mod cutout;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 mod cutout_ml;
@@ -584,6 +585,10 @@ pub fn run(context: tauri::Context<Wry>) {
                 cursor_wrap::apply(app.handle(), &db_handle, cw.inner());
             }
 
+            // Logitech mouse settings: one thread that sleeps until a
+            // Logitech Bluetooth mouse connects or the panel asks.
+            logi::start(app.handle());
+
             // boom audio engine — (re)start if it was left enabled (off by default).
             // The handle first: the idle gate talks to the webview's warm
             // AudioContext via the warm-audio-suspend/-resume events.
@@ -1004,6 +1009,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::loc_count,
             commands::loc_export,
             commands::bruno_export,
+            commands::logi_view,
+            commands::logi_refresh,
+            commands::logi_set_config,
+            commands::logi_request_access,
             #[cfg(target_os = "macos")]
             commands::bluetooth_list,
             #[cfg(target_os = "macos")]

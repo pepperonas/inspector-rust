@@ -91,6 +91,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   sec("record", ["record","aufnahme","recording","video"]),
   sec("meeting", ["meeting", "transkription", "transcription", "live transcription", "mitschrift", "whisper", "ticker", "laufband"]),
   sec("md2pdf", ["md2pdf", "pdf", "markdown", "fusszeile", "fußzeile", "footer", "sign"]),
+  sec("logi", ["logi", "logitech", "maus", "mouse", "mx master", "dpi", "smartshift", "scrollrad", "maustasten", "options+"]),
 ];
 
 export interface SettingsCategory {
@@ -112,7 +113,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   cat("keyboard", ["popup-hotkey", "history-hotkey", "global-shortcuts", "input-lock", "linux-shortcuts", "keyboard-shortcuts"]),
   cat("clipboard", ["clipboard-history", "clipboard-privacy", "paste", "capture"]),
   cat("snippets", ["snippets", "expander", "auto-expand", "direct-slots"]),
-  cat("desktop", ["gestures", "window", "window-palette", "cursor-wrap"]),
+  cat("desktop", ["gestures", "window", "window-palette", "cursor-wrap", "logi"]),
   cat("commands", ["timer-alarm", "timesheet", "pulse", "cleaning", "bruno", "faker", "figlet", "security", "meme", "md2pdf", "adb", "record", "meeting"]),
   cat("services", ["ai", "weather", "spotify", "pagespeed", "github", "repos"]),
   cat("sync", ["cloud-sync", "device-sync", "auto-backup", "backup"]),

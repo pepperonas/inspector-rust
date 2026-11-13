@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.257.0] — 2026-11-13
+
+### Added
+- **`logi` — Logitech mouse settings** (aliases `mouse`, `maus`; macOS). Configures a Logitech mouse connected directly by Bluetooth, without Logi Options+: battery level, pointer speed (the DPI steps the mouse offers), scroll wheel (SmartShift with its flick threshold, always line by line, always free-spinning, reversed direction on the mouse itself) and button actions. Every assignable button takes a press action and four hold-and-move actions (up, down, left, right) from the same set the trackpad gestures use: volume, mute, tab switching, any shortcut, any Inspector Rust action, an address or file, an AI task. The mouse forgets these settings on disconnect, so they are written again each time it connects. The same panel is in Settings → Logitech mouse.
+
+### Fixed
+- A test of the transcription pipeline removed the folder of a running session in one attempt and failed on CI when a file was written during the removal.
+
 ## [0.256.2] — 2026-11-13
 
 ### Fixed

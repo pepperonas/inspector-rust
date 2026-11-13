@@ -67,6 +67,7 @@ export type CommandKind =
   | "lumen"
   | "gestures"
   | "bluetooth"
+  | "logi"
   | "btsniff"
   | "mailcheck"
   | "clown"
@@ -589,6 +590,33 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "bt",
     description: "Bluetooth devices — alias of `bluetooth` (same command, short form).",
     description_de: "Bluetooth-Geräte — Alias von `bluetooth` (gleicher Befehl, Kurzform).",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
+    kind: "logi",
+    keyword: "logi",
+    syntax: "logi",
+    description: "Logitech mouse settings — pointer speed, scroll wheel, buttons and battery.",
+    description_de: "Logitech-Maus einstellen — Zeigergeschwindigkeit, Scrollrad, Tasten und Akku.",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
+    kind: "logi",
+    keyword: "mouse",
+    syntax: "mouse",
+    description: "Logitech mouse settings — alias of `logi`.",
+    description_de: "Logitech-Maus einstellen — Alias von `logi`.",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
+    kind: "logi",
+    keyword: "maus",
+    syntax: "maus",
+    description: "Logitech mouse settings — alias of `logi`.",
+    description_de: "Logitech-Maus einstellen — Alias von `logi`.",
     requiresArg: false,
     platform: ["mac"],
   },

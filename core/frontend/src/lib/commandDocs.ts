@@ -676,6 +676,37 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["loc", "faker"],
   },
   {
+    command: "logi",
+    aliases: ["mouse", "maus"],
+    category: CAT_SYS,
+    version_added: "0.257.0",
+    tagline: "Logitech mouse settings — pointer speed, scroll wheel, buttons, battery.",
+    tagline_de: "Logitech-Maus einstellen — Zeigergeschwindigkeit, Scrollrad, Tasten, Akku.",
+    synopsis: "logi   ·   mouse   ·   maus",
+    description:
+      "Configures a Logitech mouse that is connected directly by Bluetooth, without Logi Options+. The panel shows the **battery**, sets the **pointer speed** (the DPI steps the mouse offers), the **scroll wheel** (SmartShift with its flick threshold, always line by line, or always free-spinning; reversed direction on the mouse itself) and gives the **buttons** actions: volume, mute, tab switching, any shortcut, any Inspector Rust action, an address or file, or an AI task. Each button can also take four **hold-and-move** actions (hold the button, move the mouse up, down, left or right) — the pointer returns to where it was. The mouse forgets these settings when it disconnects, so they are written again every time it connects. The same panel sits in Settings → Logitech mouse.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "logi", result: "The mouse panel — battery, DPI chips, wheel mode, one row per button." },
+      { input: "mouse", result: "Same command." },
+      { input: "settings logitech", result: "The same panel inside the Settings tab." },
+      { input: "logi?", result: "This help." },
+    ],
+    tips: [
+      "Give the thumb button “Hold and move” actions for volume (up/down) and tab switching (left/right) — the classic Options+ gesture button.",
+      "Reverse the scroll direction here to keep natural scrolling on the trackpad and classic scrolling on the wheel.",
+      "“Send a shortcut” reaches every macOS function that has a key combination, e.g. Mission Control.",
+    ],
+    caveats: [
+      "macOS only, and only mice connected directly by Bluetooth — not through a Unifying or Bolt receiver.",
+      "Quit Logi Options+ while using this: both set the same things and overwrite each other.",
+      "A button with an action no longer does its own function, and a button with hold-and-move actions acts on release instead of on press.",
+      "macOS may ask for the Input Monitoring permission before the app can talk to the mouse.",
+    ],
+    related: ["bluetooth", "gestures", "settings"],
+  },
+  {
     command: "bluetooth",
     aliases: ["bt"],
     category: CAT_SYS,

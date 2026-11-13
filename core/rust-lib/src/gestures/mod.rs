@@ -1011,6 +1011,21 @@ fn seconds_since_last_keydown() -> f64 {
 /// capture callback never blocks; the toast is shown on the main thread (window
 /// op). Rapid re-triggers reuse the same toast (it updates in place — see
 /// `StatusToast.tsx`), they don't re-pop.
+/// Run one action outside a gesture (a mouse button, for one) through the
+/// same paths a gesture uses.
+pub(crate) fn perform_action(app: &tauri::AppHandle, action: &bindings::BindingAction) {
+    let binding = bindings::GestureBinding {
+        id: String::new(),
+        trigger: bindings::Trigger { kind: GestureKind::Tap, fingers: 3 },
+        typing_guard: false,
+        action: action.clone(),
+        app: None,
+        app_name: None,
+        enabled: true,
+    };
+    perform(app, &binding, DEFAULT_VOLUME_STEP);
+}
+
 fn perform(app: &tauri::AppHandle, binding: &bindings::GestureBinding, step: i32) {
     let action = binding.action.kind();
     tracing::debug!("gesture action: {action:?} (step {step})");

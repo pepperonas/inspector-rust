@@ -299,6 +299,28 @@ const CLEAN = {
 };
 CLEAN.total_bytes = CLEAN.dirs.reduce((a, d) => a + (d.size as number), 0);
 for (const c of CLEAN.categories) c[2] = CLEAN.dirs.filter((d) => d.category === c[0]).reduce((a, d) => a + (d.size as number), 0);
+/** An invented Logitech mouse for the `logi` panel. */
+const LOGI: { status: import("../lib/logi").LogiStatus; config: import("../lib/logi").LogiConfig } = {
+  status: {
+    supported: true,
+    connected: true,
+    permission_denied: false,
+    name: "MX Master",
+    battery: { percent: 80, charging: false },
+    dpi: { current: 1000, default: 1000, options: [400, 600, 800, 1000, 1200, 1400, 1600] },
+    wheel: { mode: "smart", threshold: 16 },
+    invert: false,
+    controls: [0x50, 0x51].map((cid) => ({ cid, divertable: false })).concat([0x52, 0x53, 0x56, 0xc3, 0xc4].map((cid) => ({ cid, divertable: true }))),
+    options_running: false,
+  },
+  config: {
+    dpi: 1000,
+    wheel: null,
+    invert: null,
+    buttons: { "195": { up: { type: "volume_up" }, down: { type: "volume_down" }, press: { type: "mute_toggle" } } },
+  },
+};
+
 const BT = [
   ["AirPods Pro", "a4-c3-f0-11-22-33", true, "Headphones"], ["Magic Keyboard", "3c-a6-f6-44-55-66", true, "Keyboard"],
   ["MX Master 3S", "d4-9c-dd-77-88-99", true, "Device"], ["Bose SoundLink", "04-52-c7-aa-bb-cc", false, "Speaker"],
@@ -1079,6 +1101,15 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "cleaner_status": return { phase: "idle", view: null };
     case "cleaner_scan": return CLEAN;
     case "bluetooth_list": return BT;
+    case "logi_view":
+    case "logi_refresh":
+      return LOGI;
+    case "logi_set_config": {
+      LOGI.config = args.config as typeof LOGI.config;
+      if (LOGI.config.dpi && LOGI.status.dpi) LOGI.status.dpi.current = LOGI.config.dpi;
+      return LOGI;
+    }
+    case "logi_request_access": return true;
     case "list_processes": return PROCS;
     case "social_metadata": return { ...SOCIAL, url: String(args.url ?? "") };
     case "social_ytdlp_available": return true;

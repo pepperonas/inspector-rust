@@ -103,6 +103,7 @@ const GesturesPanel = lazy(() =>
 );
 const LumenPanel = lazy(() => import("./components/LumenPanel").then((m) => ({ default: m.LumenPanel })));
 const RecordPanel = lazy(() => import("./components/RecordPanel").then((m) => ({ default: m.RecordPanel })));
+const LogiPanel = lazy(() => import("./components/LogiPanel").then((m) => ({ default: m.LogiPanel })));
 const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
 const RandomPanel = lazy(() => import("./components/RandomPanel").then((m) => ({ default: m.RandomPanel })));
 const CommandHelp = lazy(() => import("./components/CommandHelp"));
@@ -1767,6 +1768,19 @@ function App() {
     }
   }, [isBluetoothCmd, bluetoothMode]);
 
+  // `logi` / `mouse` -- Logitech mouse settings. Shows while fully typed (the
+  // panel reads a cached status); Enter hands it the keyboard.
+  const isLogiCmd = parsedCommand?.spec.kind === "logi";
+  const [logiMode, setLogiMode] = useState(false);
+  const [logiFocus, setLogiFocus] = useState(false);
+  useEffect(() => {
+    if (isLogiCmd && !logiMode) setLogiMode(true);
+    else if (!isLogiCmd && logiMode) {
+      setLogiMode(false);
+      setLogiFocus(false);
+    }
+  }, [isLogiCmd, logiMode]);
+
   // `dezibel` / `db` -- live mic loudness in the preview. Enter-activated on
   // purpose: the house rule is that a panel which OPENS THE MICROPHONE must
   // never start from a stray keystroke (same as `shazam` and bare `iris`).
@@ -2105,6 +2119,10 @@ function App() {
       case "bluetooth":
         label = t("cmd.bt.label");
         hint = t("cmd.bt.hint");
+        break;
+      case "logi":
+        label = t("cmd.logi.label");
+        hint = t("cmd.logi.hint");
         break;
       case "8bit":
       case "16bit": {
@@ -4376,6 +4394,8 @@ function App() {
     setDezibelMode(false);
     setBluetoothMode(false);
     setBluetoothFocus(false);
+    setLogiMode(false);
+    setLogiFocus(false);
     setRecordMode(false);
     setRecordFocus(false);
     // The calibration panel is transient like the other view modes. The
@@ -4522,7 +4542,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert", "8bit", "16bit", "transcribe", "spotify", "github", "record", "meeting",
+        "brightness", "sound", "hue", "stats", "lumen", "gestures", "boom", "uptime", "weather", "ip", "speedtest", "pulse", "tokens", "limits", "task", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "logi", "convert", "8bit", "16bit", "transcribe", "spotify", "github", "record", "meeting",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4562,6 +4582,11 @@ function App() {
       if (commandKind === "bluetooth") {
         setBluetoothMode(true);
         setBluetoothFocus(true);
+        return true;
+      }
+      if (commandKind === "logi") {
+        setLogiMode(true);
+        setLogiFocus(true);
         return true;
       }
       if (commandKind === "8bit" || commandKind === "16bit") {
@@ -5673,6 +5698,7 @@ function App() {
       !gameMode &&
       !bpmMode &&
       !bluetoothFocus &&
+      !logiFocus &&
       !recordFocus &&
       !equalizerMode &&
       !totpMode &&
@@ -6446,6 +6472,16 @@ function App() {
                       focused={bluetoothFocus}
                       onExit={() => {
                         setBluetoothFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : logiMode ? (
+                  <div className="md3-pop-in h-full">
+                    <LogiPanel
+                      focused={logiFocus}
+                      onExit={() => {
+                        setLogiFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

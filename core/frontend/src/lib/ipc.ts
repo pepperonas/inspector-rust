@@ -6152,3 +6152,22 @@ export function meetingInputDevices(): Promise<string[]> {
 export function meetingDisplays(): Promise<string[]> {
   return invoke("meeting_displays");
 }
+
+// ── Logitech mouse (`logi`) ──────────────────────────────────────────────────
+
+/** Cached status + stored configuration (no device traffic). */
+export function logiView(): Promise<import("./logi").LogiView> {
+  return invoke("logi_view");
+}
+/** Reads battery and settings from the mouse again. */
+export function logiRefresh(): Promise<import("./logi").LogiView> {
+  return invoke("logi_refresh");
+}
+/** Saves the configuration and writes it to the connected mouse. */
+export function logiSetConfig(config: import("./logi").LogiConfig): Promise<import("./logi").LogiView> {
+  return invoke("logi_set_config", { config });
+}
+/** Asks for Input Monitoring; opens its settings pane when not granted. */
+export function logiRequestAccess(): Promise<boolean> {
+  return invoke("logi_request_access");
+}

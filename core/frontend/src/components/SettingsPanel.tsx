@@ -37,6 +37,7 @@ import {
   LayoutGrid,
   Upload,
   Volume2,
+  Mouse,
   MousePointerClick,
   Wand2,
   Dices,
@@ -246,6 +247,7 @@ import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { confirmDialog } from "../lib/confirm";
 import { HotkeyCapture } from "./HotkeyCapture";
+import { LogiPanel } from "./LogiPanel";
 import { GlobalShortcutsSection } from "./GlobalShortcutsSection";
 import { GestureBindingsSection } from "./GestureBindingsSection";
 
@@ -1455,6 +1457,21 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </div>
                 </Row>
               )}
+            </Section>
+          </div>
+        )
+    ),
+    /* Logitech mouse — the `logi` panel, embedded (macOS). */
+    "logi": (
+        IS_MAC && (
+          <div className="mb-6">
+            <Section
+              icon={<Mouse size={16} className="text-[var(--color-accent)]" />}
+              id="logi"
+              title={t("settings.section.logi")}
+              subtitle={t("set.logi.subtitle")}
+            >
+              <LogiPanel focused={false} onExit={() => {}} embedded />
             </Section>
           </div>
         )

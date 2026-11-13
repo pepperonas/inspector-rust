@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.263.1] — 2026-11-13
+
+### Fixed
+- Touchpad gestures came back only after a two-finger scroll when an external mouse was attached. If the touch capture stopped delivering (it does now and then, for example after a display change), a three-finger swipe or a tap gave the app no sign that the trackpad was in use, so nothing was repaired — gestures stayed dead for hours. Any touch on the trackpad now counts as that sign, and the capture is rebuilt within about 15 seconds.
+
 ## [0.263.0] — 2026-11-13
 
 ### Added

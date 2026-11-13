@@ -2765,7 +2765,9 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
 // that combination means the registration is dead, not the user idle.
 
 /// A finger-driven (trackpad) scroll counts as "trackpad in use" this long.
-pub const LIVENESS_TRACKPAD_ACTIVE_MS: u64 = 12_000;
+/// Longer than the watchdog's 15-s tick, so a short gesture between two ticks
+/// is still inside the window at the next one.
+pub const LIVENESS_TRACKPAD_ACTIVE_MS: u64 = 20_000;
 /// … and the registration is dead if its last multitouch frame is at least
 /// this much OLDER than that scroll. A live trackpad delivers frames during
 /// every finger scroll, so the gap is ~0; the margin only absorbs timing slop
@@ -2882,6 +2884,14 @@ pub fn trackpad_use_ms(
     }
 }
 
+/// Pure: the more recent of two "trackpad was used" proofs (ms ago).
+pub fn newest_proof(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 /// Rebuild the gesture capture after system sleep. The private
 /// MultitouchSupport registration goes stale across sleep/wake — the run loop
 /// keeps spinning but the device delivers no (or late/erratic) frames, so
@@ -2944,7 +2954,11 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                         continue; // gestures off — nothing to heal
                     }
                     let since_frame = macos::ms_since_last_frame();
-                    let since_scroll = macos::ms_since_trackpad_scroll();
+                    // A finger scroll or any touch event: both come only from
+                    // a multitouch surface, so both hold with a mouse attached.
+                    let since_touch = macos::ms_since_trackpad_touch();
+                    let since_scroll =
+                        newest_proof(macos::ms_since_trackpad_scroll(), since_touch);
                     if since_frame.is_some_and(|ms| ms < LIVENESS_GAP_MS) {
                         cooldown_s = LIVENESS_COOLDOWN_S; // healthy → drop the backoff
                         continue;
@@ -2984,6 +2998,8 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                         let ago = since_use.unwrap_or(0) / 1000;
                         let how = if !external && since_scroll.is_none_or(|s| since_pointer.is_some_and(|p| p < s)) {
                             "trackpad used"
+                        } else if since_touch.is_some() && since_touch == since_scroll {
+                            "trackpad touched"
                         } else {
                             "trackpad scrolled"
                         };
@@ -3286,6 +3302,30 @@ mod tests {
     }
 
     // ── scroll_tap_deaf (expanded boundaries) ────────────────────────────
+
+    #[test]
+    fn a_touch_without_a_scroll_is_proof_of_trackpad_use() {
+        // Mouse attached, 3-finger swipe 2 s ago, no scroll at all, capture
+        // silent for a minute: the touch alone must trigger the rebuild.
+        let proof = newest_proof(None, Some(2_000));
+        assert_eq!(proof, Some(2_000));
+        assert!(liveness_should_rebuild(Some(60_000), proof, u64::MAX, 0));
+        // The newer proof wins, in either position.
+        assert_eq!(newest_proof(Some(9_000), Some(2_000)), Some(2_000));
+        assert_eq!(newest_proof(Some(1_000), Some(2_000)), Some(1_000));
+        assert_eq!(newest_proof(Some(3_000), None), Some(3_000));
+        assert_eq!(newest_proof(None, None), None);
+        // No proof, no rebuild.
+        assert!(!liveness_should_rebuild(Some(60_000), newest_proof(None, None), u64::MAX, 0));
+    }
+
+    #[test]
+    fn the_proof_window_outlasts_the_watchdog_tick() {
+        // The watchdog looks every 15 s; a gesture right after one look must
+        // still count at the next.
+        const { assert!(LIVENESS_TRACKPAD_ACTIVE_MS > 15_000) };
+        assert!(liveness_should_rebuild(Some(120_000), Some(15_500), u64::MAX, 0));
+    }
 
     #[test]
     fn scroll_tap_deaf_at_the_exact_gap_boundary() {

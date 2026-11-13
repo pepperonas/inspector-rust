@@ -121,6 +121,9 @@ const CG_SESSION_EVENT_TAP: u32 = 1;
 const CG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 const CG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
 const CG_EVT_SCROLL_WHEEL: u32 = 22;
+/// `NSEventTypeGesture`: the window server sends one for every touch frame of
+/// a multitouch surface (trackpad, Magic Mouse) — never for a plain mouse.
+const CG_EVT_GESTURE: u32 = 29;
 const CG_EVT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const CG_EVT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 #[link(name = "ApplicationServices", kind = "framework")]
@@ -370,6 +373,14 @@ static LAST_TRACKPAD_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
 /// once, the watchdog never fired, gestures stayed dead for hours).
 static LAST_ANY_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
 
+/// Time (ms since `START`) of the last touch event (`NSEventTypeGesture`) the
+/// tap saw; `0` = none. Fingers on the pad produce these whether or not they
+/// scroll, so a 3-finger swipe or a tap is proof of trackpad use even with an
+/// external mouse attached (field case 2026-11-13: mouse user, registration
+/// deaf for hours, no scroll → nothing healed).
+static LAST_TRACKPAD_TOUCH_MS: AtomicU64 = AtomicU64::new(0);
+static TOUCH_EVENT_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// The scroll tap swallows scroll-wheel events until this timestamp (ms since
 /// `START`). Each ≥3-finger multitouch frame pushes it to `now + GRACE_MS`, so
@@ -426,6 +437,16 @@ pub(crate) fn ms_since_last_frame() -> Option<u64> {
 /// Milliseconds since the last finger-driven scroll, `None` = none yet.
 pub(crate) fn ms_since_trackpad_scroll() -> Option<u64> {
     let last = LAST_TRACKPAD_SCROLL_MS.load(Ordering::Relaxed);
+    if last == 0 {
+        return None;
+    }
+    let now = START.get()?.elapsed().as_millis() as u64;
+    Some(now.saturating_sub(last))
+}
+
+/// Milliseconds since the tap last saw a touch event, `None` = none yet.
+pub(crate) fn ms_since_trackpad_touch() -> Option<u64> {
+    let last = LAST_TRACKPAD_TOUCH_MS.load(Ordering::Relaxed);
     if last == 0 {
         return None;
     }
@@ -832,6 +853,16 @@ extern "C" fn scroll_tap_callback(
                 event
             }
         }
+        CG_EVT_GESTURE => {
+            let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+            if now > 0 {
+                LAST_TRACKPAD_TOUCH_MS.store(now, Ordering::Relaxed);
+                if !TOUCH_EVENT_LOGGED.swap(true, Ordering::Relaxed) {
+                    tracing::info!("gestures(mac): tap sees touch events (liveness proof armed)");
+                }
+            }
+            event
+        }
         _ => event,
     }
 }
@@ -841,7 +872,7 @@ extern "C" fn scroll_tap_callback(
 /// swipe won't be consumed). The tap's run-loop source also keeps this thread's
 /// run loop alive.
 unsafe fn install_scroll_tap() -> bool {
-    let mask = 1u64 << CG_EVT_SCROLL_WHEEL;
+    let mask = (1u64 << CG_EVT_SCROLL_WHEEL) | (1u64 << CG_EVT_GESTURE);
     let tap = CGEventTapCreate(
         CG_SESSION_EVENT_TAP,
         CG_HEAD_INSERT_EVENT_TAP,

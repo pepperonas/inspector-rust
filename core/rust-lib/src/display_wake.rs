@@ -58,11 +58,60 @@ fn schedule(app: &tauri::AppHandle, why: &'static str) {
         });
 }
 
+/// The name of the one notification that is NOT a wake.
+pub const SCREEN_PARAMS: &str = "NSApplicationDidChangeScreenParametersNotification";
+
+/// Pure: does this notification call for the full re-arm (gesture capture +
+/// OCR warm-up), or only for the brightness tables?
+///
+/// A wake always does. A screen-parameter change does only when the set of
+/// displays or their geometry really changed: an external display that
+/// renegotiates its link posts that notification every few minutes with
+/// nothing different (35–220 a day in the field logs), and tearing down the
+/// touch capture and warming the OCR model each time was pure churn. The
+/// brightness tables are re-applied either way — macOS resets them on every
+/// reconfiguration, and writing them is cheap.
+pub fn full_rearm(why: &str, layout_changed: bool) -> bool {
+    why != SCREEN_PARAMS || layout_changed
+}
+
+/// The display layout last seen (physical rects of every active display).
+static LAYOUT: parking_lot::Mutex<Option<Layout>> = parking_lot::Mutex::new(None);
+
+/// Physical rect (x, y, width, height) of every active display.
+type Layout = Vec<(i32, i32, u32, u32)>;
+
+#[cfg(target_os = "macos")]
+fn current_layout() -> Layout {
+    crate::display_rects::physical_rects()
+}
+#[cfg(not(target_os = "macos"))]
+fn current_layout() -> Layout {
+    Vec::new()
+}
+
+/// Remember the layout and say whether it differs from the last one seen.
+fn layout_changed() -> bool {
+    let now = current_layout();
+    let mut last = LAYOUT.lock();
+    let changed = last.as_ref() != Some(&now);
+    *last = Some(now);
+    changed
+}
+
 fn reapply(app: &tauri::AppHandle, why: &str) {
     use tauri::Manager as _;
     let Some(db) = app.try_state::<crate::db::DbHandle>() else { return };
-    tracing::info!("display-wake: {why} — re-applying brightness and the gesture capture");
+    let full = full_rearm(why, layout_changed());
+    if full {
+        tracing::info!("display-wake: {why} — re-applying brightness and the gesture capture");
+    } else {
+        tracing::debug!("display-wake: {why}, same displays — brightness only");
+    }
     crate::brightness::restore_saved(app, &db);
+    if !full {
+        return;
+    }
     if let Some(state) = app.try_state::<crate::gestures::GestureState>() {
         // `apply` is a no-op when gestures are off; when on, it restarts the
         // capture, which re-registers with MultitouchSupport.
@@ -120,6 +169,8 @@ pub fn install(app: &tauri::AppHandle) {
             }
         }
     }
+    // The layout at start is the baseline for "did the displays change?".
+    let _ = layout_changed();
     tracing::info!("display-wake: observers armed");
 }
 
@@ -148,6 +199,19 @@ mod tests {
         assert!(NOTIFICATIONS
             .iter()
             .any(|&(c, n)| c == Center::Local && n == "NSApplicationDidChangeScreenParametersNotification"));
+    }
+
+    #[test]
+    fn a_renegotiating_display_does_not_rebuild_the_touch_capture() {
+        // Same displays, only the screen-parameter notification: brightness only.
+        assert!(!full_rearm(SCREEN_PARAMS, false));
+        // A display was added, removed or changed size: full re-arm.
+        assert!(full_rearm(SCREEN_PARAMS, true));
+        // A wake always re-arms, changed layout or not.
+        assert!(full_rearm("NSWorkspaceScreensDidWakeNotification", false));
+        assert!(full_rearm("NSWorkspaceDidWakeNotification", false));
+        // The constant names a notification we actually listen for.
+        assert!(NOTIFICATIONS.iter().any(|&(_, n)| n == SCREEN_PARAMS));
     }
 
     #[test]

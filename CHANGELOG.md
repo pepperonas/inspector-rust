@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.256.2] — 2026-11-13
+
+### Fixed
+- **The touch capture is no longer rebuilt over and over when a mouse is connected.** Some mice — a Logitech MX Master over Bluetooth, for one — introduce themselves to macOS as a keyboard first and list the mouse only among their further functions. The app read just the first entry, saw no external mouse, took every mouse movement for trackpad use without touch data, and rebuilt the gesture capture 100 to 275 times a day. It now reads every function a device declares.
+- **An external display that renegotiates its connection no longer restarts the gesture capture and the OCR warm-up.** macOS reports such a renegotiation as a display change every few minutes; when the set of displays and their sizes are the same as before, only the brightness is re-applied. A real wake or a changed display setup still re-arms everything.
+
 ## [0.256.1] — 2026-11-13
 
 ### Changed

@@ -2835,6 +2835,16 @@ pub fn is_external_pointer(usage_page: u32, usage: u32, built_in: bool) -> bool 
     )
 }
 
+/// Pure: does a HID device with these declared usages count as an external
+/// pointing device? ANY pointer-like usage is enough: a composite device
+/// (Logitech MX Master: primary usage Keyboard, plus Mouse and Pointer) is a
+/// mouse even though its primary usage says otherwise. Reading only the
+/// primary usage made that mouse invisible, every one of its moves counted as
+/// "trackpad in use", and the touch capture was rebuilt 100–275 times a day.
+pub fn is_external_pointer_device(usages: &[(u32, u32)], built_in: bool) -> bool {
+    usages.iter().any(|&(page, usage)| is_external_pointer(page, usage, built_in))
+}
+
 /// Pure: how long ago was the trackpad demonstrably in use, for the liveness
 /// heal? A finger scroll is always valid proof (only a multitouch surface makes
 /// one). A bare pointer move is proof too — but ONLY when no external pointing
@@ -3117,6 +3127,28 @@ mod tests {
     }
 
     // ── External-pointer classification (expanded) ───────────────────────
+
+    #[test]
+    fn a_composite_mouse_whose_primary_usage_is_keyboard_is_an_external_pointer() {
+        // The usages a Logitech MX Master declares over Bluetooth LE
+        // (ioreg, 2026-11-13): primary = Keyboard.
+        let mx_master = [(0x01, 0x06), (0x01, 0x02), (0x01, 0x01), (0xFF43, 0x202)];
+        assert!(is_external_pointer_device(&mx_master, false));
+        // A plain keyboard, a YubiKey and a device without usages are not.
+        assert!(!is_external_pointer_device(&[(0x01, 0x06), (0x0C, 0x01)], false));
+        assert!(!is_external_pointer_device(&[(0xF1D0, 0x01)], false));
+        assert!(!is_external_pointer_device(&[], false));
+        // The built-in trackpad declares a mouse usage too and must not count.
+        assert!(!is_external_pointer_device(&[(0x01, 0x02), (0x0D, 0x05)], true));
+    }
+
+    /// Live: prints what the probe sees on this machine.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore]
+    fn external_pointer_live() {
+        println!("has_external_pointer = {}", macos::has_external_pointer());
+    }
 
     #[test]
     fn is_external_pointer_accepts_every_pointer_like_usage() {

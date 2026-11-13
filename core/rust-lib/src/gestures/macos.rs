@@ -493,6 +493,11 @@ extern "C" {
         encoding: u32,
     ) -> CFStringRef;
     fn CFBooleanGetValue(b: *const c_void) -> bool;
+    fn CFDictionaryGetValue(dict: *const c_void, key: *const c_void) -> *const c_void;
+    fn CFGetTypeID(cf: *const c_void) -> usize;
+    fn CFArrayGetTypeID() -> usize;
+    fn CFDictionaryGetTypeID() -> usize;
+    fn CFNumberGetTypeID() -> usize;
     // Signature matches the declaration in `ambient_light.rs` (i32 type tag) to
     // avoid a clashing-extern-declarations warning — it's the same C symbol.
     fn CFNumberGetValue(num: *const c_void, the_type: i32, value_ptr: *mut c_void) -> bool;
@@ -524,6 +529,42 @@ unsafe fn read_cf_bool(entry: IoObject, key: CFStringRef) -> bool {
     b
 }
 
+unsafe fn cf_number_i32(v: *const c_void) -> Option<i32> {
+    if v.is_null() || CFGetTypeID(v) != CFNumberGetTypeID() {
+        return None;
+    }
+    let mut out: i32 = 0;
+    CFNumberGetValue(v, K_CFNUMBER_INT_TYPE, &mut out as *mut i32 as *mut c_void).then_some(out)
+}
+
+/// Every (usage page, usage) a HID device declares: `DeviceUsagePairs`, an
+/// array of `{DeviceUsagePage, DeviceUsage}`. A composite device names only
+/// ONE of them as its primary usage — a Logitech MX Master's is Keyboard,
+/// its mouse lives in this list.
+unsafe fn read_usage_pairs(entry: IoObject, key_pairs: CFStringRef, key_page: CFStringRef, key_usage: CFStringRef) -> Vec<(u32, u32)> {
+    let arr = IORegistryEntryCreateCFProperty(entry, key_pairs, std::ptr::null(), 0);
+    if arr.is_null() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if CFGetTypeID(arr) == CFArrayGetTypeID() {
+        let n = CFArrayGetCount(arr as CFArrayRef);
+        for i in 0..n.min(64) {
+            let d = CFArrayGetValueAtIndex(arr as CFArrayRef, i);
+            if d.is_null() || CFGetTypeID(d) != CFDictionaryGetTypeID() {
+                continue;
+            }
+            let page = cf_number_i32(CFDictionaryGetValue(d, key_page));
+            let usage = cf_number_i32(CFDictionaryGetValue(d, key_usage));
+            if let (Some(p), Some(u)) = (page, usage) {
+                out.push((p as u32, u as u32));
+            }
+        }
+    }
+    CFRelease(arr);
+    out
+}
+
 fn probe_external_pointer() -> bool {
     unsafe {
         let matching = IOServiceMatching(c"IOHIDDevice".as_ptr());
@@ -547,6 +588,10 @@ fn probe_external_pointer() -> bool {
         );
         let key_builtin =
             CFStringCreateWithCString(std::ptr::null(), c"Built-In".as_ptr(), K_CFSTRING_ENCODING_UTF8);
+        let cf = |name: &std::ffi::CStr| CFStringCreateWithCString(std::ptr::null(), name.as_ptr(), K_CFSTRING_ENCODING_UTF8);
+        let key_pairs = cf(c"DeviceUsagePairs");
+        let key_dpage = cf(c"DeviceUsagePage");
+        let key_dusage = cf(c"DeviceUsage");
         let mut found = false;
         loop {
             let dev = IOIteratorNext(iter);
@@ -556,15 +601,22 @@ fn probe_external_pointer() -> bool {
             let page = read_cf_i32(dev, key_page);
             let usage = read_cf_i32(dev, key_usage);
             let built_in = read_cf_bool(dev, key_builtin);
+            let mut usages = read_usage_pairs(dev, key_pairs, key_dpage, key_dusage);
             IOObjectRelease(dev);
             if let (Some(p), Some(u)) = (page, usage) {
-                if super::is_external_pointer(p as u32, u as u32, built_in) {
-                    found = true;
-                    break;
-                }
+                usages.push((p as u32, u as u32));
+            }
+            if super::is_external_pointer_device(&usages, built_in) {
+                found = true;
+                break;
             }
         }
         IOObjectRelease(iter);
+        for k in [key_pairs, key_dpage, key_dusage] {
+            if !k.is_null() {
+                CFRelease(k);
+            }
+        }
         if !key_page.is_null() {
             CFRelease(key_page);
         }

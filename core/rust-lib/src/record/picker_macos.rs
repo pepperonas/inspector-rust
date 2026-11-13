@@ -145,6 +145,7 @@ impl Picked {
                 ),
                 SourceKind::Window => crate::i18n::t("rec2.source_window"),
                 SourceKind::Region => region_label(rect.size.width, rect.size.height),
+                SourceKind::Camera => String::new(),
             };
         }
     }
@@ -347,7 +348,7 @@ pub fn present(app: &AppHandle, kind: SourceKind) -> Result<(), String> {
             let cfg = SCContentSharingPickerConfiguration::new();
             let (mode, style) = match kind {
                 SourceKind::Window => (SCContentSharingPickerMode::SingleWindow, SCShareableContentStyle::Window),
-                SourceKind::Display | SourceKind::Region => {
+                SourceKind::Display | SourceKind::Region | SourceKind::Camera => {
                     (SCContentSharingPickerMode::SingleDisplay, SCShareableContentStyle::Display)
                 }
             };

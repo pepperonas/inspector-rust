@@ -190,6 +190,7 @@ fn start_schema() -> Value {
             "mic": {"type": ["boolean", "string"], "description": "true = the configured microphone, or a microphone id/name (from record_sources)."},
             "systemAudio": {"type": "boolean"},
             "camera": {"type": ["boolean", "string"], "description": "true = the configured camera, or a camera id/name."},
+            "cameraOnly": {"type": "boolean", "description": "Record the camera alone (no screen, no system sound, no pointer data); not together with display/window/area."},
             "countdown": {"type": "boolean", "description": "Show the 3-s countdown first (default false)."},
             "title": {"type": "string"}
         }),

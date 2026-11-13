@@ -37,7 +37,7 @@ Projects (<project> = folder name from `list`, or an absolute path):
 Recording:
   sources                           displays, windows, microphones, cameras
   record [--display Q | --window Q] [--[no-]mic] [--[no-]system-audio]
-         [--[no-]camera] [--mic-device Q] [--camera-device Q]
+         [--[no-]camera] [--camera-only] [--mic-device Q] [--camera-device Q]
          [--no-countdown] [--title T] [--duration S]
                                     without --duration, Ctrl+C stops;
                                     mic/audio/camera not given = app setting
@@ -277,6 +277,7 @@ pub fn parse_with(
                     "--no-mic",
                     "--no-system-audio",
                     "--no-camera",
+                    "--camera-only",
                     "--no-countdown",
                 ],
             )?;
@@ -308,6 +309,15 @@ pub fn parse_with(
                     }
                     (false, false) => {}
                 }
+            }
+            if a.has("--camera-only") {
+                if a.get("--display").is_some() || a.get("--window").is_some() {
+                    return usage("record: --camera-only records no screen; leave out --display/--window");
+                }
+                if a.has("--no-camera") {
+                    return usage("record: give --camera-only or --no-camera, not both");
+                }
+                params.insert("cameraOnly".into(), json!(true));
             }
             // A named device switches its track on (and wins over the bare flag).
             for (flag, off, key) in [("--mic-device", "--no-mic", "mic"), ("--camera-device", "--no-camera", "camera")] {
@@ -927,6 +937,10 @@ mod tests {
         let Command::Record(r) = cmd("record --mic --mic-device Yeti") else { panic!() };
         assert_eq!(r.params.get("mic"), Some(&json!("Yeti")));
         assert!(err("record --no-mic --mic-device Yeti").contains("not both"));
+        let Command::Record(r) = cmd("record --camera-only --mic") else { panic!() };
+        assert_eq!(r.params.get("cameraOnly"), Some(&json!(true)));
+        assert!(err("record --camera-only --display 1").contains("no screen"));
+        assert!(err("record --camera-only --no-camera").contains("not both"));
         assert!(err("record --duration 0").contains("--duration"));
         assert!(err("record --duration soon").contains("--duration"));
         assert!(err("record --display").contains("needs a value"));

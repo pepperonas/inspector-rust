@@ -27,7 +27,7 @@ The app writes a discovery file (`control.json`: socket, token) into its data di
 | `info <p>` | project metadata and timeline view |
 | `doc <p>` | the edit document and view (region ids, clip indices) |
 | `sources` | displays, windows, microphones, cameras |
-| `record [--display Q \| --window Q] [--[no-]mic] [--[no-]system-audio] [--[no-]camera] [--mic-device Q] [--camera-device Q] [--no-countdown] [--title T] [--duration S]` | start a take; waits for `--duration` or Ctrl+C, then stops and prints the project path. `Q` = id (number) or name part. Microphone, system sound and camera: `--x` on, `--no-x` off, neither = the app's setting. A window take records only that app's sound |
+| `record [--display Q \| --window Q] [--[no-]mic] [--[no-]system-audio] [--[no-]camera] [--camera-only] [--mic-device Q] [--camera-device Q] [--no-countdown] [--title T] [--duration S]` | start a take; waits for `--duration` or Ctrl+C, then stops and prints the project path. `Q` = id (number) or name part. Microphone, system sound and camera: `--x` on, `--no-x` off, neither = the app's setting. A window take records only that app's sound |
 | `stop`, `pause`, `resume`, `status` | control the running take |
 | `export <p> [--format mp4\|gif] [--quality p720\|p1080\|p1440\|p2160\|source] [--preset youtube\|shorts\|reels\|tiktok] [--bitrate auto\|small\|standard\|high\|max\|MBIT] [--loudness -16\|-14] [--captions srt\|vtt] [--fps N] [--codec h264\|hevc] [--gif-width N] [-o PATH]` | export; prints the file path |
 | `transcribe <p> [--lang de\|en\|auto]` | transcribe on the Mac, merge into the doc |
@@ -58,6 +58,8 @@ Human mode: the result on stdout (table for `list`, path for `export`/`stop`), p
 `0` ok. `2` usage errors and usage-type sentinels (`bad_request`, `*.bad_params`, `*.bad_op`, `*.bad_project`, `*.confirm_required`, `*.ambiguous`, `*.no_match`, ...). `1` everything else: `record.permission` (Screen Recording not granted), `record.busy`, `record.unsupported`, client errors (not running, token, interrupted), and a stop that did not end `ready`.
 
 Ctrl+C stops a recording (`record` without `--duration`) or cancels a running export/transcription (the connection closes, the app aborts the job; exit 1). Ctrl+C during the countdown cancels the take before it starts — nothing is recorded, no project is left behind (exit 1).
+
+`record --camera-only` records the camera alone — no screen, no system sound, no pointer data, and no Screen Recording permission is needed; the camera's picture is the take's video (not together with `--display`/`--window`).
 
 `record --mic-device` / `--camera-device` take an id or a name from `sources` and switch that track on; a microphone that is not connected at start is replaced by the system default input (the control bar says so).
 

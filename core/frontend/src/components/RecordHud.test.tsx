@@ -298,3 +298,41 @@ describe("RecordHud camera picture", () => {
     expect(recordCameraPreviewStart).not.toHaveBeenCalled();
   });
 });
+
+describe("RecordHud camera only", () => {
+  it("records the camera alone: no screen source needed, no system sound or pointer toggles", async () => {
+    const r = render(<RecordHud />);
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    fireEvent.click(r.getByText("Camera only"));
+    await waitFor(() => expect(r.getByTestId("rec-source").textContent).toContain("Camera only"));
+    expect(r.queryByRole("switch", { name: /system audio/i })).toBeNull();
+    expect(r.queryByRole("switch", { name: /camera/i })).toBeNull();
+    expect(r.getByRole("switch", { name: /microphone/i })).toBeTruthy();
+    await r.findByTestId("rec-camera-preview");
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(recordStart).toHaveBeenCalledWith(expect.objectContaining({ cameraOnly: true, camera: true }));
+    // The stored camera setting is not touched by choosing this source.
+    expect(setRecordConfig).not.toHaveBeenCalledWith(expect.objectContaining({ camera: true }));
+  });
+
+  it("picking a screen source again leaves camera-only", async () => {
+    const r = render(<RecordHud />);
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    fireEvent.click(r.getByText("Camera only"));
+    await waitFor(() => expect(r.getByTestId("rec-source").textContent).toContain("Camera only"));
+    fireEvent.click(r.getByText("Window"));
+    await waitFor(() => expect(r.getByTestId("rec-source").textContent).not.toContain("Camera only"));
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    expect(recordStart).toHaveBeenCalledWith(expect.objectContaining({ cameraOnly: false }));
+  });
+
+  it("without the camera permission it stays a screen take and says why", async () => {
+    cameraAuth = "denied";
+    const r = render(<RecordHud />);
+    await waitFor(() => expect(document.body.textContent).toContain("Display"));
+    fireEvent.click(r.getByText("Camera only"));
+    await r.findByTestId("rec-camera-denied");
+    expect(r.getByTestId("rec-source").textContent).not.toContain("Camera only");
+    expect(r.queryByTestId("rec-camera-preview")).toBeNull();
+  });
+});

@@ -722,6 +722,16 @@ mod capture {
             self.inner.origin.store(origin_ns as i64, Ordering::Release);
         }
 
+        /// The camera has delivered a frame (written or not).
+        pub fn has_frame(&self) -> bool {
+            self.inner.first_arrival.load(Ordering::Relaxed) != NO_ORIGIN
+        }
+
+        /// The device's name.
+        pub fn device_name(&self) -> &str {
+            &self.name
+        }
+
         /// The file's frame size.
         pub fn size(&self) -> (u32, u32) {
             self.size

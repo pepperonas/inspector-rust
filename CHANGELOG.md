@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.260.0] — 2026-11-13
+
+### Added
+- **Record the camera alone.** The recording window has a fourth source, "Camera only": no screen is captured, the camera's picture is the take's video, with the chosen microphone. Such a take opens in the editor like any other — cut, speed, zoom, crop, captions and export (16:9 or 9:16) work unchanged. It needs the camera permission but not Screen Recording. If the camera stops delivering, the take ends there and is kept.
+- `ir-record record --camera-only`; the MCP tool `record_start` takes `cameraOnly`.
+
 ## [0.259.0] — 2026-11-13
 
 ### Added

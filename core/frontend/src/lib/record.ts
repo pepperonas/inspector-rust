@@ -31,9 +31,12 @@ export function phaseLabelKey(phase: RecordPhase): MessageKey {
   return PHASE_KEYS[phase] ?? "rec2.phase.idle";
 }
 
-/** A source is chosen, nothing runs, and recording is supported here. */
-export function canStart(state: RecordStatusLike): boolean {
-  return state.phase === "idle" && !!state.source && state.supported !== false;
+/**
+ * A source is chosen, nothing runs, and recording is supported here. A camera-only take
+ * needs no screen source — the camera (`cameraOnly` = chosen AND usable) is the source.
+ */
+export function canStart(state: RecordStatusLike, cameraOnly = false): boolean {
+  return state.phase === "idle" && (cameraOnly || !!state.source) && state.supported !== false;
 }
 
 /** Elapsed ms to show: the last reported value plus local time, frozen unless recording. */

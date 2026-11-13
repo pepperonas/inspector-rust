@@ -5267,6 +5267,8 @@ export interface RecordStartOptions {
   cameraQuality: CameraQuality;
   /** Empty = the system default input. */
   micDevice?: string;
+  /** Record the camera alone (no screen source needed). */
+  cameraOnly?: boolean;
 }
 export interface RecordConfig {
   /** Empty = the system default input. */
@@ -5778,7 +5780,7 @@ export interface RecordClickHit {
   release: boolean;
 }
 export interface RecordingMeta {
-  source: "display" | "window" | "region";
+  source: "display" | "window" | "region" | "camera";
   sourceLabel: string;
   width: number;
   height: number;

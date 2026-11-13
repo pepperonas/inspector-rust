@@ -4995,5 +4995,7 @@
   "rec10.camera_preview": "Camera picture",
   "rec10.camera_starting": "Starting the camera…",
   "rec10.set.mic_device": "Microphone",
-  "rec10.set.mic_device_help": "Which microphone a recording uses. A device that is not connected is replaced by the system default."
+  "rec10.set.mic_device_help": "Which microphone a recording uses. A device that is not connected is replaced by the system default.",
+  "rec11.hud.camera_only": "Camera only",
+  "rec11.source_camera": "Camera only"
 }

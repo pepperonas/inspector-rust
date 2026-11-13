@@ -22,4 +22,11 @@ describe("record lib", () => {
     expect(displayElapsed(1000, 0, 500, "recording")).toBe(1500);
     expect(displayElapsed(1000, 0, 500, "paused")).toBe(1000);
   });
+
+  it("a camera-only take can start without a screen source", () => {
+    expect(canStart({ phase: "idle", source: null }, true)).toBe(true);
+    expect(canStart({ phase: "idle", source: null }, false)).toBe(false);
+    expect(canStart({ phase: "recording", source: null }, true)).toBe(false);
+    expect(canStart({ phase: "idle", source: null, supported: false }, true)).toBe(false);
+  });
 });

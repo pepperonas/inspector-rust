@@ -376,6 +376,9 @@ pub struct StartOptions {
     pub camera_device: String,
     #[serde(default)]
     pub camera_quality: CameraQuality,
+    /// Record the camera alone: its picture is the take's video, no screen is captured.
+    #[serde(default)]
+    pub camera_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -624,6 +627,10 @@ pub trait CameraSink: Send {
     fn health(&self) -> super::camera::CameraHealth;
     /// Stop and close the file at the screen's end (timeline ns).
     fn finish(self: Box<Self>, end_ns: i64) -> super::camera::CameraOutcome;
+    /// The camera has delivered a picture (a camera-only take starts its clock there).
+    fn has_frame(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -636,6 +643,9 @@ impl CameraSink for super::camera::CameraCapture {
     }
     fn finish(self: Box<Self>, end_ns: i64) -> super::camera::CameraOutcome {
         super::camera::CameraCapture::finish(*self, end_ns.max(0) as u64)
+    }
+    fn has_frame(&self) -> bool {
+        super::camera::CameraCapture::has_frame(self)
     }
 }
 
@@ -666,6 +676,21 @@ impl CameraSlot {
 
     pub fn warning(&self) -> Option<&str> {
         self.warning.as_deref()
+    }
+
+    /// A recorder is running (it may not have a picture yet).
+    pub fn is_open(&self) -> bool {
+        self.sink.is_some()
+    }
+
+    pub fn has_frame(&self) -> bool {
+        self.sink.as_ref().is_some_and(|s| s.has_frame())
+    }
+
+    /// Not delivering any more (lost or never started) — for a camera-only take, where that
+    /// ends the take. Does not consume the one-time `poll_lost` report.
+    pub fn failed(&self) -> bool {
+        self.sink.as_ref().is_some_and(|s| s.health() != super::camera::CameraHealth::Ok)
     }
 
     pub fn set_origin(&self, origin_ns: i64) {
@@ -786,16 +811,20 @@ mod mac {
     /// How often an abortable countdown checks its abort flag.
     const COUNTDOWN_SLICE: Duration = Duration::from_millis(50);
     const FIRST_FRAME: Duration = Duration::from_secs(3);
+    /// A camera-only take waits this long for the camera's first picture.
+    const CAMERA_FIRST_FRAME: Duration = Duration::from_secs(8);
 
     struct Active {
         dir: PathBuf,
         project: Project,
         clock: Arc<PauseShared>,
-        capture: Capture,
+        /// `None` for a camera-only take: the camera (in `camera`) writes the take's video.
+        capture: Option<Capture>,
         origin_ns: i64,
         mic: Option<(MicStream, Arc<Mutex<WavSink>>)>,
         camera: CameraSlot,
-        cursor: CursorRecorder,
+        /// `None` for a camera-only take (there is no screen to point at).
+        cursor: Option<CursorRecorder>,
         assertion: Option<u32>,
         ticker_stop: Arc<AtomicBool>,
     }
@@ -920,23 +949,26 @@ mod mac {
     }
 
     /// Video (bitrate for the picked source at 60 fps) + system audio + mic.
-    fn est_bytes_per_min(picked: &Picked, opts: &StartOptions) -> u64 {
-        let (w, h) = capture_output_size(
-            picked.content_w_pt,
-            picked.content_h_pt,
-            picked.scale,
-            capture_macos::MAX_W,
-            capture_macos::MAX_H,
-        );
-        let mut bits = default_video_bitrate(w, h, FPS) as u64;
-        if opts.system_audio {
-            bits += capture_macos::AUDIO_BITRATE as u64;
+    fn est_bytes_per_min(picked: Option<&Picked>, opts: &StartOptions) -> u64 {
+        let mut bits = 0u64;
+        if let Some(picked) = picked {
+            let (w, h) = capture_output_size(
+                picked.content_w_pt,
+                picked.content_h_pt,
+                picked.scale,
+                capture_macos::MAX_W,
+                capture_macos::MAX_H,
+            );
+            bits += default_video_bitrate(w, h, FPS) as u64;
+            if opts.system_audio {
+                bits += capture_macos::AUDIO_BITRATE as u64;
+            }
         }
         let mut bytes = bits * 60 / 8;
         if opts.mic {
             bytes += OUT_RATE as u64 * 2 * 60;
         }
-        if opts.camera {
+        if opts.camera || opts.camera_only {
             // The size the camera will really record at (format chosen without opening the
             // device); the quality's ideal size when the device isn't there.
             let (cw, ch) = crate::record::camera::planned_size(&opts.camera_device, opts.camera_quality)
@@ -953,7 +985,8 @@ mod mac {
         project: Project,
     }
 
-    fn prepare_project(root: &Path, picked: &Picked, opts: &StartOptions) -> Result<(Prepared, DiskVerdict), String> {
+    /// `picked` = the screen source; `None` for a camera-only take.
+    fn prepare_project(root: &Path, picked: Option<&Picked>, opts: &StartOptions) -> Result<(Prepared, DiskVerdict), String> {
         std::fs::create_dir_all(root).map_err(|e| format!("{ERR_START_FAILED}:{e}"))?;
         let verdict = disk_space_verdict(free_bytes(root).unwrap_or(u64::MAX), est_bytes_per_min(picked, opts));
         if verdict == DiskVerdict::Refuse {
@@ -973,12 +1006,13 @@ mod mac {
             status: ProjectStatus::Recording,
             failure: None,
             recording: RecordingMeta {
-                source: picked.kind,
-                source_label: picked.label.clone(),
+                source: picked.map_or(SourceKind::Camera, |p| p.kind),
+                source_label: picked.map_or_else(|| crate::i18n::t("rec11.source_camera"), |p| p.label.clone()),
                 fps: FPS,
-                system_audio: opts.system_audio,
+                // A camera-only take captures no screen, so no system sound either.
+                system_audio: picked.is_some() && opts.system_audio,
                 cursor_mode: opts.cursor_mode,
-                region: picked.region.map(|(x, y, w, h)| RegionRect { x, y, w, h }),
+                region: picked.and_then(|p| p.region).map(|(x, y, w, h)| RegionRect { x, y, w, h }),
                 ..Default::default()
             },
             editor: serde_json::json!({}),
@@ -999,13 +1033,15 @@ mod mac {
     /// reason to record without the camera, never a failed take.
     fn open_camera(opts: &StartOptions, dir: &Path, clock: &Arc<PauseShared>) -> CameraSlot {
         use crate::record::camera::{self, CameraAuth, CameraCapture};
-        CameraSlot::open(opts.camera, || {
+        // A camera-only take records the camera as the take's video file.
+        let file = if opts.camera_only { SCREEN_FILE } else { CAMERA_FILE };
+        CameraSlot::open(opts.camera || opts.camera_only, || {
             if camera::authorization() != CameraAuth::Authorized {
                 return Err(crate::i18n::t("rec5.camera_denied_short"));
             }
             let list = camera::devices();
             let dev = camera::pick_device(&list, &opts.camera_device).ok_or_else(|| crate::i18n::t("rec5.camera_no_device"))?;
-            CameraCapture::start(dev, opts.camera_quality, &dir.join(CAMERA_FILE), clock.clone())
+            CameraCapture::start(dev, opts.camera_quality, &dir.join(file), clock.clone())
                 .map(|c| Box::new(c) as Box<dyn CameraSink>)
         })
     }
@@ -1013,12 +1049,15 @@ mod mac {
     /// Start capture + mic + cursor on one origin. No UI.
     fn begin_capture(
         app: Option<AppHandle>,
-        picked: &Picked,
+        picked: Option<&Picked>,
         opts: &StartOptions,
         prep: Prepared,
         clock: Arc<PauseShared>,
         camera: CameraSlot,
     ) -> Result<Active, Box<(Prepared, String)>> {
+        let Some(picked) = picked else {
+            return begin_camera_only(app, opts, prep, clock, camera);
+        };
         let filter = picked.filter_for_capture();
         let capture = match Capture::start(
             filter,
@@ -1063,11 +1102,63 @@ mod mac {
             dir: prep.dir,
             project: prep.project,
             clock,
-            capture,
+            capture: Some(capture),
             origin_ns,
             mic,
             camera,
-            cursor,
+            cursor: Some(cursor),
+            assertion,
+            ticker_stop: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
+    /// A camera-only take: the camera (already running since before the countdown) is the
+    /// video. Time 0 is the moment its first picture is there; the microphone starts on it.
+    fn begin_camera_only(
+        app: Option<AppHandle>,
+        opts: &StartOptions,
+        prep: Prepared,
+        clock: Arc<PauseShared>,
+        camera: CameraSlot,
+    ) -> Result<Active, Box<(Prepared, String)>> {
+        if !camera.is_open() {
+            let reason = camera.warning().map(str::to_string).unwrap_or_else(|| crate::i18n::t("rec5.camera_no_device"));
+            return Err(Box::new((prep, reason)));
+        }
+        let deadline = std::time::Instant::now() + CAMERA_FIRST_FRAME;
+        while !camera.has_frame() {
+            if std::time::Instant::now() >= deadline {
+                let _ = camera.finish(0);
+                return Err(Box::new((prep, crate::i18n::t("rec5.camera_no_picture"))));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let origin_ns = clock.timeline_ns(host_now_ns());
+        camera.set_origin(origin_ns);
+        let mic = if opts.mic {
+            match WavSink::create(&prep.dir.join(MIC_FILE), OUT_RATE) {
+                Ok(sink) => {
+                    let sink = Arc::new(Mutex::new(sink));
+                    Some((start_mic(app, sink.clone(), clock.clone(), origin_ns, Some(opts.mic_device.clone())), sink))
+                }
+                Err(e) => {
+                    tracing::warn!("record: cannot create mic.wav: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let assertion = prevent_display_sleep();
+        Ok(Active {
+            dir: prep.dir,
+            project: prep.project,
+            clock,
+            capture: None,
+            origin_ns,
+            mic,
+            camera,
+            cursor: None,
             assertion,
             ticker_stop: Arc::new(AtomicBool::new(false)),
         })
@@ -1087,11 +1178,12 @@ mod mac {
     /// Stop everything and write the final files. No UI.
     fn finish(a: Active) -> Outcome {
         a.ticker_stop.store(true, Ordering::SeqCst);
-        let cap = a.capture.stop();
+        let camera_only = a.capture.is_none();
+        let cap = a.capture.map(|c| c.stop());
         let host_end = host_now_ns();
         let end_ns = match &cap {
-            Ok(r) => r.end_ns,
-            Err(_) => a.clock.timeline_ns(host_end),
+            Some(Ok(r)) => r.end_ns,
+            _ => a.clock.timeline_ns(host_end),
         };
 
         let mut mic_meta = None;
@@ -1136,19 +1228,53 @@ mod mac {
         // After the screen, at its end (like the mic): the camera file covers the screen.
         let (camera_meta, camera_warning) = a.camera.finish_with_warning(end_ns);
 
-        let cursor = a.cursor.stop();
-        if let Err(e) = write_atomic(&a.dir, CURSOR_FILE, &cursor) {
-            tracing::warn!("record: cannot write cursor.json: {e}");
+        if let Some(cursor) = a.cursor {
+            let cursor = cursor.stop();
+            if let Err(e) = write_atomic(&a.dir, CURSOR_FILE, &cursor) {
+                tracing::warn!("record: cannot write cursor.json: {e}");
+            }
         }
         release_display_sleep(a.assertion);
 
         let mut project = a.project;
         let pauses = pause_marks(&a.clock.pauses_until(host_end), a.origin_ns);
+        // A camera-only take: what the camera wrote IS the video; there is no camera entry.
+        let (cap, camera_meta, camera_warning) = match cap {
+            Some(cap) => (cap, camera_meta, camera_warning),
+            None => {
+                if let Some(m) = &camera_meta {
+                    project.recording.fps = m.fps;
+                }
+                (camera_only_result(camera_meta.as_ref(), a.origin_ns, end_ns), None, None)
+            }
+        };
+        debug_assert!(camera_only || project.recording.source != SourceKind::Camera);
         let (status, failure, video_ms) = finalize(&mut project, cap, mic_meta, pauses, camera_meta);
         if let Err(e) = write_atomic(&a.dir, PROJECT_FILE, &project) {
             tracing::warn!("record: cannot write project.json: {e}");
         }
         Outcome { dir: a.dir, status, failure, video_ms, mic_ms, camera_warning }
+    }
+
+    /// The video result of a camera-only take from what the camera wrote (`None` = nothing).
+    /// The file covers origin → end; a camera that dropped out ends the video there.
+    pub(crate) fn camera_only_result(
+        meta: Option<&CameraMeta>,
+        origin_ns: i64,
+        end_ns: i64,
+    ) -> Result<capture_macos::CaptureResult, String> {
+        let m = meta.ok_or_else(|| crate::i18n::t("rec5.camera_no_picture"))?;
+        let full_ms = ((end_ns - origin_ns).max(0) / 1_000_000) as u64;
+        Ok(capture_macos::CaptureResult {
+            width: m.width,
+            height: m.height,
+            duration_ms: m.ended_early_ms.map_or(full_ms, |e| e.min(full_ms)),
+            rejected_frames: 0,
+            origin_ns: Some(origin_ns),
+            end_ns,
+            dropped_frames: 0,
+            stream_error: None,
+        })
     }
 
     /// Fill the final `project.json` from the parts. The camera never changes the status: a
@@ -1420,15 +1546,20 @@ mod mac {
     fn capture_failure(app: &AppHandle) -> Option<String> {
         let st = app.try_state::<RecordState>()?;
         let g = st.inner.lock();
-        g.active.as_ref().and_then(|a| a.capture.failure())
+        let a = g.active.as_ref()?;
+        match &a.capture {
+            Some(c) => c.failure(),
+            // Camera-only: a camera that stopped delivering ends the take.
+            None => a.camera.failed().then(|| crate::i18n::t("rec5.camera_lost")),
+        }
     }
 
     /// Keep the cursor sampler's bounds on a moving window.
     fn follow_window(app: &AppHandle, window_id: u32) {
         let Some(b) = capture_macos::cg_window_bounds(window_id) else { return };
         if let Some(st) = app.try_state::<RecordState>() {
-            if let Some(a) = st.inner.lock().active.as_ref() {
-                a.cursor.set_bounds(b);
+            if let Some(c) = st.inner.lock().active.as_ref().and_then(|a| a.cursor.as_ref()) {
+                c.set_bounds(b);
             }
         }
     }
@@ -1706,15 +1837,18 @@ mod mac {
             emit_status(app);
             e
         };
-        let Some(picked) = source.or_else(picker_macos::current) else {
+        let picked = if opts.camera_only { None } else { source.or_else(picker_macos::current) };
+        if picked.is_none() && !opts.camera_only {
             return Err(fail_early(ERR_NO_SOURCE.into()));
-        };
-        st.inner.lock().source = Some(picked.label.clone());
+        }
+        let picked = picked.as_ref();
+        st.inner.lock().source =
+            Some(picked.map_or_else(|| crate::i18n::t("rec11.source_camera"), |p| p.label.clone()));
         let root = app
             .try_state::<crate::db::DbHandle>()
             .map(|db| RecordConfig::load(&db).root())
             .unwrap_or_else(|| resolve_root(""));
-        let (prep, verdict) = prepare_project(&root, &picked, &opts).map_err(fail_early)?;
+        let (prep, verdict) = prepare_project(&root, picked, &opts).map_err(fail_early)?;
         {
             let mut g = st.inner.lock();
             g.dir = Some(prep.dir.clone());
@@ -1756,7 +1890,7 @@ mod mac {
             return Err(ERR_CANCELLED.into());
         }
 
-        let active = match begin_capture(Some(app.clone()), &picked, &opts, prep, clock, camera) {
+        let active = match begin_capture(Some(app.clone()), picked, &opts, prep, clock, camera) {
             Ok(a) => a,
             Err(boxed) => {
                 let (prep, reason) = *boxed;
@@ -1803,9 +1937,11 @@ mod mac {
             emit_status(app);
             return Err(ERR_CANCELLED.into());
         }
-        spawn_ticker(app.clone(), ticker_stop, picked.window_id);
-        if picked.kind == SourceKind::Region {
-            if let Some(b) = st.inner.lock().active.as_ref().map(|a| a.capture.content_bounds_pt()) {
+        spawn_ticker(app.clone(), ticker_stop, picked.and_then(|p| p.window_id));
+        if picked.is_some_and(|p| p.kind == SourceKind::Region) {
+            let bounds =
+                st.inner.lock().active.as_ref().and_then(|a| a.capture.as_ref()).map(|c| c.content_bounds_pt());
+            if let Some(b) = bounds {
                 open_region_frame(app, b);
             }
         }
@@ -2080,13 +2216,13 @@ mod mac {
         secs: f64,
         pause: Duration,
     ) -> Outcome {
-        let (prep, _) = prepare_project(root, &picked, &opts).expect("prepare");
+        let (prep, _) = prepare_project(root, Some(&picked), &opts).expect("prepare");
         let clock = Arc::new(PauseShared::new());
         let camera = open_camera(&opts, &prep.dir, &clock);
         if let Some(w) = camera.warning() {
             println!("camera warning: {w}");
         }
-        let a = begin_capture(None, &picked, &opts, prep, clock, camera).map_err(|b| b.1).expect("begin");
+        let a = begin_capture(None, Some(&picked), &opts, prep, clock, camera).map_err(|b| b.1).expect("begin");
         let third = Duration::from_secs_f64(secs / 3.0);
         std::thread::sleep(third);
         a.clock.pause(host_now_ns());
@@ -2389,6 +2525,68 @@ mod tests {
             recording: Default::default(),
             editor: serde_json::json!({}),
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_camera_only_take_takes_its_video_from_the_camera() {
+        use super::super::project::{CameraMeta, SourceKind};
+        let cam = CameraMeta { width: 1920, height: 1080, fps: 30, offset_ms: 0, device_name: "Cam".into(), ended_early_ms: None };
+        // origin at 1 s of the timeline, stopped 6.5 s later.
+        let r = mac::camera_only_result(Some(&cam), 1_000_000_000, 7_500_000_000).unwrap();
+        assert_eq!((r.width, r.height, r.duration_ms), (1920, 1080, 6_500));
+        assert_eq!((r.origin_ns, r.end_ns), (Some(1_000_000_000), 7_500_000_000));
+        // A camera that dropped out ends the video where it stopped, never later than the take.
+        let lost = CameraMeta { ended_early_ms: Some(2_500), ..cam.clone() };
+        assert_eq!(mac::camera_only_result(Some(&lost), 0, 6_000_000_000).unwrap().duration_ms, 2_500);
+        let odd = CameraMeta { ended_early_ms: Some(99_000), ..cam.clone() };
+        assert_eq!(mac::camera_only_result(Some(&odd), 0, 6_000_000_000).unwrap().duration_ms, 6_000);
+        // Nothing written = no take.
+        assert!(mac::camera_only_result(None, 0, 6_000_000_000).is_err());
+
+        // The project of such a take: ready, the camera's size, and NO separate camera entry.
+        let mut p = blank_project();
+        p.recording.source = SourceKind::Camera;
+        let (status, failure, ms) = mac::finalize(&mut p, Ok(r), None, Vec::new(), None);
+        assert_eq!((status, failure, ms), (ProjectStatus::Ready, None, 6_500));
+        assert_eq!((p.recording.width, p.recording.height, p.recording.camera.is_none()), (1920, 1080, true));
+        let mut p = blank_project();
+        let (status, failure, _) = mac::finalize(&mut p, mac::camera_only_result(None, 0, 1), None, Vec::new(), None);
+        assert_eq!(status, ProjectStatus::Failed);
+        assert!(failure.is_some());
+    }
+
+    #[test]
+    fn a_camera_slot_knows_whether_it_records_and_whether_it_failed() {
+        let off = CameraSlot::open(false, || unreachable!("not wanted, not opened"));
+        assert!(!off.is_open() && !off.has_frame() && !off.failed());
+        let refused = CameraSlot::open(true, || Err("no permission".into()));
+        assert!(!refused.is_open() && refused.warning().is_some());
+        let (ok, _) = fake(false);
+        let slot = CameraSlot::open(true, || Ok(ok));
+        assert!(slot.is_open() && slot.has_frame() && !slot.failed());
+        let (gone, _) = fake(true);
+        let mut slot = CameraSlot::open(true, || Ok(gone));
+        assert!(slot.failed());
+        // Asking does not use up the one-time report of the ticker.
+        assert!(slot.failed());
+        assert!(slot.poll_lost());
+    }
+
+    #[test]
+    fn camera_only_is_a_source_kind_of_its_own_on_disk() {
+        use super::super::project::SourceKind;
+        assert_eq!(serde_json::to_string(&SourceKind::Camera).unwrap(), "\"camera\"");
+        let o: StartOptions = serde_json::from_value(serde_json::json!({
+            "systemAudio": true, "mic": true, "cursorMode": "system", "countdown": false
+        }))
+        .unwrap();
+        assert!(!o.camera_only, "an older caller records the screen as before");
+        let o: StartOptions = serde_json::from_value(serde_json::json!({
+            "systemAudio": false, "mic": true, "cursorMode": "system", "countdown": false, "cameraOnly": true
+        }))
+        .unwrap();
+        assert!(o.camera_only);
     }
 
     /// The HUD fits its measured worst case (German, every toggle on, microphone choice with
@@ -2826,6 +3024,7 @@ mod live {
             mic_device: String::new(),
             camera_device: String::new(),
             camera_quality: Default::default(),
+            camera_only: false,
         };
         let (wall, cpu0) = (std::time::Instant::now(), cpu_secs());
         let out = record_headless_with_pause(&root, picked, opts, 5.0, std::time::Duration::from_secs(1));
@@ -2869,6 +3068,7 @@ mod live {
             mic_device: String::new(),
             camera_device: String::new(),
             camera_quality: Default::default(),
+            camera_only: false,
         };
         let out = record_headless(&root, picked, opts, 5.0);
         println!("dir {}", out.dir.display());

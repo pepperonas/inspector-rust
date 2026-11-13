@@ -45,6 +45,9 @@ pub enum SourceKind {
     Window,
     /// A free rectangle of one display (`RecordingMeta::region`).
     Region,
+    /// A camera-only take: the camera's picture IS the take's video (`screen.mp4`); there is
+    /// no screen, no pointer data and no separate `camera` entry.
+    Camera,
 }
 
 /// The recorded rectangle of a `region` take: display-local points, top-left origin.

@@ -175,7 +175,8 @@ pub struct StartPlan {
 }
 
 /// Every key `record.start` reads.
-pub const START_KEYS: [&str; 8] = ["display", "window", "area", "mic", "systemAudio", "camera", "countdown", "title"];
+pub const START_KEYS: [&str; 9] =
+    ["display", "window", "area", "mic", "systemAudio", "camera", "cameraOnly", "countdown", "title"];
 
 fn id_or_name(v: &Value, k: &str) -> Result<String, ControlError> {
     match v {
@@ -218,6 +219,15 @@ pub fn start_plan(params: &Value, cfg: &RecordConfig) -> Result<StartPlan, Contr
         ["display", "window", "area"].into_iter().filter(|k| m.get(*k).is_some_and(|v| !v.is_null())).collect();
     if given.len() > 1 {
         return Err(perr(format!("give one source, not {}", given.join(" and "))));
+    }
+    let camera_only = opt_bool(m, "cameraOnly")?.unwrap_or(false);
+    if camera_only {
+        if let Some(k) = given.first() {
+            return Err(perr(format!("cameraOnly records no screen: leave out {k}")));
+        }
+        if m.get("camera") == Some(&Value::Bool(false)) {
+            return Err(perr("cameraOnly needs the camera: camera cannot be false"));
+        }
     }
     let source = match given.first().copied() {
         None => SourceQuery::MainDisplay,
@@ -272,6 +282,7 @@ pub fn start_plan(params: &Value, cfg: &RecordConfig) -> Result<StartPlan, Contr
         },
         camera_device: cfg.camera_device.clone(),
         camera_quality: cfg.camera_quality,
+        camera_only,
     };
     Ok(StartPlan { source, opts, camera, mic_query })
 }
@@ -410,14 +421,15 @@ pub(crate) fn start(app: &AppHandle, c: &mut Call) -> Result<Value, ControlError
         let list = crate::mic_capture::inputs();
         plan.opts.mic_device = pick_source(&list, q, "microphone")?.id.clone();
     }
-    let picked = picked_for(&plan.source)?;
+    // A camera-only take captures no screen: no source, no Screen Recording permission.
+    let picked = if plan.opts.camera_only { None } else { Some(picked_for(&plan.source)?) };
     if plan.opts.countdown {
         c.emit(json!({"phase": "countdown", "seconds": session::COUNTDOWN_SECS}));
     }
     // A client that goes away during the countdown (Ctrl+C) cancels the take before it
     // records; one that goes away while capture starts gets its fresh take discarded.
     let cancelled = c.cancelled;
-    let st = session::start_with_abort(app, plan.opts, Some(picked), &|| cancelled.load(Ordering::SeqCst))
+    let st = session::start_with_abort(app, plan.opts, picked, &|| cancelled.load(Ordering::SeqCst))
         .map_err(ControlError::sentinel)?;
     if c.is_cancelled() {
         let _ = session::cancel(app);
@@ -475,6 +487,25 @@ mod tests {
 
     fn cams() -> Vec<CameraDevice> {
         vec![cam("A1", "FaceTime HD Camera"), cam("B2", "Logitech BRIO"), cam("C3", "Logitech C920")]
+    }
+
+    #[test]
+    fn camera_only_takes_no_screen_source() {
+        let cfg = RecordConfig::default();
+        let plan = start_plan(&json!({"cameraOnly": true, "mic": true}), &cfg).unwrap();
+        assert!(plan.opts.camera_only && plan.opts.mic);
+        assert!(!start_plan(&json!({}), &cfg).unwrap().opts.camera_only);
+        // A named camera still picks the device.
+        let plan = start_plan(&json!({"cameraOnly": true, "camera": "BRIO"}), &cfg).unwrap();
+        assert_eq!(plan.camera, CameraChoice::Device("BRIO".into()));
+        for bad in [
+            json!({"cameraOnly": true, "display": 1}),
+            json!({"cameraOnly": true, "window": "Chrome"}),
+            json!({"cameraOnly": true, "camera": false}),
+            json!({"cameraOnly": "yes"}),
+        ] {
+            assert_eq!(start_plan(&bad, &cfg).unwrap_err().code, ERR_BAD_PARAMS, "{bad}");
+        }
     }
 
     #[test]

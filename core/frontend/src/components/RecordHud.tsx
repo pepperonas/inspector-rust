@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AppWindow, Camera, Mic, Monitor, SquareDashed, StickyNote, Volume2, X } from "lucide-react";
+import { AppWindow, Camera, Mic, Monitor, SquareDashed, StickyNote, Video, Volume2, X } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -38,6 +38,8 @@ export function RecordHud() {
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  /** The fourth source: the camera alone, no screen. Not stored — every open starts with a screen source. */
+  const [cameraOnly, setCameraOnly] = useState(false);
   const cam = useRecordCamera();
   const mics = useRecordMics();
 
@@ -77,24 +79,33 @@ export function RecordHud() {
 
   const pick = (kind: "display" | "window" | "region") => {
     setError(null);
+    setCameraOnly(false);
     const p = kind === "region" ? recordPickRegion() : recordPickSource(kind);
     p.catch((e) => setError(errorText(t, String(e))));
   };
 
-  const cameraOn = cam.isOn(cfg?.camera);
+  // Camera-only counts only while the permission stands (it can be withdrawn meanwhile).
+  const onlyCamera = cameraOnly && cam.auth === "authorized";
+  const cameraOn = onlyCamera || cam.isOn(cfg?.camera);
+
+  const pickCameraOnly = async () => {
+    setError(null);
+    setCameraOnly(await cam.turnOn());
+  };
 
   const setCamera = async (on: boolean) => {
     if (!on) return patch({ camera: false });
     if (await cam.turnOn()) patch({ camera: true });
   };
 
-  const ready = !!status && !!cfg && canStart(status) && !starting;
+  const ready = !!status && !!cfg && canStart(status, onlyCamera) && !starting;
 
   const start = useCallback(() => {
-    if (!status || !cfg || !canStart(status) || starting) return;
+    if (!status || !cfg || !canStart(status, onlyCamera) || starting) return;
     setStarting(true);
     setError(null);
     recordStart({
+      cameraOnly: onlyCamera,
       systemAudio: cfg.systemAudio,
       mic: cfg.mic,
       cursorMode: cfg.cursorMode,
@@ -109,7 +120,7 @@ export function RecordHud() {
       setError(errorText(t, String(e)));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, cfg, starting, title, cameraOn]);
+  }, [status, cfg, starting, title, cameraOn, onlyCamera]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -179,27 +190,35 @@ export function RecordHud() {
         </div>
       }
     >
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <BigButton icon={<Monitor size={22} />} label={t("rec2.hud.display")} onClick={() => pick("display")} />
         <BigButton icon={<AppWindow size={22} />} label={t("rec2.hud.window")} onClick={() => pick("window")} />
         <BigButton icon={<SquareDashed size={22} />} label={t("rec2.hud.region")} onClick={() => pick("region")} />
+        <BigButton
+          icon={<Video size={22} />}
+          label={t("rec11.hud.camera_only")}
+          active={onlyCamera}
+          onClick={() => void pickCameraOnly()}
+        />
       </div>
-      {status?.source && (
+      {(onlyCamera || status?.source) && (
         <div className="flex items-center justify-between rounded-lg bg-[var(--color-bg)] px-3 py-1.5 text-[12px]">
-          <span className="truncate">
+          <span className="truncate" data-testid="rec-source">
             <span className="text-[var(--color-muted)]">{t("rec2.hud.source")}: </span>
-            {status.source}
+            {onlyCamera ? t("rec11.source_camera") : status?.source}
           </span>
         </div>
       )}
       {cfg && (
         <div className="flex flex-wrap gap-1.5">
-          {toggle(cfg.systemAudio, t("rec2.hud.system_audio"), <Volume2 size={13} />, (v) => patch({ systemAudio: v }))}
+          {/* A camera-only take has no screen: no system sound, no pointer, and the camera is the take. */}
+          {!onlyCamera && toggle(cfg.systemAudio, t("rec2.hud.system_audio"), <Volume2 size={13} />, (v) => patch({ systemAudio: v }))}
           {toggle(cfg.mic, t("rec2.hud.mic"), <Mic size={13} />, (v) => patch({ mic: v }))}
-          {toggle(cameraOn, t("rec5.hud.camera"), <Camera size={13} />, (v) => void setCamera(v))}
-          {toggle(cfg.cursorMode === "editable-overlay", t("rec2.hud.cursor"), null, (v) =>
-            patch({ cursorMode: v ? "editable-overlay" : "system" }),
-          )}
+          {!onlyCamera && toggle(cameraOn, t("rec5.hud.camera"), <Camera size={13} />, (v) => void setCamera(v))}
+          {!onlyCamera &&
+            toggle(cfg.cursorMode === "editable-overlay", t("rec2.hud.cursor"), null, (v) =>
+              patch({ cursorMode: v ? "editable-overlay" : "system" }),
+            )}
           {toggle(cfg.countdown, t("rec2.hud.countdown"), null, (v) => patch({ countdown: v }))}
         </div>
       )}
@@ -212,7 +231,7 @@ export function RecordHud() {
           meter
         />
       )}
-      {cfg && cam.showHint(cfg.camera) && <CameraDeniedHint />}
+      {cfg && (cam.showHint(cfg.camera) || (cameraOnly && !onlyCamera)) && <CameraDeniedHint />}
       {cfg && cameraOn && !starting && <CameraPreview device={shownDevice(cam.devices, cfg.cameraDevice)} />}
       {cfg && cameraOn && cam.devices.length > 1 && (
         <select
@@ -262,12 +281,26 @@ export function RecordHud() {
   );
 }
 
-function BigButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function BigButton({
+  icon,
+  label,
+  onClick,
+  active,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 rounded-xl border border-[var(--color-border)] py-4 text-[13px] font-medium transition-colors duration-(--duration-fast) ease-sharp hover:bg-[var(--color-bg)]"
+      aria-pressed={active}
+      className={
+        "flex flex-col items-center gap-1.5 rounded-xl border py-4 text-[12px] font-medium transition-colors duration-(--duration-fast) ease-sharp hover:bg-[var(--color-bg)] " +
+        (active ? "border-[var(--color-accent)]" : "border-[var(--color-border)]")
+      }
     >
       {icon}
       {label}

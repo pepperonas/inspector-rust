@@ -59,6 +59,12 @@ extern "C" {
     );
     fn IOHIDDeviceGetProperty(device: Ref, key: CFStringRef) -> *const c_void;
     fn IOHIDRequestAccess(request_type: u32) -> bool;
+    fn IOHIDCheckAccess(request_type: u32) -> u32;
+}
+
+#[link(name = "Carbon", kind = "framework")]
+extern "C" {
+    fn IsSecureEventInputEnabled() -> u8;
 }
 
 /// `CFRunLoopSourceContext` (version 0). Only `perform` is used.
@@ -155,6 +161,13 @@ struct Worker {
     held: HashMap<u16, Held>,
     config: LogiConfig,
     status: LogiStatus,
+    /// A mouse that refused our first request (macOS said no): asked again after
+    /// `retry_delay_s`, until it answers or goes away.
+    pending: Option<Ref>,
+    attempts: u32,
+    /// The last refusal written to the log (error text, access, secure input) — one line per
+    /// change, not one per retry.
+    last_refusal: Option<(String, u32, bool)>,
 }
 
 fn cursor() -> CGPoint {
@@ -243,6 +256,7 @@ impl Worker {
         if self.device.is_some() {
             return;
         }
+        self.pending = None;
         self.device = Some(device);
         self.features.clear();
         self.pressed.clear();
@@ -262,11 +276,12 @@ impl Worker {
                 Err(e) => {
                     // The first request failing means the device does not
                     // speak to us at all — give up on it.
-                    tracing::warn!("logi: feature 0x{f:04x} lookup failed: {e}");
                     if self.features.is_empty() && f == F_NAME {
                         self.device = None;
+                        self.refused(device, e);
                         return;
                     }
+                    tracing::warn!("logi: feature 0x{f:04x} lookup failed: {e}");
                 }
             }
         }
@@ -274,7 +289,39 @@ impl Worker {
         self.read_controls();
         self.apply_config();
         self.read_state();
-        tracing::info!("logi: {} connected ({} features)", self.status.name, self.features.len());
+        tracing::info!("logi: {} connected ({} features, attempt {})", self.status.name, self.features.len(), self.attempts + 1);
+        self.attempts = 0;
+        self.last_refusal = None;
+        self.publish();
+    }
+
+    /// The mouse did not take our first request. It stays `pending` and is asked again; the
+    /// status says what macOS reports (Input Monitoring, Secure Input) instead of "no mouse".
+    fn refused(&mut self, device: Ref, error: String) {
+        // SAFETY: two plain status queries without arguments that matter (1 = listen event).
+        let (access, secure) = unsafe { (IOHIDCheckAccess(REQUEST_LISTEN_EVENT), IsSecureEventInputEnabled() != 0) };
+        let now = (error, access, secure);
+        if self.last_refusal.as_ref() != Some(&now) {
+            tracing::warn!(
+                "logi: the mouse refused the first request ({}); input monitoring = {}, secure input = {} — asking again",
+                now.0,
+                match access {
+                    0 => "granted",
+                    1 => "denied",
+                    _ => "not decided",
+                },
+                if secure { "on" } else { "off" }
+            );
+            // Not decided yet: this puts the app into the Input Monitoring list and asks once.
+            if access > 1 {
+                // SAFETY: plain IOKit call; macOS shows its prompt at most once.
+                unsafe { IOHIDRequestAccess(REQUEST_LISTEN_EVENT) };
+            }
+            self.last_refusal = Some(now);
+        }
+        self.pending = Some(device);
+        self.attempts = self.attempts.saturating_add(1);
+        self.status = refused_status(self.product_name(device), access, secure);
         self.publish();
     }
 
@@ -292,6 +339,8 @@ impl Worker {
     }
 
     fn detach(&mut self) {
+        self.pending = None;
+        self.attempts = 0;
         self.device = None;
         self.features.clear();
         self.pressed.clear();
@@ -464,6 +513,9 @@ fn run(app: tauri::AppHandle, jobs: Receiver<Job>) {
         held: HashMap::new(),
         config: load(&db),
         status: LogiStatus { supported: true, ..Default::default() },
+        pending: None,
+        attempts: 0,
+        last_refusal: None,
     };
     let keys = [NSString::from_str("VendorID"), NSString::from_str("DeviceUsagePage"), NSString::from_str("DeviceUsage")];
     let vals = [NSNumber::new_i32(VENDOR_LOGITECH), NSNumber::new_i32(USAGE_PAGE_HIDPP_BLE), NSNumber::new_i32(USAGE_HIDPP_LONG)];
@@ -491,19 +543,24 @@ fn run(app: tauri::AppHandle, jobs: Receiver<Job>) {
     }
     w.publish();
     loop {
-        // Sleeps until a report, a (dis)connect or `wake()`.
-        w.pump(3600.0);
+        // Sleeps until a report, a (dis)connect or `wake()`; with a refused mouse waiting,
+        // only until it is time to ask again.
+        w.pump(if w.pending.is_some() { retry_delay_s(w.attempts) } else { 3600.0 });
         let (attached, removed) = {
             let mut inbox = INBOX.lock().unwrap();
             (std::mem::take(&mut inbox.attached), std::mem::take(&mut inbox.removed))
         };
         for d in removed {
-            if w.device.map(|x| x as usize) == Some(d) {
+            if w.device.map(|x| x as usize) == Some(d) || w.pending.map(|x| x as usize) == Some(d) {
                 w.detach();
+                w.publish();
             }
         }
         for d in attached {
             w.attach(d as Ref);
+        }
+        if let (None, Some(d)) = (w.device, w.pending) {
+            w.attach(d);
         }
         while let Ok(job) = jobs.try_recv() {
             job(&mut w);

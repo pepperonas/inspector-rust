@@ -45,6 +45,10 @@ export interface LogiStatus {
   invert: boolean | null;
   controls: LogiControl[];
   options_running: boolean;
+  /** A mouse is there, but macOS refuses requests to it right now (retried by Rust). */
+  refused?: boolean;
+  /** While `refused`: Secure Input is on, which locks keyboard-like devices. */
+  secure_input?: boolean;
 }
 
 export interface LogiView {

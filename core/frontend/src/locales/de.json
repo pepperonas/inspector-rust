@@ -5023,5 +5023,8 @@
   "rec12.clean.apply": "{n} entfernen ({time})",
   "rec12.clean.none_selected": "Keine auswählen",
   "rec12.clean.all_selected": "Alle auswählen",
-  "rec12.clean.filler_note": "Gefunden werden nur Füllwörter, die die Transkription aufgeschrieben hat; oft lässt sie sie weg."
+  "rec12.clean.filler_note": "Gefunden werden nur Füllwörter, die die Transkription aufgeschrieben hat; oft lässt sie sie weg.",
+  "logi.refused.title": "{name} gefunden, aber macOS blockiert den Zugriff",
+  "logi.refused.body": "macOS weist Anfragen an die Maus gerade ab. Inspector Rust versucht es alle paar Sekunden erneut; die Einstellungen erscheinen, sobald sie antwortet.",
+  "logi.refused.secure": "Die sichere Eingabe ist aktiv (ein Passwortfeld oder ein Terminal mit sicherer Tastatureingabe). Solange sie läuft, sperrt macOS die Maus für Apps. Sie verbindet sich von selbst, sobald die sichere Eingabe endet."
 }

@@ -139,6 +139,19 @@ describe("LogiPanel", () => {
     expect(ipc.logiRequestAccess).toHaveBeenCalledTimes(1);
   });
 
+  it("says that macOS blocks a mouse it found, instead of 'connect a mouse'", async () => {
+    await open(view({ connected: false, refused: true, name: "MX Master" }));
+    const box = screen.getByTestId("logi-refused");
+    expect(box.textContent).toContain("MX Master found");
+    expect(box.textContent).toContain("keeps trying");
+    expect(screen.queryByText(/Connect a Logitech mouse/)).toBeNull();
+  });
+
+  it("names Secure Input as the reason when it is on", async () => {
+    await open(view({ connected: false, refused: true, secure_input: true, name: "MX Master" }));
+    expect(screen.getByTestId("logi-refused").textContent).toContain("Secure Input is on");
+  });
+
   it("leaves on Escape", async () => {
     const onExit = vi.fn();
     ipc.logiView.mockResolvedValue(view());

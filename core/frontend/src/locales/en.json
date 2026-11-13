@@ -5023,5 +5023,8 @@
   "rec12.clean.apply": "Remove {n} ({time})",
   "rec12.clean.none_selected": "Select none",
   "rec12.clean.all_selected": "Select all",
-  "rec12.clean.filler_note": "Only filler words the transcription wrote down are found; it often leaves them out."
+  "rec12.clean.filler_note": "Only filler words the transcription wrote down are found; it often leaves them out.",
+  "logi.refused.title": "{name} found, but macOS is blocking access",
+  "logi.refused.body": "macOS is refusing requests to the mouse right now. Inspector Rust keeps trying every few seconds; the settings appear as soon as it answers.",
+  "logi.refused.secure": "Secure Input is on (a password field, or a terminal with secure keyboard entry). While it is on, macOS locks the mouse for apps. It connects by itself as soon as Secure Input ends."
 }

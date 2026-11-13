@@ -196,7 +196,14 @@ export function LogiPanel({
         </div>
       )}
 
-      {!status.connected && !status.permission_denied && (
+      {status.refused && !status.permission_denied && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5" role="status" data-testid="logi-refused">
+          <div className="mb-1 font-medium">{t("logi.refused.title", { name: status.name || "Logitech" })}</div>
+          <p className="text-[11px] text-[var(--color-muted)]">{t(status.secure_input ? "logi.refused.secure" : "logi.refused.body")}</p>
+        </div>
+      )}
+
+      {!status.connected && !status.permission_denied && !status.refused && (
         <div className={`${card} text-[var(--color-muted)]`}>{t("logi.connect_hint")}</div>
       )}
 

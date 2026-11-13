@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.261.1] — 2026-11-13
+
+### Fixed
+- **Logitech mouse "not found" although it was connected.** When macOS refused the app's first request to the mouse (seen right after an app start, and while Secure Input is on — a password field or a terminal's secure keyboard entry locks devices that present themselves as a keyboard, which this mouse does), the app gave up until the mouse reconnected and showed "No mouse connected". It now asks again every few seconds until the mouse answers, and the panel says that the mouse was found but macOS is blocking access, naming Secure Input or Input Monitoring when that is the reason.
+
 ## [0.261.0] — 2026-11-13
 
 ### Added

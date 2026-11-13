@@ -474,6 +474,35 @@ pub struct LogiStatus {
     pub controls: Vec<Control>,
     /// Logi Options+ is running and will fight over the same settings.
     pub options_running: bool,
+    /// A Logitech mouse is there, but macOS refuses our requests to it right now; the
+    /// connection is retried. `name` holds the mouse's name.
+    #[serde(default)]
+    pub refused: bool,
+    /// While `refused`: Secure Input is on (a password field, a terminal's secure keyboard
+    /// entry). macOS then locks every device that presents itself as a keyboard — this mouse does.
+    #[serde(default)]
+    pub secure_input: bool,
+}
+
+/// How long to wait before asking a refused mouse again: quickly at first (a refusal at app
+/// start usually clears within seconds), then calmly — one small request, no polling load.
+pub fn retry_delay_s(attempt: u32) -> f64 {
+    if attempt < 10 {
+        3.0
+    } else {
+        15.0
+    }
+}
+
+/// `IOHIDCheckAccess` answers: 0 granted, 1 denied, anything else not decided yet.
+pub fn access_denied(check: u32) -> bool {
+    check == 1
+}
+
+/// The status while a mouse refuses requests. Input Monitoring is named only when macOS says
+/// it is DENIED — "not decided" and "granted" are not the user's permission problem.
+pub fn refused_status(name: String, access: u32, secure_input: bool) -> LogiStatus {
+    LogiStatus { supported: true, refused: true, name, permission_denied: access_denied(access), secure_input, ..Default::default() }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -749,4 +778,28 @@ mod tests {
         assert_eq!(control_name(0x53), "back");
         assert_eq!(control_name(0x1234), "other");
     }
+    #[test]
+    fn a_refused_mouse_is_asked_again_quickly_then_calmly() {
+        assert_eq!(retry_delay_s(0), 3.0);
+        assert_eq!(retry_delay_s(9), 3.0);
+        assert_eq!(retry_delay_s(10), 15.0);
+        assert_eq!(retry_delay_s(u32::MAX), 15.0);
+    }
+
+    #[test]
+    fn a_refusal_names_input_monitoring_only_when_it_is_denied() {
+        let s = refused_status("MX Master".into(), 0, false);
+        assert!(s.refused && !s.connected && !s.permission_denied && !s.secure_input && s.supported);
+        assert_eq!(s.name, "MX Master");
+        assert!(refused_status(String::new(), 1, false).permission_denied);
+        assert!(!refused_status(String::new(), 2, true).permission_denied);
+        assert!(refused_status(String::new(), 2, true).secure_input);
+        // An older status without the new fields still reads.
+        let old: LogiStatus = serde_json::from_str(
+            r#"{"supported":true,"connected":false,"permission_denied":false,"name":"","battery":null,"dpi":null,"wheel":null,"invert":null,"controls":[],"options_running":false}"#,
+        )
+        .unwrap();
+        assert!(!old.refused && !old.secure_input);
+    }
+
 }

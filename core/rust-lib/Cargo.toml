@@ -45,6 +45,9 @@ rustfft = "6"
 # directly via CoreAudio/WASAPI/ALSA, bypassing the webview's getUserMedia,
 # which reconfigures the shared audio device and stutters playback.
 cpal = "0.15"
+# Noise suppression for the recording editor's microphone (record/denoise.rs): RNNoise in
+# pure Rust (BSD-3-Clause), 48 kHz mono, no C deps. Without default features = no CLI deps.
+nnnoiseless = { version = "0.5", default-features = false }
 argon2 = { workspace = true }
 keyring = { workspace = true }
 image = { workspace = true }

@@ -15,7 +15,16 @@ import {
 } from "../../lib/editor";
 import { dbfsToLevel, rmsToDbfs } from "../../lib/audio-level";
 import { useT } from "../../lib/i18n";
-import { Group, RangeSlider, Toggle } from "./InspectorParts";
+import { Chip, Group, RangeSlider, Toggle } from "./InspectorParts";
+import { DENOISE_LEVELS, normalizeDenoise, setMicDenoise } from "../../lib/autocut";
+import type { MessageKey } from "../../lib/i18n";
+
+const DENOISE_LABEL: Record<number, MessageKey> = {
+  0: "rec12.denoise.off",
+  50: "rec12.denoise.light",
+  75: "rec12.denoise.medium",
+  100: "rec12.denoise.strong",
+};
 import { trackName } from "./AudioLane";
 
 /** Level sliders move in 0.5-dB steps, fades in 50-ms steps (upstream's grid). */
@@ -54,6 +63,8 @@ export interface AudioTabProps {
   onVoiceover: () => void;
   /** The newest document (for slider gestures that started on an older one). */
   getDoc?: () => RecordEditDoc;
+  /** Noise suppression: the cleaned microphone file is being made / could not be made. */
+  denoise?: { busy: boolean; failed: boolean };
 }
 
 /**
@@ -95,6 +106,30 @@ export function AudioTab(p: AudioTabProps) {
           onLive={(v) => p.onLive(setMicGain(cur(), snap(v, GAIN_STEP_DB, MIN_MIC_DB, MAX_MIC_DB)))}
           onEnd={p.onLiveEnd}
         />
+      )}
+      {p.hasMic && (
+        <Group label={t("rec12.denoise.title")} hint={t("rec12.denoise.hint")}>
+          <div className="flex flex-wrap gap-1" role="group" aria-label={t("rec12.denoise.title")} data-testid="ed-denoise">
+            {[0, ...DENOISE_LEVELS].map((l) => (
+              <Chip
+                key={l}
+                label={t(DENOISE_LABEL[l] ?? "rec12.denoise.off")}
+                active={normalizeDenoise(doc.micDenoise) === l}
+                onClick={() => p.onCommit(setMicDenoise(cur(), l))}
+              />
+            ))}
+          </div>
+          {p.denoise?.busy && (
+            <p className="text-[11px] text-[var(--color-muted)]" role="status">
+              {t("rec12.denoise.working")}
+            </p>
+          )}
+          {p.denoise?.failed && !p.denoise.busy && (
+            <p className="text-[11px] text-[var(--color-muted)]" role="alert">
+              {t("rec12.denoise.failed")}
+            </p>
+          )}
+        </Group>
       )}
       <div className="flex flex-wrap gap-1.5">
         <button

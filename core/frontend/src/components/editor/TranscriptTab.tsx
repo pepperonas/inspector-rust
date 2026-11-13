@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import { RotateCcw } from "lucide-react";
-import type { EditorSourcePos, RecordEditDoc } from "../../lib/ipc";
+import type { EditorSourcePos, RecordAutocutOpts, RecordAutocutResult, RecordEditDoc } from "../../lib/ipc";
+import { CleanupBox } from "./CleanupBox";
 import { formatTimecode, restoreGap } from "../../lib/editor";
 import { clipWords, cutWords, gaps, setWordText, type ClipWord } from "../../lib/transcript";
 import { matchAction } from "../../lib/editor-shortcuts";
@@ -23,6 +24,8 @@ export interface TranscriptTabProps {
   onSeek: (programmeMs: number) => void;
   /** Words were selected: other selections (a region, a clip) let go so ⌫ means the words. */
   onWordsSelected?: () => void;
+  /** Pauses and filler words that could be cut (Rust); without it the clean-up is not offered. */
+  suggest?: (opts: RecordAutocutOpts) => Promise<RecordAutocutResult>;
 }
 
 type Sel = { clip: number; anchor: number; focus: number };
@@ -32,7 +35,7 @@ type Sel = { clip: number; anchor: number; focus: number };
  * the selected words (one undo step), a double-click corrects a word. The words a cut removed
  * stand struck through between their clips and come back with one click.
  */
-export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onWordsSelected }: TranscriptTabProps) {
+export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onWordsSelected, suggest }: TranscriptTabProps) {
   const t = useT();
   const bindings = useBindings();
   const transcripts = useMemo(() => doc.transcripts ?? [], [doc.transcripts]);
@@ -198,6 +201,7 @@ export function TranscriptTab({ doc, cue, tr, onCommit, toProgramme, onSeek, onW
           <p className="text-[11px] text-[var(--color-muted)]">{t("rec6.tr.help")}</p>
         </div>
       )}
+      {suggest && <CleanupBox doc={doc} suggest={suggest} onCommit={onCommit} onSeek={onSeek} />}
     </>
   );
 }

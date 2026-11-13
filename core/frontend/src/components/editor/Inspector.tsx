@@ -11,8 +11,7 @@ import type {
   RecordLayoutPreset,
   RecordWallpaperMotion,
   RecordZoomRegion,
-  RecordZoomRotation,
-} from "../../lib/ipc";
+  RecordZoomRotation, RecordAutocutOpts, RecordAutocutResult } from "../../lib/ipc";
 import {
   BOUNCE_LEVELS,
   SHADOW_LEVELS,
@@ -73,6 +72,10 @@ export interface InspectorProps {
   getDoc?: () => RecordEditDoc;
   /** The project has a microphone recording. */
   hasMic?: boolean;
+  /** Noise suppression: the cleaned microphone file is being made / could not be made. */
+  denoise?: { busy: boolean; failed: boolean };
+  /** Pauses and filler words that could be cut (the Transcript tab's clean-up). */
+  suggestCuts?: (opts: RecordAutocutOpts) => Promise<RecordAutocutResult>;
   /** The music/voiceover track (`id`) selected on the timeline; the audio tab edits it. */
   selectedTrack?: string | null;
   onSelectTrack?: (id: string | null) => void;
@@ -310,6 +313,7 @@ export function Inspector(props: InspectorProps) {
             musicBusy={props.musicBusy}
             onVoiceover={props.onVoiceover ?? (() => undefined)}
             getDoc={props.getDoc}
+            denoise={props.denoise}
           />
         )}
         {tab === "captions" && props.transcription && (
@@ -331,6 +335,7 @@ export function Inspector(props: InspectorProps) {
             toProgramme={props.toProgramme ?? (async () => null)}
             onSeek={props.onSeek ?? (() => undefined)}
             onWordsSelected={props.onWordsSelected}
+            suggest={props.suggestCuts}
           />
         )}
       </div>

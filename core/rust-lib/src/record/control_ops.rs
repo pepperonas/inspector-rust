@@ -423,7 +423,7 @@ pub fn unknown_key(base: &Value, patch: &Value, path: &str) -> Option<String> {
 }
 
 /// Top-level fields `look.set` may change.
-pub const LOOK_FIELDS: [&str; 7] = ["appearance", "cursor", "output", "camera", "captions", "micGainDb", "systemGainDb"];
+pub const LOOK_FIELDS: [&str; 8] = ["appearance", "cursor", "output", "camera", "captions", "micGainDb", "systemGainDb", "micDenoise"];
 
 /// The `ops` applied to `doc` in order, each normalised before the next (indices in a later
 /// op see the document as the earlier ops left it). All or nothing: the first failing op

@@ -7379,6 +7379,23 @@ pub async fn editor_auto_zoom(app: AppHandle, session_id: u64) -> Result<crate::
     editor_blocking(move || crate::record::editor_ipc::auto_zoom(&app, session_id)).await
 }
 
+/// Makes the noise-suppressed microphone files the open document asks for; returns the view.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_denoise(session_id: u64) -> Result<crate::record::editor::EditorView, String> {
+    editor_blocking(move || crate::record::editor_ipc::denoise(session_id)).await
+}
+
+/// Pauses and filler words of the open project that could be cut (nothing is changed).
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[tauri::command]
+pub async fn editor_autocut_suggest(
+    session_id: u64,
+    opts: Option<crate::record::autocut::AutocutOpts>,
+) -> Result<crate::record::editor_ipc::AutocutResult, String> {
+    editor_blocking(move || crate::record::editor_ipc::autocut_suggest(session_id, opts.unwrap_or_default())).await
+}
+
 /// Transcribes every recording the open project's clips play (model from the `meeting`
 /// settings) and returns the word transcripts; the UI merges them into its latest document
 /// and records one undo step via `editor_update`. Progress: `record-editor-transcribe`.

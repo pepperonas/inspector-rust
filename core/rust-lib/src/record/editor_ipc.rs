@@ -878,7 +878,36 @@ impl Session {
         // a zero-width span the UI marks; its bounds must come back unchanged on the next edit).
         let v = session_view(&self.project.recording, &self.play, self.cursor.as_ref(), &self.takes, self.output(OutputTarget::P1080));
         let waveforms = self.waveforms(&v.tracks);
-        EditorView { doc: self.doc.clone(), waveforms, ..v }
+        let mics = self.mic_dirs();
+        let denoised = mics.iter().filter(|(_, d)| super::denoise::cached(d, self.doc.mic_denoise).is_some()).map(|(n, _)| n.clone()).collect();
+        EditorView { doc: self.doc.clone(), waveforms, mic_sources: mics.into_iter().map(|(n, _)| n).collect(), denoised, ..v }
+    }
+
+    /// The playing recordings with a microphone file: (folder relative to the project — `""`
+    /// or `takes/<id>` — and the folder itself), each once.
+    fn mic_dirs(&self) -> Vec<(String, PathBuf)> {
+        let mut out: Vec<(String, PathBuf)> = Vec::new();
+        for c in self.play.clips.iter().filter(|c| c.end_ms > c.start_ms) {
+            let name = c.source.as_ref().map_or(String::new(), |id| format!("takes/{id}"));
+            if out.iter().any(|(n, _)| *n == name) {
+                continue;
+            }
+            if let Some((dir, meta)) = self.recording(c.source.as_deref()) {
+                if meta.mic.is_some() && std::fs::metadata(dir.join(MIC_FILE)).is_ok_and(|m| m.is_file()) {
+                    out.push((name, dir));
+                }
+            }
+        }
+        out
+    }
+
+    /// The microphone folders that still need their noise-suppressed file, with the level.
+    fn denoise_missing(&self) -> (u8, Vec<PathBuf>) {
+        let level = self.doc.mic_denoise;
+        if level == 0 {
+            return (0, Vec::new());
+        }
+        (level, self.mic_dirs().into_iter().map(|(_, d)| d).filter(|d| super::denoise::cached(d, level).is_none()).collect())
     }
 
     /// A recording's folder and metadata (`None` = the project's own take).
@@ -1634,6 +1663,77 @@ pub fn auto_zoom(app: &AppHandle, session_id: u64) -> Result<EditorView, String>
     update(app, session_id, next)
 }
 
+// ---- Noise suppression + clean-up suggestions (stage 12) ----------------------------------
+
+/// The noise-suppressed microphone file could not be made (the reason follows after `: `).
+pub const ERR_DENOISE: &str = "record.editor.denoise_failed";
+
+/// Makes the noise-suppressed microphone files the open document asks for and that are not
+/// there yet (seconds per recorded minute at most). Runs without the session lock.
+fn ensure_denoised(session_id: Option<u64>) -> Result<(), String> {
+    let (level, dirs) = {
+        let guard = session();
+        match guard.as_ref().filter(|s| session_id.is_none_or(|id| s.id == id)) {
+            Some(s) => s.denoise_missing(),
+            None => return Err(ERR_NO_SESSION.into()),
+        }
+    };
+    let never = std::sync::atomic::AtomicBool::new(false);
+    for dir in dirs {
+        super::denoise::ensure(&dir, level, &never).map_err(|e| format!("{ERR_DENOISE}: {e}"))?;
+    }
+    Ok(())
+}
+
+/// `editor_denoise`: makes the missing noise-suppressed files for the open document and
+/// returns the view (its `denoised` list then names them).
+pub fn denoise(session_id: u64) -> Result<EditorView, String> {
+    ensure_denoised(Some(session_id))?;
+    let guard = session();
+    let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    Ok(s.view())
+}
+
+/// What `editor_autocut_suggest` found, and what it could look at.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutocutResult {
+    pub suggestions: Vec<super::autocut::Suggestion>,
+    /// A playing recording has a microphone (pauses are found in its waveform only).
+    pub has_mic: bool,
+    /// A microphone's waveform is still being read: pauses may be missing, ask again.
+    pub mic_pending: bool,
+    /// A playing recording has a transcript (filler words come from it only).
+    pub has_transcript: bool,
+}
+
+/// `editor_autocut_suggest`: pauses and filler words of the open document that could be cut.
+/// Changes nothing.
+pub fn autocut_suggest(session_id: u64, opts: super::autocut::AutocutOpts) -> Result<AutocutResult, String> {
+    let guard = session();
+    let s = guard.as_ref().filter(|s| s.id == session_id).ok_or(ERR_NO_SESSION)?;
+    let mut mics: HashMap<Option<String>, (Arc<Peaks>, i64)> = HashMap::new();
+    let (mut has_mic, mut mic_pending, mut has_transcript) = (false, false, false);
+    for c in s.play.clips.iter().filter(|c| c.end_ms > c.start_ms) {
+        has_transcript |= s.play.transcripts.iter().any(|t| t.source == c.source && !t.words.is_empty());
+        if mics.contains_key(&c.source) {
+            continue;
+        }
+        let Some((dir, meta)) = s.recording(c.source.as_deref()) else { continue };
+        let Some(mic) = &meta.mic else { continue };
+        has_mic = true;
+        match s.ready_peaks(&dir.join(MIC_FILE)) {
+            Some(p) => {
+                mics.insert(c.source.clone(), (p, mic.offset_ms));
+            }
+            None => mic_pending = true,
+        }
+    }
+    let suggestions = super::autocut::suggest(&s.play, &opts, |source| {
+        mics.get(&source.map(str::to_string)).map(|(p, off)| (p.as_ref(), *off))
+    });
+    Ok(AutocutResult { suggestions, has_mic, mic_pending, has_transcript })
+}
 
 // ---- Transcription of the project's recordings (stage 6) ----------------------------------
 
@@ -2393,6 +2493,7 @@ pub fn cover_width(size: (u32, u32)) -> u32 {
 }
 
 pub fn export(app: &AppHandle, opts: ExportOptions) -> Result<String, String> {
+    ensure_denoised(None)?;
     let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().ok_or(ERR_NO_SESSION)?;
@@ -2975,6 +3076,7 @@ pub fn control_export(
     progress: &mut dyn FnMut(u64, u64),
 ) -> Result<String, crate::control::ControlError> {
     use crate::control::ControlError;
+    ensure_denoised(Some(session_id)).map_err(ControlError::sentinel)?;
     let (scene, kind, path, sidecar) = {
         let guard = session();
         let s = guard.as_ref().filter(|s| s.id == session_id).ok_or_else(|| ControlError::sentinel(ERR_NO_SESSION))?;
@@ -3352,6 +3454,7 @@ mod tests {
             transcripts: Vec::new(),
             captions: Default::default(),
             effects: Vec::new(),
+            mic_denoise: 0,
         }
     }
 

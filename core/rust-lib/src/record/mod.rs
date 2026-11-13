@@ -4,6 +4,7 @@
 pub mod assets;
 #[cfg_attr(not(all(target_os = "macos", target_arch = "aarch64")), allow(dead_code))]
 pub mod audio_tracks;
+pub mod autocut;
 // Webcam: cross-platform types (the settings carry them); its AVFoundation edge is macOS-only.
 pub mod camera;
 pub mod camera_preview;
@@ -11,6 +12,7 @@ pub mod camera_preview;
 pub mod captions;
 pub mod click_cues;
 pub mod core;
+pub mod denoise;
 #[cfg(target_os = "macos")]
 pub mod capture_macos;
 #[cfg(target_os = "macos")]

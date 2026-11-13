@@ -844,7 +844,7 @@ function edView(doc: EdDoc) {
   const cx = cam.position ? Math.min(ow - m - cw, Math.max(m, cam.position.x * ow - cw / 2)) : ow - m - cw;
   const cy = cam.position ? Math.min(oh - m - ch, Math.max(m, cam.position.y * oh - ch / 2)) : oh - m - ch;
   const cameraRects = doc.clips.map(() => [cx / ow, cy / oh, cw / ow, ch / oh] as [number, number, number, number]);
-  return { doc, programmeMs: programme, clips, speed, zooms, effects, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes };
+  return { doc, programmeMs: programme, clips, speed, zooms, effects, annotationSpans, layoutSpans, clipCameras, cameraRects, tracks, waveforms, clickHits, screenRects, outputSize: edOutputSize(doc), takes: edTakes, micSources: [""], denoised: [""] };
 }
 function edFrame(): ArrayBuffer {
   const w = 320, h = 180;
@@ -1339,6 +1339,22 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         clickDown: null,
         clickUp: null,
       };
+    case "editor_denoise": return { ...edView(edDoc), micSources: [""], denoised: [""] };
+    case "editor_autocut_suggest": {
+      const o = (args.opts ?? {}) as { silences?: boolean; fillers?: boolean };
+      const all = [
+        { id: "cut-0", kind: "silence", clip: 0, startMs: 2_400, endMs: 4_100, programmeMs: 2_400, text: "" },
+        { id: "cut-1", kind: "filler", clip: 0, startMs: 6_050, endMs: 6_420, programmeMs: 6_050, text: "ähm" },
+        { id: "cut-2", kind: "silence", clip: 0, startMs: 11_200, endMs: 12_350, programmeMs: 11_200, text: "" },
+        { id: "cut-3", kind: "filler", clip: 0, startMs: 15_900, endMs: 16_180, programmeMs: 15_900, text: "äh" },
+      ];
+      return {
+        suggestions: all.filter((s) => (s.kind === "silence" ? o.silences !== false : o.fillers !== false)),
+        hasMic: true,
+        micPending: false,
+        hasTranscript: true,
+      };
+    }
     case "editor_auto_zoom": {
       const zs = (edDoc.zooms ?? []) as { origin: string }[];
       if (!zs.some((z) => z.origin === "auto")) {

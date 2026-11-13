@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub const EDITOR_VERSION: u32 = 6;
+pub const EDITOR_VERSION: u32 = 7;
 /// Clips shorter than this are dropped by `normalize` (a sliver nobody can see or grab).
 pub const MIN_CLIP_MS: u64 = 100;
 pub const MIN_SPEED: f64 = 0.25;
@@ -822,6 +822,10 @@ pub struct EditDoc {
     /// [`super::effects::EffectRegion`].
     #[serde(default, deserialize_with = "lenient_vec")]
     pub effects: Vec<super::effects::EffectRegion>,
+    /// Noise suppression on the recorded microphone (v7): 0 = off, else the strength in
+    /// percent (one of [`super::denoise::LEVELS`]). The recording itself is never changed.
+    #[serde(default)]
+    pub mic_denoise: u8,
 }
 
 /// The words of one recording, with times in that recording's SOURCE ms.
@@ -1012,6 +1016,12 @@ pub struct EditorView {
     /// The waveforms on the programme clock (mic, system sound, tracks). Filled by the editor
     /// session as peaks arrive (empty from [`view`]).
     pub waveforms: Vec<super::peaks::WaveSpan>,
+    /// The playing recordings that have a microphone file, as folders relative to the project
+    /// (`""` = its own take, `takes/<id>`). Filled by the editor session.
+    pub mic_sources: Vec<String>,
+    /// Those of `mic_sources` whose noise-suppressed file for `doc.mic_denoise` exists — the
+    /// preview and the export use it for exactly these. Filled by the editor session.
+    pub denoised: Vec<String>,
 }
 
 /// One clip spanning the whole recording, speed 1, no crop. With a `preset` (the default
@@ -1040,10 +1050,11 @@ pub fn default_doc(meta: &RecordingMeta, preset: Option<&super::presets::Preset>
         transcripts: Vec::new(),
         captions: CaptionSettings::default(),
         effects: Vec::new(),
+        mic_denoise: 0,
     }
 }
 
-/// Reads a stored editor block: v6 as is, v5 upgraded with no rotated zooms, depth of field on and a flat cursor,  v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
+/// Reads a stored editor block: v7 as is, v6 upgraded with noise suppression off, v5 upgraded with no rotated zooms, depth of field on and a flat cursor,  v4 upgraded with no transcripts and captions off, v3 upgraded with the standard camera look
 /// (`CameraStyle::default()`, picture-in-picture whether or not there is a camera) and no layout
 /// regions, v2 upgraded with no annotations, no tracks and the
 /// system sound at 0 dB, v1 first upgraded to v2 with the look it always had
@@ -1084,6 +1095,11 @@ pub fn migrate(value: serde_json::Value) -> Option<EditDoc> {
     if doc.version == 5 {
         // Stage 7 fields all default to "as before".
         doc.version = 6;
+    }
+    if doc.version == 6 {
+        // Stage 12: noise suppression is off for every existing project.
+        doc.version = 7;
+        doc.mic_denoise = 0;
     }
     (doc.version == EDITOR_VERSION).then_some(doc)
 }
@@ -1374,6 +1390,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         transcripts,
         captions,
         effects,
+        mic_denoise,
         ..
     } = doc;
     crop.resize(clips.len(), None);
@@ -1472,6 +1489,7 @@ pub fn normalize(doc: EditDoc, duration_ms: u64, takes: &TakeMetas) -> EditDoc {
         transcripts: normalize_transcripts(transcripts, duration_ms, takes),
         captions: super::captions::normalize_settings(captions),
         effects,
+        mic_denoise: super::denoise::normalize_level(mic_denoise),
     }
 }
 
@@ -2009,6 +2027,8 @@ pub fn view(doc: &EditDoc) -> EditorView {
         takes: TakeMetas::new(),
         tracks: super::audio_tracks::track_entries(doc),
         waveforms: Vec::new(),
+        mic_sources: Vec::new(),
+        denoised: Vec::new(),
     }
 }
 
@@ -2173,6 +2193,7 @@ pub(crate) mod tests {
             transcripts: Vec::new(),
             captions: CaptionSettings::default(),
             effects: Vec::new(),
+            mic_denoise: 0,
         }
     }
 
@@ -3277,6 +3298,20 @@ pub(crate) mod tests {
         let z: Vec<_> = v.zooms.iter().map(|s| (s.index, s.prog_start_ms, s.prog_end_ms, 0)).collect();
         assert_eq!(s, z, "effect spans map exactly like the zoom spans on the same times");
         assert_eq!(v.effects[0].effect, "vignette");
+    }
+
+    /// Stage 12: a v6 project opens with noise suppression off and everything else as it was;
+    /// a stored strength snaps to an offered step.
+    #[test]
+    fn v6_document_opens_as_v7_with_noise_suppression_off() {
+        let v6 = serde_json::json!({"version": 6, "clips": [{"startMs": 0, "endMs": 5000}], "micGainDb": -3.0});
+        let d = migrate(v6.clone()).unwrap();
+        assert_eq!((d.version, d.mic_denoise, d.mic_gain_db), (EDITOR_VERSION, 0, -3.0));
+        let mut same = v6;
+        same["version"] = serde_json::json!(7);
+        assert_eq!(migrate(same).unwrap(), d);
+        let on = migrate(serde_json::json!({"version": 7, "clips": [{"startMs": 0, "endMs": 5000}], "micDenoise": 80})).unwrap();
+        assert_eq!(normalize(on, 5000, &TakeMetas::new()).mic_denoise, 75);
     }
 
     #[test]

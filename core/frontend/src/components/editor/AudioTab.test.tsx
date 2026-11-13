@@ -159,3 +159,27 @@ describe("VoiceoverPanel", () => {
     expect((screen.getByTestId("ed-vo-cancel") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("noise suppression", () => {
+  it("offers the strengths only with a microphone and commits the chosen one", () => {
+    const base = { version: 7, audioTracks: [], systemGainDb: 0, micGainDb: 0 } as unknown as RecordEditDoc;
+    const props = {
+      doc: base,
+      selected: null,
+      onSelect: () => undefined,
+      onLive: () => undefined,
+      onLiveEnd: () => undefined,
+      onAddMusic: () => undefined,
+      onVoiceover: () => undefined,
+    };
+    const onCommit = vi.fn();
+    const first = render(<AudioTab {...props} hasMic={false} onCommit={onCommit} />);
+    expect(screen.queryByTestId("ed-denoise")).toBeNull();
+    first.unmount();
+    render(<AudioTab {...props} hasMic onCommit={onCommit} denoise={{ busy: true, failed: false }} />);
+    expect(screen.getByText("Off").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("status").textContent).toContain("Cleaning up");
+    fireEvent.click(screen.getByText("Medium"));
+    expect(onCommit).toHaveBeenCalledWith({ ...base, micDenoise: 75 });
+  });
+});

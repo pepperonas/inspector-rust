@@ -111,6 +111,7 @@ mod tests {
             transcripts: Vec::new(),
             captions: Default::default(),
             effects: Vec::new(),
+            mic_denoise: 0,
         }
     }
 

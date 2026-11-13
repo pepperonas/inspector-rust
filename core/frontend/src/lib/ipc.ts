@@ -5696,6 +5696,8 @@ export interface RecordEditDoc {
   /** One transcript per recording (v5); captions are derived from it, never stored. */
   transcripts: RecordTranscript[];
   captions: RecordCaptionSettings;
+  /** Noise suppression on the recorded microphone (v7): 0/absent = off, else 50, 75 or 100. */
+  micDenoise?: number;
 }
 export interface RecordEditorView {
   doc: RecordEditDoc;
@@ -5728,6 +5730,10 @@ export interface RecordEditorView {
   tracks?: RecordTrackSpan[];
   /** Waveforms on the programme clock, filled as peaks arrive (`record-editor-waveforms`). */
   waveforms?: RecordWaveSpan[];
+  /** Playing recordings with a microphone file, as folders relative to the project (`""` = own take). */
+  micSources?: string[];
+  /** Those of `micSources` whose noise-suppressed file for `doc.micDenoise` exists. */
+  denoised?: string[];
 }
 /** One entry of a music/voiceover track on the programme clock (`index` into `doc.audioTracks`). */
 export interface RecordTrackSpan {
@@ -5905,6 +5911,40 @@ export function editorSegmentationAvailable(): Promise<boolean> {
 /** Appends the auto-zoom planner's zooms; the caller records the answer as one undo step. */
 export function editorAutoZoom(sessionId: number): Promise<RecordEditorView> {
   return invoke("editor_auto_zoom", { sessionId });
+}
+/** Makes the noise-suppressed microphone files the open document asks for (seconds per recorded
+ *  minute at most); the answer's `micSources`/`denoised` say what is there. */
+export function editorDenoise(sessionId: number): Promise<RecordEditorView> {
+  return invoke("editor_denoise", { sessionId });
+}
+/** A pause or a filler word that could be cut: source ms of clip `clip` (Rust's `autocut`). */
+export interface RecordCutSuggestion {
+  id: string;
+  kind: "silence" | "filler";
+  clip: number;
+  startMs: number;
+  endMs: number;
+  /** Where it starts in the finished video. */
+  programmeMs: number;
+  /** The filler word; empty for a pause. */
+  text: string;
+}
+export interface RecordAutocutOpts {
+  silences?: boolean;
+  fillers?: boolean;
+  minGapMs?: number;
+  padMs?: number;
+}
+export interface RecordAutocutResult {
+  suggestions: RecordCutSuggestion[];
+  hasMic: boolean;
+  /** A microphone waveform is still being read: pauses may be missing. */
+  micPending: boolean;
+  hasTranscript: boolean;
+}
+/** Pauses and filler words of the open project that could be cut. Changes nothing. */
+export function editorAutocutSuggest(sessionId: number, opts: RecordAutocutOpts): Promise<RecordAutocutResult> {
+  return invoke("editor_autocut_suggest", { sessionId, opts });
 }
 /** Progress of `editorTranscribe` (`record-editor-transcribe`): `done` of `total` recordings,
  *  `source` = the one running (`null` = the project's own take), its position in the audio

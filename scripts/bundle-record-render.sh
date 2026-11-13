@@ -164,6 +164,10 @@ stamp="${FF_DIR}/.ir-ffmpeg-stamp"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/LICENSE" "${TP}/openscreen/LICENSE"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/THIRD-PARTY-NOTICES.md" "${TP}/openscreen/THIRD-PARTY-NOTICES.md"
 cp "${REPO_ROOT}/vendor/openscreen-compositor/VENDORED.md" "${TP}/openscreen/VENDORED.md"
+# Noise suppression of the editor's microphone (nnnoiseless, BSD-3-Clause, linked into the app).
+mkdir -p "${TP}/nnnoiseless"
+cp "${REPO_ROOT}/vendor/nnnoiseless-licence/COPYING" "${TP}/nnnoiseless/COPYING"
+cp "${REPO_ROOT}/vendor/nnnoiseless-licence/README.md" "${TP}/nnnoiseless/README.md"
 # Text annotation fonts (Inter, Lora, Oswald, Caveat, IBM Plex Mono — SIL OFL 1.1): the OFL
 # text of each family goes next to the other notices; the fonts themselves ship with the record
 # assets below. Ten files, regular + bold, or the helper would fall back to system fonts.

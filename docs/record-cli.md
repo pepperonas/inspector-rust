@@ -71,6 +71,8 @@ Ctrl+C stops a recording (`record` without `--duration`) or cancels a running ex
 
 `zoom.add`, `zoom.set`, `zoom.remove`, `zoom.auto`, `clip.split`, `clip.delete`, `clip.move`, `clip.duplicate`, `clip.speed`, `clip.crop`, `annotation.add`, `annotation.set`, `annotation.remove`, `effect.add`, `effect.set`, `effect.remove`, `track.add`, `track.set`, `track.remove`, `look.set`, `preset.apply`, `rename`.
 
+`look.set` also takes `micDenoise` (0 = off, 50, 75 or 100): noise suppression on the recorded microphone. The cleaned sound is made before the next export; the recording itself is not changed.
+
 `track.add {file, kind?, atProgrammeMs | clip (+startMs)?, gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}` lays an audio file under the programme: `file` is an absolute path (MP3, M4A, AAC, WAV, FLAC), copied into the project before the ops run and removed again if they fail; `kind` is `voiceover` (default, 0 dB, no fades) or `music` (−18 dB, 1 s fades); without a placement it starts at clip 0. `track.set {id, …}` changes level, mute, loop, fades or label; `track.remove {id}`. Narration for a scripted demo: `say -o q.aiff "…"` → `afconvert -f WAVE -d LEI16 q.aiff q.wav` → `track.add`.
 
 Placement for add ops (and `*.set` to move): `atProgrammeMs` (+ `durationMs`, programme ms = the edited timeline) or `clip` (+ `startMs`, `durationMs`, source ms of that clip); default duration 2000. Read `doc` first: region ids and clip indices come from it. Ops apply in order, all or nothing, as one undo step in an open editor window. Example:

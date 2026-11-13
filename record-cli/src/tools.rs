@@ -210,7 +210,7 @@ clip.split {atProgrammeMs | clip+sourceMs}; clip.delete {clip}; clip.move {clip,
 annotation.add {placement, body {kind: text|image|arrow|blur, …}, x,y,w,h percent, id?}; annotation.set / annotation.remove {id}; \
 effect.add {placement, effect (built-in id e.g. vignette, grain, spotlight), values?}; effect.set / effect.remove {id}; \
 track.add {file (absolute path to MP3/M4A/AAC/WAV/FLAC; copied into the project), kind voiceover|music (default voiceover), atProgrammeMs | clip (+startMs source ms; default clip 0 start), gainDb?, fadeInMs?, fadeOutMs?, looped?, label?, id?}; track.set {id, gainDb?, muted?, looped?, fadeInMs?, fadeOutMs?, label?}; track.remove {id}; \
-look.set {appearance?, cursor?, output?, camera?, captions?, micGainDb?, systemGainDb?} (partial, deep-merged); preset.apply {file}; rename {title}. \
+look.set {appearance?, cursor?, output?, camera?, captions?, micGainDb?, systemGainDb?, micDenoise? (0 off, 50, 75 or 100: noise suppression on the microphone)} (partial, deep-merged); preset.apply {file}; rename {title}. \
 Returns the new view and the ids of created regions.";
 
 pub static TOOLS: &[Tool] = &[

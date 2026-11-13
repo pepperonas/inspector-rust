@@ -331,7 +331,9 @@ pub fn scene_json_with(
             });
             if let Some(mic) = &m.mic {
                 clip["extraAudio"] = json!({
-                    "path": dir.join(MIC_FILE).to_string_lossy(),
+                    // The noise-suppressed copy while the document asks for it and it exists
+                    // (the editor makes it before an export); else the recording as it is.
+                    "path": super::denoise::cached(&dir, doc.mic_denoise).unwrap_or_else(|| dir.join(MIC_FILE)).to_string_lossy(),
                     "offsetSec": mic.offset_ms as f64 / 1000.0,
                     "gainDb": doc.mic_gain_db,
                 });
@@ -1015,6 +1017,30 @@ mod tests {
         p.recording.mic = Some(MicMeta { offset_ms: -250, sample_rate: 48_000 });
         let v = scene_json(Path::new(DIR), &p, &doc(), (1920, 1080), 30, &assets());
         assert_eq!(v["clips"][0]["extraAudio"]["offsetSec"], -0.25);
+    }
+
+    /// Noise suppression: the scene names the cleaned microphone file only while the document
+    /// asks for it AND the file exists; otherwise the recording as it is. Off = no file access
+    /// and the scene of before (the goldens).
+    #[test]
+    fn the_mic_path_follows_the_noise_suppression_setting() {
+        let dir = std::env::temp_dir().join(format!("ir-scene-denoise-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |d: &EditDoc| scene_json(&dir, &project(), d, (1920, 1080), 30, &assets())["clips"][0]["extraAudio"]["path"].clone();
+        let raw = dir.join("mic.wav").to_string_lossy().into_owned();
+        let mut d = doc();
+        assert_eq!(path(&d), raw);
+        d.mic_denoise = 75;
+        assert_eq!(path(&d), raw, "asked for, but not made yet: the recording plays");
+        let clean = dir.join(crate::record::denoise::cache_name(75));
+        std::fs::write(&clean, b"wav").unwrap();
+        assert_eq!(path(&d), clean.to_string_lossy().into_owned());
+        d.mic_denoise = 100;
+        assert_eq!(path(&d), raw, "another strength's file is not this one's");
+        d.mic_denoise = 0;
+        assert_eq!(path(&d), raw);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1896,7 +1922,6 @@ mod tests {
             "zooms": [{"id": "z", "clip": 0, "startMs": 0, "endMs": 1000, "depth": 3, "focusX": 0.5, "focusY": 0.5}],
         });
         let d = editor::migrate(v5).unwrap();
-        assert_eq!(d.version, 6);
         assert_eq!(d.version, EDITOR_VERSION);
         assert_eq!(d.zooms[0].rotation, None);
         assert!(d.appearance.depth_of_field);

@@ -2,6 +2,8 @@ import type { Selection } from "../lib/clipboard-regions";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { denoisePending, micFileFor } from "../lib/autocut";
+import { editorAutocutSuggest, editorDenoise, type RecordAutocutOpts } from "../lib/ipc";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   Copy,
@@ -340,6 +342,30 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
     });
     return () => void off.then((u) => u());
   }, []);
+
+  // Noise suppression: when the document asks for it and a cleaned microphone file is
+  // missing (just switched on, another strength, an undo, a project opened elsewhere), Rust
+  // makes it; only the two lists are taken from the answer (its doc may be older than ours).
+  const [denoise, setDenoise] = useState({ busy: false, failed: false });
+  const denoiseAsked = useRef("");
+  const needDenoise = view ? denoisePending(view) : false;
+  const denoiseKey = view && needDenoise ? `${init?.sessionId ?? 0}:${view.doc.micDenoise}:${(view.micSources ?? []).join("|")}` : "";
+  useEffect(() => {
+    if (!denoiseKey || denoiseAsked.current === denoiseKey) return;
+    denoiseAsked.current = denoiseKey;
+    const asked = sessionId.current;
+    setDenoise({ busy: true, failed: false });
+    editorDenoise(asked)
+      .then((v) => {
+        if (sessionId.current !== asked) return;
+        setView((cur) => (cur ? { ...cur, micSources: v.micSources, denoised: v.denoised } : cur));
+        setDenoise({ busy: false, failed: false });
+      })
+      .catch(() => {
+        if (sessionId.current === asked) setDenoise({ busy: false, failed: true });
+      });
+  }, [denoiseKey]);
+  const suggestCuts = useCallback((opts: RecordAutocutOpts) => editorAutocutSuggest(sessionId.current, opts), []);
 
   // The open project was renamed (record panel or project list): the header follows at once.
   useEffect(() => {
@@ -1200,7 +1226,7 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
   const playMedia = clipMedia(doc, view.takes, cue.source?.clip ?? 0, mainMedia);
   const audio = {
     screen: playMedia.systemAudio ? fileOf(playMedia, "screen.mp4") : null,
-    mic: playMedia.hasMic ? fileOf(playMedia, "mic.wav") : null,
+    mic: playMedia.hasMic ? fileOf(playMedia, micFileFor(view, playMedia.dir)) : null,
     micOffsetMs: playMedia.micOffsetMs,
   };
   // Crop works on the cropped clip's own recording and size (presets included).
@@ -1414,6 +1440,8 @@ function EditorSession({ onSession }: { onSession: (sessionId: number) => void }
             onAddAnnotation={(k) => void addAnnotationHere(k)}
             getDoc={() => cur() ?? doc}
             hasMic={!!meta.mic}
+            denoise={denoise}
+            suggestCuts={suggestCuts}
             safeZone={safeZone}
             onSafeZone={pickSafeZone}
             selectedTrack={selectedTrack}

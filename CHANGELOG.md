@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.261.0] — 2026-11-13
+
+### Added
+- **Noise suppression for the microphone.** The recording editor's Audio tab has "Noise suppression" (Off · Light · Medium · Strong): steady background noise such as a fan, hum or hiss is removed from the recorded microphone. The recording itself is never changed — the cleaned sound is a separate file in the project that the preview and the export use while the setting is on, so it can be switched off or changed at any time. It is made in the background within seconds and again before an export if it is missing.
+- **Clean up: find pauses and filler words.** The Transcript tab has a "Clean up" section. "Search" lists the pauses in the microphone sound (longer than 0.5, 0.7, 1 or 2 seconds, measured against the recording's own noise floor) and the filler words in the transcript (German: äh, ähm, öh, öhm, hm …; English: um, uh, er, erm …). Every entry has a tick and a time you can jump to; "Remove" cuts the ticked ones as one undo step. Nothing is cut before you say so, a pause never cuts into a transcribed word, and a little of every pause stays so the cuts do not sound clipped.
+- `ir-record edit`: `look.set` takes `micDenoise` (0, 50, 75 or 100).
+
+### Notes
+- Filler words are only found as far as the transcription wrote them down; it often leaves them out.
+- Noise suppression applies to the recorded microphone, not to voiceover or music tracks.
+
 ## [0.260.0] — 2026-11-13
 
 ### Added

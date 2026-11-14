@@ -2655,12 +2655,19 @@ mod tests {
         assert!(slot.warning().is_some(), "the loss is a warning for the bar");
         let meta = slot.finish(5_000_001_000);
         assert_eq!(finished_at.load(std::sync::atomic::Ordering::SeqCst), 5_000_001_000, "stopped at the screen's end");
-        let mut p = blank_project();
-        let (status, failure, _) = mac::finalize(&mut p, screen_ok(), None, vec![], meta);
-        assert_eq!(status, ProjectStatus::Ready);
-        assert_eq!(failure, None);
-        let cam = p.recording.camera.expect("the camera file up to the loss is kept");
-        assert_eq!(cam.ended_early_ms, Some(2_500));
+        // Finalizing into a project needs the macOS capture path (`mac::finalize`); the
+        // camera-slot behaviour around it is platform-neutral and runs everywhere.
+        #[cfg(target_os = "macos")]
+        {
+            let mut p = blank_project();
+            let (status, failure, _) = mac::finalize(&mut p, screen_ok(), None, vec![], meta);
+            assert_eq!(status, ProjectStatus::Ready);
+            assert_eq!(failure, None);
+            let cam = p.recording.camera.expect("the camera file up to the loss is kept");
+            assert_eq!(cam.ended_early_ms, Some(2_500));
+        }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(meta.and_then(|m| m.ended_early_ms), Some(2_500), "the camera file up to the loss is kept");
 
         // A camera that never delivers: reported once, as "no picture", no camera file.
         let never = FakeCam {

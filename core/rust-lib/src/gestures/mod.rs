@@ -1976,7 +1976,7 @@ impl PalmAwareRecognizer {
             && !self.tracks.iter().any(|t| t.active(t_ms))
             && contacts
                 .iter()
-                .any(|c| !self.tracks.iter().any(|t| t.id == c.id))
+                .any(|c| !self.tracks.iter().any(|t| t.id == c.id && t.present))
         {
             carried = self.finalize_tap(t_ms);
             self.reset_keep_present();
@@ -1993,12 +1993,25 @@ impl PalmAwareRecognizer {
             .map(|t| t.id)
             .collect();
 
+        // The driver reuses contact ids. A track that was NOT on the pad in
+        // the previous frame belongs to a finger that has lifted; a contact
+        // arriving under its id is a new touch and must not inherit the old
+        // start point, landing time or palm verdict (field case 2026-11-14:
+        // one palm-marked leftover made every later finger with that id a
+        // palm — 3-finger swipes read as 2 fingers, taps vanished).
+        let was_on_pad: Vec<i32> = self.tracks.iter().filter(|t| t.present).map(|t| t.id).collect();
         for t in &mut self.tracks {
             t.present = false;
         }
         for c in contacts {
             let palm = c.excluded;
             if let Some(t) = self.tracks.iter_mut().find(|t| t.id == c.id) {
+                if !was_on_pad.contains(&c.id) {
+                    t.start = (c.x, c.y);
+                    t.t_down = t_ms;
+                    t.peak = (c.x, c.y);
+                    t.palm = false;
+                }
                 t.last = (c.x, c.y);
                 t.t_last = t_ms;
                 t.present = true;
@@ -2029,6 +2042,10 @@ impl PalmAwareRecognizer {
         let lifted = was_present
             .iter()
             .any(|id| !self.tracks.iter().any(|t| t.id == *id && t.present));
+
+        // A lifted palm serves nothing: it is in no tap cluster and no swipe.
+        // Left in the list it would wait for its id to be reused.
+        self.tracks.retain(|t| t.present || !t.palm);
 
         // Active (present, non-palm, non-resting) finger count. Any keeps the
         // settle timer from advancing; a parked palm never does. `active_fingers`
@@ -2063,16 +2080,19 @@ impl PalmAwareRecognizer {
 
         // SWIPE emits immediately on lift, whenever ≥2 non-palm fingers moved
         // coherently — even while a palm stays resting on the pad.
+        // After a swipe that fired mid-flight the gesture ends when no finger
+        // is left — also when the last ones were judged palms before lifting
+        // (then no `lifted` is seen and the flag would swallow the next
+        // gesture).
+        if self.swipe_emitted && !self.tracks.iter().any(|t| t.present && !t.palm) {
+            self.reset_keep_present();
+            self.swipe_emitted = false;
+            return carried;
+        }
         if lifted {
             if self.swipe_emitted {
                 // Already emitted mid-flight — the end-of-gesture lifts (which
-                // would re-qualify in `decide_swipe`) are consumed. When the
-                // last non-palm contact leaves, the gesture is over: reset so
-                // the next one starts clean.
-                if !self.tracks.iter().any(|t| t.present && !t.palm) {
-                    self.reset_keep_present();
-                    self.swipe_emitted = false;
-                }
+                // would re-qualify in `decide_swipe`) are consumed.
                 return carried;
             }
             if let Some(swipe) = self.decide_swipe(t_ms) {
@@ -2892,6 +2912,40 @@ pub fn newest_proof(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     }
 }
 
+/// What the capture saw since the watchdog last looked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// Touch events the event tap saw (the window server's view of the pad).
+    pub touch_events: u64,
+    /// Multitouch frames our registration delivered.
+    pub frames: u64,
+    /// Most contacts in one frame.
+    pub max_contacts: u64,
+    /// Gestures the recogniser emitted (accepted or not).
+    pub emits: u64,
+}
+
+/// Touch events in one watchdog tick from which the pad counts as in use.
+pub const STARVED_MIN_TOUCH_EVENTS: u64 = 60;
+/// A healthy registration delivers about one frame per touch event; below
+/// one frame per this many events it only stutters.
+pub const STARVED_RATIO: u64 = 10;
+
+/// Pure: the pad was clearly in use but our registration delivered almost no
+/// frames. "Time since the last frame" cannot see this — one stray frame
+/// every few seconds keeps it small (field case 2026-11-14: frames still
+/// arrived, nothing was recognised, no rule fired).
+pub fn frames_starved(a: Activity) -> bool {
+    a.touch_events >= STARVED_MIN_TOUCH_EVENTS
+        && a.frames.saturating_mul(STARVED_RATIO) < a.touch_events
+}
+
+/// Pure: the pad was in use, frames arrived, and the recogniser said nothing
+/// at all although three or more fingers were down — worth one log line.
+pub fn silent_despite_fingers(a: Activity) -> bool {
+    a.touch_events >= STARVED_MIN_TOUCH_EVENTS && a.max_contacts >= 3 && a.emits == 0
+}
+
 /// Rebuild the gesture capture after system sleep. The private
 /// MultitouchSupport registration goes stale across sleep/wake — the run loop
 /// keeps spinning but the device delivers no (or late/erratic) frames, so
@@ -2954,6 +3008,26 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                         continue; // gestures off — nothing to heal
                     }
                     let since_frame = macos::ms_since_last_frame();
+                    let activity = macos::take_activity();
+                    let since_rebuild_now = last_rebuild
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or(u64::MAX);
+                    if frames_starved(activity) && since_rebuild_now >= cooldown_s {
+                        if rebuild(&format!(
+                            "only {} touch frames for {} touch events in the last tick (stuttering registration; next check in {cooldown_s}s)",
+                            activity.frames, activity.touch_events
+                        )) {
+                            last_rebuild = Some(std::time::Instant::now());
+                            cooldown_s = next_liveness_cooldown_s(cooldown_s);
+                        }
+                        continue;
+                    }
+                    if silent_despite_fingers(activity) {
+                        tracing::info!(
+                            "gestures: pad in use but nothing recognised in the last tick ({} frames, {} touch events, up to {} contacts)",
+                            activity.frames, activity.touch_events, activity.max_contacts
+                        );
+                    }
                     // A finger scroll or any touch event: both come only from
                     // a multitouch surface, so both hold with a mouse attached.
                     let since_touch = macos::ms_since_trackpad_touch();
@@ -3302,6 +3376,32 @@ mod tests {
     }
 
     // ── scroll_tap_deaf (expanded boundaries) ────────────────────────────
+
+    #[test]
+    fn a_stuttering_registration_counts_as_starved() {
+        let a = |touch_events, frames| Activity { touch_events, frames, ..Activity::default() };
+        // Pad in use, a handful of stray frames: starved.
+        assert!(frames_starved(a(600, 12)));
+        assert!(frames_starved(a(60, 0)));
+        // Healthy: about one frame per touch event, or more.
+        assert!(!frames_starved(a(600, 600)));
+        assert!(!frames_starved(a(600, 2_000)));
+        // Exactly at the ratio is still healthy.
+        assert!(!frames_starved(a(600, 60)));
+        assert!(frames_starved(a(600, 59)));
+        // Too little use to judge (a brush of the pad) — never a rebuild.
+        assert!(!frames_starved(a(59, 0)));
+        assert!(!frames_starved(a(0, 0)));
+    }
+
+    #[test]
+    fn silence_is_only_reported_with_three_fingers_and_no_emit() {
+        let a = |max_contacts, emits| Activity { touch_events: 500, frames: 500, max_contacts, emits };
+        assert!(silent_despite_fingers(a(3, 0)));
+        assert!(!silent_despite_fingers(a(2, 0))); // moving the cursor
+        assert!(!silent_despite_fingers(a(3, 1)));
+        assert!(!silent_despite_fingers(Activity { touch_events: 10, frames: 10, max_contacts: 4, emits: 0 }));
+    }
 
     #[test]
     fn a_touch_without_a_scroll_is_proof_of_trackpad_use() {
@@ -3959,6 +4059,63 @@ mod tests {
         );
         // The lift is consumed — no second event.
         assert_eq!(r.feed(150, &[]), None);
+    }
+
+    #[test]
+    fn a_reused_id_is_a_new_finger_not_the_old_palm() {
+        // A palm-marked contact lifts; later the driver hands its id to an
+        // ordinary finger of a 3-finger swipe. All three must count.
+        let palm = RawContact { id: 1, x: 0.5, y: 0.95, excluded: true };
+        let mut r = PalmAwareRecognizer::new();
+        assert_eq!(r.feed(0, &[palm]), None);
+        assert_eq!(r.feed(50, &[]), None);
+        let mut got = Vec::new();
+        for (t, fr) in swipe_frames(1_000, 0.8, 0.4, &[]) {
+            got.extend(r.feed(t, &fr));
+        }
+        assert_eq!(got, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
+    }
+
+    #[test]
+    fn a_reused_id_starts_from_where_it_lands() {
+        // Finger 1 taps bottom-left while finger 9 keeps moving the cursor (the
+        // tap cluster stays open, so the lifted track is still listed). Then a
+        // 3-finger swipe reuses id 1 at the top: its travel must be measured
+        // from the new landing point, or the three vectors point apart.
+        let mut r = PalmAwareRecognizer::new();
+        let mover = |y: f64| rc(9, 0.9, y);
+        r.feed(0, &[mover(0.10), rc(1, 0.1, 0.9)]);
+        r.feed(40, &[mover(0.14)]);
+        r.feed(80, &[mover(0.18)]);
+        r.feed(120, &[]);
+        // The settle ticker has not run yet when the swipe lands.
+        let mut got = Vec::new();
+        for (i, y) in [0.30, 0.45, 0.60, 0.75].iter().enumerate() {
+            let t = 400 + 30 * i as u64;
+            got.extend(r.feed(t, &[rc(1, 0.4, *y), rc(2, 0.5, *y), rc(3, 0.6, *y)]));
+        }
+        got.extend(r.feed(600, &[]));
+        assert!(
+            got.contains(&GestureEvent { kind: GestureKind::SwipeDown, fingers: 3 }),
+            "got {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_swipe_whose_fingers_end_as_palms_does_not_swallow_the_next_one() {
+        let mut r = PalmAwareRecognizer::new();
+        r.feed(0, &[rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]);
+        assert!(r.feed(100, &[rc(1, 0.4, 0.4), rc(2, 0.5, 0.4), rc(3, 0.6, 0.4)]).is_some());
+        // The fingers flatten on the way off and are judged palms, then lift.
+        let flat = |id, x| RawContact { id, x, y: 0.4, excluded: true };
+        r.feed(120, &[flat(1, 0.4), flat(2, 0.5), flat(3, 0.6)]);
+        r.feed(140, &[]);
+        // The next swipe (fresh ids) fires in flight like any other.
+        r.feed(1_000, &[rc(4, 0.4, 0.8), rc(5, 0.5, 0.8), rc(6, 0.6, 0.8)]);
+        assert_eq!(
+            r.feed(1_100, &[rc(4, 0.4, 0.4), rc(5, 0.5, 0.4), rc(6, 0.6, 0.4)]),
+            Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 })
+        );
     }
 
     #[test]

@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.263.2] — 2026-11-14
+
+### Fixed
+- Touchpad gestures stopped being recognised after a while although the trackpad still delivered touches: three-finger swipes were read as two-finger swipes or not at all, and taps vanished. The trackpad reuses its contact numbers, and the recogniser kept the entry of a lifted finger and continued it when the number came back — with the old starting point and, worst, with an old "this is a palm" verdict. Once such an entry existed, every finger that got its number was ignored. A contact that returns after lifting now always starts as a new finger, lifted palms are forgotten, and a swipe whose fingers were judged palms just before lifting no longer swallows the next gesture.
+- A touch capture that only stutters (a frame now and then) looked alive to the repair from 0.263.1. The app now compares how many touch frames it gets with how many touches the system reports and rebuilds the capture when it gets almost none.
+
+### Changed
+- When three or more fingers were on the trackpad and no gesture was recognised, the log now has one line with the frame, touch and contact counts.
+
 ## [0.263.1] — 2026-11-13
 
 ### Fixed

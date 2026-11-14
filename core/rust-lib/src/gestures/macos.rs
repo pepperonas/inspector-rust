@@ -381,6 +381,26 @@ static LAST_ANY_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_TRACKPAD_TOUCH_MS: AtomicU64 = AtomicU64::new(0);
 static TOUCH_EVENT_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// Counters since the watchdog last looked (`take_activity`): how many touch
+// events the tap saw, how many multitouch frames arrived, the most contacts in
+// one frame and how many gestures the recogniser emitted. A capture that only
+// stutters (a frame now and then) looks alive by "time since the last frame";
+// these numbers show it.
+static ACT_TOUCH_EVENTS: AtomicU64 = AtomicU64::new(0);
+static ACT_FRAMES: AtomicU64 = AtomicU64::new(0);
+static ACT_MAX_CONTACTS: AtomicU64 = AtomicU64::new(0);
+static ACT_EMITS: AtomicU64 = AtomicU64::new(0);
+
+/// Read and reset the activity counters.
+pub(crate) fn take_activity() -> super::Activity {
+    super::Activity {
+        touch_events: ACT_TOUCH_EVENTS.swap(0, Ordering::Relaxed),
+        frames: ACT_FRAMES.swap(0, Ordering::Relaxed),
+        max_contacts: ACT_MAX_CONTACTS.swap(0, Ordering::Relaxed),
+        emits: ACT_EMITS.swap(0, Ordering::Relaxed),
+    }
+}
+
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// The scroll tap swallows scroll-wheel events until this timestamp (ms since
 /// `START`). Each ≥3-finger multitouch frame pushes it to `now + GRACE_MS`, so
@@ -711,6 +731,7 @@ fn tick_thread() {
         };
         for d in &decisions {
             if let Some(ev) = d.event {
+                ACT_EMITS.fetch_add(1, Ordering::Relaxed);
                 tracing::info!(
                     "gestures(mac): recognised {:?} ({} finger(s)) via settle tick",
                     ev.kind, ev.fingers
@@ -746,6 +767,8 @@ extern "C" fn frame_callback(
     // (fingertip ~0.5–1.5, palm heel larger — see PALM_SIZE).
     let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     LAST_FRAME_MS.store(now.max(1), Ordering::Relaxed); // 1 = "a frame arrived"
+    ACT_FRAMES.fetch_add(1, Ordering::Relaxed);
+    ACT_MAX_CONTACTS.fetch_max(n as u64, Ordering::Relaxed);
     let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
     if prev != n as i32 && tracing::enabled!(tracing::Level::DEBUG) {
         let sizes = fingers
@@ -807,6 +830,7 @@ extern "C" fn frame_callback(
 
     for d in &decisions {
         if let Some(ev) = d.event {
+            ACT_EMITS.fetch_add(1, Ordering::Relaxed);
             // INFO (one line per recogniser emit, incl. ones the guard rejects):
             // a mis-classified gesture shows up without enabling debug.
             tracing::info!(
@@ -857,6 +881,7 @@ extern "C" fn scroll_tap_callback(
             let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
             if now > 0 {
                 LAST_TRACKPAD_TOUCH_MS.store(now, Ordering::Relaxed);
+                ACT_TOUCH_EVENTS.fetch_add(1, Ordering::Relaxed);
                 if !TOUCH_EVENT_LOGGED.swap(true, Ordering::Relaxed) {
                     tracing::info!("gestures(mac): tap sees touch events (liveness proof armed)");
                 }

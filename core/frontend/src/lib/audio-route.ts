@@ -1,4 +1,5 @@
 import type { AudioDevice, AudioRoute } from "./ipc";
+import { t } from "./i18n";
 
 /** Which glyph the footer draws for an output. */
 export type AudioKind = "speaker" | "headphones" | "bluetooth" | "display" | "other";
@@ -69,6 +70,19 @@ export function audioRouteView(route: AudioRoute): AudioRouteView {
 
 /** Footer label: "boom → Name", the name alone, or a fallback. */
 export function audioLabel(v: AudioRouteView): string {
-  const name = v.activeName ?? (v.viaBoom ? "startet…" : "kein Ausgang");
+  const name = v.activeName ?? (v.viaBoom ? t("am.starting") : t("am.no_output"));
   return v.viaBoom ? `boom → ${name}` : name;
+}
+
+/** Hover text of the footer switch: says in a sentence whether boom is in
+ *  the path, then what a click does. */
+export function audioTooltip(v: AudioRouteView): string {
+  const state = v.viaBoom
+    ? v.activeName
+      ? t("am.tip_boom", { name: v.activeName })
+      : t("am.tip_boom_starting")
+    : v.activeName
+      ? t("am.tip_direct", { name: v.activeName })
+      : t("am.tip_none");
+  return `${state}\n${v.boomInstalled ? t("am.tip_click_boom") : t("am.tip_click")}`;
 }

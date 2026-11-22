@@ -5042,5 +5042,13 @@
   "rec13.export.batch_running": "Format {format} · {n} of {total}",
   "rec13.export.batch_done": "{ok} of {total} exported",
   "rec13.export.batch_failed": "{format}: failed",
-  "record.editor.no_format": "The project has no such format."
+  "record.editor.no_format": "The project has no such format.",
+  "am.starting": "starting…",
+  "am.no_output": "no output",
+  "am.tip_boom": "boom is active — sound runs through the boom EQ to {name}.",
+  "am.tip_boom_starting": "boom is active — the connection to the output is starting.",
+  "am.tip_direct": "boom is off — sound goes directly to {name}.",
+  "am.tip_none": "No audio output found.",
+  "am.tip_click_boom": "Click: choose the output or switch boom.",
+  "am.tip_click": "Click: choose the output."
 }

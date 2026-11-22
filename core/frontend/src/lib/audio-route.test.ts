@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { audioKind, audioLabel, audioRouteView } from "./audio-route";
+import { audioKind, audioLabel, audioRouteView, audioTooltip, type AudioRouteView } from "./audio-route";
 import type { AudioRoute } from "./ipc";
 
 const speakers = { id: "10", name: "MacBook Pro-Lautsprecher", is_default: false, transport: "builtin" };
@@ -56,6 +56,28 @@ describe("audioRouteView", () => {
     expect(v.viaBoom).toBe(true);
     expect(v.activeName).toBeNull();
     expect(v.rows.some((r) => r.active)).toBe(false);
-    expect(audioLabel(v)).toBe("boom → startet…");
+    expect(audioLabel(v)).toBe("boom → starting…");
+  });
+});
+
+describe("audioTooltip", () => {
+  const base: AudioRouteView = {
+    rows: [],
+    activeName: "MacBook Pro Speakers",
+    activeKind: "speaker",
+    viaBoom: false,
+    boomEnabled: false,
+    boomInstalled: true,
+  };
+  it("says that boom is active and where the sound goes", () => {
+    const tip = audioTooltip({ ...base, viaBoom: true, boomEnabled: true });
+    expect(tip).toContain("boom is active");
+    expect(tip).toContain("MacBook Pro Speakers");
+  });
+  it("says that boom is off when the sound goes out directly", () => {
+    expect(audioTooltip(base)).toContain("boom is off");
+  });
+  it("does not offer the boom switch without the driver", () => {
+    expect(audioTooltip({ ...base, boomInstalled: false })).not.toContain("switch boom");
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Bluetooth, Check, ChevronUp, Headphones, Monitor, Speaker, Volume2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { audioLabel, type AudioKind, type AudioRouteView } from "../lib/audio-route";
+import { audioLabel, audioTooltip, type AudioKind, type AudioRouteView } from "../lib/audio-route";
 import { t, useT } from "../lib/i18n";
 
 const KIND_ICON: Record<AudioKind, LucideIcon> = {
@@ -86,7 +86,7 @@ export function AudioMenu({ view, onSelect, onToggleBoom, onOpen }: Props) {
         data-testid="audio-menu"
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`Audioausgabe: ${label} — Klick wählt Gerät oder schaltet boom`}
+        title={audioTooltip(view)}
         onClick={toggle}
         className={
           "flex max-w-[180px] items-center gap-1 rounded px-0.5 transition-colors " +

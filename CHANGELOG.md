@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.263.4] — 2026-11-22
+
+### Changed
+- The audio switch in the footer now says on hover whether boom is active and where the sound goes ("boom is active — sound runs through the boom EQ to …" or "boom is off — sound goes directly to …"), followed by what a click does. The text follows the app language; it was fixed German before.
+
 ## [0.263.3] — 2026-11-22
 
 ### Fixed

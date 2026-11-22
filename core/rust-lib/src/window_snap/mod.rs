@@ -172,6 +172,36 @@ pub fn dwell_step(prev: DwellState, zone: Option<SnapZone>, now_ms: u64, dwell_m
     }
 }
 
+/// What a left-button drag is doing to the window that had the focus at
+/// mouse-down. Only a `Move` may show a zone or snap: dragging a tab, a file,
+/// a selection or a slider near a screen edge leaves the window where it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DragKind {
+    /// The window has not moved (yet).
+    Unknown,
+    /// The window itself is being dragged.
+    Move,
+    /// The window changes size (edge resize) — never a snap.
+    Resize,
+}
+
+/// The window must have travelled this far to count as dragged.
+pub const DRAG_MOVE_MIN_PT: f64 = 4.0;
+/// A size change beyond this is a resize (a left/top edge resize also moves
+/// the origin, so the size is checked first).
+pub const DRAG_SIZE_TOL_PT: f64 = 1.0;
+
+/// Classify a drag from the window frame at mouse-down and its frame now.
+pub fn drag_kind(start: Rect, now: Rect) -> DragKind {
+    if (now.w - start.w).abs() > DRAG_SIZE_TOL_PT || (now.h - start.h).abs() > DRAG_SIZE_TOL_PT {
+        return DragKind::Resize;
+    }
+    if (now.x - start.x).hypot(now.y - start.y) >= DRAG_MOVE_MIN_PT {
+        return DragKind::Move;
+    }
+    DragKind::Unknown
+}
+
 /// The zone that is allowed to act (preview + snap): armed candidate or none.
 pub fn armed_zone(state: DwellState) -> Option<SnapZone> {
     if state.armed { state.candidate } else { None }
@@ -266,6 +296,32 @@ pub(crate) mod macos;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_drag_that_leaves_the_window_in_place_is_not_a_window_drag() {
+        // Dragging a tab inside iTerm2 or Chrome: the pointer travels, the
+        // focused window does not.
+        let w = Rect { x: 100.0, y: 80.0, w: 900.0, h: 600.0 };
+        assert_eq!(drag_kind(w, w), DragKind::Unknown);
+        let jitter = Rect { x: 101.5, y: 81.0, ..w };
+        assert_eq!(drag_kind(w, jitter), DragKind::Unknown);
+    }
+
+    #[test]
+    fn a_window_that_travels_is_being_dragged() {
+        let w = Rect { x: 100.0, y: 80.0, w: 900.0, h: 600.0 };
+        assert_eq!(drag_kind(w, Rect { x: 104.0, ..w }), DragKind::Move);
+        assert_eq!(drag_kind(w, Rect { x: 97.0, y: 77.0, ..w }), DragKind::Move);
+        assert_eq!(drag_kind(w, Rect { x: 20.0, y: 400.0, ..w }), DragKind::Move);
+    }
+
+    #[test]
+    fn a_resize_from_the_left_edge_moves_the_origin_but_is_no_window_drag() {
+        let w = Rect { x: 100.0, y: 80.0, w: 900.0, h: 600.0 };
+        let resized = Rect { x: 40.0, y: 80.0, w: 960.0, h: 600.0 };
+        assert_eq!(drag_kind(w, resized), DragKind::Resize);
+        assert_eq!(drag_kind(w, Rect { h: 640.0, ..w }), DragKind::Resize);
+    }
+
     use super::*;
 
     const SCREEN: Rect = Rect { x: 0.0, y: 0.0, w: 1440.0, h: 900.0 };

@@ -192,9 +192,10 @@ export function editorCancel(): Promise<void> {
 
 /** Cursor-follow: if the cursor has crossed to a different monitor,
  *  re-position the preview window to the new monitor's bottom-left.
- *  Called from the preview React component every 200 ms while the
- *  window is open. */
-export function repositionPreviewToCursor(): Promise<void> {
+ *  Called from the preview React component while the window is open.
+ *  Resolves to whether the pointer is over the preview — the window never
+ *  becomes key, so the webview's own hover events do not fire. */
+export function repositionPreviewToCursor(): Promise<boolean> {
   return invoke("reposition_preview_to_cursor");
 }
 

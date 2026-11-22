@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.263.3] — 2026-11-22
+
+### Fixed
+- The floating preview after a screenshot showed its buttons only after a click. They now appear as soon as the pointer is over the preview. The preview never takes the keyboard focus, and the web view only reports hover in a focused window, so the pointer position is now compared with the preview's frame instead.
+- Window snapping reacted to every drag that came near a screen edge: dragging a tab in iTerm2 or Chrome, a file or a text selection showed the snap outline and then moved the whole window to the left or right half. A zone is now offered only while the window itself is being moved; a drag inside the window and a resize from the window edge never snap.
+
 ## [0.263.2] — 2026-11-14
 
 ### Fixed

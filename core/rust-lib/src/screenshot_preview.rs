@@ -475,7 +475,7 @@ pub fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri
 
 #[cfg(test)]
 mod tests {
-    use super::monitor_index_for_point;
+    use super::{monitor_index_for_point, pointer_inside};
 
     #[test]
     fn picks_the_monitor_containing_the_point() {
@@ -508,6 +508,17 @@ mod tests {
         assert_eq!(monitor_index_for_point(&b, 200.0, 50.0), None);
         assert_eq!(monitor_index_for_point(&b, 50.0, -1.0), None);
         assert_eq!(monitor_index_for_point(&[], 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn the_pointer_is_over_the_preview_only_inside_its_frame() {
+        let size = (340.0, 220.0);
+        assert!(pointer_inside((0.0, 0.0), size));
+        assert!(pointer_inside((339.9, 219.9), size));
+        assert!(!pointer_inside((340.0, 100.0), size), "right edge is outside");
+        assert!(!pointer_inside((100.0, 220.0), size), "bottom edge is outside");
+        assert!(!pointer_inside((-0.1, 100.0), size));
+        assert!(!pointer_inside((100.0, -0.1), size));
     }
 }
 
@@ -551,10 +562,10 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
         let _ = win.set_size(target_size);
     }
 
-    // The preview is a non-activating (focused=false) window. Without this, macOS
-    // doesn't deliver mouse-moved events to a non-key window, so the webview's
-    // hover (onMouseEnter) — which reveals Close/Save/Edit/Pin — only fired after
-    // a focus-click. Accepting mouse-moved events makes hover work background.
+    // Kept, but NOT what makes hover work: WKWebView's own tracking is tied to
+    // the key window, so the controls still appeared only after a click. The
+    // hover state comes from `reposition_preview_to_cursor` (pointer polled
+    // against the window frame).
     enable_mouse_moved_events(&win);
 
     // Notify the React side that there's a fresh capture to show. If
@@ -952,16 +963,21 @@ pub fn screenshot_preview_discard(
 /// more reliable than spawning a std::thread that calls `set_position`
 /// from a worker (which was flaky on macOS).
 #[tauri::command]
-pub fn reposition_preview_to_cursor(app: AppHandle) -> Result<(), String> {
+pub fn reposition_preview_to_cursor(app: AppHandle) -> Result<bool, String> {
     let Some(win) = app.get_webview_window(PREVIEW_LABEL) else {
-        return Ok(()); // window already closed — no-op
+        return Ok(false); // window already closed — no-op
     };
+    // Hover comes from here, not from the webview: the preview never becomes
+    // the key window, and WKWebView only tracks the pointer in a key window,
+    // so `mouseenter` fired only after a click. A sync command runs on the
+    // main thread, which `pointer_local` needs.
+    let hovered = pointer_over(&win);
     let Some((target_pos, target_size)) = cursor_monitor_target(&win) else {
-        return Ok(());
+        return Ok(hovered);
     };
     let current = match win.outer_position() {
         Ok(p) => p,
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(hovered),
     };
     // Reposition only on a monitor change. Within a single monitor the
     // target stays fixed (we always anchor to the same bottom-left)
@@ -970,8 +986,23 @@ pub fn reposition_preview_to_cursor(app: AppHandle) -> Result<(), String> {
     if (current.x - target_pos.x).abs() > 50 || (current.y - target_pos.y).abs() > 50 {
         let _ = win.set_position(target_pos);
         let _ = win.set_size(target_size);
+        // The window just jumped to another monitor; the next poll decides.
+        return Ok(false);
     }
-    Ok(())
+    Ok(hovered)
+}
+
+/// Is the pointer over the preview window? Main thread.
+fn pointer_over(win: &WebviewWindow) -> bool {
+    let Some(p) = crate::status_toast::pointer_local(win) else { return false };
+    let (Ok(sf), Ok(size)) = (win.scale_factor(), win.inner_size()) else { return false };
+    pointer_inside(p, (f64::from(size.width) / sf, f64::from(size.height) / sf))
+}
+
+/// Window-local point inside a window of `size` (logical px)? Pure. The far
+/// edges are outside, so two touching windows never both claim a point.
+pub fn pointer_inside(p: (f64, f64), size: (f64, f64)) -> bool {
+    p.0 >= 0.0 && p.1 >= 0.0 && p.0 < size.0 && p.1 < size.1
 }
 
 /// Edit action — move the temp PNG to ~/Downloads and hand it to the

@@ -45,6 +45,9 @@ import { t, useT } from "../lib/i18n";
  * (`screenshot_preview::show_preview`); React just polls
  * `reposition_preview_to_cursor` every 200 ms.
  */
+/** Pointer poll: hover of the preview and monitor follow. */
+const HOVER_POLL_MS = 100;
+
 export function ScreenshotPreview() {
   useT();
   const [info, setInfo] = useState<PendingScreenshotInfo | null>(null);
@@ -90,9 +93,13 @@ export function ScreenshotPreview() {
   // reposition, so the IPC round-trip would be pure waste.
   useEffect(() => {
     if (!info) return;
+    // The same call reports whether the pointer is over the preview: the
+    // window is never key, so mouseenter only fired after a click.
     const id = window.setInterval(() => {
-      void repositionPreviewToCursor().catch(() => undefined);
-    }, 200);
+      void repositionPreviewToCursor()
+        .then((over) => setHovered(over === true))
+        .catch(() => undefined);
+    }, HOVER_POLL_MS);
     return () => window.clearInterval(id);
   }, [info]);
 
@@ -162,7 +169,6 @@ export function ScreenshotPreview() {
           backgroundColor: "#1a1a1a",
         }}
         onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
       >
         {/* Controls layer — hidden until hover (CleanShot X style): the
             preview is just a clean thumbnail at rest; the darkening overlay +

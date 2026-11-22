@@ -12,13 +12,15 @@
 //! which macOS 26 hard-asserts onto the main thread (silent EXC_BREAKPOINT).
 //! Requires **Accessibility** (`expander::accessibility_granted`).
 
-use super::{armed_zone, classify_zone, cocoa_rect_to_topleft, dwell_step, zone_rect, DwellState, Rect};
+use super::{
+    armed_zone, classify_zone, cocoa_rect_to_topleft, drag_kind, dwell_step, zone_rect, DragKind, DwellState, Rect,
+};
 use objc2::encode::{Encode, Encoding};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use parking_lot::Mutex;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, AtomicU8, Ordering};
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -137,6 +139,9 @@ extern "C" {
     ) -> i32;
     fn AXUIElementSetAttributeValue(el: AXUIElementRef, attr: CFStringRef, value: CFTypeRef) -> i32;
     fn AXValueCreate(value_type: u32, value_ptr: *const c_void) -> AXValueRef;
+    fn AXValueGetValue(value: AXValueRef, value_type: u32, value_ptr: *mut c_void) -> u8;
+    fn AXUIElementSetMessagingTimeout(el: AXUIElementRef, timeout: f32) -> i32;
+    fn AXUIElementGetPid(el: AXUIElementRef, pid: *mut i32) -> i32;
 }
 
 fn cfstr(s: &str) -> CFStringRef {
@@ -258,10 +263,101 @@ fn capture_drag_win() {
         if let Some(win) = focused_window() {
             // `focused_window` already returns a +1 (Copy rule); store as-is.
             DRAG_WIN.store(win as isize, Ordering::SeqCst);
+            note_drag_start(win);
             tracing::debug!("window-snap: captured drag window");
         } else {
             tracing::debug!("window-snap: no focused window at drag start");
         }
+    }
+}
+
+/// The window's frame (top-left points) over Accessibility, or `None`.
+unsafe fn window_frame(win: AXUIElementRef) -> Option<Rect> {
+    let read = |name: &str, kind: u32, out: *mut c_void| -> bool {
+        let attr = cfstr(name);
+        let mut v: CFTypeRef = std::ptr::null();
+        let rc = AXUIElementCopyAttributeValue(win, attr, &mut v);
+        CFRelease(attr);
+        if rc != 0 || v.is_null() {
+            return false;
+        }
+        let ok = AXValueGetValue(v as AXValueRef, kind, out) != 0;
+        CFRelease(v);
+        ok
+    };
+    let mut p = CGPoint { x: 0.0, y: 0.0 };
+    let mut sz = CGSize { width: 0.0, height: 0.0 };
+    if !read("AXPosition", KAX_VALUE_CGPOINT, &mut p as *mut _ as *mut c_void)
+        || !read("AXSize", KAX_VALUE_CGSIZE, &mut sz as *mut _ as *mut c_void)
+    {
+        return None;
+    }
+    Some(Rect { x: p.x, y: p.y, w: sz.width, h: sz.height })
+}
+
+const KIND_UNKNOWN: u8 = 0;
+const KIND_MOVE: u8 = 1;
+const KIND_OTHER: u8 = 2;
+/// Unverified drags re-read the window frame at most this often.
+const DRAG_PROBE_MS: u64 = 50;
+
+/// Remember where the window stood at mouse-down, so the drag handler can
+/// tell a window drag from a drag INSIDE the window (a tab, a file, text).
+fn note_drag_start(win: AXUIElementRef) {
+    *DRAG_START.lock() = None;
+    LAST_PROBE_MS.store(0, Ordering::Relaxed);
+    unsafe {
+        let mut pid: i32 = 0;
+        if AXUIElementGetPid(win, &mut pid) == 0 && pid == std::process::id() as i32 {
+            // Our own windows (a dragged screenshot pin): Accessibility runs
+            // in-process and belongs on the main thread, so this tap thread
+            // never reads their frame. They have no tabs to drag.
+            DRAG_KIND.store(KIND_MOVE, Ordering::Relaxed);
+            return;
+        }
+        // Per element — never the system-wide element, whose timeout is global.
+        let _ = AXUIElementSetMessagingTimeout(win, 0.25);
+        match window_frame(win) {
+            Some(r) => {
+                *DRAG_START.lock() = Some(r);
+                DRAG_KIND.store(KIND_UNKNOWN, Ordering::Relaxed);
+            }
+            // A window whose frame cannot be read cannot be placed either.
+            None => DRAG_KIND.store(KIND_OTHER, Ordering::Relaxed),
+        }
+    }
+}
+
+/// Is the retained window itself being dragged? Decided once per drag: the
+/// first frame that differs from the mouse-down frame settles it.
+fn window_is_moving() -> bool {
+    match DRAG_KIND.load(Ordering::Relaxed) {
+        KIND_MOVE => return true,
+        KIND_OTHER => return false,
+        _ => {}
+    }
+    let now = now_ms();
+    let last = LAST_PROBE_MS.load(Ordering::Relaxed);
+    if last != 0 && now.saturating_sub(last) < DRAG_PROBE_MS {
+        return false;
+    }
+    LAST_PROBE_MS.store(now.max(1), Ordering::Relaxed);
+    let win = DRAG_WIN.load(Ordering::SeqCst);
+    let Some(start) = *DRAG_START.lock() else { return false };
+    if win == 0 {
+        return false;
+    }
+    let Some(frame) = (unsafe { window_frame(win as AXUIElementRef) }) else { return false };
+    match drag_kind(start, frame) {
+        DragKind::Move => {
+            DRAG_KIND.store(KIND_MOVE, Ordering::Relaxed);
+            true
+        }
+        DragKind::Resize => {
+            DRAG_KIND.store(KIND_OTHER, Ordering::Relaxed);
+            false
+        }
+        DragKind::Unknown => false,
     }
 }
 
@@ -291,6 +387,11 @@ static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 /// Retained `AXUIElementRef` of the window being dragged (as isize). Captured
 /// at mouse-down; applied at mouse-up. Mirrors window_palette's `TARGET_WIN`.
 static DRAG_WIN: AtomicIsize = AtomicIsize::new(0);
+/// Frame of the retained window at mouse-down (None for our own windows).
+static DRAG_START: Mutex<Option<Rect>> = Mutex::new(None);
+/// `KIND_*`: whether this drag moves the retained window.
+static DRAG_KIND: AtomicU8 = AtomicU8::new(KIND_OTHER);
+static LAST_PROBE_MS: AtomicU64 = AtomicU64::new(0);
 static SCREENS: Mutex<Vec<Rect>> = Mutex::new(Vec::new());
 /// Dwell-arming state (v0.165.0) — the classified zone plus whether it has
 /// dwelled long enough to be LIVE. Replaces the old bare `CURRENT_ZONE`:
@@ -458,7 +559,13 @@ extern "C" fn tap_callback(
             // Classification (with its hysteresis) is unchanged; dwell-arming
             // (v0.165.0) is a layer ON TOP: only an ARMED zone shows the
             // preview or snaps, so a quick place-near-the-edge stays inert.
-            let zone = classify_zone(cursor, screen, prev.candidate);
+            let mut zone = classify_zone(cursor, screen, prev.candidate);
+            // Only a drag that MOVES the window may arm a zone. Dragging a
+            // tab, a file or a selection to the screen edge used to show the
+            // preview and then snapped the whole window on release.
+            if zone.is_some() && !window_is_moving() {
+                zone = None;
+            }
             let next = dwell_step(prev, zone, now_ms(), DWELL_MS.load(Ordering::Relaxed));
             if next != prev {
                 *DWELL.lock() = next;

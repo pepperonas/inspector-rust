@@ -143,6 +143,10 @@ import {
   getSoundEnabled,
   getScreenshotSound,
   setScreenshotSound,
+  getCueSound,
+  setCueSound,
+  type CueSound,
+  type SoundCue,
   type ScreenshotSoundStyle,
   setSoundEnabled,
   getAlarmStyle,
@@ -280,6 +284,8 @@ interface Props {
 
 /** How long a deep link waits for a section that is still loading. */
 const JUMP_WAIT_MS = 3000;
+/** Cues with a sound picker besides the screenshot. */
+const SOUND_CUES: readonly SoundCue[] = ["ocr", "expand"];
 
 /** Scroll `el` into view, keep it there while the layout settles, flash it.
  *  Returns the cleanup. */
@@ -634,6 +640,28 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     } catch (e) {
       console.error("screenshot sound change failed", e);
       setShotSound(previous);
+    }
+  };
+
+  // OCR + snippet-expansion sounds — same pattern, style list from Rust.
+  const [cueSounds, setCueSounds] = useState<Partial<Record<SoundCue, CueSound>>>({});
+  useEffect(() => {
+    for (const cue of SOUND_CUES) {
+      getCueSound(cue)
+        .then((v) => setCueSounds((m) => ({ ...m, [cue]: v })))
+        .catch((e) => console.error("cue sound read failed", e));
+    }
+  }, []);
+  const changeCueSound = async (cue: SoundCue, style: string) => {
+    const previous = cueSounds[cue];
+    if (!previous) return;
+    setCueSounds((m) => ({ ...m, [cue]: { ...previous, style } }));
+    try {
+      const applied = await setCueSound(cue, style);
+      setCueSounds((m) => ({ ...m, [cue]: applied }));
+    } catch (e) {
+      console.error("cue sound change failed", e);
+      setCueSounds((m) => ({ ...m, [cue]: previous }));
     }
   };
 
@@ -1346,6 +1374,26 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </span>
               </div>
             </Row>
+            {SOUND_CUES.map((cue) => {
+              const cur = cueSounds[cue];
+              return (
+                <Row key={cue} label={t(`set.sounds.${cue}` as MessageKey)}>
+                  <select
+                    data-testid={`cue-sound-${cue}`}
+                    value={cur?.style ?? ""}
+                    disabled={!cur}
+                    onChange={(e) => void changeCueSound(cue, e.target.value)}
+                    className="w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
+                  >
+                    {(cur?.styles ?? []).map((name) => (
+                      <option key={name} value={name}>
+                        {t(`set.sounds.${cue}.${name}` as MessageKey)}
+                      </option>
+                    ))}
+                  </select>
+                </Row>
+              );
+            })}
           </Section>
         </div>
     ),

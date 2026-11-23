@@ -215,6 +215,9 @@ pub fn reapply(app: &AppHandle, db: &DbHandle, changed: &[String]) {
         crate::sound::set_screenshot_style(
             &settings::get_or(db, "sound.screenshot_style", "camera").unwrap_or_else(|_| "camera".into()),
         );
+        for set in [&crate::sound::OCR_STYLES, &crate::sound::EXPAND_STYLES] {
+            set.set(&settings::get_or(db, set.key, "").unwrap_or_default());
+        }
     }
     if p.window_size {
         crate::commands::apply_window_size(app, db);

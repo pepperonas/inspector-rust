@@ -414,6 +414,9 @@ pub fn run(context: tauri::Context<Wry>) {
                 &settings::get_or(&db_handle, "sound.screenshot_style", "camera")
                     .unwrap_or_else(|_| "camera".into()),
             );
+            for set in [&sound::OCR_STYLES, &sound::EXPAND_STYLES] {
+                set.set(&settings::get_or(&db_handle, set.key, "").unwrap_or_default());
+            }
 
             if let Err(e) = hotkey::register(app.handle()) {
                 tracing::warn!(
@@ -997,6 +1000,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_sound_enabled,
             commands::get_screenshot_sound,
             commands::set_screenshot_sound,
+            commands::get_cue_sound,
+            commands::set_cue_sound,
             commands::get_clipboard_privacy,
             commands::set_clipboard_privacy,
             commands::get_window_size_preference,

@@ -138,6 +138,95 @@ fn screenshot_asset(style: ScreenshotStyle) -> Option<(&'static str, &'static [u
     }
 }
 
+/// An embedded sound: cache file name + WAV bytes.
+type Asset = (&'static str, &'static [u8]);
+/// One selectable style: its settings name and its sound (`None` = off).
+type Style = (&'static str, Option<Asset>);
+
+/// A cue whose sound the user picks (settings `sound.ocr_style`,
+/// `sound.expand_style`). Entry 0 is the default; `None` = the cue stays
+/// silent while every other cue keeps following the master toggle. Same
+/// "hot path never reads the DB" pattern as the screenshot style.
+pub struct CueStyles {
+    /// Settings key the choice persists under.
+    pub key: &'static str,
+    current: std::sync::atomic::AtomicU8,
+    styles: &'static [Style],
+}
+
+impl CueStyles {
+    fn index_of(&self, s: &str) -> usize {
+        let s = s.trim().to_ascii_lowercase();
+        self.styles.iter().position(|(n, _)| *n == s).unwrap_or(0)
+    }
+
+    /// Whitelist a stored/IPC string; anything unknown is the default — a
+    /// hand-edited value must never silence the cue by accident.
+    pub fn normalise(&self, s: &str) -> &'static str {
+        self.styles[self.index_of(s)].0
+    }
+
+    /// Apply a style (startup seed, settings sync, IPC).
+    pub fn set(&self, s: &str) {
+        self.current.store(self.index_of(s) as u8, Ordering::Relaxed);
+    }
+
+    fn entry(&self) -> &'static Style {
+        let i = self.current.load(Ordering::Relaxed) as usize;
+        self.styles.get(i).unwrap_or(&self.styles[0])
+    }
+
+    /// The current style as its settings/IPC string.
+    pub fn current_str(&self) -> &'static str {
+        self.entry().0
+    }
+
+    /// The current asset — `None` when the style is `off`.
+    fn asset(&self) -> Option<Asset> {
+        self.entry().1
+    }
+
+    /// Every style name, default first.
+    pub fn names(&self) -> Vec<&'static str> {
+        self.styles.iter().map(|(n, _)| *n).collect()
+    }
+}
+
+/// Sound of the "text recognised" cue.
+pub static OCR_STYLES: CueStyles = CueStyles {
+    key: "sound.ocr_style",
+    current: std::sync::atomic::AtomicU8::new(0),
+    styles: &[
+        ("success", Some(("ocr.wav", include_bytes!("../assets/ocr.wav")))),
+        ("chime", Some(("ocr_chime.wav", include_bytes!("../assets/ocr_chime.wav")))),
+        ("ping", Some(("ocr_ping.wav", include_bytes!("../assets/ocr_ping.wav")))),
+        ("pop", Some(("ocr_pop.wav", include_bytes!("../assets/ocr_pop.wav")))),
+        ("off", None),
+    ],
+};
+
+/// Sound of the snippet-expansion cue.
+pub static EXPAND_STYLES: CueStyles = CueStyles {
+    key: "sound.expand_style",
+    current: std::sync::atomic::AtomicU8::new(0),
+    styles: &[
+        ("mechkey", Some(("paste_mechkey.wav", include_bytes!("../assets/paste_mechkey.wav")))),
+        ("key", Some(("expand_key.wav", include_bytes!("../assets/expand_key.wav")))),
+        ("bubble", Some(("expand_bubble.wav", include_bytes!("../assets/expand_bubble.wav")))),
+        ("scifi", Some(("expand_scifi.wav", include_bytes!("../assets/expand_scifi.wav")))),
+        ("off", None),
+    ],
+};
+
+/// The selectable cue behind an IPC name (`"ocr"` / `"expand"`).
+pub fn cue_styles(cue: &str) -> Option<(&'static CueStyles, Sound)> {
+    match cue {
+        "ocr" => Some((&OCR_STYLES, Sound::Ocr)),
+        "expand" => Some((&EXPAND_STYLES, Sound::Expand)),
+        _ => None,
+    }
+}
+
 /// A UI feedback sound. Each variant maps to an embedded WAV + a stable
 /// cache filename (so the CLI players can read a real file).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,11 +246,31 @@ pub enum Sound {
 }
 
 impl Sound {
+    /// The style table of a cue the user can pick a sound for.
+    fn styles(self) -> Option<&'static CueStyles> {
+        match self {
+            Sound::Expand => Some(&EXPAND_STYLES),
+            Sound::Ocr => Some(&OCR_STYLES),
+            _ => None,
+        }
+    }
+
+    /// Whether the user switched this one cue off.
+    fn silenced(self) -> bool {
+        match self {
+            Sound::Screenshot => screenshot_style() == ScreenshotStyle::Off,
+            _ => self.styles().is_some_and(|s| s.asset().is_none()),
+        }
+    }
+
     /// The embedded WAV bytes for this cue.
     fn bytes(self) -> &'static [u8] {
         match self {
-            Sound::Expand => include_bytes!("../assets/paste_mechkey.wav"),
-            Sound::Ocr => include_bytes!("../assets/ocr.wav"),
+            // `play` returns early on off; the default is the fallback.
+            Sound::Expand | Sound::Ocr => {
+                let st = self.styles().unwrap();
+                st.asset().or(st.styles[0].1).unwrap().1
+            }
             // Style-selected; `play` returns early on Off, and the Camera asset
             // (the default) is the defensive fallback if this is ever reached
             // with Off.
@@ -179,8 +288,10 @@ impl Sound {
     /// Stable cache filename (one per cue).
     fn file_name(self) -> &'static str {
         match self {
-            Sound::Expand => "paste_mechkey.wav",
-            Sound::Ocr => "ocr.wav",
+            Sound::Expand | Sound::Ocr => {
+                let st = self.styles().unwrap();
+                st.asset().or(st.styles[0].1).unwrap().0
+            }
             Sound::Screenshot => {
                 screenshot_asset(screenshot_style())
                     .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Camera).unwrap())
@@ -230,7 +341,7 @@ pub fn play(sound: Sound) {
     if !is_enabled() {
         return;
     }
-    if sound == Sound::Screenshot && screenshot_style() == ScreenshotStyle::Off {
+    if sound.silenced() {
         return;
     }
     std::thread::spawn(move || {
@@ -307,13 +418,12 @@ mod tests {
         ScreenshotStyle::Switch,
     ];
 
-    /// Every embedded asset as (name, bytes) — the 5 fixed cues + the audible
+    /// Every embedded asset as (name, bytes) — the fixed cues, every style of the
+    /// selectable cues + the audible
     /// screenshot styles resolved through the PURE per-style accessor, so no
     /// structural test depends on the process-global style atomic.
     fn all_assets() -> Vec<(&'static str, &'static [u8])> {
         let mut v: Vec<(&'static str, &'static [u8])> = vec![
-            (Sound::Expand.file_name(), Sound::Expand.bytes()),
-            (Sound::Ocr.file_name(), Sound::Ocr.bytes()),
             (Sound::RecordStart.file_name(), Sound::RecordStart.bytes()),
             (Sound::RecordStop.file_name(), Sound::RecordStop.bytes()),
             (Sound::Copy.file_name(), Sound::Copy.bytes()),
@@ -321,7 +431,58 @@ mod tests {
         for style in AUDIBLE_STYLES {
             v.push(screenshot_asset(style).expect("audible style has an asset"));
         }
+        for set in [&OCR_STYLES, &EXPAND_STYLES] {
+            v.extend(set.styles.iter().filter_map(|(_, a)| *a));
+        }
         v
+    }
+
+    /// A private table, so these tests never touch the process-wide choice.
+    fn sample() -> CueStyles {
+        CueStyles {
+            key: "sound.test_style",
+            current: std::sync::atomic::AtomicU8::new(0),
+            styles: OCR_STYLES.styles,
+        }
+    }
+
+    #[test]
+    fn a_cue_style_falls_back_to_the_default_never_to_silence() {
+        let s = sample();
+        assert_eq!(s.normalise(" PING "), "ping");
+        assert_eq!(s.normalise("off"), "off");
+        for junk in ["", "none", "silent", "mechkey"] {
+            assert_eq!(s.normalise(junk), "success", "{junk:?}");
+        }
+        s.set("garbage");
+        assert_eq!(s.current_str(), "success");
+        assert!(s.asset().is_some());
+    }
+
+    #[test]
+    fn a_cue_style_round_trips_and_off_has_no_asset() {
+        let s = sample();
+        for name in s.names() {
+            s.set(name);
+            assert_eq!(s.current_str(), name);
+            assert_eq!(s.asset().is_none(), name == "off", "{name}");
+        }
+    }
+
+    #[test]
+    fn every_selectable_cue_starts_audible_and_ends_with_off() {
+        for (cue, default) in [("ocr", "success"), ("expand", "mechkey")] {
+            let (set, _) = cue_styles(cue).unwrap();
+            let names = set.names();
+            assert_eq!(names[0], default);
+            assert!(set.styles[0].1.is_some(), "{cue}: the default must sound");
+            assert_eq!(names.last(), Some(&"off"));
+            assert_eq!(names.iter().filter(|n| **n == "off").count(), 1);
+            let unique: std::collections::HashSet<_> = names.iter().collect();
+            assert_eq!(unique.len(), names.len(), "{cue}: duplicate style name");
+            assert!(set.key.starts_with("sound."), "settings sync keys on the prefix");
+        }
+        assert!(cue_styles("screenshot").is_none());
     }
 
     #[test]

@@ -1181,6 +1181,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_repo_config": return { clone_dir: "~/dev", has_token: false, gh_available: true };
     case "get_screen_recording_status": return true;
     case "get_screenshot_sound": return "camera";
+    case "get_cue_sound":
+      return args.cue === "ocr"
+        ? { style: "success", styles: ["success", "chime", "ping", "pop", "off"] }
+        : { style: "mechkey", styles: ["mechkey", "key", "bubble", "scifi", "off"] };
     case "get_snippet_storage": return { count: 312, bytes: 184_000 };
     case "get_sound_enabled": return true;
     case "get_sync_config": return { enabled: false, url: "", token: "" };

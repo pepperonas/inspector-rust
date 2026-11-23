@@ -2169,6 +2169,39 @@ pub fn set_screenshot_sound(db: State<'_, DbHandle>, style: String) -> Result<St
     Ok(style.to_string())
 }
 
+/// What the settings row of a selectable cue (`"ocr"` / `"expand"`) shows.
+#[derive(serde::Serialize)]
+pub struct CueSound {
+    pub style: String,
+    /// Every style, default first, `off` last.
+    pub styles: Vec<String>,
+}
+
+fn cue_sound_of(set: &crate::sound::CueStyles) -> CueSound {
+    CueSound {
+        style: set.current_str().to_string(),
+        styles: set.names().into_iter().map(String::from).collect(),
+    }
+}
+
+#[tauri::command]
+pub fn get_cue_sound(cue: String) -> Result<CueSound, String> {
+    let (set, _) = crate::sound::cue_styles(&cue).ok_or_else(|| format!("unknown cue {cue:?}"))?;
+    Ok(cue_sound_of(set))
+}
+
+/// Persist + apply a cue's sound, then play it once as a preview.
+#[tauri::command]
+pub fn set_cue_sound(db: State<'_, DbHandle>, cue: String, style: String) -> Result<CueSound, String> {
+    let (set, sound) =
+        crate::sound::cue_styles(&cue).ok_or_else(|| format!("unknown cue {cue:?}"))?;
+    let style = set.normalise(&style);
+    settings::set(&db, set.key, style).map_err(map_err)?;
+    set.set(style);
+    crate::sound::play(sound); // no-ops on off
+    Ok(cue_sound_of(set))
+}
+
 // ── Clipboard privacy (v0.76.0) ────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]

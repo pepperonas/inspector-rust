@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.264.0] — 2026-11-23
+
+### Added
+- Settings → Sounds: the text recognition sound and the text expander sound can now be chosen, each from four sounds (text recognition: success arpeggio, two-note chime, ping, pop; text expander: mechanical key, short key click, bubble, sci-fi) or switched off on its own. Picking a sound plays it once. The defaults are the sounds used so far, and the choice syncs between Macs like the other sound settings.
+
 ## [0.263.4] — 2026-11-22
 
 ### Changed

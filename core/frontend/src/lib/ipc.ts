@@ -733,6 +733,21 @@ export function getSoundEnabled(): Promise<boolean> {
 /** Persist + apply the feedback-sound toggle (takes effect immediately,
  *  no relaunch). Backend: `commands::set_sound_enabled`. */
 /** Screenshot shutter style: "snap" (default) | "dslr" | "switch" | "off". */
+/** A cue with a selectable sound besides the screenshot. */
+export type SoundCue = "ocr" | "expand";
+export interface CueSound {
+  style: string;
+  /** Every style, default first, "off" last. */
+  styles: string[];
+}
+export function getCueSound(cue: SoundCue): Promise<CueSound> {
+  return invoke("get_cue_sound", { cue });
+}
+/** Persists the style; the backend plays it once as a preview. */
+export function setCueSound(cue: SoundCue, style: string): Promise<CueSound> {
+  return invoke("set_cue_sound", { cue, style });
+}
+
 export type ScreenshotSoundStyle = "camera" | "snap" | "dslr" | "switch" | "off";
 
 export function getScreenshotSound(): Promise<ScreenshotSoundStyle> {

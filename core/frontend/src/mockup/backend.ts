@@ -1171,6 +1171,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_input_lock_chord": return ["KeyI", "KeyR"];
     case "get_keepalive_enabled": return false;
     case "get_meme_dir": return "~/My Drive/media/memes";
+    case "get_md2pdf_smart": return false;
     case "get_md2pdf_footer":
     case "set_md2pdf_footer":
       return { template: "© {year} Ana Lima | northwind.example", default_template: "© {year} {user}", preview: "© 2026 Ana Lima | northwind.example" };

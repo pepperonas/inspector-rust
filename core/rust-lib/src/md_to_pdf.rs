@@ -97,6 +97,8 @@ fn is_markdown(p: &Path) -> bool {
 fn convert_single(input: &Path, opts: &RenderOpts) -> Result<PathBuf, String> {
     let md_text =
         std::fs::read_to_string(input).map_err(|e| format!("can't read {input:?}: {e}"))?;
+    // Planned page breaks need the print path that can measure (macOS).
+    let opts = &RenderOpts { smart: opts.smart && cfg!(target_os = "macos"), ..opts.clone() };
     let doc = build_document_with(&md_text, input.parent(), opts);
     // Never overwrite: `foo.pdf` taken → `foo 2.pdf`, `foo 3.pdf` … (Finder's
     // "keep both" naming).
@@ -198,6 +200,7 @@ const EXTRA_CSS: &str = r#"
 @media print { body { max-width: none; } }
 a, p, li, td, th { overflow-wrap: anywhere; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ir-pagebreak { height: 0; margin: 0; padding: 0; break-after: page; page-break-after: always; }
 pre code { white-space: pre-wrap; }
 .footnote-definition { display: flex; gap: 0.5em; font-size: 0.9em; margin: 0.6em 0; }
 .footnote-definition p { margin: 0; text-align: left; }
@@ -408,6 +411,8 @@ pub struct Document {
     pub dark: bool,
     /// The footer line of `--sign`, placeholders filled in.
     pub footer: Option<String>,
+    /// Page breaks are planned (`--smart`).
+    pub smart: bool,
 }
 
 /// How a document is rendered.
@@ -419,6 +424,27 @@ pub struct RenderOpts {
     /// For `{year}` and `{user}`.
     pub year: i32,
     pub user: String,
+    /// Plan the page breaks (`--smart`).
+    pub smart: bool,
+}
+
+/// Settings key: plan page breaks without `--smart` ("1" = on).
+pub const KEY_SMART: &str = "md2pdf.smart";
+
+/// Whether page breaks are planned: the flag wins, else the setting. Pure.
+pub fn smart_choice(flag: Option<bool>, stored: Option<&str>) -> bool {
+    flag.unwrap_or(stored.map(str::trim) == Some("1"))
+}
+
+/// `<!-- pagebreak -->` (also `page-break`, `newpage`, `seitenumbruch`) on a
+/// line of its own. Pure.
+pub fn is_pagebreak(html: &str) -> bool {
+    let t = html.trim();
+    let Some(inner) = t.strip_prefix("<!--").and_then(|r| r.strip_suffix("-->")) else {
+        return false;
+    };
+    let word: String = inner.chars().filter(|c| !matches!(c, '-' | '_' | ' ')).collect::<String>().to_lowercase();
+    matches!(word.as_str(), "pagebreak" | "newpage" | "seitenumbruch")
 }
 
 /// Settings key of the footer template.
@@ -467,6 +493,7 @@ pub fn render_opts(dark: bool, sign: bool, stored_footer: Option<&str>) -> Rende
         footer: sign.then(|| footer_template(stored_footer)),
         year: chrono::Local::now().year(),
         user: account_name(),
+        smart: false,
     }
 }
 
@@ -564,13 +591,16 @@ pub fn autolink(text: &str) -> Vec<(Option<String>, String)> {
 pub struct Flags {
     pub dark: bool,
     pub sign: bool,
+    /// `--smart` / `--plain`; `None` = the setting decides.
+    pub smart: Option<bool>,
     /// The path, when one was typed.
     pub path: Option<String>,
 }
 
-/// `md2pdf`'s argument: `--dark` (also `--dunkel`) and `--sign` (also
-/// `--footer`, `--fuss`) as leading or trailing words, the rest is the path
-/// (spaces kept). Pure.
+/// `md2pdf`'s argument: `--dark` (also `--dunkel`), `--sign` (also
+/// `--footer`, `--fuss`), `--smart` (also `--schlau`) and `--plain` (also
+/// `--einfach`) as leading or trailing words, the rest is the path (spaces
+/// kept). Pure.
 pub fn split_flags(arg: &str) -> Flags {
     let mut f = Flags::default();
     let take = |w: &str, f: &mut Flags| match w.to_ascii_lowercase().as_str() {
@@ -580,6 +610,14 @@ pub fn split_flags(arg: &str) -> Flags {
         }
         "--sign" | "--footer" | "--fuss" => {
             f.sign = true;
+            true
+        }
+        "--smart" | "--schlau" => {
+            f.smart = Some(true);
+            true
+        }
+        "--plain" | "--einfach" => {
+            f.smart = Some(false);
             true
         }
         _ => false,
@@ -688,6 +726,9 @@ pub fn build_document_with(md: &str, base: Option<&Path>, opts: &RenderOpts) -> 
                     }
                 }
             }
+            Event::Html(t) if is_pagebreak(&t) => {
+                events.push(Event::Html("<div class=\"ir-pagebreak\"></div>\n".into()));
+            }
             Event::Start(Tag::MetadataBlock(_)) => in_meta = true,
             Event::End(TagEnd::MetadataBlock(_)) => in_meta = false,
             Event::Text(t) if in_meta => frontmatter.push_str(&t),
@@ -766,6 +807,9 @@ pub fn build_document_with(md: &str, base: Option<&Path>, opts: &RenderOpts) -> 
     if dark {
         css.push_str(DARK_CSS);
     }
+    if opts.smart {
+        css.push_str(SMART_CSS);
+    }
     let footer = opts
         .footer
         .as_deref()
@@ -793,19 +837,164 @@ pub fn build_document_with(md: &str, base: Option<&Path>, opts: &RenderOpts) -> 
     if has_mermaid {
         push_script(MERMAID_JS);
     }
+    if opts.smart {
+        push_script(SMART_JS);
+    }
     push_script(READY_JS);
 
     let csp = format!(
         "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; script-src 'nonce-{nonce}'"
     );
     let html = format!(
-        "<!DOCTYPE html>\n<html lang=\"de\" data-theme=\"{theme}\">\n<head>\n<meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n<title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n{tp}{body}{scripts}</body>\n</html>\n",
+        "<!DOCTYPE html>\n<html lang=\"de\" data-theme=\"{theme}\"{smart}>\n<head>\n<meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"{csp}\">\n<title>{title}</title>\n<style>{css}</style>\n</head>\n<body>\n{tp}{body}{scripts}</body>\n</html>\n",
         title = esc(&title),
         tp = title_page(&fm),
         theme = if dark { "dark" } else { "light" },
+        smart = if opts.smart { " class=\"ir-smart\"" } else { "" },
     );
-    Document { html, title: doc_title, author: fm.get("author").cloned().filter(|a| !a.trim().is_empty()), headings, dark, footer }
+    Document { html, title: doc_title, author: fm.get("author").cloned().filter(|a| !a.trim().is_empty()), headings, dark, footer, smart: opts.smart }
 }
+
+/// `--smart`: every page break is planned (`md_paginate`) and forced with
+/// `.ir-pb`; the stylesheet's own forced breaks are switched off so no break
+/// happens twice. `.ir-split` marks a block the engine may break inside.
+const SMART_CSS: &str = r#"
+.ir-pb { break-before: page !important; page-break-before: always !important; margin-top: 0 !important; }
+.ir-split, .ir-split * { break-inside: auto !important; page-break-inside: auto !important; }
+html.ir-smart .mrx-titlepage, html.ir-smart .ir-pagebreak { break-after: auto !important; page-break-after: auto !important; }
+html.ir-smart img { max-height: 820px; width: auto; object-fit: contain; }
+"#;
+
+/// `--smart`: `__irMeasure(page)` lists the blocks (JSON for
+/// `md_paginate::Measured`), `__irApply(plan)` forces the chosen breaks.
+const SMART_JS: &str = r#"(() => {
+  const sy = () => window.scrollY;
+  const box = el => { const r = el.getBoundingClientRect(); return [r.top + sy(), r.bottom + sy()]; };
+  const r2 = v => Math.round(v * 100) / 100;
+  // Bottom edge of every line inside `el`.
+  const lineBottoms = el => {
+    const rs = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.nodeValue || !n.nodeValue.trim()) continue;
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) if (r.height > 0 && r.width > 0) rs.push([r.top + sy(), r.bottom + sy()]);
+    }
+    // Pictures are part of a line too (a paragraph of badges has no text).
+    for (const media of el.querySelectorAll('img, svg, canvas, video')) {
+      const r = media.getBoundingClientRect();
+      if (r.height > 0 && r.width > 0) rs.push([r.top + sy(), r.bottom + sy()]);
+    }
+    rs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const lines = [];
+    for (const r of rs) {
+      const last = lines[lines.length - 1];
+      if (last) {
+        const overlap = Math.min(last[1], r[1]) - Math.max(last[0], r[0]);
+        if (overlap > Math.min(last[1] - last[0], r[1] - r[0]) * 0.5) { last[1] = Math.max(last[1], r[1]); continue; }
+      }
+      lines.push([r[0], r[1]]);
+    }
+    return lines.map(l => r2(l[1]));
+  };
+  window.__irMeasure = page => {
+    const out = [], els = [];
+    const probe = document.querySelector('body > p') || document.body;
+    const line = parseFloat(getComputedStyle(probe).lineHeight) || 24;
+    let lists = 0;
+    const push = (el, breakEl, kind, extra) => {
+      els.push({ el, breakEl });
+      out.push(Object.assign({ kind, top: r2(box(breakEl)[0]), bottom: r2(box(el)[1]) }, extra || {}));
+    };
+    const tall = el => { const [t, b] = box(el); return b - t > page * 0.95; };
+    const block = (el, breakEl, kind, extra) => push(el, breakEl, kind, Object.assign({ lines: tall(el) ? lineBottoms(el) : [] }, extra || {}));
+    const table = el => {
+      if (!tall(el)) return push(el, el, 'table');
+      const rows = Array.from(el.querySelectorAll('tr')).filter(tr => tr.closest('table') === el && !tr.closest('thead'));
+      const head = el.tHead ? el.tHead.getBoundingClientRect().height : 0;
+      const physical = rows.length > 0 && !el.querySelector('[colspan],[rowspan]') && !el.querySelector('table');
+      push(el, el, 'table', { rows: rows.map(tr => r2(box(tr)[1])), head: r2(head), physical });
+    };
+    const walk = parent => {
+      for (const el of Array.from(parent.children)) {
+        const tag = el.tagName, cl = el.classList;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || cl.contains('ir-outline')) continue;
+        if (cl.contains('ir-pagebreak')) { push(el, el, 'break'); continue; }
+        if (cl.contains('mrx-titlepage')) { push(el, el, 'title'); continue; }
+        const [t, b] = box(el);
+        if (b - t < 0.5) continue;
+        if (/^H[1-6]$/.test(tag)) { push(el, el, 'heading', { level: +tag[1] }); continue; }
+        if (tag === 'UL' || tag === 'OL') {
+          const list = ++lists;
+          let first = true;
+          for (const li of Array.from(el.children)) {
+            if (li.tagName !== 'LI') continue;
+            block(li, first ? el : li, 'item', { list });
+            first = false;
+          }
+          continue;
+        }
+        if (tag === 'P') {
+          const text = el.textContent.trim();
+          if (!text) { push(el, el, 'figure'); continue; }
+          push(el, el, 'text', { lines: b - t > line * 5.5 ? lineBottoms(el) : [], intro: /[:：]$/.test(text) });
+          continue;
+        }
+        if (tag === 'PRE') { block(el, el, 'code'); continue; }
+        if (tag === 'TABLE') { table(el); continue; }
+        if (tag === 'BLOCKQUOTE' || cl.contains('callout') || cl.contains('footnote-definition')) { block(el, el, 'quote'); continue; }
+        if (cl.contains('mermaid') || tag === 'IMG' || tag === 'svg' || tag === 'FIGURE') { push(el, el, 'figure'); continue; }
+        if (tag === 'HR') { push(el, el, 'rule'); continue; }
+        block(el, el, 'other');
+      }
+    };
+    walk(document.body);
+    window.__irEls = els;
+    return JSON.stringify({ line: r2(line), blocks: out });
+  };
+  // Cut a table after the given body rows; every part gets the head again
+  // and the column widths of the original.
+  const splitTable = (table, cuts) => {
+    const rows = Array.from(table.querySelectorAll('tr')).filter(tr => tr.closest('table') === table && !tr.closest('thead'));
+    const first = table.rows[0];
+    const widths = first ? Array.from(first.cells).map(c => c.getBoundingClientRect().width) : [];
+    const total = table.getBoundingClientRect().width;
+    const fix = t => {
+      t.style.tableLayout = 'fixed';
+      t.style.width = total + 'px';
+      const group = document.createElement('colgroup');
+      for (const w of widths) { const col = document.createElement('col'); col.style.width = w + 'px'; group.appendChild(col); }
+      t.insertBefore(group, t.firstChild);
+    };
+    for (let n = cuts.length - 1; n >= 0; n--) {
+      const part = table.cloneNode(false);
+      part.removeAttribute('id');
+      if (table.tHead) part.appendChild(table.tHead.cloneNode(true));
+      const body = document.createElement('tbody');
+      const end = n === cuts.length - 1 ? rows.length : cuts[n + 1] + 1;
+      for (const tr of rows.slice(cuts[n] + 1, end)) body.appendChild(tr);
+      part.appendChild(body);
+      part.classList.add('ir-pb');
+      table.parentNode.insertBefore(part, table.nextSibling);
+      fix(part);
+    }
+    fix(table);
+  };
+  window.__irApply = plan => {
+    const els = window.__irEls || [];
+    for (const i of plan.loose) if (els[i]) els[i].el.classList.add('ir-split');
+    for (const [i, cuts] of plan.splits) if (els[i]) splitTable(els[i].el, cuts);
+    for (const i of plan.breaks) if (els[i]) els[i].breakEl.classList.add('ir-pb');
+    return 'ok';
+  };
+  // Back to the stylesheet's own breaks (the plan did not hold).
+  window.__irPlain = () => {
+    document.documentElement.classList.remove('ir-smart');
+    document.querySelectorAll('.ir-pb').forEach(el => el.classList.remove('ir-pb'));
+    return 'ok';
+  };
+})();"#;
 
 /// Runs after the libraries: highlight, typeset math, draw diagrams, wait for
 /// fonts and images — then flag completion. Every step is guarded; a failure
@@ -1180,12 +1369,166 @@ mod macos {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        let result = unsafe { print_to(&doc.html, &tmp) }.and_then(|()| unsafe { finish_pdf(&tmp, output, doc) });
+        let printed = if doc.smart { print_smart(&doc.html, &tmp) } else { unsafe { print_to(&doc.html, &tmp, Smart::Off) }.map(|_| ()) };
+        let result = printed.and_then(|()| unsafe { finish_pdf(&tmp, output, doc) });
         let _ = std::fs::remove_file(&tmp);
         result
     }
 
-    unsafe fn print_to(html: &str, out: &Path) -> Result<(), String> {
+    /// How `print_to` treats page breaks.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Smart {
+        Off,
+        /// Plan them, keeping this share of the page free at each page's end.
+        Plan(f64),
+        /// A `--smart` document printed with the stylesheet's breaks.
+        Plain,
+    }
+
+    /// Bottom reserve of the first and the second try, as a share of the
+    /// page height (1.2 % ≈ 11 px of 909; measured 2026-11-24: a table part
+    /// planned 6 px short of the page end still spilled over).
+    pub const SMART_SAFETY: [f64; 2] = [0.012, 0.04];
+
+    /// The print engine lays the page out wider than the paper and scales it
+    /// down (measured 2026-11-24: a 510.24-pt column is laid out 637 px wide,
+    /// factor 1.25 rounded down). Returns (layout width, page height) in px.
+    ///
+    /// `content_width` is how wide the document is in that layout: content
+    /// that sticks out (a wide table, an unbreakable line) makes the engine
+    /// lay the page out as wide as the content, up to twice the paper's
+    /// column, and scale everything down further — so a page then holds
+    /// more layout px.
+    pub fn smart_geometry(content_width: f64) -> (f64, f64) {
+        let column = A4_W - 2.0 * MARGIN_LR;
+        let base = (column * 1.25).floor();
+        let width = content_width.clamp(base, (column * 2.0).floor());
+        (width, (A4_H - 2.0 * MARGIN_TB) * width / column)
+    }
+
+    /// Print with planned breaks and check the page count against the plan:
+    /// a page more than planned means a block slipped onto a page of its
+    /// own, so the plan is redone with more reserve, then given up.
+    fn print_smart(html: &str, tmp: &Path) -> Result<(), String> {
+        for (attempt, &safety) in SMART_SAFETY.iter().enumerate() {
+            let planned = unsafe { print_to(html, tmp, Smart::Plan(safety)) }?;
+            let Some(planned) = planned else {
+                tracing::warn!("md2pdf: page could not be measured — printed with the stylesheet's breaks");
+                return Ok(());
+            };
+            let printed = page_count(tmp);
+            if printed == planned {
+                tracing::info!("md2pdf: {planned} planned pages (try {})", attempt + 1);
+                return Ok(());
+            }
+            tracing::warn!("md2pdf: planned {planned} pages, printed {printed} (reserve {:.1} %)", safety * 100.0);
+            if std::env::var("IR_MD_MARK").is_ok() {
+                return Ok(());
+            }
+        }
+        unsafe { print_to(html, tmp, Smart::Plain) }.map(|_| ())
+    }
+
+    fn page_count(path: &Path) -> usize {
+        unsafe {
+            let ns = nsstring_from_str(&path.to_string_lossy());
+            let url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: ns];
+            release(ns);
+            let doc: Id = msg_send![objc2::class!(PDFDocument), alloc];
+            let doc: Id = msg_send![doc, initWithURL: url];
+            if doc.is_null() {
+                return 0;
+            }
+            let n: usize = msg_send![doc, pageCount];
+            release(doc);
+            n
+        }
+    }
+
+    /// Run `js` in the page and return its string result.
+    unsafe fn eval_string(webview: Id, js: &str, max: Duration) -> Option<String> {
+        let slot: Arc<Mutex<Option<Option<String>>>> = Arc::new(Mutex::new(None));
+        let out = Arc::clone(&slot);
+        let block = block2::RcBlock::new(move |result: Id, _err: Id| {
+            let text = if result.is_null() {
+                None
+            } else {
+                let is_string: bool = msg_send![result, isKindOfClass: objc2::class!(NSString)];
+                if is_string { nsstring_to_string(result) } else { None }
+            };
+            if let Ok(mut s) = out.lock() {
+                *s = Some(text);
+            }
+        });
+        let js_ns = nsstring_from_str(js);
+        let _: () = msg_send![webview, evaluateJavaScript: js_ns, completionHandler: &*block];
+        release(js_ns);
+        let deadline = Instant::now() + max;
+        loop {
+            if let Some(done) = slot.lock().ok().and_then(|mut s| s.take()) {
+                return done;
+            }
+            if Instant::now() > deadline {
+                return None;
+            }
+            run_loop_pump(Duration::from_millis(20));
+        }
+    }
+
+    /// Measure the page in its print layout, plan the breaks and force them.
+    /// Returns the planned number of pages; `None` when measuring failed
+    /// (the document then prints with the stylesheet's breaks).
+    unsafe fn plan_breaks(webview: Id, win: Id, safety: f64) -> Option<usize> {
+        let responds: bool = msg_send![webview, respondsToSelector: objc2::sel!(setMediaType:)];
+        if !responds {
+            let _ = eval_string(webview, "window.__irPlain && window.__irPlain()", Duration::from_secs(5));
+            return None;
+        }
+        let print = nsstring_from_str("print");
+        let _: () = msg_send![webview, setMediaType: print];
+        release(print);
+        let resize = |width: f64, page: f64| {
+            let size = CGSize { width, height: page.ceil() };
+            let _: () = msg_send![win, setContentSize: size];
+            let _: () = msg_send![webview, setFrameSize: size];
+            run_loop_pump(Duration::from_millis(120));
+        };
+        let (mut width, mut page) = smart_geometry(0.0);
+        resize(width, page);
+        // Wider content than the column: the engine widens the layout.
+        let content = eval_string(webview, "String(document.documentElement.scrollWidth)", Duration::from_secs(5))
+            .and_then(|w| w.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        if content > width + 0.5 {
+            (width, page) = smart_geometry(content);
+            resize(width, page);
+        }
+        let plan = eval_string(webview, &format!("window.__irMeasure({page})"), Duration::from_secs(20))
+            .and_then(|json| serde_json::from_str::<crate::md_paginate::Measured>(&json).ok())
+            .map(|m| crate::md_paginate::plan(&m, page, safety * page));
+        let applied = plan.as_ref().and_then(|p| {
+            let json = serde_json::to_string(p).ok()?;
+            eval_string(webview, &format!("window.__irApply({json})"), Duration::from_secs(10))
+        });
+        // Development (`examples/md2pdf.rs`): a marker link before every
+        // planned page start, so the printed pages can be compared.
+        if std::env::var("IR_MD_MARK").is_ok() {
+            if let Some(p) = &plan {
+                eprintln!("PLAN page={page:.1} width={width} loose={:?} splits={:?} breaks={:?}", p.loose, p.splits, p.breaks.iter().zip(&p.break_pages).map(|(b, pg)| format!("{b}@{pg}")).collect::<Vec<_>>().join(" "));
+            }
+            let _ = eval_string(webview, "(() => { window.__irEls.forEach((e, i) => { if (e.breakEl.classList.contains('ir-pb')) { const a = document.createElement('a'); a.href = 'https://m.invalid/' + i; a.style.cssText = 'display:block;height:4px;width:200px'; e.breakEl.parentNode.insertBefore(a, e.breakEl); a.classList.add('ir-pb'); e.breakEl.classList.remove('ir-pb'); e.breakEl.style.marginTop='0'; } }); let n = 0; document.querySelectorAll('table.ir-pb').forEach(t => { const a = document.createElement('a'); a.href = 'https://m.invalid/T' + (n++); a.style.cssText = 'display:block;height:4px;width:200px'; t.parentNode.insertBefore(a, t); a.classList.add('ir-pb'); t.classList.remove('ir-pb'); t.style.marginTop='0'; }); return 'ok'; })()", Duration::from_secs(5));
+        }
+        let media: Id = NIL;
+        let _: () = msg_send![webview, setMediaType: media];
+        if applied.is_none() {
+            let _ = eval_string(webview, "window.__irPlain && window.__irPlain()", Duration::from_secs(5));
+            return None;
+        }
+        run_loop_pump(Duration::from_millis(60));
+        plan.map(|p| p.pages)
+    }
+
+    unsafe fn print_to(html: &str, out: &Path, smart: Smart) -> Result<Option<usize>, String> {
         // 1) offscreen window + web view (a print operation needs a window
         //    for its modal run, and the view needs real bounds).
         let page = CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGSize { width: A4_W, height: A4_H } };
@@ -1234,6 +1577,14 @@ mod macos {
             tracing::warn!("md2pdf: page not ready after 30s — printing as is");
         }
         run_loop_pump(Duration::from_millis(50));
+        let planned = match smart {
+            Smart::Off => None,
+            Smart::Plan(safety) => plan_breaks(webview, win, safety),
+            Smart::Plain => {
+                let _ = eval_string(webview, "window.__irPlain && window.__irPlain()", Duration::from_secs(5));
+                None
+            }
+        };
 
         // 3) print info: A4, mrxdown margins, save to `out`.
         let path_ns = nsstring_from_str(&out.to_string_lossy());
@@ -1290,7 +1641,7 @@ mod macos {
         drop(delegate);
         cleanup(webview, win);
         match state {
-            1 if out.exists() => Ok(()),
+            1 if out.exists() => Ok(planned),
             1 => Err("print reported success but wrote no file".into()),
             2 => Err("print operation failed".into()),
             _ => Err("print operation timed out after 60s".into()),
@@ -1660,6 +2011,90 @@ mod macos {
         }
     }
 
+    /// A link annotation of a printed PDF, in points from the page's top-left
+    /// (the development tool prints them).
+    #[allow(dead_code)]
+    #[derive(Debug, Clone)]
+    pub struct Mark {
+        pub page: usize,
+        pub x: f64,
+        pub y_top: f64,
+        pub w: f64,
+        pub h: f64,
+        /// Target of an in-document link: (page, y from the top).
+        pub dest: Option<(usize, f64)>,
+        pub url: Option<String>,
+    }
+
+    /// Every link annotation of `path` plus the page size (points).
+    pub fn read_marks(path: &Path) -> (Vec<Mark>, f64, f64) {
+        unsafe {
+            let mut out = Vec::new();
+            let ns = nsstring_from_str(&path.to_string_lossy());
+            let url: Id = msg_send![objc2::class!(NSURL), fileURLWithPath: ns];
+            release(ns);
+            let doc: Id = msg_send![objc2::class!(PDFDocument), alloc];
+            let doc: Id = msg_send![doc, initWithURL: url];
+            if doc.is_null() {
+                return (out, 0.0, 0.0);
+            }
+            let (mut pw, mut ph) = (0.0, 0.0);
+            let pages: usize = msg_send![doc, pageCount];
+            for i in 0..pages {
+                let page: Id = msg_send![doc, pageAtIndex: i];
+                if page.is_null() {
+                    continue;
+                }
+                let media: CGRect = msg_send![page, boundsForBox: 0isize];
+                pw = media.size.width;
+                ph = media.size.height;
+                let annots: Id = msg_send![page, annotations];
+                let n: usize = if annots.is_null() { 0 } else { msg_send![annots, count] };
+                for k in 0..n {
+                    let a: Id = msg_send![annots, objectAtIndex: k];
+                    let b: CGRect = msg_send![a, bounds];
+                    let dest: Id = msg_send![a, destination];
+                    let dest = if dest.is_null() {
+                        None
+                    } else {
+                        let dp: Id = msg_send![dest, page];
+                        if dp.is_null() {
+                            None
+                        } else {
+                            let at: CGPoint = msg_send![dest, point];
+                            let dph: CGRect = msg_send![dp, boundsForBox: 0isize];
+                            let idx: usize = msg_send![doc, indexForPage: dp];
+                            Some((idx, dph.size.height - at.y))
+                        }
+                    };
+                    let u: Id = msg_send![a, URL];
+                    let url = if u.is_null() {
+                        None
+                    } else {
+                        let abs: Id = msg_send![u, absoluteString];
+                        nsstring_to_string(abs)
+                    };
+                    out.push(Mark {
+                        url,
+                        page: i,
+                        x: b.origin.x,
+                        y_top: ph - b.origin.y - b.size.height,
+                        w: b.size.width,
+                        h: b.size.height,
+                        dest,
+                    });
+                }
+            }
+            release(doc);
+            (out, pw, ph)
+        }
+    }
+
+    /// Print raw HTML to `out` (development probe). Main thread only.
+    pub fn probe_print(html: &str, out: &Path) -> Result<(), String> {
+        unsafe { print_to(html, out, Smart::Off) }.map(|_| ())
+    }
+
     /// An outline anchor link is 1 px high; a real link is a line of text.
     const OUTLINE_ANCHOR_MAX_H: f64 = 3.0;
 
@@ -1939,6 +2374,64 @@ mod macos {
 }
 
 // ── Notification helpers ───────────────────────────────────────────
+
+/// Development entry (`cargo run --example md2pdf`): runs on the main
+/// thread without the app. `probe <in.html> <out.pdf>` prints raw HTML and
+/// lists the link annotations; otherwise `<in.md> <out.pdf> [flags]`.
+#[doc(hidden)]
+#[cfg(target_os = "macos")]
+pub fn dev_main(args: Vec<String>) -> i32 {
+    unsafe {
+        let _: *mut objc2::runtime::AnyObject = objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
+    }
+    let _ = tracing_subscriber::fmt().with_writer(std::io::stderr).try_init();
+    let res: Result<(), String> = (|| {
+        if args.first().map(String::as_str) == Some("probe") {
+            let html = std::fs::read_to_string(&args[1]).map_err(|e| e.to_string())?;
+            let out = PathBuf::from(&args[2]);
+            macos::probe_print(&html, &out)?;
+            let (marks, w, h) = macos::read_marks(&out);
+            println!("page {w:.2} x {h:.2}");
+            for m in marks {
+                println!("{m:?}");
+            }
+            return Ok(());
+        }
+        if args.len() < 2 {
+            return Err("usage: <in.md> <out.pdf> [--smart] [--dark] [--sign] | probe <in.html> <out.pdf>".into());
+        }
+        let input = PathBuf::from(&args[0]);
+        let out = PathBuf::from(&args[1]);
+        let flags = split_flags(&args[2..].join(" "));
+        let mut opts = render_opts(flags.dark, flags.sign, None);
+        opts.smart = flags.smart.unwrap_or(false);
+        let md = std::fs::read_to_string(&input).map_err(|e| e.to_string())?;
+        let doc = build_document_with(&md, input.parent(), &opts);
+        if std::env::var("IR_MD_HTML").is_ok() {
+            std::fs::write(out.with_extension("html"), &doc.html).map_err(|e| e.to_string())?;
+        }
+        let _ = std::fs::remove_file(&out);
+        write_document_pdf(&doc, &out)?;
+        let (marks, _, h) = macos::read_marks(&out);
+        println!("{} pages", marks.iter().map(|m| m.page).max().map_or(0, |p| p + 1));
+        let _ = h;
+        if std::env::var("IR_MD_MARK").is_ok() {
+            let seq: Vec<String> = marks
+                .iter()
+                .filter_map(|m| m.url.as_deref()?.strip_prefix("https://m.invalid/").map(|i| format!("{i}@{}:{:.0}", m.page, m.y_top)))
+                .collect();
+            eprintln!("MARKS {}", seq.join(" "));
+        }
+        Ok(())
+    })();
+    match res {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
 
 pub fn notify(summary: &ConvertSummary) {
     let msg = build_notification_message(summary);
@@ -2433,7 +2926,7 @@ mod tests {
 
     #[test]
     fn flags_are_split_from_the_path() {
-        let f = |dark, sign, path: Option<&str>| Flags { dark, sign, path: path.map(str::to_string) };
+        let f = |dark, sign, path: Option<&str>| Flags { dark, sign, smart: None, path: path.map(str::to_string) };
         assert_eq!(split_flags("--dark ~/Mein Ordner/a b.md"), f(true, false, Some("~/Mein Ordner/a b.md")));
         assert_eq!(split_flags("~/x.md --dark"), f(true, false, Some("~/x.md")));
         assert_eq!(split_flags("--DARK"), f(true, false, None));
@@ -2448,6 +2941,97 @@ mod tests {
         // Only as a word of its own.
         assert_eq!(split_flags("~/notes--dark.md"), f(false, false, Some("~/notes--dark.md")));
         assert_eq!(split_flags("~/a --sign b.md"), f(false, false, Some("~/a --sign b.md")));
+    }
+
+    #[test]
+    fn smart_and_plain_are_flags_too() {
+        assert_eq!(split_flags("--smart").smart, Some(true));
+        assert_eq!(split_flags("--schlau ~/x.md").smart, Some(true));
+        assert_eq!(split_flags("~/x.md --plain").smart, Some(false));
+        assert_eq!(split_flags("--einfach").smart, Some(false));
+        let f = split_flags("--dark --smart ~/Mein Ordner/a.md --sign");
+        assert_eq!((f.dark, f.sign, f.smart, f.path.as_deref()), (true, true, Some(true), Some("~/Mein Ordner/a.md")));
+        // Unsaid: the setting decides.
+        assert_eq!(split_flags("~/x.md").smart, None);
+        assert_eq!(split_flags("~/a --smart b.md").smart, None);
+    }
+
+    #[test]
+    fn the_flag_wins_over_the_setting() {
+        assert!(!smart_choice(None, None));
+        assert!(!smart_choice(None, Some("0")));
+        assert!(!smart_choice(None, Some("yes")));
+        assert!(smart_choice(None, Some("1")));
+        assert!(smart_choice(None, Some(" 1 ")));
+        assert!(smart_choice(Some(true), Some("0")));
+        assert!(!smart_choice(Some(false), Some("1")));
+    }
+
+    #[test]
+    fn a_pagebreak_comment_is_recognised() {
+        for yes in ["<!-- pagebreak -->", "<!--pagebreak-->\n", "  <!-- Page-Break -->", "<!-- page_break -->", "<!-- newpage -->", "<!-- Seitenumbruch -->"] {
+            assert!(is_pagebreak(yes), "{yes}");
+        }
+        for no in ["<!-- pagebreak", "pagebreak", "<!-- no pagebreak here -->", "<!-- todo -->", "<div>pagebreak</div>", ""] {
+            assert!(!is_pagebreak(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn a_pagebreak_comment_becomes_a_breaking_element() {
+        let html = render_html("Eins\n\n<!-- pagebreak -->\n\nZwei\n\n<!-- bleibt -->\n");
+        assert_eq!(html.matches("<div class=\"ir-pagebreak\"></div>").count(), 1);
+        assert!(!html.contains("<!-- pagebreak -->"));
+        assert!(html.contains("<!-- bleibt -->"), "other comments are left alone");
+        assert!(html.contains(".ir-pagebreak {"), "the break works without --smart");
+    }
+
+    #[test]
+    fn only_a_smart_document_carries_the_planner() {
+        let plain = build_document_with("# A\n\nText", None, &RenderOpts::default());
+        assert!(!plain.smart);
+        assert!(!plain.html.contains("__irMeasure") && !plain.html.contains("ir-smart"));
+        let smart = build_document_with("# A\n\nText", None, &RenderOpts { smart: true, ..Default::default() });
+        assert!(smart.smart);
+        assert!(smart.html.contains("class=\"ir-smart\""));
+        assert!(smart.html.contains("window.__irMeasure") && smart.html.contains("window.__irApply") && smart.html.contains("window.__irPlain"));
+        // The stylesheet's own forced breaks are off, or a break would happen twice.
+        assert!(smart.html.contains("html.ir-smart .mrx-titlepage, html.ir-smart .ir-pagebreak { break-after: auto !important"));
+        assert!(smart.html.contains(".ir-pb { break-before: page !important"));
+    }
+
+    #[test]
+    fn the_page_script_reports_what_the_planner_reads() {
+        // Every kind the script names is one the planner knows (an unknown
+        // name would silently read as "other").
+        let kinds: std::collections::BTreeSet<&str> = SMART_JS
+            .split("'")
+            .skip(1)
+            .step_by(2)
+            .filter(|w| ["heading", "text", "item", "code", "table", "quote", "figure", "rule", "break", "title", "other"].contains(w))
+            .collect();
+        assert_eq!(kinds.len(), 11, "{kinds:?}");
+        for field in ["kind", "top:", "bottom:", "level:", "lines:", "rows:", "head:", "physical", "intro:", "list"] {
+            assert!(SMART_JS.contains(field), "{field}");
+        }
+        let m: crate::md_paginate::Measured =
+            serde_json::from_str(r#"{"line":25.6,"blocks":[{"kind":"table","top":10,"bottom":2000,"rows":[40,80],"head":30,"physical":true}]}"#).unwrap();
+        assert!(m.blocks[0].physical && m.blocks[0].rows.len() == 2);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_print_layout_is_wider_than_the_paper() {
+        // Measured: a 510.24-pt column is laid out 637 px wide, a page holds 909.5 px.
+        let (w, page) = macos::smart_geometry(0.0);
+        assert_eq!(w, 637.0);
+        assert!((page - 909.5).abs() < 0.1, "{page}");
+        // Content that sticks out widens the layout — up to twice the column.
+        let (w, page) = macos::smart_geometry(800.0);
+        assert_eq!(w, 800.0);
+        assert!((page - 909.5 * 800.0 / 637.0).abs() < 0.2);
+        assert_eq!(macos::smart_geometry(5000.0).0, 1020.0);
+        const { assert!(macos::SMART_SAFETY[0] < macos::SMART_SAFETY[1]) };
     }
 
     #[test]

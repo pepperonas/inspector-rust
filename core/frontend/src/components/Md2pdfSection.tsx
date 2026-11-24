@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { FileText } from "lucide-react";
 import { Section } from "./SettingsSection";
 import { InlineMd } from "./InlineMd";
-import { getMd2pdfFooter, setMd2pdfFooter, type Md2pdfFooter } from "../lib/ipc";
+import { getMd2pdfFooter, setMd2pdfFooter, getMd2pdfSmart, setMd2pdfSmart, type Md2pdfFooter } from "../lib/ipc";
 import { useT } from "../lib/i18n";
 
 /**
- * Settings → Markdown → PDF: the footer line `md2pdf --sign` prints on every
- * page. The field saves on blur or Enter; the preview comes from Rust (the
+ * Settings → Markdown → PDF: whether page breaks are planned by default, and
+ * the footer line `md2pdf --sign` prints on every page. The field saves on blur or Enter; the preview comes from Rust (the
  * one place that fills the placeholders), so it is what the PDF will carry.
  */
 export function Md2pdfSection() {
@@ -15,6 +15,24 @@ export function Md2pdfSection() {
   const [info, setInfo] = useState<Md2pdfFooter | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [smart, setSmart] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    getMd2pdfSmart()
+      .then(setSmart)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const toggleSmart = async (on: boolean) => {
+    setError(null);
+    setSmart(on);
+    try {
+      setSmart(await setMd2pdfSmart(on));
+    } catch (e) {
+      setSmart(!on);
+      setError(String(e));
+    }
+  };
 
   useEffect(() => {
     getMd2pdfFooter()
@@ -44,6 +62,22 @@ export function Md2pdfSection() {
       title={t("settings.section.md2pdf")}
       subtitle={t("set.md2pdf.subtitle")}
     >
+      {smart !== null && (
+        <div className="mb-3">
+          <label className="flex items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              checked={smart}
+              onChange={(e) => void toggleSmart(e.target.checked)}
+              data-testid="md2pdf-smart"
+            />
+            {t("set.md2pdf.smart")}
+          </label>
+          <p className="mt-1 text-[11px] leading-5 text-[var(--color-muted)]">
+            <InlineMd text={t("set.md2pdf.smart_hint")} />
+          </p>
+        </div>
+      )}
       <label className="mb-1 block text-[11px] text-[var(--color-muted)]" htmlFor="md2pdf-footer">
         {t("set.md2pdf.footer")}
       </label>

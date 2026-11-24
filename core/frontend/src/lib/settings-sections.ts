@@ -90,7 +90,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   sec("changelog", ["changelog", "änderungen", "versionshinweise", "release notes", "what's new", "neuigkeiten", "history of changes"]),
   sec("record", ["record","aufnahme","recording","video"]),
   sec("meeting", ["meeting", "transkription", "transcription", "live transcription", "mitschrift", "whisper", "ticker", "laufband"]),
-  sec("md2pdf", ["md2pdf", "pdf", "markdown", "fusszeile", "fußzeile", "footer", "sign"]),
+  sec("md2pdf", ["md2pdf", "pdf", "markdown", "fusszeile", "fußzeile", "footer", "sign", "seitenumbruch", "pagebreak", "smart"]),
   sec("logi", ["logi", "logitech", "maus", "mouse", "mx master", "dpi", "smartshift", "scrollrad", "maustasten", "options+"]),
 ];
 

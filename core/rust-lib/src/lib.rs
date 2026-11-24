@@ -65,6 +65,7 @@ mod loc;
 mod loc_export;
 mod logging;
 mod mailcheck;
+mod md_paginate;
 mod md_to_pdf;
 mod transcribe;
 mod live_transcribe;
@@ -145,6 +146,9 @@ mod window_snap;
 mod xhype;
 
 pub use ui_state::UiState;
+#[doc(hidden)]
+#[cfg(target_os = "macos")]
+pub use md_to_pdf::dev_main as md2pdf_dev_main;
 
 use std::sync::atomic::Ordering;
 
@@ -1143,6 +1147,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_meme_dir,
             commands::get_md2pdf_footer,
             commands::set_md2pdf_footer,
+            commands::get_md2pdf_smart,
+            commands::set_md2pdf_smart,
             commands::set_meme_dir,
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,

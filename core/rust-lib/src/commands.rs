@@ -5420,7 +5420,12 @@ fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), St
         let stored = app
             .try_state::<DbHandle>()
             .and_then(|db| settings::get(&db, crate::md_to_pdf::KEY_FOOTER).ok().flatten());
-        crate::md_to_pdf::render_opts(flags.dark, flags.sign, stored.as_deref())
+        let smart = app
+            .try_state::<DbHandle>()
+            .and_then(|db| settings::get(&db, crate::md_to_pdf::KEY_SMART).ok().flatten());
+        let mut opts = crate::md_to_pdf::render_opts(flags.dark, flags.sign, stored.as_deref());
+        opts.smart = crate::md_to_pdf::smart_choice(flags.smart, smart.as_deref());
+        opts
     };
     let path = flags.path;
     let arg_path = path
@@ -8445,6 +8450,19 @@ pub fn get_md2pdf_footer(db: State<'_, DbHandle>) -> Md2pdfFooter {
 pub fn set_md2pdf_footer(db: State<'_, DbHandle>, template: String) -> Result<Md2pdfFooter, String> {
     settings::set(&db, crate::md_to_pdf::KEY_FOOTER, template.trim()).map_err(map_err)?;
     Ok(md2pdf_footer_info(&db))
+}
+
+/// Settings → Markdown → PDF: plan the page breaks without `--smart`.
+#[tauri::command]
+pub fn get_md2pdf_smart(db: State<'_, DbHandle>) -> bool {
+    let stored = settings::get(&db, crate::md_to_pdf::KEY_SMART).ok().flatten();
+    crate::md_to_pdf::smart_choice(None, stored.as_deref())
+}
+
+#[tauri::command]
+pub fn set_md2pdf_smart(db: State<'_, DbHandle>, enabled: bool) -> Result<bool, String> {
+    settings::set(&db, crate::md_to_pdf::KEY_SMART, if enabled { "1" } else { "0" }).map_err(map_err)?;
+    Ok(enabled)
 }
 
 /// The currently configured meme library directory (the `meme.dir` setting,

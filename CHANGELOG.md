@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.265.0] — 2026-11-24
+
+### Added
+- `md2pdf --smart` plans every page break of the PDF (macOS). A heading never ends a page: it moves to the next page together with at least three lines of what follows. Code blocks, tables, pictures, diagrams, callouts and list items stay whole as long as they fit on a page; a paragraph is only cut with three lines on each side. A table longer than a page is cut between rows and every part gets the table head again. A new chapter or section starts a page when that leaves little of the page empty, and room is left at the end of a section instead of in the middle of one. A sentence ending in a colon stays with the list, table or code it introduces. After printing, the page count is compared with the plan; if it differs, the plan is redone with more reserve and, failing that, the document prints the way it did before.
+- Settings → Markdown → PDF → "Plan page breaks" makes this the default for `md2pdf` and the shortcut; `md2pdf --plain` skips it for one run. Also `--schlau` and `--einfach`.
+- A line containing only `<!-- pagebreak -->` starts a new page there, with or without `--smart` (also `<!-- newpage -->`, `<!-- Seitenumbruch -->`).
+
 ## [0.264.0] — 2026-11-23
 
 ### Added

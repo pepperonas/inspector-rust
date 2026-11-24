@@ -874,9 +874,20 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
                         return;
                     }
                 };
+                // The hotkey follows the setting (no flags to type here).
+                let opts = {
+                    use tauri::Manager;
+                    let stored = app
+                        .try_state::<crate::db::DbHandle>()
+                        .and_then(|db| crate::settings::get(&db, crate::md_to_pdf::KEY_SMART).ok().flatten());
+                    crate::md_to_pdf::RenderOpts {
+                        smart: crate::md_to_pdf::smart_choice(None, stored.as_deref()),
+                        ..Default::default()
+                    }
+                };
                 let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
                 let _ = app.run_on_main_thread(move || {
-                    let summary = crate::md_to_pdf::convert_files(&paths, &crate::md_to_pdf::RenderOpts::default());
+                    let summary = crate::md_to_pdf::convert_files(&paths, &opts);
                     let _ = tx.send(summary);
                 });
                 let summary = match rx.recv() {

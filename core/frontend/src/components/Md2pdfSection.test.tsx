@@ -2,13 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const footer = { template: "", default_template: "© {year} {user}", preview: "© 2026 Ada" };
-const ipc = vi.hoisted(() => ({ getMd2pdfFooter: vi.fn(), setMd2pdfFooter: vi.fn() }));
+const ipc = vi.hoisted(() => ({ getMd2pdfFooter: vi.fn(), setMd2pdfFooter: vi.fn(), getMd2pdfSmart: vi.fn(), setMd2pdfSmart: vi.fn() }));
 vi.mock("../lib/ipc", () => ipc);
 
 import { Md2pdfSection } from "./Md2pdfSection";
 
 describe("Md2pdfSection", () => {
   beforeEach(() => {
+    ipc.getMd2pdfSmart.mockReset().mockResolvedValue(false);
+    ipc.setMd2pdfSmart.mockReset().mockImplementation(async (on: boolean) => on);
     ipc.getMd2pdfFooter.mockReset().mockResolvedValue(footer);
     ipc.setMd2pdfFooter.mockReset().mockImplementation(async (template: string) => ({
       ...footer,
@@ -36,6 +38,25 @@ describe("Md2pdfSection", () => {
     fireEvent.click(screen.getByText("Default"));
     await waitFor(() => expect(ipc.setMd2pdfFooter).toHaveBeenLastCalledWith(""));
     await waitFor(() => expect(field.value).toBe(""));
+  });
+
+  it("shows the stored choice for planned page breaks and saves a change", async () => {
+    ipc.getMd2pdfSmart.mockResolvedValue(true);
+    render(<Md2pdfSection />);
+    const box = (await screen.findByTestId("md2pdf-smart")) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    await waitFor(() => expect(ipc.setMd2pdfSmart).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(box.checked).toBe(false));
+  });
+
+  it("a failed save puts the box back and says why", async () => {
+    ipc.setMd2pdfSmart.mockRejectedValue("db locked");
+    render(<Md2pdfSection />);
+    const box = (await screen.findByTestId("md2pdf-smart")) as HTMLInputElement;
+    fireEvent.click(box);
+    await waitFor(() => expect(screen.getByText("db locked")).toBeTruthy());
+    expect(box.checked).toBe(false);
   });
 
   it("an unchanged field is not saved again", async () => {

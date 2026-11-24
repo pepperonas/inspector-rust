@@ -199,8 +199,31 @@ export const ARG_TREES: Partial<Record<CommandKind, ArgNode>> = {
   ],
   kill: [{ value: "-9", hint: "arg.kill9" }],
   md2pdf: [
-    { value: "--dark", hint: "arg.md2pdf_dark", next: [{ value: "--sign", hint: "arg.md2pdf_sign" }] },
-    { value: "--sign", hint: "arg.md2pdf_sign", next: [{ value: "--dark", hint: "arg.md2pdf_dark" }] },
+    {
+      value: "--smart",
+      hint: "arg.md2pdf_smart",
+      next: [
+        { value: "--dark", hint: "arg.md2pdf_dark", next: [{ value: "--sign", hint: "arg.md2pdf_sign" }] },
+        { value: "--sign", hint: "arg.md2pdf_sign", next: [{ value: "--dark", hint: "arg.md2pdf_dark" }] },
+      ],
+    },
+    {
+      value: "--dark",
+      hint: "arg.md2pdf_dark",
+      next: [
+        { value: "--sign", hint: "arg.md2pdf_sign", next: [{ value: "--smart", hint: "arg.md2pdf_smart" }] },
+        { value: "--smart", hint: "arg.md2pdf_smart", next: [{ value: "--sign", hint: "arg.md2pdf_sign" }] },
+      ],
+    },
+    {
+      value: "--sign",
+      hint: "arg.md2pdf_sign",
+      next: [
+        { value: "--dark", hint: "arg.md2pdf_dark", next: [{ value: "--smart", hint: "arg.md2pdf_smart" }] },
+        { value: "--smart", hint: "arg.md2pdf_smart", next: [{ value: "--dark", hint: "arg.md2pdf_dark" }] },
+      ],
+    },
+    { value: "--plain", hint: "arg.md2pdf_plain" },
   ],
   transcribe: [
     {

@@ -2521,6 +2521,15 @@ export function setMd2pdfFooter(template: string): Promise<Md2pdfFooter> {
   return invoke("set_md2pdf_footer", { template });
 }
 
+/** Whether md2pdf plans its page breaks without `--smart`. */
+export function getMd2pdfSmart(): Promise<boolean> {
+  return invoke("get_md2pdf_smart");
+}
+
+export function setMd2pdfSmart(enabled: boolean): Promise<boolean> {
+  return invoke("set_md2pdf_smart", { enabled });
+}
+
 /** The configured meme library directory (resolved default if unset). */
 export function getMemeDir(): Promise<string> {
   return invoke("get_meme_dir");
